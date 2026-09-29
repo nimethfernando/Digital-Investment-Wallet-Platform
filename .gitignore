@@ -2,18 +2,43 @@
 node_modules/
 */node_modules/
 apps/*/node_modules/
+package-lock.json
+apps/*/package-lock.json
 
-# Next.js
+# Next.js build outputs
 .next/
 apps/web/.next/
 out/
+apps/web/out/
 
-# Build outputs
+# Build and compilation outputs
 dist/
 apps/server/dist/
 build/
-.temp/
-.tmp/
+*.tsbuildinfo
+.eslintcache
+
+# Environment & credentials (NEVER commit secrets or env files)
+.env
+.env*
+!.env.example
+apps/*/.env
+apps/*/.env*
+!apps/*/.env.example
+
+# Database dumps, migrations scratch, and SQL files
+*.sql
+*.sqlite
+*.sqlite3
+apps/server/*.sql
+apps/server/apply_schema.js
+apps/server/check_db.js
+apps/server/src/scripts/
+
+# Uploads and media volume
+uploads/*
+apps/server/uploads/*
+!apps/server/uploads/.gitkeep
 
 # Logs
 logs/
@@ -23,28 +48,19 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Environment files
-.env
-.env*.local
-.env.development
-.env.test
-.env.production
-apps/*/.env
-apps/*/.env*.local
-apps/*/.env.development
-apps/*/.env.test
-apps/*/.env.production
-!.env.example
-!apps/*/.env.example
-
-# OS files
+# OS and Editor metadata
 .DS_Store
 Thumbs.db
-
-# Uploads directory contents
-uploads/*
-apps/server/uploads/*
-!apps/server/uploads/.gitkeep
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*.bak
+*~
 
 # Temporary scratch scripts
 test_write.js
+scratch/
+.system_generated/
