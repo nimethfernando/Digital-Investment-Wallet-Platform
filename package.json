@@ -1,0 +1,11 @@
+{
+  "name": "digital-investment-wallet-platform",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:server": "cd apps/server && npm run dev",
+    "dev:web": "cd apps/web && npm run dev",
+    "build:server": "cd apps/server && npm run build",
+    "build:web": "cd apps/web && npm run build"
+  }
+}

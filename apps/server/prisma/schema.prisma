@@ -1,0 +1,598 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  STAFF
+  ADMIN
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  LOCKED
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum EntryDirection {
+  DEBIT
+  CREDIT
+}
+
+enum JournalReferenceType {
+  DEPOSIT
+  PACKAGE_PURCHASE
+  MONTHLY_RETURN
+  PRINCIPAL_RELEASE
+  WITHDRAWAL_REQUEST
+  WITHDRAWAL_SETTLEMENT
+  WITHDRAWAL_REJECTED
+  P2P_TRANSFER
+  P2P_ESCROW_LOCK
+  P2P_ESCROW_RELEASE
+  EXCHANGE_BUY
+  EXCHANGE_SELL
+  FEE
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum PackageStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  MATURED
+  WITHDRAWAL_REQUESTED
+  SETTLED
+  CANCELLED
+}
+
+enum ReturnStatus {
+  CREDITED
+  PAUSED
+  REVERSED
+}
+
+enum WithdrawalType {
+  MONTHLY_RETURNS
+  PRINCIPAL_RELEASE
+}
+
+enum PayoutMethod {
+  BANK_TRANSFER
+  USDT_WALLET
+  CASH_PICKUP_TBILISI
+  PLATFORM_WALLET
+}
+
+enum WithdrawalStatus {
+  REQUESTED
+  UNDER_REVIEW
+  APPROVED
+  SETTLED
+  REJECTED
+}
+
+enum ExchangeOrderType {
+  BUY_USDT
+  SELL_USDT
+}
+
+enum ExchangeStatus {
+  QUOTE_PENDING
+  AWAITING_DEPOSIT
+  DEPOSIT_SUBMITTED
+  VERIFYING
+  PROCESSING_PAYOUT
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum P2PSide {
+  BUY
+  SELL
+}
+
+enum P2POfferStatus {
+  OPEN
+  PAUSED
+  FILLED
+  CANCELLED
+}
+
+enum P2POrderStatus {
+  PENDING_PAYMENT
+  PAYMENT_SENT
+  COMPLETED
+  DISPUTED
+  CANCELLED
+}
+
+enum InquiryType {
+  GENERAL
+  INVESTMENT_ENQUIRY
+  EXCHANGE_ENQUIRY
+  START_PARTNERSHIP
+}
+
+enum TransactionType {
+  DEPOSIT
+  PACKAGE_PURCHASE
+  MONTHLY_RETURN
+  PRINCIPAL_RELEASE
+  WITHDRAWAL_REQUEST
+  WITHDRAWAL_SETTLEMENT
+  P2P_TRANSFER_OUT
+  P2P_TRANSFER_IN
+  EXCHANGE_BUY
+  EXCHANGE_SELL
+  FEE
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum DepositStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id                     String     @id @default(uuid())
+  email                  String     @unique
+  passwordHash           String
+  role                   Role       @default(USER)
+  firstName              String?
+  lastName               String?
+  phone                  String?
+  kycStatus              KycStatus  @default(NOT_STARTED)
+  twoFactorEnabled       Boolean    @default(false)
+  twoFactorSecret        String?
+  status                 UserStatus @default(ACTIVE)
+  mustChangePassword     Boolean    @default(false)
+  emailVerified          Boolean    @default(false)
+  emailVerificationToken String?
+  passwordResetToken     String?
+  passwordResetExpires   DateTime?
+  lastLoginAt            DateTime?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  wallet            Wallet?
+  kycDocuments      KycDocument[]
+  refreshTokens     RefreshToken[]
+  packages          InvestmentPackage[]
+  packageReturns    PackageReturn[]
+  withdrawals       WithdrawalRequest[]
+  exchangeOrders    ExchangeOrder[]
+  p2pOffers         P2POffer[]
+  p2pOrdersAsBuyer  P2POrder[]          @relation("BuyerOrders")
+  p2pOrdersAsSeller P2POrder[]          @relation("SellerOrders")
+  auditLogs         AdminAuditLog[]
+  inquiries         Inquiry[]
+  transactions      Transaction[]
+  deposits          DepositRequest[]
+
+  @@map("diw_users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique @db.VarChar(500)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("diw_refresh_tokens")
+}
+
+model KycDocument {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType    String // PASSPORT, NATIONAL_ID, DRIVERS_LICENSE, PROOF_OF_ADDRESS
+  documentUrl     String    @db.VarChar(500)
+  status          KycStatus @default(PENDING)
+  rejectionReason String?   @db.Text
+  verifiedAt      DateTime?
+  reviewedBy      String?
+  createdAt       DateTime  @default(now())
+
+  @@map("diw_kyc_documents")
+}
+
+model Wallet {
+  id        String          @id @default(uuid())
+  userId    String          @unique
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  balances  WalletBalance[]
+
+  @@map("diw_wallets")
+}
+
+model WalletBalance {
+  id                String   @id @default(uuid())
+  walletId          String
+  wallet            Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  currency          String   @db.VarChar(10) // USD, EUR, INR, GEL, USDT
+  availableBalance  Decimal  @default(0.00000000) @db.Decimal(20, 8)
+  lockedPrincipal   Decimal  @default(0.00000000) @db.Decimal(20, 8)
+  pendingSettlement Decimal  @default(0.00000000) @db.Decimal(20, 8)
+  updatedAt         DateTime @updatedAt
+
+  @@unique([walletId, currency])
+  @@map("diw_wallet_balances")
+}
+
+model LedgerAccount {
+  id          String        @id @db.VarChar(60) // e.g. USER_AVAILABLE_USD, PLATFORM_TREASURY_USD
+  accountName String        @db.VarChar(100)
+  accountType AccountType
+  currency    String        @db.VarChar(10)
+  description String?       @db.Text
+  createdAt   DateTime      @default(now())
+  entries     LedgerEntry[]
+
+  @@map("diw_ledger_accounts")
+}
+
+model LedgerJournal {
+  id             String               @id @default(uuid())
+  idempotencyKey String               @unique @db.VarChar(100)
+  referenceType  JournalReferenceType
+  referenceId    String?              @db.VarChar(64)
+  notes          String?              @db.Text
+  createdBy      String               @default("SYSTEM") @db.VarChar(64)
+  createdAt      DateTime             @default(now())
+  entries        LedgerEntry[]
+
+  @@index([referenceType, referenceId])
+  @@map("diw_ledger_journals")
+}
+
+model LedgerEntry {
+  id            String         @id @default(uuid())
+  journalId     String
+  journal       LedgerJournal  @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  accountId     String         @db.VarChar(60)
+  account       LedgerAccount  @relation(fields: [accountId], references: [id])
+  userId        String?        @db.VarChar(36)
+  direction     EntryDirection
+  amount        Decimal        @db.Decimal(20, 8)
+  currency      String         @db.VarChar(10)
+  balanceBefore Decimal?       @db.Decimal(20, 8)
+  balanceAfter  Decimal?       @db.Decimal(20, 8)
+  createdAt     DateTime       @default(now())
+
+  @@index([journalId])
+  @@index([accountId])
+  @@index([userId])
+  @@map("diw_ledger_entries")
+}
+
+model InvestmentPackage {
+  id                        String        @id @default(uuid())
+  packageCode               String        @unique @db.VarChar(30) // PKG-000101
+  userId                    String
+  user                      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount                    Decimal       @db.Decimal(20, 8)
+  currency                  String        @default("USD") @db.VarChar(10)
+  returnRateSnapshot        Decimal       @db.Decimal(6, 4) // e.g. 0.0100 for 1%
+  lockInMonths              Int           @default(6)
+  status                    PackageStatus @default(PENDING_PAYMENT)
+  purchaseDate              DateTime?
+  lockInStart               DateTime?
+  lockInEnd                 DateTime?
+  withdrawalEligibilityDate DateTime?
+  depositProofUrl           String?       @db.VarChar(500)
+  depositMethod             String?       @db.VarChar(50) // WALLET_BALANCE, BANK_DEPOSIT, CRYPTO_TRANSFER
+  adminNotes                String?       @db.Text
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+
+  returns     PackageReturn[]
+  withdrawals WithdrawalRequest[]
+  transactions Transaction[]
+
+  @@index([userId, status])
+  @@map("diw_investment_packages")
+}
+
+model PackageReturn {
+  id              String            @id @default(uuid())
+  packageId       String
+  package         InvestmentPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  periodIndex     Int // 1, 2, 3...
+  returnAmount    Decimal           @db.Decimal(20, 8)
+  currency        String            @db.VarChar(10)
+  payoutDate      DateTime          @default(now())
+  ledgerJournalId String?           @db.VarChar(36)
+  status          ReturnStatus      @default(CREDITED)
+  createdAt       DateTime          @default(now())
+
+  @@index([packageId])
+  @@index([userId])
+  @@map("diw_package_returns")
+}
+
+model WithdrawalRequest {
+  id                  String             @id @default(uuid())
+  requestCode         String             @unique @db.VarChar(30) // WTH-000101
+  userId              String
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId           String?
+  package             InvestmentPackage? @relation(fields: [packageId], references: [id])
+  withdrawalType      WithdrawalType
+  amount              Decimal            @db.Decimal(20, 8)
+  currency            String             @db.VarChar(10)
+  payoutMethod        PayoutMethod
+  payoutDetails       String             @db.Text // JSON string
+  status              WithdrawalStatus   @default(REQUESTED)
+  requestWindowDate   DateTime // e.g. 2026-10-01
+  settlementReference String?            @db.VarChar(100) // Bank UTR, TX Hash, Counter Voucher
+  adminNotes          String?            @db.Text
+  reviewedBy          String?
+  settledAt           DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@index([userId, status])
+  @@map("diw_withdrawal_requests")
+}
+
+model ExchangePair {
+  id            String   @id @default(uuid())
+  baseCurrency  String   @db.VarChar(10) // USDT
+  quoteCurrency String   @db.VarChar(10) // USD, EUR, INR, GEL
+  baseRate      Decimal  @db.Decimal(20, 8)
+  buyMarginPct  Decimal  @default(1.00) @db.Decimal(6, 4) // e.g. 1.00%
+  sellMarginPct Decimal  @default(1.00) @db.Decimal(6, 4) // e.g. 1.00%
+  minOrder      Decimal  @default(100.00) @db.Decimal(20, 8)
+  maxOrder      Decimal  @default(50000.00) @db.Decimal(20, 8)
+  isActive      Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+
+  @@unique([baseCurrency, quoteCurrency])
+  @@map("diw_exchange_pairs")
+}
+
+model ExchangeOrder {
+  id                 String            @id @default(uuid())
+  orderCode          String            @unique @db.VarChar(30) // EXC-000101
+  userId             String
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderType          ExchangeOrderType
+  fromCurrency       String            @db.VarChar(10)
+  toCurrency         String            @db.VarChar(10)
+  fromAmount         Decimal           @db.Decimal(20, 8)
+  toAmount           Decimal           @db.Decimal(20, 8)
+  rate               Decimal           @db.Decimal(20, 8)
+  feeAmount          Decimal           @db.Decimal(20, 8)
+  payoutDestination  PayoutMethod
+  destinationDetails String            @db.Text // JSON
+  status             ExchangeStatus    @default(QUOTE_PENDING)
+  depositProofUrl    String?           @db.VarChar(500)
+  txHashOrUtr        String?           @db.VarChar(128)
+  expiresAt          DateTime
+  completedAt        DateTime?
+  adminNotes         String?           @db.Text
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([userId, status])
+  @@map("diw_exchange_orders")
+}
+
+model P2POffer {
+  id              String         @id @default(uuid())
+  offerCode       String         @unique @db.VarChar(30)
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  side            P2PSide
+  cryptoCurrency  String         @default("USDT") @db.VarChar(10)
+  fiatCurrency    String         @db.VarChar(10) // USD, EUR, INR, GEL
+  price           Decimal        @db.Decimal(20, 8)
+  totalAmount     Decimal        @db.Decimal(20, 8)
+  availableAmount Decimal        @db.Decimal(20, 8)
+  minLimit        Decimal        @db.Decimal(20, 8)
+  maxLimit        Decimal        @db.Decimal(20, 8)
+  paymentMethods  String         @db.Text // JSON: ["Bank Transfer", "Tbilisi Cash", "Wise"]
+  paymentTerms    String?        @db.Text
+  status          P2POfferStatus @default(OPEN)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  orders P2POrder[]
+
+  @@map("diw_p2p_offers")
+}
+
+model P2POrder {
+  id                String         @id @default(uuid())
+  orderCode         String         @unique @db.VarChar(30)
+  offerId           String
+  offer             P2POffer       @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  buyerId           String
+  buyer             User           @relation("BuyerOrders", fields: [buyerId], references: [id])
+  sellerId          String
+  seller            User           @relation("SellerOrders", fields: [sellerId], references: [id])
+  cryptoAmount      Decimal        @db.Decimal(20, 8)
+  fiatAmount        Decimal        @db.Decimal(20, 8)
+  price             Decimal        @db.Decimal(20, 8)
+  escrowJournalId   String?        @db.VarChar(36)
+  paymentProofUrl   String?        @db.VarChar(500)
+  status            P2POrderStatus @default(PENDING_PAYMENT)
+  disputeReason     String?        @db.Text
+  disputeResolvedBy String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  messages P2PMessage[]
+
+  @@map("diw_p2p_orders")
+}
+
+model P2PMessage {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     P2POrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  senderId  String
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@map("diw_p2p_messages")
+}
+
+model CmsSetting {
+  id          String   @id @default(uuid())
+  group       String   @db.VarChar(50)
+  key         String   @unique @db.VarChar(100)
+  value       String   @db.Text
+  description String?  @db.VarChar(255)
+  updatedAt   DateTime @updatedAt
+
+  @@map("diw_cms_settings")
+}
+
+model CmsSection {
+  id        String   @id @default(uuid())
+  page      String   @db.VarChar(50)
+  section   String   @db.VarChar(50)
+  title     String?  @db.VarChar(255)
+  subtitle  String?  @db.Text
+  content   String?  @db.LongText
+  metadata  String?  @db.LongText
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@map("diw_cms_sections")
+}
+
+model BlogPost {
+  id          String   @id @default(uuid())
+  slug        String   @unique @db.VarChar(150)
+  title       String   @db.VarChar(255)
+  summary     String   @db.Text
+  content     String   @db.LongText
+  coverImage  String?  @db.VarChar(500)
+  authorName  String   @default("Nexis Research Team")
+  readTime    String   @default("5 min read")
+  isPublished Boolean  @default(true)
+  publishedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("diw_blog_posts")
+}
+
+model Inquiry {
+  id            String      @id @default(uuid())
+  type          InquiryType
+  name          String      @db.VarChar(100)
+  email         String      @db.VarChar(191)
+  phone         String?     @db.VarChar(50)
+  subject       String      @db.VarChar(200)
+  message       String      @db.Text
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id])
+  status        String      @default("NEW")
+  adminNotes    String?     @db.Text
+  forwardedMail Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("diw_inquiries")
+}
+
+model AdminAuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String   @db.VarChar(100)
+  entity    String   @db.VarChar(60)
+  entityId  String?  @db.VarChar(64)
+  details   String?  @db.Text
+  ipAddress String?  @db.VarChar(45)
+  createdAt DateTime @default(now())
+
+  @@index([action, entity])
+  @@map("diw_admin_audit_logs")
+}
+
+model Transaction {
+  id                  String            @id @default(uuid())
+  transactionCode     String            @unique @db.VarChar(36)
+  userId              String
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId           String?
+  package             InvestmentPackage? @relation(fields: [packageId], references: [id])
+  type                TransactionType
+  amount              Decimal           @db.Decimal(20, 8)
+  currency            String            @default("USD") @db.VarChar(10)
+  status              TransactionStatus @default(COMPLETED)
+  balanceBefore       Decimal           @db.Decimal(20, 8)
+  balanceAfter        Decimal           @db.Decimal(20, 8)
+  settlementReference String?           @db.VarChar(128)
+  createdBy           String            @default("SYSTEM") @db.VarChar(64)
+  idempotencyKey      String?           @unique @db.VarChar(128)
+  notes               String?           @db.Text
+  createdAt           DateTime          @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type])
+  @@map("diw_transactions")
+}
+
+model DepositRequest {
+  id             String        @id @default(uuid())
+  depositCode    String        @unique @db.VarChar(36)
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount         Decimal       @db.Decimal(20, 8)
+  currency       String        @default("USD") @db.VarChar(10)
+  depositMethod  String        @db.VarChar(50)
+  proofUrl       String?       @db.VarChar(500)
+  txHashOrRef    String?       @db.VarChar(128)
+  status         DepositStatus @default(PENDING)
+  adminNotes     String?       @db.Text
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([userId, status])
+  @@map("diw_deposits")
+}

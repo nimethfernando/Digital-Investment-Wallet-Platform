@@ -1,24 +1,50 @@
-# Nestjs specific
-/dist
-/node_modules
-/build
-/tmp
+# Dependencies
+node_modules/
+*/node_modules/
+apps/*/node_modules/
+
+# Next.js
+.next/
+apps/web/.next/
+out/
+
+# Build outputs
+dist/
+apps/server/dist/
+build/
+.temp/
+.tmp/
 
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
-pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-lerna-debug.log*
+pnpm-debug.log*
 
-# dotenv environment variable files
+# Environment files
 .env
+.env*.local
 .env.development
 .env.test
 .env.production
+apps/*/.env
+apps/*/.env*.local
+apps/*/.env.development
+apps/*/.env.test
+apps/*/.env.production
+!.env.example
+!apps/*/.env.example
 
-# temp directory
-.temp
-.tmp
+# OS files
+.DS_Store
+Thumbs.db
+
+# Uploads directory contents
+uploads/*
+apps/server/uploads/*
+!apps/server/uploads/.gitkeep
+
+# Temporary scratch scripts
+test_write.js
