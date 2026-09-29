@@ -1,60 +1,62 @@
-# Dependencies
+# Dependencies (matches at root and all subdirectories like apps/server and apps/web)
 node_modules/
-*/node_modules/
-apps/*/node_modules/
+**/node_modules/
 package-lock.json
-apps/*/package-lock.json
+**/package-lock.json
+.pnpm-store/
 
-# Next.js build outputs
+# Next.js build outputs and caches
 .next/
-apps/web/.next/
+**/.next/
 out/
-apps/web/out/
+**/out/
 
 # Build and compilation outputs
 dist/
-apps/server/dist/
+**/dist/
 build/
+**/build/
+.temp/
+.tmp/
 *.tsbuildinfo
 .eslintcache
 
-# Environment & credentials (NEVER commit secrets or env files)
+# Environment variables & secrets (NEVER commit credentials)
 .env
 .env*
+**/.env
+**/.env*
 !.env.example
-apps/*/.env
-apps/*/.env*
-!apps/*/.env.example
+!**/.env.example
 
 # Database dumps, migrations scratch, and SQL files
 *.sql
+**/*.sql
 *.sqlite
 *.sqlite3
-apps/server/*.sql
 apps/server/apply_schema.js
 apps/server/check_db.js
 apps/server/src/scripts/
 
-# Uploads and media volume
-uploads/*
-apps/server/uploads/*
-!apps/server/uploads/.gitkeep
+# Uploads & media volumes
+uploads/
+**/uploads/
+!**/uploads/.gitkeep
 
 # Logs
 logs/
+**/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# OS and Editor metadata
+# Editor and OS metadata
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-*.sublime-project
-*.sublime-workspace
 *.swp
 *.swo
 *.bak
