@@ -1,0 +1,9 @@
+# Next.js & Web dependencies
+node_modules/
+.next/
+out/
+package-lock.json
+.env*
+!.env.example
+*.log
+.eslintcache

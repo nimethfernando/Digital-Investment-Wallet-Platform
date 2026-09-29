@@ -1,0 +1,11 @@
+# Backend dependencies & outputs
+node_modules/
+dist/
+package-lock.json
+.env*
+!.env.example
+uploads/*
+!uploads/.gitkeep
+*.log
+*.sql
+*.tsbuildinfo
