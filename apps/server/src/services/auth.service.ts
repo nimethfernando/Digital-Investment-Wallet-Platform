@@ -191,6 +191,7 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
+    const lockUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     await prisma.user.update({
       where: { id: user.id },
@@ -199,10 +200,24 @@ export class AuthService {
         passwordResetToken: null,
         passwordResetExpires: null,
         mustChangePassword: false,
+        passwordChangedAt: new Date(),
+        withdrawalLockedUntil: lockUntil,
       },
     });
 
-    return { success: true, message: 'Password has been successfully updated. You may now log in.' };
+    await notificationService.sendEmail({
+      to: user.email,
+      subject: 'Security Alert: Password Reset - 24-Hour Withdrawal Lock Engaged',
+      html: `
+        <div style="font-family: sans-serif; padding: 20px;">
+          <h3>Security Alert: Password Reset</h3>
+          <p>Your account password was recently reset.</p>
+          <p><strong>Security Protection Activated:</strong> To protect your funds against unauthorized account takeover, withdrawals and outbound transfers are temporarily locked for 24 hours until <strong>${lockUntil.toUTCString()}</strong>.</p>
+        </div>
+      `,
+    }).catch(() => {});
+
+    return { success: true, message: 'Password has been successfully updated. For your security, withdrawals are locked for 24 hours.' };
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string) {
@@ -213,16 +228,31 @@ export class AuthService {
     if (!isValid) throw new Error('Incorrect current password');
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
+    const lockUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     await prisma.user.update({
       where: { id: user.id },
       data: {
         passwordHash,
         mustChangePassword: false,
+        passwordChangedAt: new Date(),
+        withdrawalLockedUntil: lockUntil,
       },
     });
 
-    return { success: true, message: 'Password updated successfully' };
+    await notificationService.sendEmail({
+      to: user.email,
+      subject: 'Security Alert: Password Changed - 24-Hour Withdrawal Lock Engaged',
+      html: `
+        <div style="font-family: sans-serif; padding: 20px;">
+          <h3>Security Alert: Password Changed</h3>
+          <p>Your password was changed successfully.</p>
+          <p><strong>Security Protection Activated:</strong> Withdrawals and outbound transfers are locked for 24 hours until <strong>${lockUntil.toUTCString()}</strong>.</p>
+        </div>
+      `,
+    }).catch(() => {});
+
+    return { success: true, message: 'Password updated successfully. For your security, withdrawals are locked for 24 hours.' };
   }
 
   async generate2faSecret(userId: string) {
@@ -243,17 +273,86 @@ export class AuthService {
 
   async verifyAndEnable2fa(userId: string, code: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user || !user.twoFactorSecret) throw new Error('2FA setup not initiated');
+    if (!user || !user.twoFactorSecret) throw new Error('2FA setup not initiated. Please generate a 2FA secret first.');
 
     const isValid = authenticator.check(code, user.twoFactorSecret);
-    if (!isValid) throw new Error('Invalid authentication code');
+    if (!isValid) throw new Error('Invalid Two-Factor Authentication (2FA) code');
 
     await prisma.user.update({
       where: { id: userId },
       data: { twoFactorEnabled: true },
     });
 
-    return { success: true, message: 'Two-factor authentication enabled successfully' };
+    return { success: true, twoFactorEnabled: true, message: 'Two-factor authentication enabled successfully' };
+  }
+
+  async enable2fa(userId: string, code: string) {
+    return this.verifyAndEnable2fa(userId, code);
+  }
+
+  async disable2fa(userId: string, password: string, code: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new Error('User not found');
+    if (!user.twoFactorEnabled) throw new Error('2FA is not enabled on this account');
+
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    if (!isValidPassword) throw new Error('Invalid password');
+
+    if (!user.twoFactorSecret) throw new Error('2FA secret corrupted');
+    const isValidCode = authenticator.check(code, user.twoFactorSecret);
+    if (!isValidCode) throw new Error('Invalid Two-Factor Authentication (2FA) code');
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+      },
+    });
+
+    return { success: true, twoFactorEnabled: false, message: 'Two-factor authentication disabled' };
+  }
+
+  async verify2faForUser(userId: string, code?: string): Promise<boolean> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { twoFactorEnabled: true, twoFactorSecret: true },
+    });
+
+    if (!user) throw new Error('User not found');
+    if (!user.twoFactorEnabled) {
+      return true;
+    }
+
+    if (!code) {
+      throw new Error('Two-Factor Authentication (2FA) code is required for this transaction');
+    }
+
+    if (!user.twoFactorSecret) {
+      throw new Error('2FA configuration error. Please contact support.');
+    }
+
+    const isValid = authenticator.check(code, user.twoFactorSecret);
+    if (!isValid) {
+      throw new Error('Invalid Two-Factor Authentication (2FA) code');
+    }
+
+    return true;
+  }
+
+  async checkWithdrawalLock(userId: string): Promise<void> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { withdrawalLockedUntil: true },
+    });
+
+    if (user?.withdrawalLockedUntil && new Date() < user.withdrawalLockedUntil) {
+      const remainingMs = user.withdrawalLockedUntil.getTime() - Date.now();
+      const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
+      throw new Error(
+        `Withdrawals and outbound transfers are temporarily locked for security following a recent credential update. Lock expires in ${remainingHours} hour(s) at ${user.withdrawalLockedUntil.toUTCString()}.`
+      );
+    }
   }
 
   private generateToken(userId: string, email: string, role: Role, mustChangePassword = false): string {

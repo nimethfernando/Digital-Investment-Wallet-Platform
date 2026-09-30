@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { PrismaClient } from '@prisma/client';
 import { authService } from '../services/auth.service';
+
+const prisma = new PrismaClient();
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -103,6 +106,50 @@ export const verify2fa = async (req: Request, res: Response, next: NextFunction)
   }
 };
 
-export const getMe = async (req: Request, res: Response) => {
-  res.json({ success: true, user: req.user });
+export const disable2fa = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const { password, code } = req.body;
+    if (!password || !code) {
+      return res.status(400).json({ success: false, message: 'Password and 2FA code are required' });
+    }
+    const result = await authService.disable2fa(req.user.userId, password, code);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getMe = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        role: true,
+        kycStatus: true,
+        twoFactorEnabled: true,
+        withdrawalLockedUntil: true,
+        passwordChangedAt: true,
+        status: true,
+      },
+    });
+
+    const isWithdrawalLocked = !!(user?.withdrawalLockedUntil && new Date() < user.withdrawalLockedUntil);
+
+    res.json({
+      success: true,
+      user: {
+        ...user,
+        isWithdrawalLocked,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 };

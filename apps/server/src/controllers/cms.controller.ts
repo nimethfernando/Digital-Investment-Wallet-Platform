@@ -36,7 +36,7 @@ export const updateSetting = async (req: Request, res: Response, next: NextFunct
 
 export const getPageSections = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { page } = req.params;
+    const page = req.params.page as string;
     const sections = await cmsService.getPageSections(page);
     res.json({ success: true, sections });
   } catch (err) {
@@ -55,7 +55,7 @@ export const getAllSections = async (req: Request, res: Response, next: NextFunc
 
 export const updateSection = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { title, subtitle, content, metadata, isActive } = req.body;
     const updated = await cmsService.updateSection(id, { title, subtitle, content, metadata, isActive });
     res.json({ success: true, updated });
@@ -88,7 +88,7 @@ export const getInquiries = async (req: Request, res: Response, next: NextFuncti
 
 export const updateInquiryStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { status, adminNotes } = req.body;
     const updated = await cmsService.updateInquiryStatus(id, status, adminNotes);
     res.json({ success: true, updated });
@@ -108,7 +108,7 @@ export const getBlogPosts = async (req: Request, res: Response, next: NextFuncti
 
 export const getBlogPost = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { slug } = req.params;
+    const slug = req.params.slug as string;
     const blog = await cmsService.getBlogPostBySlug(slug);
     if (!blog) return res.status(404).json({ success: false, message: 'Blog post not found' });
     res.json({ success: true, blog });

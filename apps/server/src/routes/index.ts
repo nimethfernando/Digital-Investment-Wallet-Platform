@@ -5,6 +5,8 @@ import uploadRoutes from './upload.routes';
 import walletRoutes from './wallet.routes';
 import packageRoutes from './package.routes';
 import adminRoutes from './admin.routes';
+import p2pRoutes from './p2p.routes';
+import withdrawalRoutes from './withdrawal.routes';
 
 const router = Router();
 
@@ -14,6 +16,8 @@ router.use('/upload', uploadRoutes);
 router.use('/wallet', walletRoutes);
 router.use('/packages', packageRoutes);
 router.use('/admin', adminRoutes);
+router.use('/p2p', p2pRoutes);
+router.use('/withdrawals', withdrawalRoutes);
 
 router.get('/health', (req, res) => {
   res.json({

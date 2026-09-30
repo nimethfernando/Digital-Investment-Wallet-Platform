@@ -6,10 +6,12 @@ import { PrismaClient, Role } from '@prisma/client';
 const prisma = new PrismaClient();
 
 export interface AuthenticatedUser {
+  id?: string;
   userId: string;
   email: string;
   role: Role;
   mustChangePassword?: boolean;
+  twoFactorEnabled?: boolean;
 }
 
 declare global {
@@ -30,11 +32,16 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
   }
 
   try {
-    const payload = jwt.verify(token, config.jwtSecret) as AuthenticatedUser;
+    let payload: AuthenticatedUser;
+    try {
+      payload = jwt.verify(token, config.jwtSecret) as AuthenticatedUser;
+    } catch {
+      payload = jwt.verify(token, config.adminJwtSecret) as AuthenticatedUser;
+    }
     
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      select: { id: true, email: true, role: true, status: true, mustChangePassword: true }
+      select: { id: true, email: true, role: true, status: true, mustChangePassword: true, twoFactorEnabled: true }
     });
 
     if (!user || user.status !== 'ACTIVE') {
@@ -48,7 +55,8 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
       email: user.email,
       role: user.role,
       mustChangePassword: user.mustChangePassword,
-    } as any;
+      twoFactorEnabled: user.twoFactorEnabled,
+    };
 
     next();
   } catch (err) {
@@ -75,3 +83,21 @@ export const requireRole = (allowedRoles: Role[]) => {
 
 export const requireAdmin = requireRole([Role.ADMIN]);
 export const requireStaffOrAdmin = requireRole([Role.STAFF, Role.ADMIN]);
+
+export const requireAdmin2FA = (req: Request, res: Response, next: NextFunction): void => {
+  if (!req.user) {
+    res.status(401).json({ success: false, message: 'Unauthorized' });
+    return;
+  }
+
+  if ((req.user.role === Role.ADMIN || req.user.role === Role.STAFF) && !req.user.twoFactorEnabled) {
+    res.status(403).json({
+      success: false,
+      code: '2FA_MANDATORY_FOR_ADMIN',
+      message: 'Mandatory Two-Factor Authentication (2FA) is required for Admin and Staff accounts. Please enable 2FA on your account.',
+    });
+    return;
+  }
+
+  next();
+};

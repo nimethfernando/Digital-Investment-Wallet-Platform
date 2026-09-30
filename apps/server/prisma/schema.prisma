@@ -175,6 +175,8 @@ model User {
   kycStatus              KycStatus  @default(NOT_STARTED)
   twoFactorEnabled       Boolean    @default(false)
   twoFactorSecret        String?
+  withdrawalLockedUntil  DateTime?
+  passwordChangedAt      DateTime?
   status                 UserStatus @default(ACTIVE)
   mustChangePassword     Boolean    @default(false)
   emailVerified          Boolean    @default(false)

@@ -1,10 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient, PackageStatus, DepositStatus } from '@prisma/client';
+import { PrismaClient, PackageStatus, DepositStatus, WithdrawalStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { packageService } from '../services/package.service';
 import { depositService } from '../services/deposit.service';
 import { returnsJobService } from '../services/returns.job';
 import { ledgerService } from '../services/ledger.service';
+import { withdrawalService } from '../services/withdrawal.service';
 
 const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -34,7 +35,7 @@ export class AdminController {
   async approvePackage(req: Request, res: Response, next: NextFunction) {
     try {
       const adminUserId = (req as any).user.id;
-      const packageId = req.params.id;
+      const packageId = req.params.id as string;
       const { notes } = req.body;
 
       const updated = await packageService.adminApprovePackage(packageId, adminUserId, notes);
@@ -84,7 +85,7 @@ export class AdminController {
   async approveDeposit(req: Request, res: Response, next: NextFunction) {
     try {
       const adminUserId = (req as any).user.id;
-      const depositId = req.params.id;
+      const depositId = req.params.id as string;
       const { notes } = req.body;
 
       const result = await depositService.adminApproveDeposit(depositId, adminUserId, notes);
@@ -116,7 +117,7 @@ export class AdminController {
   async rejectDeposit(req: Request, res: Response, next: NextFunction) {
     try {
       const adminUserId = (req as any).user.id;
-      const depositId = req.params.id;
+      const depositId = req.params.id as string;
       const { reason } = req.body;
 
       if (!reason) {
@@ -248,6 +249,104 @@ export class AdminController {
             totalPages: Math.ceil(total / limit),
           },
         },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * List all withdrawal requests
+   */
+  async getWithdrawals(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { status, search, page, limit } = req.query;
+      const result = await withdrawalService.getAllWithdrawals({
+        status: status as WithdrawalStatus | undefined,
+        search: search as string | undefined,
+        page: page ? parseInt(page as string, 10) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Settle a withdrawal request
+   */
+  async settleWithdrawal(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const withdrawalId = req.params.id as string;
+      const { settlementReference, adminNotes } = req.body;
+
+      if (!settlementReference) {
+        return res.status(400).json({
+          success: false,
+          message: 'Settlement payout reference (e.g. TX hash, wire ref, or receipt code) is required',
+        });
+      }
+
+      const settled = await withdrawalService.adminSettleWithdrawal(
+        withdrawalId,
+        adminUserId,
+        settlementReference,
+        adminNotes
+      );
+
+      // Audit Log
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'SETTLE_WITHDRAWAL',
+          entity: 'WithdrawalRequest',
+          entityId: withdrawalId,
+          details: `Settled withdrawal ${settled.requestCode} ($${new Decimal(settled.amount.toString()).toFixed(2)}). Ref: ${settlementReference}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Withdrawal ${settled.requestCode} has been successfully settled and recorded in the double-entry ledger.`,
+        data: settled,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Reject a withdrawal request and refund to available balance
+   */
+  async rejectWithdrawal(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const withdrawalId = req.params.id as string;
+      const { reason } = req.body;
+
+      if (!reason) {
+        return res.status(400).json({ success: false, message: 'Rejection reason is required' });
+      }
+
+      const rejected = await withdrawalService.adminRejectWithdrawal(withdrawalId, adminUserId, reason);
+
+      // Audit Log
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'REJECT_WITHDRAWAL',
+          entity: 'WithdrawalRequest',
+          entityId: withdrawalId,
+          details: `Rejected withdrawal ${rejected.requestCode}. Reason: ${reason}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Withdrawal ${rejected.requestCode} has been rejected and funds refunded to user available balance.`,
+        data: rejected,
       });
     } catch (err) {
       next(err);
