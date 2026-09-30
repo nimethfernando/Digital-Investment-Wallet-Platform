@@ -12,6 +12,8 @@ export interface User {
   kycStatus: 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
   twoFactorEnabled: boolean;
   mustChangePassword?: boolean;
+  isWithdrawalLocked?: boolean;
+  withdrawalLockedUntil?: string | null;
 }
 
 interface AuthContextType {
