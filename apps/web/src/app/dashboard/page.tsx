@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { VirtualCardModule } from '../../components/VirtualCardModule';
+import { RedotPayAppModule } from '../../components/RedotPayAppModule';
 import {
   Wallet,
   TrendingUp,
@@ -34,6 +35,7 @@ import {
   Sparkles,
   AlertCircle,
   Landmark,
+  Smartphone,
 } from 'lucide-react';
 
 interface WalletSummary {
@@ -140,7 +142,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const { user, token, isLoading: authLoading, refreshUser } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'support' | 'security'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'support' | 'security' | 'redotpay'>('overview');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
@@ -231,6 +233,8 @@ function DashboardContent() {
       setActiveTab('card');
     } else if (tab === 'support') {
       setActiveTab('support');
+    } else if (tab === 'redotpay') {
+      setActiveTab('redotpay');
     }
   }, [searchParams]);
 
@@ -660,6 +664,18 @@ function DashboardContent() {
                 <Package className="w-4 h-4" />
                 Invest Package
               </Link>
+
+              <button
+                onClick={() => setActiveTab('redotpay')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs shadow-md flex items-center gap-1.5 transition-all ${
+                  activeTab === 'redotpay'
+                    ? 'bg-rose-600 text-white shadow-rose-600/30'
+                    : 'bg-gradient-to-r from-rose-600/90 to-red-600/90 hover:from-rose-600 hover:to-red-600 text-white'
+                }`}
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>RedotPay View</span>
+              </button>
             </div>
           </div>
 
@@ -667,6 +683,7 @@ function DashboardContent() {
           <div className="flex items-center gap-2 mt-8 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1">
             {[
               { key: 'overview', label: 'Portfolio Overview', icon: Wallet },
+              { key: 'redotpay', label: 'RedotPay Experience ⚡', icon: Smartphone },
               { key: 'packages', label: `Investment Packages (${packages.length})`, icon: Package },
               { key: 'card', label: 'Virtual Cards', icon: CreditCard },
               { key: 'transactions', label: 'Ledger Audit', icon: Clock },
@@ -698,6 +715,20 @@ function DashboardContent() {
 
       {/* MAIN CONTENT AREA */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+
+        {/* REDOTPAY APP MODE TAB */}
+        {activeTab === 'redotpay' && (
+          <div className="py-2 animate-in fade-in duration-300">
+            <RedotPayAppModule
+              user={user}
+              wallet={wallet}
+              onOpenDeposit={() => setDepositModalOpen(true)}
+              onOpenWithdraw={() => setWithdrawModalOpen(true)}
+              onOpenP2P={() => setP2PModalOpen(true)}
+              onOpenPackages={() => setActiveTab('packages')}
+            />
+          </div>
+        )}
 
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
