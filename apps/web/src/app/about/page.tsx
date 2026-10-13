@@ -74,7 +74,7 @@ export default function AboutPage() {
           <span>Institutional Heritage</span>
         </div>
         <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-          About Nexis Global
+          About Avora Bank
         </h1>
         <p className="text-slate-600 dark:text-slate-400 text-base leading-relaxed">
           Bridging traditional treasury risk management and digital asset liquidity with immutable double-entry precision and dedicated physical counter services in Tbilisi, Georgia.

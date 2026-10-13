@@ -141,11 +141,14 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
     });
 
     const isWithdrawalLocked = !!(user?.withdrawalLockedUntil && new Date() < user.withdrawalLockedUntil);
+    const { generateAvoraAccountNumber } = require('../services/p2p.service');
+    const accountNumber = user ? generateAvoraAccountNumber(user.id) : null;
 
     res.json({
       success: true,
       user: {
         ...user,
+        accountNumber,
         isWithdrawalLocked,
       },
     });

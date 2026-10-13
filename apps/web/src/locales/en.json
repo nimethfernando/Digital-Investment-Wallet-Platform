@@ -3,12 +3,12 @@
     "home": "Home",
     "howItWorks": "How It Works",
     "packages": "Investment Packages",
-    "exchange": "Exchange Desk",
-    "p2p": "P2P Transfers",
-    "about": "About Us",
+    "buyCrypto": "Buy Crypto",
+    "exchange": "OTC Exchange Desk",
+    "p2p": "P2P Marketplace",
+    "strategy": "Strategy & Disclosures",
+    "about": "About Avora",
     "security": "Security & Ledger",
-    "blog": "Market Insights",
-    "faq": "FAQ",
     "contact": "Contact & Desk",
     "login": "Sign In",
     "register": "Open Account",
@@ -17,12 +17,13 @@
     "logout": "Sign Out"
   },
   "hero": {
-    "badge": "Institutional Digital Wealth & Structured Liquidity Desk",
+    "badge": "Avora Bank Institutional Wealth & Private Digital Desk",
     "title": "Predictable Digital Growth with Double-Entry Security",
-    "subtitle": "Fixed-term digital investment packages with 1% proposed monthly return, 6-month lock-in, and institutional USDT-fiat settlement across Georgia, Europe, and Asia.",
+    "subtitle": "Fixed-term digital investment packages with 1% proposed monthly return, 6-month lock-in, and institutional USDT-fiat settlement across Georgia, UAE, Europe, and Asia.",
     "ctaExplore": "Explore Packages",
-    "ctaExchange": "USDT Exchange Desk",
-    "ctaBrochure": "Download Platform Brochure"
+    "ctaBuyCrypto": "Buy Crypto Gateway",
+    "ctaExchange": "OTC Exchange Desk",
+    "ctaBrochure": "Download Bank Brochure"
   },
   "packages": {
     "title": "Digital Investment Packages",
@@ -40,33 +41,34 @@
     "riskCheckbox": "I acknowledge that returns are proposed and subject to the 6-month lock-in terms."
   },
   "exchange": {
-    "title": "USDT Liquidity & Currency Exchange Desk",
-    "subtitle": "Exchange USDT for USD, EUR, INR, and GEL with guaranteed rates, transparent margins, and Tbilisi counter cash collection.",
+    "title": "Avora OTC Desk & Currency Exchange",
+    "subtitle": "Direct platform exchange of USDT for USD, EUR, INR, and GEL with custom spreads, instant bank wires, and physical Tbilisi counter collection operating until 21:00 GCC time.",
     "youPay": "You Send",
     "youReceive": "You Receive",
     "exchangeRate": "Locked Rate",
     "spreadFee": "Platform Conversion Spread",
-    "pickupOption": "Cash Pickup at Tbilisi Counter",
-    "bankOption": "Direct Bank Wire (USD / EUR / INR)",
+    "pickupOption": "Cash Pickup at Tbilisi Counter (Open until 21:00 GCC time)",
+    "bankOption": "Direct Bank Wire (SWIFT / SEPA / IMPS)",
     "btnSwap": "Lock Quote & Exchange"
   },
   "howItWorks": {
-    "title": "How the Platform Operates",
+    "title": "How Avora Bank Operates",
     "subtitle": "A transparent four-step journey from onboarding to monthly distributions and settlement.",
     "step1Title": "1. Verify & Open Account",
-    "step1Desc": "Register with your verified email and submit standard proof of identity.",
+    "step1Desc": "Register with your verified email, receive your unique Avora Account Number, and submit identity verification.",
     "step2Title": "2. Select Package & Fund",
-    "step2Desc": "Choose package size from $1,000 to $10,000 and fund via USDT or bank wire.",
+    "step2Desc": "Choose package size from $1,000 to $10,000 and fund via USDT, card gateway, or bank wire.",
     "step3Title": "3. Receive Monthly Returns",
     "step3Desc": "1% target return credited automatically to your internal wallet on the 1st of each month.",
     "step4Title": "4. Monthly Window Settlement",
-    "step4Desc": "Request withdrawal of returns or matured principal during the 1st-of-month processing window."
+    "step4Desc": "Request withdrawal of returns or matured principal during the 1st-of-month processing window with 15-day settlement."
   },
   "footer": {
-    "description": "Nexis Global provides institutional-grade digital asset packages and counter exchange services with immutable double-entry ledger accounting.",
-    "rights": "All rights reserved. Digital wealth & counter settlement platform.",
-    "address": "Chavchavadze Ave 37M, Tbilisi 0162, Georgia",
+    "description": "Avora Bank provides institutional-grade digital asset packages, virtual cards, OTC exchange services, and P2P trading with immutable double-entry ledger accounting.",
+    "rights": "All rights reserved. Avora Bank Digital Wealth & Settlement Desk.",
+    "address": "Freedom Square & Chavchavadze Ave 37M, Tbilisi 0162, Georgia",
     "phones": "Desk: +995 32 200 4880 | Direct: +995 599 123 456",
+    "hours": "Tbilisi Counter Desk: Open daily until 21:00 GCC time (UTC+4)",
     "complianceNote": "Operations strictly adhere to applicable virtual asset service provider guidelines and standard KYC/AML verification protocols."
   }
 }

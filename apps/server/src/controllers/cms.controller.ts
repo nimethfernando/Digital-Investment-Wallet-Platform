@@ -86,6 +86,17 @@ export const getInquiries = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
+export const getMyInquiries = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const tickets = await cmsService.getUserInquiries(userId);
+    res.json({ success: true, tickets });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const updateInquiryStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;

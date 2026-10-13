@@ -56,9 +56,9 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 const server = app.listen(config.port, () => {
-  console.log(`====================================================`);
-  console.log(`🚀 Nexis Fintech Core API Server running on port ${config.port}`);
-  console.log(`📡 Base URL: http://localhost:${config.port}/api/v1`);
+console.log(`====================================================`);
+console.log(`🚀 Avora Bank Core API Server running on port ${config.port}`);
+console.log(`📡 Base URL: http://localhost:${config.port}/api/v1`);
   console.log(`📂 Uploads Volume: ${uploadsDirectory}`);
   console.log(`🔒 Environment: ${config.nodeEnv}`);
   console.log(`====================================================`);

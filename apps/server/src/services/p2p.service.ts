@@ -7,6 +7,16 @@ import { notificationService } from '../adapters/notification/notification.provi
 const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
+export function generateAvoraAccountNumber(userId: string): string {
+  let hash = 5381;
+  for (let i = 0; i < userId.length; i++) {
+    hash = ((hash << 5) + hash) + userId.charCodeAt(i);
+    hash |= 0;
+  }
+  const positive = Math.abs(hash).toString().padStart(8, '0');
+  return `AVR-${positive.slice(0, 4)}-${positive.slice(4, 8)}`;
+}
+
 export class P2PService {
   /**
    * Recipient preview lookup for transfer confirmation modal
@@ -14,14 +24,15 @@ export class P2PService {
    * 1. Blocks self-transfers
    * 2. Masks recipient email for privacy
    * 3. Confirms recipient exists and is active
+   * 4. Supports Account Number (AVR-XXXX-XXXX) or registered email
    */
   async lookupRecipient(senderUserId: string, identifier: string) {
     const cleanId = identifier.trim();
     if (!cleanId) {
-      throw new Error('Recipient email or User ID is required');
+      throw new Error('Recipient Account Number or email is required');
     }
 
-    const recipient = await prisma.user.findFirst({
+    let recipient = await prisma.user.findFirst({
       where: {
         OR: [
           { email: cleanId.toLowerCase() },
@@ -38,8 +49,15 @@ export class P2PService {
       },
     });
 
+    if (!recipient && cleanId.toUpperCase().startsWith('AVR-')) {
+      const allUsers = await prisma.user.findMany({
+        select: { id: true, email: true, firstName: true, lastName: true, status: true, kycStatus: true },
+      });
+      recipient = allUsers.find((u) => generateAvoraAccountNumber(u.id) === cleanId.toUpperCase()) || null;
+    }
+
     if (!recipient) {
-      throw new Error('Recipient user not found. Please verify the email or User ID.');
+      throw new Error('Recipient not found. Please verify the Avora Account Number or email.');
     }
 
     if (recipient.id === senderUserId) {
@@ -68,6 +86,7 @@ export class P2PService {
       recipientId: recipient.id,
       emailMasked,
       fullName,
+      accountNumber: generateAvoraAccountNumber(recipient.id),
       kycStatus: recipient.kycStatus,
     };
   }

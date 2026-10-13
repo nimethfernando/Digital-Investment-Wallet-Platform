@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { useLanguage } from '../context/LanguageContext';
-import { MapPin, Phone, Mail, Clock, ShieldAlert } from 'lucide-react';
+import { MapPin, Phone, Mail, Clock, ShieldAlert, CreditCard, Send, Lock } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   const { t } = useLanguage();
@@ -16,66 +16,69 @@ export const Footer: React.FC = () => {
           
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center text-white font-bold text-lg shadow-md">
-                N
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-900 via-indigo-900 to-emerald-600 flex items-center justify-center text-white font-black text-xl shadow-md border border-indigo-400/30">
+                A
               </div>
-              <span className="font-extrabold text-xl tracking-tight text-slate-900 dark:text-white">
-                NEXIS <span className="text-blue-600 dark:text-blue-400">GLOBAL</span>
+              <span className="font-black text-xl tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5">
+                AVORA <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">BANK</span>
               </span>
             </div>
             
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-sm">
-              {t('footer.description', 'Institutional digital investment packages with double-entry ledger security and structured USDT counter settlement.')}
+              {t('footer.description', 'Avora Bank provides institutional-grade digital asset packages, virtual cards, OTC exchange services, and P2P trading with immutable double-entry ledger accounting.')}
             </p>
 
             <div className="pt-2 space-y-2 text-xs text-slate-600 dark:text-slate-400">
               <div className="flex items-start gap-2.5">
-                <MapPin className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                <span>Chavchavadze Ave 37M, Tbilisi 0162, Georgia</span>
+                <MapPin className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <span>Freedom Square & Chavchavadze Ave 37M, Tbilisi 0162, Georgia</span>
               </div>
               <div className="flex items-center gap-2.5">
-                <Phone className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span>+995 32 200 4880 | +995 599 123 456</span>
+                <Phone className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>Desk: +995 32 200 4880 | Direct: +995 599 123 456</span>
               </div>
               <div className="flex items-center gap-2.5">
-                <Mail className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span>contact@nexisplatform.com</span>
+                <Mail className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>settlement@avorabank.com | desk@avorabank.com</span>
               </div>
-              <div className="flex items-center gap-2.5">
-                <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span>Counter Desk: Mon-Fri 10:00 - 18:00 (GET / UTC+4)</span>
+              <div className="flex items-start gap-2.5">
+                <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">Tbilisi Cash Counter: </span>
+                  <span>Open daily until 21:00 (9:00 PM) GCC time (UTC+4 / GET)</span>
+                </div>
               </div>
             </div>
           </div>
 
           <div className="space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
-              Platform Modules
+              Banking & Wealth
             </h4>
-            <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+            <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
               <li>
-                <Link href="/packages" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                <Link href="/packages" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                   Digital Investment Packages
                 </Link>
               </li>
               <li>
-                <Link href="/exchange" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                  USDT Exchange Desk
+                <Link href="/buy-crypto" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  Buy Crypto Gateway
                 </Link>
               </li>
               <li>
-                <Link href="/p2p" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                  Internal P2P Transfers
+                <Link href="/exchange" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  GeCrypto-Style OTC Desk
                 </Link>
               </li>
               <li>
-                <Link href="/how-it-works" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                  How It Works
+                <Link href="/p2p" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  P2P Trading Board (Escrow)
                 </Link>
               </li>
               <li>
-                <Link href="/security" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                  Ledger & Custody Architecture
+                <Link href="/strategy" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors font-medium text-emerald-600 dark:text-emerald-400">
+                  Yield Strategy Disclosures
                 </Link>
               </li>
             </ul>
@@ -83,17 +86,27 @@ export const Footer: React.FC = () => {
 
           <div className="space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
-              Corporate & Desk
+              Security & Desk
             </h4>
-            <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+            <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
               <li>
-                <Link href="/about" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                  About & Leadership
+                <Link href="/security" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  Double-Entry Ledger Security
                 </Link>
               </li>
               <li>
-                <Link href="/contact" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                  Contact & Counter Office
+                <Link href="/how-it-works" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  How Avora Bank Operates
+                </Link>
+              </li>
+              <li>
+                <Link href="/about" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  About & Institutional Leadership
+                </Link>
+              </li>
+              <li>
+                <Link href="/contact" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  Tbilisi Counter & Contact
                 </Link>
               </li>
             </ul>
@@ -103,25 +116,25 @@ export const Footer: React.FC = () => {
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
               Legal & Compliance
             </h4>
-            <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+            <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
               <li>
-                <Link href="/legal/terms" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                  Terms of Service
+                <Link href="/legal/terms" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  Terms of Banking & Service
                 </Link>
               </li>
               <li>
-                <Link href="/legal/privacy" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                  Privacy Policy
+                <Link href="/legal/privacy" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  Privacy & Data Protection
                 </Link>
               </li>
               <li>
-                <Link href="/legal/risk" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-amber-600 dark:text-amber-400 font-medium">
+                <Link href="/legal/risk" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors text-amber-600 dark:text-amber-400 font-semibold">
                   Risk Disclosure Policy
                 </Link>
               </li>
               <li>
-                <Link href="/legal/aml" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                  AML & CFT Guidelines
+                <Link href="/legal/aml" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  AML / CFT Guidelines
                 </Link>
               </li>
             </ul>
@@ -130,17 +143,17 @@ export const Footer: React.FC = () => {
         </div>
 
         <div className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800/80">
-          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 leading-relaxed flex items-start gap-3">
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 leading-relaxed flex items-start gap-3">
             <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
             <div>
-              <span className="font-bold">Important Risk Disclosure: </span>
-              Digital assets and fixed-term investment packages carry market risk. Returns stated (e.g. 1% monthly target) represent proposed and target performance benchmarks and are never guaranteed or risk-free. Capital is locked for the duration of the agreed term (minimum 6 months) and subject to the 1st-of-month withdrawal request window. Please read our full Risk Disclosure before committing capital.
+              <span className="font-bold">Important Risk Disclosure & Lock-in Notice: </span>
+              Digital investment packages carry market risk. Target performance yields (1% monthly return) are calculated on invested principal and credited into your Avora internal ledger account. All investment packages are subject to a mandatory 6-month lock-in period with withdrawal windows opening on the 1st of each calendar month (15-day settlement). Physical cash pickup in Tbilisi is subject to prior booking and operating until 21:00 GCC time.
             </div>
           </div>
 
           <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
-            <p>© {new Date().getFullYear()} Nexis Global Platform. All rights reserved.</p>
-            <p>Institutional Operations & Tbilisi Liquidity Counter</p>
+            <p>© {new Date().getFullYear()} Avora Bank Platform. All rights reserved.</p>
+            <p>Institutional Operations • Tbilisi OTC Liquidity Counter • Freedom Square</p>
           </div>
         </div>
 

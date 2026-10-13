@@ -23,7 +23,7 @@ export default function AmlPage() {
         <section className="space-y-2">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">1. Policy Statement</h2>
           <p>
-            Nexis Global maintains strict compliance with the virtual asset service provider guidelines set forth by the National Bank of Georgia (NBG) and international Financial Action Task Force (FATF) standards. We prohibit any use of our platform for money laundering, sanctions evasion, or financing of illegal activities.
+            Avora Bank maintains strict compliance with the virtual asset service provider guidelines set forth by the National Bank of Georgia (NBG) and international Financial Action Task Force (FATF) standards. We prohibit any use of our platform for money laundering, sanctions evasion, or financing of illegal activities.
           </p>
         </section>
 

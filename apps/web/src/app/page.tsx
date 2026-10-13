@@ -23,6 +23,10 @@ import {
   Shield,
   Layers,
   ChevronDown,
+  CreditCard,
+  Users,
+  Scale,
+  Landmark,
 } from 'lucide-react';
 
 export default function HomePage() {
@@ -46,155 +50,157 @@ export default function HomePage() {
 
   const faqs = [
     {
-      q: 'What is the minimum and maximum package size?',
-      a: 'The minimum investment package is USD 1,000 and the maximum per single package is USD 10,000. Investors may acquire multiple individual packages (e.g., $10,000 + $10,000 + $5,000 = $25,000 total allocation).',
+      q: 'What is the package investment structure at Avora Bank?',
+      a: 'Investment packages range from USD 1,000 to USD 10,000 per package. Every package generates a unique Package ID to track its purchase date, 6-month lock-in status, and target 1% monthly return independently.',
     },
     {
       q: 'How are monthly returns credited and calculated?',
-      a: 'A proposed target return of 1.0% per month is calculated on active packages and automatically credited to your platform wallet balance on the 1st of each month via our automated, immutable double-entry ledger engine.',
+      a: 'A target yield of 1.0% per month is calculated on active packages and credited automatically into your Avora internal wallet balance on the 1st of each calendar month via our immutable double-entry ledger.',
     },
     {
-      q: 'How does the 6-month lock-in period work?',
-      a: 'Each package has an independent 6-month lock-in starting on its activation date. Once the 6-month period is completed, the principal status matures and becomes eligible for withdrawal during the standard withdrawal window.',
+      q: 'How does the two-stage withdrawal settlement work?',
+      a: 'Withdrawal requests for monthly yields or matured principal can be submitted on the 1st of each calendar month, entering a 15-day administrative settlement queue for bank wire (SWIFT/SEPA), USDT wallet, or Tbilisi cash pickup.',
     },
     {
-      q: 'When can I request a withdrawal?',
-      a: 'Withdrawal requests for accumulated returns or matured principal can be submitted strictly on the 1st of each calendar month. Requests undergo a 15-day administrative review and settlement cycle.',
+      q: 'What are the operating hours of the Tbilisi cash counter?',
+      a: 'Our physical counter at Freedom Square / Chavchavadze Ave in Tbilisi operates daily until 21:00 (9:00 PM) GCC time (UTC+4). Users can dispense and receive USD, EUR, or GEL upon presenting their verified order reference.',
     },
     {
-      q: 'How does the Tbilisi counter cash exchange work?',
-      a: 'You can buy or sell USDT and collect physical cash (USD, EUR, GEL) directly at our licensed counter desk in Chavchavadze Ave, Tbilisi. Orders are placed through the portal, locked with a fixed quote, and fulfilled upon presenting your order reference.',
+      q: 'How does the Virtual Visa / Mastercard module work?',
+      a: 'Every Avora Bank account features an integrated Virtual Card interface from day one. It is built to seamlessly connect to licensed BaaS providers (Wallester / Marqeta) with spending limits, freeze toggles, and Apple/Google Pay tokenization.',
     },
     {
-      q: 'What makes your double-entry ledger secure?',
-      a: 'All balances are backed by balanced debits and credits with row-level database locking and strict idempotency keys. The ledger is append-only and immutable; no record is ever deleted or modified directly.',
+      q: 'How does the P2P Escrow Trading Board protect buyers and sellers?',
+      a: 'Our P2P marketplace features automated ledger escrow. When a trade starts, the seller\'s USDT is locked in the Avora Vault until the seller confirms fiat payment receipt across 10 dynamic country rails (India UPI, UAE Bank, Bahrain BenefitPay, etc.).',
+    },
+    {
+      q: 'What makes your double-entry ledger secure and API-independent?',
+      a: 'Our self-hosted double-entry ledger records every single financial transaction with Transaction ID, User ID, Package ID, before/after balances, and cryptographic idempotency. Debits always equal credits with zero dependence on 3rd-party banking APIs.',
     },
   ];
 
   return (
     <div className="flex flex-col gap-20 pb-20">
       
+      {/* HERO SECTION */}
       <section className="relative overflow-hidden pt-12 pb-20 lg:pt-20 lg:pb-28 border-b border-slate-200 dark:border-slate-800">
-        <div className="absolute inset-0 bg-gradient-to-b from-blue-50/50 via-transparent to-transparent dark:from-blue-950/20 dark:via-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-emerald-50/40 via-transparent to-transparent dark:from-emerald-950/20 dark:via-transparent pointer-events-none" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
             
             <div className="lg:col-span-7 space-y-6">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-semibold">
-                <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                <span>{t('hero.badge', 'Institutional Digital Wealth & Structured Liquidity Desk')}</span>
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-bold shadow-sm">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Avora Bank • Institutional Digital Wealth & Private Desk</span>
               </div>
 
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.15]">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.12]">
                 Predictable Growth with{' '}
-                <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-indigo-600 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-emerald-600 via-teal-500 to-indigo-600 bg-clip-text text-transparent">
                   Double-Entry Ledger
                 </span>{' '}
                 Integrity.
               </h1>
 
               <p className="text-lg text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
-                {t('hero.subtitle', 'Fixed-term digital investment packages with 1% proposed monthly return, 6-month lock-in, and institutional USDT-fiat counter settlement across Georgia, Europe, and Asia.')}
+                Fixed-term digital investment packages ($1,000–$10,000) with 1% target monthly return, 6-month lock-in, virtual cards, and GeCrypto-style OTC settlement in Tbilisi operating daily until 21:00 GCC time.
               </p>
 
-              <div className="flex flex-wrap items-center gap-4 pt-2">
+              <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Link
                   href="/packages"
-                  className="px-6 py-3.5 rounded-xl font-bold text-sm text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/35 flex items-center gap-2"
+                  className="px-6 py-3.5 rounded-2xl font-black text-sm text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 shadow-xl transition-all flex items-center gap-2 hover:scale-[1.02]"
                 >
-                  {t('hero.ctaExplore', 'Explore Packages')}
+                  Explore Packages
                   <ChevronRight className="w-4 h-4" />
                 </Link>
 
                 <Link
-                  href="/exchange"
-                  className="px-6 py-3.5 rounded-xl font-bold text-sm text-slate-800 dark:text-white border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2"
+                  href="/buy-crypto"
+                  className="px-6 py-3.5 rounded-2xl font-bold text-sm text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition-colors flex items-center gap-2"
                 >
-                  <ArrowRightLeft className="w-4 h-4 text-blue-500" />
-                  {t('hero.ctaExchange', 'USDT Exchange Desk')}
+                  <Coins className="w-4 h-4 text-emerald-600" />
+                  Buy Crypto Gateway
                 </Link>
 
-                {settings.brochure_enabled === 'true' && settings.brochure_pdf_url && (
-                  <a
-                    href={settings.brochure_pdf_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-5 py-3.5 rounded-xl font-semibold text-sm text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors flex items-center gap-2"
-                  >
-                    <Download className="w-4 h-4 text-emerald-500" />
-                    {t('hero.ctaBrochure', 'Download Brochure')}
-                  </a>
-                )}
+                <Link
+                  href="/exchange"
+                  className="px-6 py-3.5 rounded-2xl font-bold text-sm text-slate-800 dark:text-white border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2"
+                >
+                  <ArrowRightLeft className="w-4 h-4 text-indigo-500" />
+                  OTC Desk & Tbilisi Counter
+                </Link>
               </div>
 
               <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-200 dark:border-slate-800">
                 <div>
                   <p className="text-2xl font-black text-slate-900 dark:text-white">1.0%</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Proposed Monthly Return</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Target Monthly Yield</p>
                 </div>
                 <div>
                   <p className="text-2xl font-black text-slate-900 dark:text-white">6 Months</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Independent Lock-in</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-black text-slate-900 dark:text-white">Tbilisi Desk</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Cash Pickup Counter</p>
+                  <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">Tbilisi Desk</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Cash Pickup (until 21:00 GCC)</p>
                 </div>
               </div>
             </div>
 
+            {/* HERO RIGHT: LIVE OTC QUOTE BOX */}
             <div className="lg:col-span-5">
-              <div className="rounded-2xl p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl relative">
+              <div className="rounded-3xl p-6 sm:p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-5">
                 <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-2">
                     <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
-                      Live Liquidity Desk Quote
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                      Avora OTC Desk Quote
                     </span>
                   </div>
-                  <span className="text-[11px] font-mono text-slate-400">Updated Real-Time</span>
+                  <span className="text-[11px] font-mono text-emerald-600 font-bold">1.3% Admin Spread</span>
                 </div>
 
-                <div className="mt-5 space-y-4">
-                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <div className="space-y-3.5">
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Currency Pair</p>
+                      <p className="text-xs text-slate-500">Benchmark Pair</p>
                       <p className="font-bold text-base text-slate-900 dark:text-white">USDT / USD (Tether)</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Base Desk Rate</p>
-                      <p className="font-mono font-bold text-base text-emerald-600 dark:text-emerald-400">1.0000 USD</p>
+                      <p className="text-xs text-slate-500">Execution Rate</p>
+                      <p className="font-mono font-bold text-base text-emerald-600 dark:text-emerald-400">0.9870 USD</p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
                       <span className="text-slate-400">EUR / USDT</span>
                       <p className="font-mono font-bold text-sm text-slate-900 dark:text-white mt-1">0.9200 EUR</p>
-                      <span className="text-[10px] text-emerald-500 font-semibold">+1.2% Desk Margin</span>
+                      <span className="text-[10px] text-emerald-600 font-bold">SEPA Instant Rail</span>
                     </div>
-                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
                       <span className="text-slate-400">GEL / USDT (Tbilisi)</span>
                       <p className="font-mono font-bold text-sm text-slate-900 dark:text-white mt-1">2.7800 GEL</p>
-                      <span className="text-[10px] text-emerald-500 font-semibold">+1.0% Desk Margin</span>
+                      <span className="text-[10px] text-emerald-600 font-bold">Freedom Square Counter</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 text-xs">
-                    <p className="font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
-                      <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                      Physical Cash Desk in Tbilisi
+                  <div className="p-3.5 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-xs">
+                    <p className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
+                      <Building2 className="w-4 h-4 text-emerald-600" />
+                      Physical Counter in Tbilisi, Georgia
                     </p>
-                    <p className="text-blue-700 dark:text-blue-400 mt-0.5">
-                      Collect USD, EUR, or GEL in person with official transaction receipts.
+                    <p className="text-emerald-800 dark:text-emerald-400 mt-0.5 leading-relaxed">
+                      Collect USD, EUR, or GEL in cash until 21:00 GCC time with official bank-standard verification.
                     </p>
                   </div>
 
                   <Link
                     href="/exchange"
-                    className="w-full py-3 rounded-xl font-bold text-sm text-white bg-blue-600 hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 shadow-md"
+                    className="w-full py-3.5 rounded-2xl font-black text-xs text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 shadow-md"
                   >
-                    Open Exchange Desk
+                    Open OTC Exchange Desk
                     <ArrowUpRight className="w-4 h-4" />
                   </Link>
                 </div>
@@ -205,274 +211,190 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* HOW IT WORKS */}
+      {/* 7 PILLARS SHOWCASE */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-3xl mx-auto mb-14">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-blue-600 dark:text-blue-400 mb-2">
-            Clear Four-Step Protocol
+        <div className="text-center max-w-3xl mx-auto space-y-3 mb-12">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+            Avora Bank Architecture
           </h2>
-          <h3 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
-            {t('howItWorks.title', 'How the Platform Operates')}
+          <h3 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+            Comprehensive Digital Banking & Liquidity Desk
           </h3>
-          <p className="text-slate-600 dark:text-slate-400 mt-3 text-base">
-            {t('howItWorks.subtitle', 'A transparent four-step journey from onboarding to monthly distributions and settlement.')}
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
+            Self-hosted, API-independent financial infrastructure designed to institutional production standards.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm relative">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-lg mb-4">
-              1
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          
+          {/* Card 1: Investment Engine */}
+          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
+              <TrendingUp className="w-6 h-6" />
             </div>
-            <h4 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
-              {t('howItWorks.step1Title', '1. Verify & Open Account')}
+            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
+              Digital Investment Packages
             </h4>
-            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              {t('howItWorks.step1Desc', 'Register with your verified email and submit standard proof of identity.')}
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Packages from $1,000 to $10,000 per package with unique Package IDs, independent 6-month lock-in periods, and 1% monthly distributions credited directly to your internal wallet.
+            </p>
+            <Link href="/packages" className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:underline pt-2">
+              Calculate Returns <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {/* Card 2: Virtual Visa/Mastercard */}
+          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 flex items-center justify-center">
+              <CreditCard className="w-6 h-6" />
+            </div>
+            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
+              Virtual Visa / Mastercard
+            </h4>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Every client dashboard features a luxury virtual card module from day one, equipped for Apple Pay, Google Pay, spending sliders, and direct plug-in to licensed BaaS providers (Wallester / Marqeta).
+            </p>
+            <Link href="/dashboard?tab=card" className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline pt-2">
+              Preview Card Module <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {/* Card 3: Double-Entry Ledger */}
+          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 flex items-center justify-center">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
+              Immutable Double-Entry Ledger
+            </h4>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              API-independent double-entry accounting where every movement is permanently recorded with transaction ID, before/after balances, and zero direct editing or deletion permitted.
+            </p>
+            <Link href="/security" className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 dark:text-slate-300 hover:underline pt-2">
+              Audit Architecture <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {/* Card 4: P2P Escrow Board */}
+          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
+              <Users className="w-6 h-6" />
+            </div>
+            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
+              P2P Escrow & 10 Dynamic Rails
+            </h4>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              RedotPay/Binance style trading board across 10 pre-configured countries (India UPI, UAE Bank, Bahrain BenefitPay, etc.) with automated escrow locking crypto until fiat confirmation.
+            </p>
+            <Link href="/p2p" className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 hover:underline pt-2">
+              Explore P2P Board <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {/* Card 5: GeCrypto OTC Desk */}
+          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950 text-rose-600 flex items-center justify-center">
+              <Building2 className="w-6 h-6" />
+            </div>
+            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
+              GeCrypto-Style OTC Desk
+            </h4>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Convert USDT for USD, EUR, INR, or GEL directly with the platform. Flexible settlements including SWIFT/SEPA wires and a dedicated Tbilisi cash counter open until 21:00 GCC time.
+            </p>
+            <Link href="/exchange" className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:underline pt-2">
+              OTC Exchange Desk <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {/* Card 6: Strategy & Compliance */}
+          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-teal-50 dark:bg-teal-950 text-teal-600 flex items-center justify-center">
+              <Scale className="w-6 h-6" />
+            </div>
+            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
+              Strategy & Risk Disclosures
+            </h4>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Transparent institutional yield generation: quantitative delta-neutral arbitrage, OTC counter spreads, short-term debt facilities, and venture allocations aligned with NBG VASP directives.
+            </p>
+            <Link href="/strategy" className="inline-flex items-center gap-1 text-xs font-bold text-teal-600 hover:underline pt-2">
+              Read Disclosures <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+        </div>
+      </section>
+
+      {/* CALCULATOR SECTION */}
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="p-8 sm:p-12 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-8">
+          <div className="text-center space-y-2">
+            <h3 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
+              Interactive Investment Package Calculator
+            </h3>
+            <p className="text-xs text-slate-500">
+              Calculate projected 1% monthly return and 6-month maturity distributions for Avora Bank packages
             </p>
           </div>
 
-          <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm relative">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-lg mb-4">
-              2
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span>Select Package Size (USD):</span>
+              <span className="font-mono text-emerald-600 text-lg">${calcAmount.toLocaleString()} USD</span>
             </div>
-            <h4 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
-              {t('howItWorks.step2Title', '2. Select Package & Fund')}
-            </h4>
-            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              {t('howItWorks.step2Desc', 'Choose package size from $1,000 to $10,000 and fund via USDT or bank wire.')}
-            </p>
+
+            <input
+              type="range"
+              min="1000"
+              max="10000"
+              step="500"
+              value={calcAmount}
+              onChange={(e) => setCalcAmount(Number(e.target.value))}
+              className="w-full accent-emerald-600 cursor-pointer"
+            />
+
+            <div className="flex justify-between text-[11px] text-slate-400 font-mono">
+              <span>$1,000 (Min)</span>
+              <span>$5,000</span>
+              <span>$10,000 (Max per Package)</span>
+            </div>
           </div>
 
-          <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm relative">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-lg mb-4">
-              3
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950">
+              <span className="text-xs text-slate-500">1% Monthly Return</span>
+              <p className="text-xl font-black font-mono text-emerald-600 mt-1">${monthlyReturn.toFixed(2)} USD</p>
             </div>
-            <h4 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
-              {t('howItWorks.step3Title', '3. Receive Monthly Returns')}
-            </h4>
-            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              {t('howItWorks.step3Desc', '1% target return credited automatically to your internal wallet on the 1st of each month.')}
-            </p>
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950">
+              <span className="text-xs text-slate-500">Total 6-Month Returns</span>
+              <p className="text-xl font-black font-mono text-emerald-600 mt-1">${sixMonthReturn.toFixed(2)} USD</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900">
+              <span className="text-xs text-emerald-800 dark:text-emerald-300 font-bold">Total Capital + Returns</span>
+              <p className="text-xl font-black font-mono text-emerald-700 dark:text-emerald-300 mt-1">${totalMaturity.toFixed(2)} USD</p>
+            </div>
           </div>
 
-          <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm relative">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-lg mb-4">
-              4
-            </div>
-            <h4 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
-              {t('howItWorks.step4Title', '4. Monthly Window Settlement')}
-            </h4>
-            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              {t('howItWorks.step4Desc', 'Request withdrawal of returns or matured principal during the 1st-of-month processing window.')}
-            </p>
+          <div className="text-center pt-2">
+            <Link
+              href="/packages"
+              className="px-8 py-3.5 rounded-xl font-black text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md inline-block"
+            >
+              Allocate Package Now
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* INVESTMENT PACKAGES & CALCULATOR */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="rounded-3xl p-8 lg:p-12 bg-gradient-to-b from-slate-900 to-slate-950 text-white border border-slate-800 shadow-2xl">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
-            
-            <div className="lg:col-span-5 space-y-6">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-900/50 border border-blue-700 text-blue-300 text-xs font-semibold">
-                <Coins className="w-3.5 h-3.5" />
-                <span>Fixed-Term Investment Model</span>
-              </div>
-
-              <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
-                {t('packages.title', 'Digital Investment Packages')}
-              </h3>
-
-              <p className="text-slate-300 text-sm leading-relaxed">
-                {t('packages.subtitle', 'Fixed-term capital deployment with monthly distributions and principal release after 6-month maturity.')}
-              </p>
-
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center gap-3 text-sm text-slate-200">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{t('packages.minAmount', 'Min Investment: $1,000')} (Max: $10,000 per package)</span>
-                </div>
-                <div className="flex items-center gap-3 text-sm text-slate-200">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Multiple packages can be purchased additively (e.g. $25,000 total)</span>
-                </div>
-                <div className="flex items-center gap-3 text-sm text-slate-200">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{t('packages.returnRate', '1% Target Monthly Return')} credited on payout day</span>
-                </div>
-                <div className="flex items-center gap-3 text-sm text-slate-200">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{t('packages.lockIn', '6 Months Lock-in')} calculated independently per package</span>
-                </div>
-              </div>
-
-              <div className="pt-4">
-                <Link
-                  href="/packages"
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-                >
-                  View All Packages & Buy
-                  <ChevronRight className="w-4 h-4" />
-                </Link>
-              </div>
-            </div>
-
-            <div className="lg:col-span-7 bg-slate-800/80 rounded-2xl p-6 sm:p-8 border border-slate-700/80">
-              <h4 className="font-bold text-xl mb-4 flex items-center justify-between">
-                <span>{t('packages.calculatorTitle', 'Interactive Return Calculator')}</span>
-                <span className="text-xs px-2.5 py-1 rounded bg-blue-600/30 text-blue-300 font-mono">1.0% / month</span>
-              </h4>
-
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <label className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
-                    {t('packages.investAmount', 'Package Amount (USD)')}
-                  </label>
-                  <span className="font-mono text-2xl font-bold text-blue-400">
-                    ${calcAmount.toLocaleString()} USD
-                  </span>
-                </div>
-
-                <input
-                  type="range"
-                  min="1000"
-                  max="10000"
-                  step="500"
-                  value={calcAmount}
-                  onChange={(e) => setCalcAmount(Number(e.target.value))}
-                  className="w-full h-2.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-
-                <div className="flex justify-between text-xs text-slate-400 font-mono">
-                  <span>$1,000 (Min)</span>
-                  <span>$5,000</span>
-                  <span>$10,000 (Max)</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-slate-700">
-                  <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
-                    <p className="text-[11px] text-slate-400">{t('packages.monthlyEst', 'Est. Monthly Return')}</p>
-                    <p className="text-xl font-mono font-bold text-emerald-400 mt-1">
-                      +${monthlyReturn.toFixed(2)}
-                    </p>
-                    <span className="text-[10px] text-slate-400">Credited 1st of month</span>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
-                    <p className="text-[11px] text-slate-400">{t('packages.totalReturn', 'Total 6-Month Returns')}</p>
-                    <p className="text-xl font-mono font-bold text-emerald-400 mt-1">
-                      +${sixMonthReturn.toFixed(2)}
-                    </p>
-                    <span className="text-[10px] text-slate-400">6 payouts total</span>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
-                    <p className="text-[11px] text-slate-400">{t('packages.totalPayout', 'Capital + Returns')}</p>
-                    <p className="text-xl font-mono font-bold text-white mt-1">
-                      ${totalMaturity.toFixed(2)}
-                    </p>
-                    <span className="text-[10px] text-slate-400">After 6-month lock-in</span>
-                  </div>
-                </div>
-
-                <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 leading-relaxed">
-                  <span className="font-bold">Compliance Disclosure: </span>
-                  {t('packages.disclaimer', 'Proposed / target return, subject to market risk and terms. Never risk capital you cannot afford to commit for the full 6-month term.')}
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </section>
-
-      {/* DIVERSIFIED STRATEGY */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-3xl mx-auto mb-14">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-blue-600 dark:text-blue-400 mb-2">
-            Institutional Safeguards
-          </h2>
-          <h3 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
-            Diversified Capital Deployment Strategy
-          </h3>
-          <p className="text-slate-600 dark:text-slate-400 mt-3 text-base">
-            Disciplined risk-budgeted allocations across market-neutral arbitrage, early-stage infrastructure, and regulated liquidity reserves.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-3xl font-black text-blue-600 dark:text-blue-400">45%</span>
-                <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900">
-                  Primary Allocation
-                </span>
-              </div>
-              <h4 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
-                Digital Asset & Arbitrage Strategies
-              </h4>
-              <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                Market-neutral cross-exchange liquidity provision and basis trading generating low-volatility yield across institutional crypto-fiat corridors.
-              </p>
-            </div>
-            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500">
-              Zero directional market exposure
-            </div>
-          </div>
-
-          <div className="p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-3xl font-black text-sky-500">35%</span>
-                <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-sky-50 dark:bg-sky-950/80 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-900">
-                  Growth Allocation
-                </span>
-              </div>
-              <h4 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
-                Startup & Early-Stage Fintech Infrastructure
-              </h4>
-              <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                Strategic investments into tokenized financial infrastructure, payment settlement gateways, and compliance rails across emerging Eurasian corridors.
-              </p>
-            </div>
-            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500">
-              Vetted institutional venture equity
-            </div>
-          </div>
-
-          <div className="p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-3xl font-black text-emerald-500">20%</span>
-                <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900">
-                  Liquid Buffer
-                </span>
-              </div>
-              <h4 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
-                Liquid Cash & Treasury Buffers
-              </h4>
-              <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                High-grade bank reserves and liquid stablecoins guaranteeing timely fulfillment of all monthly returns and scheduled 1st-of-month principal maturities.
-              </p>
-            </div>
-            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500">
-              Immediate settlement availability
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FAQ */}
+      {/* FAQ SECTION */}
       <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-10">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-blue-600 dark:text-blue-400 mb-2">
-            Questions & Answers
-          </h2>
-          <h3 className="text-3xl font-extrabold text-slate-900 dark:text-white">
+        <div className="text-center mb-10 space-y-2">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
             Frequently Asked Questions
+          </h2>
+          <h3 className="text-3xl font-black text-slate-900 dark:text-white">
+            Avora Bank Banking & Liquidity FAQ
           </h3>
         </div>
 
@@ -480,22 +402,22 @@ export default function HomePage() {
           {faqs.map((faq, idx) => (
             <div
               key={idx}
-              className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden"
+              className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden"
             >
               <button
                 onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                className="w-full text-left p-5 flex items-center justify-between font-bold text-sm sm:text-base text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                className="w-full text-left p-5 flex items-center justify-between font-bold text-sm text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
               >
                 <span>{faq.q}</span>
                 <ChevronDown
                   className={`w-4 h-4 text-slate-400 transition-transform ${
-                    openFaq === idx ? 'rotate-180 text-blue-500' : ''
+                    openFaq === idx ? 'rotate-180 text-emerald-500' : ''
                   }`}
                 />
               </button>
 
               {openFaq === idx && (
-                <div className="px-5 pb-5 text-sm text-slate-600 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-800/60 pt-3">
+                <div className="px-5 pb-5 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-800/60 pt-3">
                   {faq.a}
                 </div>
               )}
@@ -504,28 +426,28 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* CTA BANNER */}
+      {/* FINAL CTA */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="rounded-3xl p-10 sm:p-14 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 text-white text-center shadow-xl relative overflow-hidden">
+        <div className="rounded-3xl p-10 sm:p-14 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white text-center shadow-2xl relative overflow-hidden border border-slate-800">
           <div className="relative z-10 max-w-2xl mx-auto space-y-5">
-            <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
-              Ready to Allocate Capital with Institutional Integrity?
+            <h3 className="text-3xl sm:text-4xl font-black tracking-tight">
+              Ready to Join Avora Bank?
             </h3>
-            <p className="text-blue-100 text-base leading-relaxed">
-              Open your digital investment account in minutes or schedule an appointment at our Tbilisi counter.
+            <p className="text-slate-300 text-sm leading-relaxed">
+              Open your private client account, access your unique Avora Account Number, and deploy capital with guaranteed double-entry protection.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
               <Link
                 href="/register"
-                className="px-8 py-3.5 rounded-xl font-bold text-sm text-blue-700 bg-white hover:bg-blue-50 shadow-lg shadow-black/10 transition-all hover:scale-105"
+                className="px-8 py-3.5 rounded-2xl font-black text-xs text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-lg transition-all hover:scale-105"
               >
-                Open Investor Account
+                Open Client Account
               </Link>
               <Link
                 href="/contact"
-                className="px-8 py-3.5 rounded-xl font-bold text-sm text-white border border-blue-400 hover:bg-blue-600/50 transition-colors"
+                className="px-8 py-3.5 rounded-2xl font-bold text-xs text-white border border-slate-700 hover:bg-white/10 transition-colors"
               >
-                Contact Desk
+                Contact Tbilisi Desk
               </Link>
             </div>
           </div>

@@ -104,6 +104,13 @@ export class CmsService {
       data: { status, adminNotes },
     });
   }
+
+  async getUserInquiries(userId: string) {
+    return prisma.inquiry.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 }
 
 export const cmsService = new CmsService();

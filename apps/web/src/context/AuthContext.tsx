@@ -14,6 +14,7 @@ export interface User {
   mustChangePassword?: boolean;
   isWithdrawalLocked?: boolean;
   withdrawalLockedUntil?: string | null;
+  accountNumber?: string;
 }
 
 interface AuthContextType {

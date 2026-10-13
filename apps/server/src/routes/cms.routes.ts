@@ -6,6 +6,7 @@ import {
   getAllSections,
   updateSection,
   submitInquiry,
+  getMyInquiries,
   getInquiries,
   updateInquiryStatus,
   getBlogPosts,
@@ -15,12 +16,13 @@ import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
-// Public CMS routes
+// Public & User CMS/Ticket routes
 router.get('/settings', getSettings);
 router.get('/sections/:page', getPageSections);
 router.get('/blogs', getBlogPosts);
 router.get('/blogs/:slug', getBlogPost);
 router.post('/inquiry', submitInquiry);
+router.get('/my-tickets', authenticateToken, getMyInquiries);
 
 // Admin-only CMS routes
 router.get('/admin/sections', authenticateToken, requireAdmin, getAllSections);

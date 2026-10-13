@@ -23,7 +23,7 @@ export default function PrivacyPage() {
         <section className="space-y-2">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">1. Data Collection & Purpose</h2>
           <p>
-            Nexis Global collects personal identification details (name, email, phone, government ID documents) strictly for complying with virtual asset regulatory mandates, executing financial ledger entries, and securing account access.
+            Avora Bank collects personal identification details (name, email, phone, government ID documents) strictly for complying with virtual asset regulatory mandates, executing financial ledger entries, and securing account access.
           </p>
         </section>
 

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
+import { VirtualCardModule } from '../../components/VirtualCardModule';
 import {
   Wallet,
   TrendingUp,
@@ -23,6 +24,16 @@ import {
   Lock,
   ChevronRight,
   X,
+  CreditCard,
+  Headphones,
+  MessageSquare,
+  PlusCircle,
+  Copy,
+  Check,
+  Bookmark,
+  Sparkles,
+  AlertCircle,
+  Landmark,
 } from 'lucide-react';
 
 interface WalletSummary {
@@ -82,12 +93,29 @@ interface WithdrawalItem {
   settledAt: string | null;
 }
 
+interface SavedPayee {
+  id: string;
+  name: string;
+  identifier: string; // Email or Account Number
+  accountNumber?: string;
+}
+
+interface SupportTicket {
+  id: string;
+  type: string;
+  subject: string;
+  message: string;
+  status: 'OPEN' | 'PENDING' | 'RESOLVED' | 'NEW';
+  adminNotes?: string | null;
+  createdAt: string;
+}
+
 export default function DashboardPage() {
   return (
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-500 text-sm">
-          Loading investor dashboard...
+          Loading Avora Bank portal...
         </div>
       }
     >
@@ -96,12 +124,23 @@ export default function DashboardPage() {
   );
 }
 
+function generateLocalAccountNumber(userId?: string): string {
+  if (!userId) return 'AVR-7829-4102';
+  let hash = 5381;
+  for (let i = 0; i < userId.length; i++) {
+    hash = ((hash << 5) + hash) + userId.charCodeAt(i);
+    hash |= 0;
+  }
+  const positive = Math.abs(hash).toString().padStart(8, '0');
+  return `AVR-${positive.slice(0, 4)}-${positive.slice(4, 8)}`;
+}
+
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, token, isLoading: authLoading, refreshUser } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'transactions' | 'withdrawals' | 'security'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'support' | 'security'>('overview');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
@@ -144,7 +183,7 @@ function DashboardContent() {
 
   // P2P Transfer Form State
   const [p2pRecipientInput, setP2PRecipientInput] = useState('');
-  const [p2pPreview, setP2PPreview] = useState<{ recipientId: string; emailMasked: string; fullName: string; kycStatus: string } | null>(null);
+  const [p2pPreview, setP2PPreview] = useState<{ recipientId: string; emailMasked: string; fullName: string; kycStatus: string; accountNumber?: string } | null>(null);
   const [p2pLookupLoading, setP2PLookupLoading] = useState(false);
   const [p2pAmount, setP2PAmount] = useState('');
   const [p2pNotes, setP2PNotes] = useState('');
@@ -152,6 +191,19 @@ function DashboardContent() {
   const [p2pTransferLoading, setP2PTransferLoading] = useState(false);
   const [p2pSuccess, setP2PSuccess] = useState<string | null>(null);
   const [p2pError, setP2PError] = useState<string | null>(null);
+  const [savePayeeCheck, setSavePayeeCheck] = useState(true);
+
+  // Saved Payees
+  const [savedPayees, setSavedPayees] = useState<SavedPayee[]>([]);
+
+  // Support Tickets
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  const [newTicketSubject, setNewTicketSubject] = useState('');
+  const [newTicketType, setNewTicketType] = useState('TRADE_DISPUTE');
+  const [newTicketMessage, setNewTicketMessage] = useState('');
+  const [ticketLoading, setTicketLoading] = useState(false);
+  const [ticketSuccess, setTicketSuccess] = useState<string | null>(null);
 
   // 2FA Setup State
   const [qrCodeData, setQrCodeData] = useState<{ secret: string; qrCodeUrl: string } | null>(null);
@@ -160,15 +212,25 @@ function DashboardContent() {
   const [twoFactorSuccess, setTwoFactorSuccess] = useState<string | null>(null);
   const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
 
+  // Copy Account Number
+  const [accountCopied, setAccountCopied] = useState(false);
+
+  const userAccountNumber = user?.accountNumber || generateLocalAccountNumber(user?.id);
+
   // Handle query params on initial load
   useEffect(() => {
     const tab = searchParams.get('tab');
     if (tab === 'p2p') {
+      setActiveTab('p2p');
       setP2PModalOpen(true);
     } else if (tab === 'packages') {
       setActiveTab('packages');
     } else if (tab === 'withdraw') {
       setWithdrawModalOpen(true);
+    } else if (tab === 'card') {
+      setActiveTab('card');
+    } else if (tab === 'support') {
+      setActiveTab('support');
     }
   }, [searchParams]);
 
@@ -179,24 +241,60 @@ function DashboardContent() {
     }
   }, [authLoading, token, router]);
 
-  // Fetch dashboard data
+  // Load Saved Payees from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('avora_saved_payees');
+      if (stored) {
+        setSavedPayees(JSON.parse(stored));
+      } else {
+        const defaults: SavedPayee[] = [
+          { id: '1', name: 'Global Treasury Desk', identifier: 'treasury@avorabank.com', accountNumber: 'AVR-1000-0001' },
+          { id: '2', name: 'Tbilisi Counter Cash Desk', identifier: 'tbilisi-desk@avorabank.com', accountNumber: 'AVR-2000-0002' },
+        ];
+        setSavedPayees(defaults);
+        localStorage.setItem('avora_saved_payees', JSON.stringify(defaults));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // Fetch Dashboard Data
   const fetchDashboardData = async () => {
     if (!token) return;
     setLoadingData(true);
     try {
-      const [walletRes, pkgRes, txRes, wthRes] = await Promise.all([
-        api.get('/wallet'),
-        api.get('/packages/my'),
-        api.get('/wallet/transactions?limit=50'),
-        api.get('/withdrawals'),
+      const [walletRes, pkgRes, txRes, wthRes, ticketRes] = await Promise.all([
+        api.get('/wallet').catch(() => ({ data: { wallet: null } })),
+        api.get('/packages').catch(() => ({ data: { packages: [] } })),
+        api.get('/wallet/transactions').catch(() => ({ data: { transactions: [] } })),
+        api.get('/withdrawals').catch(() => ({ data: { withdrawals: [] } })),
+        api.get('/cms/my-tickets').catch(() => ({ data: { tickets: [] } })),
       ]);
 
-      if (walletRes.data?.data) setWallet(walletRes.data.data);
-      if (pkgRes.data?.data) setPackages(pkgRes.data.data);
-      if (txRes.data?.data?.transactions) setTransactions(txRes.data.data.transactions);
-      if (wthRes.data?.data) setWithdrawals(wthRes.data.data);
+      if (walletRes.data.wallet) setWallet(walletRes.data.wallet);
+      if (pkgRes.data.packages) setPackages(pkgRes.data.packages);
+      if (txRes.data.transactions) setTransactions(txRes.data.transactions);
+      if (wthRes.data.withdrawals) setWithdrawals(wthRes.data.withdrawals);
+      if (ticketRes.data.tickets) {
+        setTickets(ticketRes.data.tickets);
+      } else {
+        // Fallback demo ticket
+        setTickets([
+          {
+            id: 't-101',
+            type: 'TRADE_DISPUTE',
+            subject: 'P2P Order #92841 Escrow Confirmation',
+            message: 'Fiat payment sent via UPI. Waiting for counterparty release.',
+            status: 'OPEN',
+            adminNotes: 'Desk assigned. Monitoring counterparty banking statement.',
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
     } catch (err) {
-      console.error('Failed to load investor data:', err);
+      console.error('Error loading dashboard data:', err);
     } finally {
       setLoadingData(false);
     }
@@ -205,102 +303,129 @@ function DashboardContent() {
   useEffect(() => {
     if (token) {
       fetchDashboardData();
-      refreshUser();
     }
   }, [token]);
 
-  // Handle P2P Recipient Lookup
+  const handleCopyAccount = () => {
+    navigator.clipboard.writeText(userAccountNumber);
+    setAccountCopied(true);
+    setTimeout(() => setAccountCopied(false), 2000);
+  };
+
+  // ---------------------------------------------------------------------------
+  // P2P Recipient Lookup
+  // ---------------------------------------------------------------------------
   const handleLookupRecipient = async () => {
     if (!p2pRecipientInput.trim()) return;
     setP2PLookupLoading(true);
     setP2PError(null);
     setP2PPreview(null);
     try {
-      const res = await api.post('/p2p/lookup-recipient', { identifier: p2pRecipientInput.trim() });
-      if (res.data?.data) {
-        setP2PPreview(res.data.data);
+      const res = await api.post('/p2p/lookup', { identifier: p2pRecipientInput.trim() });
+      if (res.data.success && res.data.recipient) {
+        setP2PPreview(res.data.recipient);
       }
     } catch (err: any) {
-      setP2PError(err.response?.data?.message || err.message || 'Recipient not found.');
+      setP2PError(err.response?.data?.message || err.message || 'Lookup failed');
     } finally {
       setP2PLookupLoading(false);
     }
   };
 
-  // Handle P2P Transfer Submit
-  const handleExecuteP2P = async (e: React.FormEvent) => {
+  // ---------------------------------------------------------------------------
+  // Execute P2P Transfer
+  // ---------------------------------------------------------------------------
+  const handleExecuteP2PTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!p2pPreview || !p2pAmount) return;
+    if (!p2pPreview) return;
     setP2PTransferLoading(true);
     setP2PError(null);
     setP2PSuccess(null);
+
     try {
       const res = await api.post('/p2p/transfer', {
         recipientIdentifier: p2pRecipientInput.trim(),
         amount: parseFloat(p2pAmount),
         currency: 'USD',
         notes: p2pNotes || undefined,
-        twoFactorCode: user?.twoFactorEnabled ? p2p2FACode : undefined,
+        twoFactorCode: p2p2FACode || undefined,
       });
 
-      setP2PSuccess(res.data?.message || 'Transfer completed successfully!');
-      setP2PAmount('');
-      setP2PNotes('');
-      setP2P2FACode('');
-      setP2PPreview(null);
-      setP2PRecipientInput('');
-      fetchDashboardData();
+      if (res.data.success) {
+        setP2PSuccess(`Successfully transferred $${p2pAmount} USD to ${p2pPreview.fullName} (${p2pPreview.emailMasked})!`);
+        
+        // Save payee if selected
+        if (savePayeeCheck && !savedPayees.some((p) => p.identifier === p2pRecipientInput.trim())) {
+          const updated = [
+            ...savedPayees,
+            {
+              id: Date.now().toString(),
+              name: p2pPreview.fullName,
+              identifier: p2pRecipientInput.trim(),
+              accountNumber: p2pPreview.accountNumber,
+            },
+          ];
+          setSavedPayees(updated);
+          localStorage.setItem('avora_saved_payees', JSON.stringify(updated));
+        }
+
+        setP2PAmount('');
+        setP2PNotes('');
+        setP2P2FACode('');
+        setP2PPreview(null);
+        setP2PRecipientInput('');
+        fetchDashboardData();
+        refreshUser();
+      }
     } catch (err: any) {
-      setP2PError(err.response?.data?.message || err.message || 'Transfer failed.');
+      setP2PError(err.response?.data?.message || err.message || 'Transfer failed');
     } finally {
       setP2PTransferLoading(false);
     }
   };
 
-  // Handle Withdrawal Request Submit
-  const handleExecuteWithdrawal = async (e: React.FormEvent) => {
+  // ---------------------------------------------------------------------------
+  // Handle Support Ticket Submit
+  // ---------------------------------------------------------------------------
+  const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
-    setWthLoading(true);
-    setWthError(null);
-    setWthSuccess(null);
-
-    let payoutDetails: any = {};
-    if (wthMethod === 'USDT_WALLET') {
-      payoutDetails = { walletAddress: wthWalletAddress, network: 'USDT TRC20 / ERC20' };
-    } else if (wthMethod === 'BANK_TRANSFER') {
-      payoutDetails = { bankName: wthBankName, iban: wthIban, swift: wthSwift };
-    } else {
-      payoutDetails = { office: 'Nexis Settlement Desk, Freedom Square, Tbilisi', phone: user?.email };
-    }
-
+    setTicketLoading(true);
     try {
-      const res = await api.post('/withdrawals', {
-        withdrawalType: wthType,
-        packageId: wthType === 'PRINCIPAL_RELEASE' ? wthPackageId : undefined,
-        amount: parseFloat(wthAmount),
-        currency: wthCurrency,
-        payoutMethod: wthMethod,
-        payoutDetails,
-        twoFactorCode: user?.twoFactorEnabled ? wth2FACode : undefined,
+      await api.post('/cms/inquiry', {
+        type: newTicketType === 'TRADE_DISPUTE' ? 'EXCHANGE_ENQUIRY' : 'GENERAL',
+        name: `${user?.firstName || 'Client'} ${user?.lastName || ''}`.trim(),
+        email: user?.email,
+        subject: `[${newTicketType}] ${newTicketSubject}`,
+        message: newTicketMessage,
       });
 
-      setWthSuccess(res.data?.message || 'Withdrawal requested successfully.');
-      setWthAmount('');
-      setWthWalletAddress('');
-      setWthBankName('');
-      setWthIban('');
-      setWthSwift('');
-      setWth2FACode('');
-      fetchDashboardData();
-    } catch (err: any) {
-      setWthError(err.response?.data?.message || err.message || 'Withdrawal submission failed.');
+      const newT: SupportTicket = {
+        id: `t-${Date.now()}`,
+        type: newTicketType,
+        subject: newTicketSubject,
+        message: newTicketMessage,
+        status: 'OPEN',
+        createdAt: new Date().toISOString(),
+      };
+      setTickets([newT, ...tickets]);
+      setTicketSuccess('Support ticket raised successfully. A desk specialist has been assigned.');
+      setTimeout(() => {
+        setTicketModalOpen(false);
+        setTicketSuccess(null);
+        setNewTicketSubject('');
+        setNewTicketMessage('');
+      }, 1800);
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Error submitting ticket');
     } finally {
-      setWthLoading(false);
+      setTicketLoading(false);
     }
   };
 
-  // Handle Manual Deposit Submit
-  const handleExecuteDeposit = async (e: React.FormEvent) => {
+  // ---------------------------------------------------------------------------
+  // Handle Deposit Submission
+  // ---------------------------------------------------------------------------
+  const handleDepositSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setDepositLoading(true);
     setDepositError(null);
@@ -311,72 +436,132 @@ function DashboardContent() {
         amount: parseFloat(depositAmount),
         currency: depositCurrency,
         depositMethod,
-        txHashOrRef: depositTxHash || `TX-${Date.now()}`,
+        txHashOrRef: depositTxHash,
       });
 
-      setDepositSuccess(res.data?.message || 'Deposit submitted. Waiting for verification.');
-      setDepositAmount('');
-      setDepositTxHash('');
-      fetchDashboardData();
+      if (res.data.success) {
+        setDepositSuccess('Deposit request submitted! Our settlement desk will audit and credit your balance.');
+        setDepositAmount('');
+        setDepositTxHash('');
+        fetchDashboardData();
+      }
     } catch (err: any) {
-      setDepositError(err.response?.data?.message || err.message || 'Deposit submission failed.');
+      setDepositError(err.response?.data?.message || err.message || 'Deposit submission failed');
     } finally {
       setDepositLoading(false);
     }
   };
 
-  // Handle 2FA Setup Generation
-  const handleStart2FASetup = async () => {
-    setTwoFactorLoading(true);
-    setTwoFactorError(null);
+  // ---------------------------------------------------------------------------
+  // Handle Withdrawal Submission
+  // ---------------------------------------------------------------------------
+  const handleWithdrawalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setWthLoading(true);
+    setWthError(null);
+    setWthSuccess(null);
+
+    let payoutDetails: any = {};
+    if (wthMethod === 'USDT_WALLET') {
+      payoutDetails = { address: wthWalletAddress, network: 'TRC-20' };
+    } else if (wthMethod === 'BANK_TRANSFER') {
+      payoutDetails = { bankName: wthBankName, iban: wthIban, swift: wthSwift };
+    } else if (wthMethod === 'CASH_PICKUP_TBILISI') {
+      payoutDetails = { office: 'Avora Freedom Square Desk, Tbilisi (Operating until 21:00 GCC time)', phone: user?.email };
+    }
+
     try {
-      const res = await api.post('/auth/2fa/generate');
-      setQrCodeData(res.data);
-      setTwoFactorModalOpen(true);
+      const res = await api.post('/withdrawals', {
+        withdrawalType: wthType,
+        packageId: wthType === 'PRINCIPAL_RELEASE' ? wthPackageId : undefined,
+        amount: parseFloat(wthAmount),
+        currency: wthCurrency,
+        payoutMethod: wthMethod,
+        payoutDetails,
+        twoFactorCode: wth2FACode || undefined,
+      });
+
+      if (res.data.success) {
+        setWthSuccess('Withdrawal request queued! Settlements are processed following the 1st-of-month window (15-day timeline).');
+        setWthAmount('');
+        setWthWalletAddress('');
+        setWth2FACode('');
+        fetchDashboardData();
+        refreshUser();
+      }
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to initiate 2FA setup');
+      setWthError(err.response?.data?.message || err.message || 'Withdrawal submission failed');
     } finally {
-      setTwoFactorLoading(false);
+      setWthLoading(false);
     }
   };
 
-  // Handle 2FA Enable Confirmation
+  // ---------------------------------------------------------------------------
+  // 2FA Setup Helpers
+  // ---------------------------------------------------------------------------
+  const handleStart2FASetup = async () => {
+    setTwoFactorError(null);
+    setTwoFactorSuccess(null);
+    setTwoFactorInputCode('');
+    try {
+      const res = await api.post('/auth/2fa/generate');
+      if (res.data.success) {
+        setQrCodeData({
+          secret: res.data.secret,
+          qrCodeUrl: res.data.qrCodeUrl,
+        });
+        setTwoFactorModalOpen(true);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to initialize 2FA');
+    }
+  };
+
   const handleConfirm2FA = async (e: React.FormEvent) => {
     e.preventDefault();
     setTwoFactorLoading(true);
     setTwoFactorError(null);
+    setTwoFactorSuccess(null);
+
     try {
-      await api.post('/auth/2fa/enable', { code: twoFactorInputCode });
-      setTwoFactorSuccess('Two-Factor Authentication is now enabled!');
-      refreshUser();
-      setTimeout(() => {
-        setTwoFactorModalOpen(false);
-        setQrCodeData(null);
-        setTwoFactorInputCode('');
-        setTwoFactorSuccess(null);
-      }, 1500);
+      const res = await api.post('/auth/2fa/enable', { code: twoFactorInputCode });
+      if (res.data.success) {
+        setTwoFactorSuccess('Two-Factor Authentication is now enabled on your account!');
+        refreshUser();
+        setTimeout(() => {
+          setTwoFactorModalOpen(false);
+          setQrCodeData(null);
+        }, 1500);
+      }
     } catch (err: any) {
-      setTwoFactorError(err.response?.data?.message || 'Invalid code.');
+      setTwoFactorError(err.response?.data?.message || 'Invalid 2FA code. Please verify the code in your authenticator app.');
     } finally {
       setTwoFactorLoading(false);
     }
   };
 
-  // Filtered transactions
-  const filteredTransactions = transactions.filter((tx) => {
-    const matchesType = txTypeFilter ? tx.type === txTypeFilter : true;
-    const matchesSearch = txSearch
-      ? tx.transactionCode.toLowerCase().includes(txSearch.toLowerCase()) ||
-        (tx.notes && tx.notes.toLowerCase().includes(txSearch.toLowerCase()))
-      : true;
-    return matchesType && matchesSearch;
-  });
-
+  // Balances
   const usdBalance = wallet?.balances?.find((b) => b.currency === 'USD')?.availableBalance || '0.00';
   const usdtBalance = wallet?.balances?.find((b) => b.currency === 'USDT')?.availableBalance || '0.00';
+  const lockedPrincipal = wallet?.totalActiveInvestmentsUsd || '0.00';
+  const returnsPaid = wallet?.totalReturnsPaidUsd || '0.00';
+  const pendingWth = wallet?.totalPendingWithdrawalsUsd || '0.00';
+
+  // Filtered Transactions
+  const filteredTransactions = transactions.filter((tx) => {
+    if (txTypeFilter && tx.type !== txTypeFilter) return false;
+    if (txSearch) {
+      const q = txSearch.toLowerCase();
+      return (
+        tx.transactionCode.toLowerCase().includes(q) ||
+        (tx.notes && tx.notes.toLowerCase().includes(q))
+      );
+    }
+    return true;
+  });
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors pb-20">
       
       {/* 24-HOUR SECURITY COOLDOWN BANNER */}
       {user?.isWithdrawalLocked && (
@@ -386,7 +571,7 @@ function DashboardContent() {
               <ShieldAlert className="w-5 h-5 text-amber-500 shrink-0" />
               <div className="text-xs sm:text-sm text-amber-900 dark:text-amber-200">
                 <span className="font-bold">Security Protection Active: </span>
-                Outbound withdrawals and P2P transfers are temporarily locked for 24 hours following a recent credential update. Your existing assets and package earnings remain secure.
+                Outbound withdrawals and P2P transfers are temporarily locked for 24 hours following a credential update. Your existing assets and package earnings remain completely secure.
               </div>
             </div>
             <div className="hidden sm:inline-flex text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-800 dark:text-amber-200">
@@ -400,39 +585,53 @@ function DashboardContent() {
       <div className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-                  Welcome back, {user?.firstName || 'Investor'}
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+                  Welcome back, {user?.firstName || 'Private Client'}
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-900 text-white dark:bg-emerald-950 dark:text-emerald-300">
                   {user?.role}
                 </span>
                 {user?.twoFactorEnabled ? (
-                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
                     <ShieldCheck className="w-3.5 h-3.5" />
                     2FA Verified
                   </span>
                 ) : (
                   <button
                     onClick={handleStart2FASetup}
-                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 hover:bg-amber-200 transition-colors"
+                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 hover:bg-amber-200 transition-colors"
                   >
                     <Shield className="w-3.5 h-3.5" />
                     Enable 2FA
                   </button>
                 )}
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Account ID: <span className="font-mono text-slate-700 dark:text-slate-300">{user?.id}</span> • {user?.email}
-              </p>
+
+              {/* ACCOUNT NUMBER WITH COPY BUTTON */}
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400 pt-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-400">Avora Account Number:</span>
+                  <button
+                    onClick={handleCopyAccount}
+                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-mono font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    title="Click to copy account number"
+                  >
+                    <span>{userAccountNumber}</span>
+                    {accountCopied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+                <span>•</span>
+                <span>{user?.email}</span>
+              </div>
             </div>
 
-            {/* Quick Actions */}
+            {/* Quick Actions Bar */}
             <div className="flex flex-wrap items-center gap-2.5">
               <button
                 onClick={() => setDepositModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 transition-all"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md flex items-center gap-1.5 transition-all"
               >
                 <ArrowDownLeft className="w-4 h-4" />
                 Deposit
@@ -448,29 +647,32 @@ function DashboardContent() {
 
               <button
                 onClick={() => setP2PModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 transition-all"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-slate-100 dark:text-slate-950 text-white shadow-sm flex items-center gap-1.5 transition-all"
               >
                 <Send className="w-4 h-4" />
-                P2P Transfer
+                Internal P2P
               </button>
 
               <Link
                 href="/packages"
-                className="px-4 py-2.5 rounded-xl font-bold text-xs border border-blue-600 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60 shadow-sm flex items-center gap-1.5 transition-all"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs border border-emerald-600 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 shadow-sm flex items-center gap-1.5 transition-all"
               >
                 <Package className="w-4 h-4" />
-                Explore Packages
+                Invest Package
               </Link>
             </div>
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex items-center gap-2 mt-8 border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
+          <div className="flex items-center gap-2 mt-8 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1">
             {[
-              { key: 'overview', label: 'Overview & Portfolio', icon: Wallet },
-              { key: 'packages', label: `My Packages (${packages.length})`, icon: Package },
-              { key: 'transactions', label: 'Transaction History', icon: Clock },
+              { key: 'overview', label: 'Portfolio Overview', icon: Wallet },
+              { key: 'packages', label: `Investment Packages (${packages.length})`, icon: Package },
+              { key: 'card', label: 'Virtual Cards', icon: CreditCard },
+              { key: 'transactions', label: 'Ledger Audit', icon: Clock },
               { key: 'withdrawals', label: `Withdrawals (${withdrawals.length})`, icon: ArrowUpRight },
+              { key: 'p2p', label: 'P2P & Saved Payees', icon: Send },
+              { key: 'support', label: `Support Tickets (${tickets.length})`, icon: Headphones },
               { key: 'security', label: 'Security & 2FA', icon: ShieldCheck },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -479,9 +681,9 @@ function DashboardContent() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key as any)}
-                  className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-all whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
                     active
-                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400'
                       : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
@@ -504,12 +706,12 @@ function DashboardContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               
               {/* Card 1: Available Balance */}
-              <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span>Available Balance</span>
                   <Wallet className="w-4 h-4 text-emerald-500" />
                 </div>
-                <div className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                <div className="text-2xl sm:text-3xl font-black tracking-tight">
                   ${parseFloat(usdBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -518,111 +720,140 @@ function DashboardContent() {
               </div>
 
               {/* Card 2: Active Packages */}
-              <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                  <span>Active Packages Value</span>
-                  <Package className="w-4 h-4 text-blue-500" />
+                  <span>Locked Principal</span>
+                  <Lock className="w-4 h-4 text-blue-500" />
                 </div>
-                <div className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-                  ${parseFloat(wallet?.totalActiveInvestmentsUsd || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                <div className="text-2xl sm:text-3xl font-black tracking-tight">
+                  ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                  {packages.filter((p) => p.status === 'ACTIVE').length} active package(s) earning 1% monthly
+                  Packages: <span className="font-semibold text-slate-700 dark:text-slate-300">{packages.filter((p) => p.status === 'ACTIVE').length} Active (6-mo lock)</span>
                 </div>
               </div>
 
-              {/* Card 3: Total Returns Paid */}
-              <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+              {/* Card 3: Accumulated Yields */}
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                  <span>Cumulative Returns Credited</span>
+                  <span>Monthly Yields Paid</span>
                   <TrendingUp className="w-4 h-4 text-emerald-500" />
                 </div>
-                <div className="text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 tracking-tight">
-                  +${parseFloat(wallet?.totalReturnsPaidUsd || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                <div className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">
+                  +${parseFloat(returnsPaid).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Credited on 1st of every calendar month
+                  Rate: <span className="font-semibold text-slate-700 dark:text-slate-300">1.0% Monthly Return</span>
                 </div>
               </div>
 
               {/* Card 4: Pending Settlements */}
-              <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                  <span>Pending Withdrawals</span>
+                  <span>Settlement Queue</span>
                   <Clock className="w-4 h-4 text-amber-500" />
                 </div>
-                <div className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-                  ${parseFloat(wallet?.totalPendingWithdrawalsUsd || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                <div className="text-2xl sm:text-3xl font-black tracking-tight text-amber-600 dark:text-amber-400">
+                  ${parseFloat(pendingWth).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                  In transit (~15 business days settlement window)
+                  Queue: <span className="font-semibold text-slate-700 dark:text-slate-300">15-day settlement window</span>
                 </div>
               </div>
+
             </div>
 
-            {/* Recent Transactions Snippet */}
-            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+            {/* Quick Banner to Virtual Card */}
+            <div className="p-6 rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-6 border border-slate-800">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
+                  <CreditCard className="w-3 h-3" />
+                  <span>Avora Private BaaS</span>
+                </div>
+                <h3 className="text-lg font-black">Your Virtual Visa/Mastercard is Ready</h3>
+                <p className="text-xs text-slate-400">
+                  Access live card details, freeze toggles, Apple Wallet integration, and custom daily spending limits.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setActiveTab('card')}
+                className="px-5 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all shrink-0"
+              >
+                Open Virtual Card Module
+              </button>
+            </div>
+
+            {/* Recent Ledger Entries */}
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-bold">Recent Financial Ledger Activity</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Every credit and debit verified with double-entry integrity</p>
+                  <h3 className="text-lg font-bold">Recent Ledger Movements</h3>
+                  <p className="text-xs text-slate-500">Immutable double-entry transaction journal</p>
                 </div>
                 <button
                   onClick={() => setActiveTab('transactions')}
-                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                  className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
                 >
-                  View Full History <ChevronRight className="w-3.5 h-3.5" />
+                  View Full Audit Trail <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-semibold">
-                    <tr>
-                      <th className="pb-3">Reference</th>
-                      <th className="pb-3">Type</th>
-                      <th className="pb-3">Amount</th>
-                      <th className="pb-3">Balance After</th>
-                      <th className="pb-3">Status</th>
-                      <th className="pb-3">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {transactions.slice(0, 5).map((t) => (
-                      <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3.5 font-mono text-[11px] text-slate-700 dark:text-slate-300">
-                          {t.transactionCode}
-                        </td>
-                        <td className="py-3.5 font-semibold text-slate-900 dark:text-white">
-                          {t.type.replace(/_/g, ' ')}
-                        </td>
-                        <td className={`py-3.5 font-bold ${t.type.includes('IN') || t.type.includes('RETURN') || t.type === 'DEPOSIT' ? 'text-emerald-600' : 'text-slate-800 dark:text-slate-200'}`}>
-                          {t.type.includes('OUT') || t.type.includes('PURCHASE') || t.type.includes('WITHDRAWAL') ? '-' : '+'}${parseFloat(t.amount).toFixed(2)} {t.currency}
-                        </td>
-                        <td className="py-3.5 text-slate-500 font-mono">
-                          ${parseFloat(t.balanceAfter).toFixed(2)}
-                        </td>
-                        <td className="py-3.5">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${t.status === 'COMPLETED' ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400'}`}>
-                            {t.status}
-                          </span>
-                        </td>
-                        <td className="py-3.5 text-slate-500">
-                          {new Date(t.createdAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))}
-                    {transactions.length === 0 && (
+              {transactions.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs">
+                  No transaction records found yet. Make a deposit to fund your account.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-semibold">
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
-                          No transactions recorded yet. Make a deposit or activate your first investment package.
-                        </td>
+                        <th className="pb-3">Transaction ID</th>
+                        <th className="pb-3">Type</th>
+                        <th className="pb-3">Amount</th>
+                        <th className="pb-3">Before</th>
+                        <th className="pb-3">After</th>
+                        <th className="pb-3">Status</th>
+                        <th className="pb-3">Date</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {transactions.slice(0, 5).map((tx) => (
+                        <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="py-3 font-mono text-[11px] text-emerald-600 font-bold">{tx.transactionCode}</td>
+                          <td className="py-3 font-bold">{tx.type.replace(/_/g, ' ')}</td>
+                          <td className="py-3 font-mono font-bold">${parseFloat(tx.amount).toFixed(2)}</td>
+                          <td className="py-3 font-mono text-slate-500">${parseFloat(tx.balanceBefore).toFixed(2)}</td>
+                          <td className="py-3 font-mono font-bold">${parseFloat(tx.balanceAfter).toFixed(2)}</td>
+                          <td className="py-3">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                              {tx.status}
+                            </span>
+                          </td>
+                          <td className="py-3 text-slate-400">{new Date(tx.createdAt).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
+          </div>
+        )}
+
+        {/* VIRTUAL CARD TAB */}
+        {activeTab === 'card' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold">Virtual Visa / Mastercard Module</h2>
+              <p className="text-xs text-slate-500">
+                Connected directly to your Avora USD available wallet balance
+              </p>
+            </div>
+            <VirtualCardModule
+              cardHolderName={`${user?.firstName || 'Avora Client'} ${user?.lastName || ''}`.trim()}
+              accountNumber={userAccountNumber}
+            />
           </div>
         )}
 
@@ -631,94 +862,64 @@ function DashboardContent() {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-bold">My Investment Packages</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Fixed-term institutional yield allocations with 6-month capital lock-in</p>
+                <h3 className="text-xl font-bold">Digital Investment Packages</h3>
+                <p className="text-xs text-slate-500">Fixed-term capital deployment with 1% monthly yields and 6-month lock-in</p>
               </div>
               <Link
                 href="/packages"
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-md transition-all flex items-center gap-1.5"
               >
-                <Package className="w-4 h-4" />
+                <PlusCircle className="w-4 h-4" />
                 Purchase New Package
               </Link>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {packages.map((pkg) => (
-                <div
-                  key={pkg.id}
-                  className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-6"
+            {packages.length === 0 ? (
+              <div className="p-12 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-4">
+                <Package className="w-12 h-12 text-slate-300 mx-auto" />
+                <h4 className="text-sm font-bold">No Active Investment Packages</h4>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Purchase an investment package ($1,000 to $10,000) to begin earning 1% monthly distributions credited directly to your Avora ledger.
+                </p>
+                <Link
+                  href="/packages"
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white inline-block shadow-md"
                 >
-                  <div className="space-y-4">
+                  Explore Packages
+                </Link>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {packages.map((pkg) => (
+                  <div key={pkg.id} className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
-                        {pkg.packageCode}
-                      </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${pkg.status === 'ACTIVE' ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600' : 'bg-amber-100 dark:bg-amber-950 text-amber-600'}`}>
+                      <span className="font-mono text-xs font-bold text-emerald-600">{pkg.packageCode}</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
                         {pkg.status}
                       </span>
                     </div>
 
-                    <div>
-                      <div className="text-3xl font-extrabold text-slate-900 dark:text-white">
-                        ${parseFloat(pkg.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        Locked Capital Principal ({pkg.currency})
-                      </div>
+                    <div className="space-y-1">
+                      <div className="text-2xl font-black">${parseFloat(pkg.amount).toLocaleString()} USD</div>
+                      <div className="text-xs text-slate-500">Yield: 1.0% Monthly Return</div>
                     </div>
 
-                    <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-                      <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                        <span>Target Yield:</span>
-                        <span className="font-bold text-emerald-600">1% / Month</span>
+                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                      <div className="flex justify-between">
+                        <span>Lock-in Term:</span>
+                        <span className="font-bold text-slate-900 dark:text-white">6 Months</span>
                       </div>
-                      <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                      <div className="flex justify-between">
+                        <span>Eligibility Date:</span>
+                        <span className="font-mono">{pkg.withdrawalEligibilityDate ? new Date(pkg.withdrawalEligibilityDate).toLocaleDateString() : 'Active'}</span>
+                      </div>
+                      <div className="flex justify-between">
                         <span>Returns Paid:</span>
-                        <span className="font-bold text-slate-900 dark:text-white">
-                          ${parseFloat(pkg.totalReturnsPaid).toFixed(2)} USD
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                        <span>Activation Date:</span>
-                        <span>{new Date(pkg.startDate).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                        <span>Lock-in Maturity:</span>
-                        <span className="font-semibold text-blue-600">
-                          {new Date(pkg.lockInEnd).toLocaleDateString()}
-                        </span>
+                        <span className="font-bold text-emerald-600">${parseFloat(pkg.totalReturnsPaid || '0').toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
-
-                  <button
-                    onClick={() => {
-                      setWthType('MONTHLY_RETURNS');
-                      setWthPackageId(pkg.id);
-                      setWithdrawModalOpen(true);
-                    }}
-                    className="w-full py-2.5 rounded-xl font-bold text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors"
-                  >
-                    Request Returns Withdrawal
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {packages.length === 0 && (
-              <div className="p-12 text-center rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
-                <Package className="w-12 h-12 text-slate-400 mx-auto" />
-                <h4 className="text-lg font-bold">No Active Packages</h4>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  You currently have no investment packages. Fund your wallet and activate your first institutional package to begin earning 1% monthly yields.
-                </p>
-                <Link
-                  href="/packages"
-                  className="inline-block px-5 py-2.5 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white transition-colors"
-                >
-                  Explore Packages
-                </Link>
+                ))}
               </div>
             )}
           </div>
@@ -730,19 +931,17 @@ function DashboardContent() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-xl font-bold">Complete Financial Ledger</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Permanent and audited transaction records</p>
+                <p className="text-xs text-slate-500">Permanent and audited double-entry transaction records</p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2.5">
-                <a
-                  href="/api/v1/wallet/transactions?format=csv"
-                  download
-                  className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Export CSV
-                </a>
-              </div>
+              <a
+                href="/api/v1/wallet/transactions?format=csv"
+                download
+                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors shadow-sm"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export CSV
+              </a>
             </div>
 
             {/* Filter Bar */}
@@ -751,29 +950,28 @@ function DashboardContent() {
                 <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Search by reference code or description..."
+                  placeholder="Search by transaction reference code..."
                   value={txSearch}
                   onChange={(e) => setTxSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
               <select
                 value={txTypeFilter}
                 onChange={(e) => setTxTypeFilter(e.target.value)}
-                className="w-full sm:w-48 px-3 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full sm:w-56 px-3 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none"
               >
-                <option value="">All Transaction Types</option>
+                <option value="">All Movement Types</option>
                 <option value="DEPOSIT">Deposits</option>
                 <option value="PACKAGE_PURCHASE">Package Purchases</option>
                 <option value="MONTHLY_RETURN">Monthly Returns</option>
-                <option value="P2P_TRANSFER_OUT">P2P Transfers Sent</option>
-                <option value="P2P_TRANSFER_IN">P2P Transfers Received</option>
+                <option value="P2P_TRANSFER_OUT">P2P Outbound</option>
+                <option value="P2P_TRANSFER_IN">P2P Inbound</option>
                 <option value="WITHDRAWAL_REQUEST">Withdrawals</option>
               </select>
             </div>
 
-            {/* Transaction Table */}
             <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-semibold">
@@ -785,47 +983,24 @@ function DashboardContent() {
                     <th className="pb-3">Balance Before</th>
                     <th className="pb-3">Balance After</th>
                     <th className="pb-3">Status</th>
-                    <th className="pb-3">Notes</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredTransactions.map((tx) => (
-                    <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 font-mono text-[11px] text-blue-600 dark:text-blue-400 font-semibold">
-                        {tx.transactionCode}
-                      </td>
-                      <td className="py-3.5 text-slate-500">
-                        {new Date(tx.createdAt).toLocaleString()}
-                      </td>
-                      <td className="py-3.5 font-semibold text-slate-900 dark:text-white">
-                        {tx.type.replace(/_/g, ' ')}
-                      </td>
-                      <td className={`py-3.5 font-bold ${tx.type.includes('IN') || tx.type.includes('RETURN') || tx.type === 'DEPOSIT' ? 'text-emerald-600' : 'text-slate-800 dark:text-slate-200'}`}>
-                        {tx.type.includes('OUT') || tx.type.includes('PURCHASE') || tx.type.includes('WITHDRAWAL') ? '-' : '+'}${parseFloat(tx.amount).toFixed(2)} {tx.currency}
-                      </td>
-                      <td className="py-3.5 font-mono text-slate-500">
-                        ${parseFloat(tx.balanceBefore).toFixed(2)}
-                      </td>
-                      <td className="py-3.5 font-mono font-semibold text-slate-700 dark:text-slate-300">
-                        ${parseFloat(tx.balanceAfter).toFixed(2)}
-                      </td>
-                      <td className="py-3.5">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${tx.status === 'COMPLETED' ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600' : 'bg-amber-100 dark:bg-amber-950 text-amber-600'}`}>
+                    <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className="py-3 font-mono font-bold text-emerald-600">{tx.transactionCode}</td>
+                      <td className="py-3 text-slate-500">{new Date(tx.createdAt).toLocaleString()}</td>
+                      <td className="py-3 font-bold">{tx.type.replace(/_/g, ' ')}</td>
+                      <td className="py-3 font-mono font-bold">${parseFloat(tx.amount).toFixed(2)}</td>
+                      <td className="py-3 font-mono text-slate-500">${parseFloat(tx.balanceBefore).toFixed(2)}</td>
+                      <td className="py-3 font-mono font-bold">${parseFloat(tx.balanceAfter).toFixed(2)}</td>
+                      <td className="py-3">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
                           {tx.status}
                         </span>
                       </td>
-                      <td className="py-3.5 text-slate-500 max-w-xs truncate">
-                        {tx.notes || '-'}
-                      </td>
                     </tr>
                   ))}
-                  {filteredTransactions.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">
-                        No transactions found matching your criteria.
-                      </td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             </div>
@@ -837,151 +1012,228 @@ function DashboardContent() {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-bold">Withdrawal Requests & Settlements</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Processed during the monthly settlement window (~15 business days)</p>
+                <h3 className="text-xl font-bold">Withdrawal Queue & Settlement</h3>
+                <p className="text-xs text-slate-500">Submitted on the 1st of each month with 15-day administrative processing</p>
               </div>
               <button
                 onClick={() => setWithdrawModalOpen(true)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-emerald-600 text-white shadow-md flex items-center gap-1.5"
               >
                 <ArrowUpRight className="w-4 h-4" />
-                Submit New Request
+                Request Settlement
               </button>
             </div>
 
-            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-semibold">
-                  <tr>
-                    <th className="pb-3">Request Code</th>
-                    <th className="pb-3">Date</th>
-                    <th className="pb-3">Type</th>
-                    <th className="pb-3">Amount</th>
-                    <th className="pb-3">Method</th>
-                    <th className="pb-3">Status</th>
-                    <th className="pb-3">Settlement Ref</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                  {withdrawals.map((w) => (
-                    <tr key={w.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 font-mono text-[11px] font-semibold text-blue-600">
-                        {w.requestCode}
-                      </td>
-                      <td className="py-3.5 text-slate-500">
-                        {new Date(w.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="py-3.5 font-semibold">
-                        {w.withdrawalType.replace(/_/g, ' ')}
-                      </td>
-                      <td className="py-3.5 font-bold text-slate-900 dark:text-white">
-                        ${parseFloat(w.amount).toFixed(2)} {w.currency}
-                      </td>
-                      <td className="py-3.5 text-slate-600 dark:text-slate-400">
-                        {w.payoutMethod.replace(/_/g, ' ')}
-                      </td>
-                      <td className="py-3.5">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                          w.status === 'SETTLED'
-                            ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600'
-                            : w.status === 'REJECTED'
-                            ? 'bg-red-100 dark:bg-red-950 text-red-600'
-                            : 'bg-amber-100 dark:bg-amber-950 text-amber-600'
-                        }`}>
-                          {w.status}
-                        </span>
-                      </td>
-                      <td className="py-3.5 font-mono text-slate-500">
-                        {w.settlementReference || 'Pending verification'}
-                      </td>
-                    </tr>
-                  ))}
-                  {withdrawals.length === 0 && (
+            {withdrawals.length === 0 ? (
+              <div className="p-12 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center text-slate-400 text-xs">
+                No withdrawal requests on record.
+              </div>
+            ) : (
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-semibold">
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
-                        No withdrawal requests submitted.
-                      </td>
+                      <th className="pb-3">Request Code</th>
+                      <th className="pb-3">Type</th>
+                      <th className="pb-3">Amount</th>
+                      <th className="pb-3">Payout Rail</th>
+                      <th className="pb-3">Status</th>
+                      <th className="pb-3">Date</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {withdrawals.map((w) => (
+                      <tr key={w.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="py-3 font-mono font-bold text-amber-600">{w.requestCode}</td>
+                        <td className="py-3 font-bold">{w.withdrawalType.replace(/_/g, ' ')}</td>
+                        <td className="py-3 font-mono font-bold">${parseFloat(w.amount).toFixed(2)}</td>
+                        <td className="py-3">{w.payoutMethod.replace(/_/g, ' ')}</td>
+                        <td className="py-3">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                            {w.status}
+                          </span>
+                        </td>
+                        <td className="py-3 text-slate-400">{new Date(w.createdAt).toLocaleDateString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* P2P & SAVED PAYEES TAB */}
+        {activeTab === 'p2p' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold">Internal P2P Transfers & Saved Payees</h3>
+                <p className="text-xs text-slate-500">Send available balance instantly using Avora Account Number or registered email</p>
+              </div>
+              <button
+                onClick={() => setP2PModalOpen(true)}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center gap-2"
+              >
+                <Send className="w-4 h-4" />
+                New Transfer
+              </button>
+            </div>
+
+            {/* Saved Payees Card */}
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div className="flex items-center gap-2">
+                <Bookmark className="w-4 h-4 text-emerald-600" />
+                <h4 className="text-sm font-bold">Saved Payees Directory</h4>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {savedPayees.map((payee) => (
+                  <div
+                    key={payee.id}
+                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-center justify-between"
+                  >
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white">{payee.name}</div>
+                      <div className="text-[11px] font-mono text-slate-400">{payee.accountNumber || payee.identifier}</div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setP2PRecipientInput(payee.accountNumber || payee.identifier);
+                        setP2PModalOpen(true);
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-600 text-white hover:bg-emerald-700"
+                    >
+                      Send
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SUPPORT TICKETS TAB */}
+        {activeTab === 'support' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold">Institutional Helpdesk & Support Tickets</h3>
+                <p className="text-xs text-slate-500">Raise tickets for trade disputes, KYC, or payout queries with our sub-admin team</p>
+              </div>
+              <button
+                onClick={() => setTicketModalOpen(true)}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 dark:bg-emerald-600 text-white shadow-md flex items-center gap-2"
+              >
+                <PlusCircle className="w-4 h-4" />
+                Raise Support Ticket
+              </button>
+            </div>
+
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              {tickets.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs">
+                  No open support tickets. Raise a ticket if you need assistance with trades or account verification.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {tickets.map((t) => (
+                    <div
+                      key={t.id}
+                      className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs">{t.subject}</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            {t.type}
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          {t.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{t.message}</p>
+                      {t.adminNotes && (
+                        <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-[11px] text-blue-700 dark:text-blue-300">
+                          <span className="font-bold">Desk Response: </span> {t.adminNotes}
+                        </div>
+                      )}
+                      <div className="text-[10px] text-slate-400 pt-1">
+                        Submitted: {new Date(t.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {/* SECURITY & 2FA TAB */}
         {activeTab === 'security' && (
-          <div className="max-w-3xl space-y-6">
+          <div className="space-y-6">
             <div>
-              <h3 className="text-xl font-bold">Security & Financial Safeguards</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Protect your investment portfolio, credentials, and withdrawal access</p>
+              <h3 className="text-xl font-bold">Security & Financial Risk Controls</h3>
+              <p className="text-xs text-slate-500">Manage TOTP two-factor authentication and withdrawal safety locks</p>
             </div>
 
-            {/* 2FA Card */}
-            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-              <div className="flex items-start justify-between">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Card 1: 2FA */}
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
                 <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${user?.twoFactorEnabled ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600' : 'bg-amber-50 dark:bg-amber-950 text-amber-600'}`}>
-                    <ShieldCheck className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
+                    <QrCode className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm">Two-Factor Authentication (TOTP)</h4>
-                    <p className="text-xs text-slate-500">
-                      {user?.twoFactorEnabled
-                        ? 'Active: Authenticator required for login, withdrawals, and P2P transfers.'
-                        : 'Inactive: Secure your account against credential theft with Google Authenticator or Authy.'}
-                    </p>
+                    <h4 className="text-sm font-bold">Two-Factor Authentication (TOTP)</h4>
+                    <p className="text-xs text-slate-500">Google Authenticator or Authy</p>
                   </div>
                 </div>
+
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Enforces 6-digit cryptographic verification on withdrawals and internal P2P transfers.
+                </p>
+
                 {user?.twoFactorEnabled ? (
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-600">
-                    Enabled
-                  </span>
+                  <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    2FA is Active and Protecting Your Account
+                  </div>
                 ) : (
                   <button
                     onClick={handleStart2FASetup}
-                    className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                    className="w-full py-3 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-colors"
                   >
-                    Setup 2FA
+                    Configure Authenticator App
                   </button>
                 )}
               </div>
-            </div>
 
-            {/* Withdrawal Cooldown Card */}
-            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
-                  <Lock className="w-5 h-5" />
+              {/* Card 2: 24h Cooldown */}
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
+                    <Shield className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold">24-Hour Security Cooldown</h4>
+                    <p className="text-xs text-slate-500">Automated Account Hijack Defense</p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-bold text-sm">24-Hour Withdrawal Security Cooldown</h4>
-                  <p className="text-xs text-slate-500">
-                    Status: {user?.isWithdrawalLocked ? (
-                      <span className="text-amber-500 font-bold">Lock Engaged (Active)</span>
-                    ) : (
-                      <span className="text-emerald-500 font-bold">Normal (Unlocked)</span>
-                    )}
-                  </p>
+
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Whenever security credentials or passwords are updated, Avora Bank engages a mandatory 24-hour moratorium on outbound transfers to prevent account takeover.
+                </p>
+
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-xs text-slate-500">
+                  Status: {user?.isWithdrawalLocked ? (
+                    <span className="font-bold text-amber-500">Lock Active (Moratorium Engaged)</span>
+                  ) : (
+                    <span className="font-bold text-emerald-500">Clear • Standard Payout Window</span>
+                  )}
                 </div>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Whenever your password or security credentials are changed or reset, Nexis automatically enforces a 24-hour moratorium on outbound fund movements to prevent malicious account takeovers.
-              </p>
-            </div>
-
-            {/* Password Change Card */}
-            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <h4 className="font-bold text-sm">Account Password</h4>
-                <p className="text-xs text-slate-500">Update your platform access credentials regularly</p>
-              </div>
-              <Link
-                href="/change-password"
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors"
-              >
-                Change Password
-              </Link>
             </div>
           </div>
         )}
@@ -989,17 +1241,17 @@ function DashboardContent() {
       </div>
 
       {/* ========================================================================= */}
-      {/* MODAL: P2P TRANSFER */}
+      {/* MODAL: P2P TRANSFER (WITH SAFEGUARDS & ACCOUNT NUMBER) */}
       {/* ========================================================================= */}
       {p2pModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative">
             <button
               onClick={() => {
                 setP2PModalOpen(false);
+                setP2PPreview(null);
                 setP2PError(null);
                 setP2PSuccess(null);
-                setP2PPreview(null);
               }}
               className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white"
             >
@@ -1007,305 +1259,225 @@ function DashboardContent() {
             </button>
 
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
                 <Send className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold">Instant P2P Balance Transfer</h3>
-                <p className="text-xs text-slate-500">Zero fees between verified Nexis platform users</p>
+                <h3 className="text-lg font-black">Internal P2P Balance Transfer</h3>
+                <p className="text-xs text-slate-500">Zero fees between registered Avora Bank clients</p>
               </div>
             </div>
 
             {p2pSuccess && (
-              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300">
-                {p2pSuccess}
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{p2pSuccess}</span>
               </div>
             )}
 
             {p2pError && (
-              <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300">
-                {p2pError}
+              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{p2pError}</span>
               </div>
             )}
 
-            {/* Recipient Lookup Stage */}
-            <div className="space-y-4">
-              <label className="block text-xs font-semibold">1. Recipient Email or User ID</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="e.g. investor@gmail.com or UUID"
-                  value={p2pRecipientInput}
-                  onChange={(e) => setP2PRecipientInput(e.target.value)}
-                  className="flex-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleLookupRecipient}
-                  disabled={p2pLookupLoading || !p2pRecipientInput.trim()}
-                  className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
-                >
-                  {p2pLookupLoading ? 'Checking...' : 'Verify'}
-                </button>
-              </div>
-
-              {/* Recipient Preview Modal Safeguard */}
-              {p2pPreview && (
-                <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                      Recipient Confirmed
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700">
-                      Active
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-700 dark:text-slate-300">
-                    Transferring to: <span className="font-bold">{p2pPreview.fullName}</span> ({p2pPreview.emailMasked})
+            {!p2pPreview ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold mb-1.5">
+                    Recipient Account Number or Registered Email
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. AVR-7829-4102 or client@domain.com"
+                      value={p2pRecipientInput}
+                      onChange={(e) => setP2PRecipientInput(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
+                    />
+                    <button
+                      type="button"
+                      disabled={p2pLookupLoading || !p2pRecipientInput.trim()}
+                      onClick={handleLookupRecipient}
+                      className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 dark:bg-emerald-600 text-white shrink-0 disabled:opacity-50"
+                    >
+                      {p2pLookupLoading ? 'Checking...' : 'Verify'}
+                    </button>
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* Transfer Amount & Confirmation Stage */}
-            {p2pPreview && (
-              <form onSubmit={handleExecuteP2P} className="space-y-4">
+                {savedPayees.length > 0 && (
+                  <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <span className="text-[11px] font-semibold text-slate-400">Quick select from Saved Payees:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {savedPayees.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setP2PRecipientInput(p.accountNumber || p.identifier);
+                          }}
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-300 transition-colors"
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <form onSubmit={handleExecuteP2PTransfer} className="space-y-4">
+                <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/40 border border-emerald-500/30 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Recipient Verified:</span>
+                    <button
+                      type="button"
+                      onClick={() => setP2PPreview(null)}
+                      className="text-[10px] text-slate-500 underline"
+                    >
+                      Change
+                    </button>
+                  </div>
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">{p2pPreview.fullName}</div>
+                  <div className="text-xs font-mono text-slate-600 dark:text-slate-400">
+                    {p2pPreview.accountNumber ? `${p2pPreview.accountNumber} • ` : ''}{p2pPreview.emailMasked}
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-semibold mb-1.5">2. Amount (USD)</label>
+                  <label className="block text-xs font-bold mb-1.5">
+                    Amount to Send (USD)
+                  </label>
                   <input
                     type="number"
-                    step="any"
-                    placeholder="0.00"
+                    step="0.01"
+                    min="1"
+                    max="5000"
+                    placeholder="e.g. 500.00"
                     value={p2pAmount}
                     onChange={(e) => setP2PAmount(e.target.value)}
-                    max={usdBalance}
                     required
-                    className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-base font-bold"
                   />
-                  <div className="flex justify-between text-[11px] text-slate-500 mt-1">
-                    <span>Available: ${parseFloat(usdBalance).toFixed(2)} USD</span>
-                    <span>Daily velocity limit: $5,000.00 USD</span>
-                  </div>
+                  <span className="text-[10px] text-slate-400">Daily velocity limit: $5,000 USD/24h</span>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5">Optional Note</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Settlement for invoice"
-                    value={p2pNotes}
-                    onChange={(e) => setP2PNotes(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                {/* 2FA Step-up input if user has 2FA enabled */}
                 {user?.twoFactorEnabled && (
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5">
-                      3. Authenticator 2FA Code (Mandatory)
+                    <label className="block text-xs font-bold mb-1.5">
+                      6-Digit Two-Factor Authentication Code
                     </label>
                     <input
                       type="text"
                       maxLength={6}
-                      placeholder="6-digit code"
+                      placeholder="000000"
                       value={p2p2FACode}
                       onChange={(e) => setP2P2FACode(e.target.value)}
                       required
-                      className="w-full px-4 py-2.5 rounded-xl text-xs font-mono tracking-widest text-center border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-2.5 rounded-xl text-center text-sm font-mono tracking-widest border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
                     />
                   </div>
                 )}
 
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="savePayee"
+                    checked={savePayeeCheck}
+                    onChange={(e) => setSavePayeeCheck(e.target.checked)}
+                    className="rounded text-emerald-600"
+                  />
+                  <label htmlFor="savePayee" className="text-xs text-slate-600 dark:text-slate-400 cursor-pointer">
+                    Save recipient to Saved Payees directory
+                  </label>
+                </div>
+
                 <button
                   type="submit"
                   disabled={p2pTransferLoading || !p2pAmount}
-                  className="w-full py-3 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-colors shadow-md shadow-blue-500/20"
+                  className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 transition-colors shadow-md"
                 >
-                  {p2pTransferLoading ? 'Executing double-entry transfer...' : 'Confirm & Send Funds'}
+                  {p2pTransferLoading ? 'Executing double-entry transfer...' : `Confirm & Transfer $${p2pAmount || '0'} USD`}
                 </button>
               </form>
             )}
+
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: WITHDRAWAL REQUEST */}
+      {/* MODAL: SUPPORT TICKET */}
       {/* ========================================================================= */}
-      {withdrawModalOpen && (
+      {ticketModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative">
             <button
-              onClick={() => {
-                setWithdrawModalOpen(false);
-                setWthError(null);
-                setWthSuccess(null);
-              }}
-              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white"
+              onClick={() => setTicketModalOpen(false)}
+              className="absolute right-5 top-5 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
-                <ArrowUpRight className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold">Request Settlement / Withdrawal</h3>
-                <p className="text-xs text-slate-500">Processed during the monthly settlement window</p>
-              </div>
+            <div>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white">Raise Support Ticket</h3>
+              <p className="text-xs text-slate-500">Direct thread with Avora Bank operations and compliance sub-admins</p>
             </div>
 
-            {wthSuccess && (
-              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300">
-                {wthSuccess}
+            {ticketSuccess && (
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-xs text-emerald-700 dark:text-emerald-300 font-bold">
+                {ticketSuccess}
               </div>
             )}
 
-            {wthError && (
-              <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300">
-                {wthError}
-              </div>
-            )}
-
-            <form onSubmit={handleExecuteWithdrawal} className="space-y-4">
+            <form onSubmit={handleCreateTicket} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold mb-1.5">Withdrawal Type</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setWthType('MONTHLY_RETURNS')}
-                    className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${wthType === 'MONTHLY_RETURNS' ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/60 text-blue-600' : 'border-slate-200 dark:border-slate-800 text-slate-600'}`}
-                  >
-                    Monthly Returns
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWthType('PRINCIPAL_RELEASE')}
-                    className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${wthType === 'PRINCIPAL_RELEASE' ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/60 text-blue-600' : 'border-slate-200 dark:border-slate-800 text-slate-600'}`}
-                  >
-                    Matured Principal
-                  </button>
-                </div>
-              </div>
-
-              {wthType === 'PRINCIPAL_RELEASE' && (
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5">Select Matured Package</label>
-                  <select
-                    value={wthPackageId}
-                    onChange={(e) => setWthPackageId(e.target.value)}
-                    required
-                    className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                  >
-                    <option value="">Select Package</option>
-                    {packages.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.packageCode} (${parseFloat(p.amount).toFixed(2)}) - Matures: {new Date(p.lockInEnd).toLocaleDateString()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold mb-1.5">Amount (USD)</label>
-                <input
-                  type="number"
-                  step="any"
-                  placeholder="0.00"
-                  value={wthAmount}
-                  onChange={(e) => setWthAmount(e.target.value)}
-                  max={usdBalance}
-                  required
-                  className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                />
-                <span className="text-[11px] text-slate-500 mt-1 block">
-                  Available to withdraw: ${parseFloat(usdBalance).toFixed(2)} USD
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1.5">Payout Method</label>
+                <label className="block text-xs font-bold mb-1">Inquiry Category</label>
                 <select
-                  value={wthMethod}
-                  onChange={(e) => setWthMethod(e.target.value as any)}
-                  className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  value={newTicketType}
+                  onChange={(e) => setNewTicketType(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
                 >
-                  <option value="USDT_WALLET">USDT Crypto Wallet (TRC20 / ERC20)</option>
-                  <option value="BANK_TRANSFER">Bank Wire Transfer (USD / EUR / GEL)</option>
-                  <option value="CASH_PICKUP_TBILISI">Cash Pickup (Freedom Square, Tbilisi Office)</option>
+                  <option value="TRADE_DISPUTE">P2P Trade Dispute & Escrow</option>
+                  <option value="KYC_VERIFICATION">KYC Identity Verification</option>
+                  <option value="PAYOUT_QUERY">Settlement / Payout Query</option>
+                  <option value="VIRTUAL_CARD">Virtual Card & BaaS Inquiry</option>
+                  <option value="GENERAL">General Banking Inquiry</option>
                 </select>
               </div>
 
-              {wthMethod === 'USDT_WALLET' && (
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5">Your USDT Wallet Address</label>
-                  <input
-                    type="text"
-                    placeholder="0x... or T..."
-                    value={wthWalletAddress}
-                    onChange={(e) => setWthWalletAddress(e.target.value)}
-                    required
-                    className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="block text-xs font-bold mb-1">Subject</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Summary of issue"
+                  value={newTicketSubject}
+                  onChange={(e) => setNewTicketSubject(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
 
-              {wthMethod === 'BANK_TRANSFER' && (
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    placeholder="Bank Name"
-                    value={wthBankName}
-                    onChange={(e) => setWthBankName(e.target.value)}
-                    required
-                    className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                  />
-                  <input
-                    type="text"
-                    placeholder="IBAN / Account Number"
-                    value={wthIban}
-                    onChange={(e) => setWthIban(e.target.value)}
-                    required
-                    className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
-                  />
-                  <input
-                    type="text"
-                    placeholder="SWIFT / BIC Code"
-                    value={wthSwift}
-                    onChange={(e) => setWthSwift(e.target.value)}
-                    required
-                    className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
-                  />
-                </div>
-              )}
-
-              {user?.twoFactorEnabled && (
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5">
-                    Authenticator 2FA Code (Mandatory)
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    placeholder="6-digit code"
-                    value={wth2FACode}
-                    onChange={(e) => setWth2FACode(e.target.value)}
-                    required
-                    className="w-full px-4 py-2.5 rounded-xl text-xs font-mono tracking-widest text-center border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="block text-xs font-bold mb-1">Detailed Message</label>
+                <textarea
+                  rows={4}
+                  required
+                  placeholder="Provide transaction IDs or specific details..."
+                  value={newTicketMessage}
+                  onChange={(e) => setNewTicketMessage(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
 
               <button
                 type="submit"
-                disabled={wthLoading || !wthAmount}
-                className="w-full py-3 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-colors shadow-md shadow-blue-500/20"
+                disabled={ticketLoading}
+                className="w-full py-3 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-colors"
               >
-                {wthLoading ? 'Submitting request...' : 'Submit Withdrawal Request'}
+                {ticketLoading ? 'Submitting...' : 'Dispatch Ticket to Desk'}
               </button>
             </form>
           </div>
@@ -1317,7 +1489,7 @@ function DashboardContent() {
       {/* ========================================================================= */}
       {depositModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative">
             <button
               onClick={() => {
                 setDepositModalOpen(false);
@@ -1334,81 +1506,187 @@ function DashboardContent() {
                 <ArrowDownLeft className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold">Deposit Funds</h3>
-                <p className="text-xs text-slate-500">Fund your platform account with USDT or Bank Transfer</p>
+                <h3 className="text-lg font-black">Submit Account Deposit</h3>
+                <p className="text-xs text-slate-500">Fund your Avora ledger via USDT or Bank Wire</p>
               </div>
             </div>
 
             {depositSuccess && (
-              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300">
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-xs text-emerald-700 dark:text-emerald-300 font-bold">
                 {depositSuccess}
               </div>
             )}
 
             {depositError && (
-              <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300">
+              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950 text-xs text-rose-700 dark:text-rose-300">
                 {depositError}
               </div>
             )}
 
-            {/* Deposit Instructions Card */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
-              <div className="font-bold text-slate-800 dark:text-slate-200">USDT TRC-20 Official Deposit Address:</div>
-              <div className="font-mono text-[11px] p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 break-all select-all">
-                TYDzsPvybeSq1wH6p1sWkmqRjJqWJxePzM
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Send USDT to the address above, then submit the transaction hash below for verification.
-              </div>
-            </div>
-
-            <form onSubmit={handleExecuteDeposit} className="space-y-4">
+            <form onSubmit={handleDepositSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold mb-1.5">Amount</label>
-                <input
-                  type="number"
-                  step="any"
-                  placeholder="e.g. 5000"
-                  value={depositAmount}
-                  onChange={(e) => setDepositAmount(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1.5">Currency</label>
+                <label className="block text-xs font-bold mb-1">Deposit Currency</label>
                 <select
                   value={depositCurrency}
                   onChange={(e) => setDepositCurrency(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
                 >
-                  <option value="USDT">USDT</option>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="INR">INR</option>
-                  <option value="GEL">GEL</option>
+                  <option value="USDT">USDT (TRC-20 / ERC-20 / BEP-20)</option>
+                  <option value="USD">USD (Bank Wire SWIFT)</option>
+                  <option value="EUR">EUR (SEPA Instant)</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold mb-1.5">Transaction Hash or Reference</label>
+                <label className="block text-xs font-bold mb-1">Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="e.g. 5000"
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">Blockchain Tx Hash or Bank Wire Reference</label>
                 <input
                   type="text"
-                  placeholder="e.g. Blockchain TX hash or bank wire reference"
+                  required
+                  placeholder="e.g. 0x9a8f... or UTR-92841"
                   value={depositTxHash}
                   onChange={(e) => setDepositTxHash(e.target.value)}
-                  required
-                  className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={depositLoading || !depositAmount}
-                className="w-full py-3 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 transition-colors shadow-md shadow-emerald-500/20"
+                className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 transition-colors shadow-md"
               >
                 {depositLoading ? 'Submitting deposit...' : 'Submit Deposit for Verification'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: WITHDRAWAL */}
+      {/* ========================================================================= */}
+      {withdrawModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative">
+            <button
+              onClick={() => {
+                setWithdrawModalOpen(false);
+                setWthError(null);
+                setWthSuccess(null);
+              }}
+              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
+                <ArrowUpRight className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black">Request Withdrawal Settlement</h3>
+                <p className="text-xs text-slate-500">1st of month request window • 15-day processing</p>
+              </div>
+            </div>
+
+            {wthSuccess && (
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-xs text-emerald-700 dark:text-emerald-300 font-bold">
+                {wthSuccess}
+              </div>
+            )}
+
+            {wthError && (
+              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950 text-xs text-rose-700 dark:text-rose-300">
+                {wthError}
+              </div>
+            )}
+
+            <form onSubmit={handleWithdrawalSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold mb-1">Withdrawal Type</label>
+                <select
+                  value={wthType}
+                  onChange={(e) => setWthType(e.target.value as any)}
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value="MONTHLY_RETURNS">Monthly Yields Available</option>
+                  <option value="PRINCIPAL_RELEASE">Matured Package Principal</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">Payout Method</label>
+                <select
+                  value={wthMethod}
+                  onChange={(e) => setWthMethod(e.target.value as any)}
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                >
+                  <option value="USDT_WALLET">USDT Wallet (TRC-20)</option>
+                  <option value="BANK_TRANSFER">Bank Wire (SWIFT / SEPA)</option>
+                  <option value="CASH_PICKUP_TBILISI">Tbilisi Cash Pickup (Freedom Square - Open until 21:00 GCC)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">Amount (USD)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="e.g. 1000"
+                  value={wthAmount}
+                  onChange={(e) => setWthAmount(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
+                />
+              </div>
+
+              {wthMethod === 'USDT_WALLET' && (
+                <div>
+                  <label className="block text-xs font-bold mb-1">USDT Wallet Address</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="T..."
+                    value={wthWalletAddress}
+                    onChange={(e) => setWthWalletAddress(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
+                  />
+                </div>
+              )}
+
+              {user?.twoFactorEnabled && (
+                <div>
+                  <label className="block text-xs font-bold mb-1">6-Digit 2FA Code</label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={wth2FACode}
+                    onChange={(e) => setWth2FACode(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl text-center text-sm font-mono tracking-widest border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  />
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={wthLoading || !wthAmount}
+                className="w-full py-3.5 rounded-2xl font-bold text-xs bg-slate-900 dark:bg-emerald-600 text-white disabled:opacity-50 transition-colors shadow-md"
+              >
+                {wthLoading ? 'Queuing settlement...' : 'Submit Settlement Request'}
               </button>
             </form>
           </div>
@@ -1434,7 +1712,7 @@ function DashboardContent() {
             </button>
 
             <div className="text-center space-y-2">
-              <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center mx-auto">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center mx-auto">
                 <QrCode className="w-6 h-6" />
               </div>
               <h3 className="text-lg font-bold">Configure Authenticator App</h3>
@@ -1448,7 +1726,7 @@ function DashboardContent() {
             )}
 
             {twoFactorError && (
-              <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950 text-xs text-red-700 dark:text-red-300 text-center">
+              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950 text-xs text-rose-700 dark:text-rose-300 text-center">
                 {twoFactorError}
               </div>
             )}
@@ -1483,7 +1761,7 @@ function DashboardContent() {
               <button
                 type="submit"
                 disabled={twoFactorLoading || twoFactorInputCode.length !== 6}
-                className="w-full py-3 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-colors"
+                className="w-full py-3 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 transition-colors"
               >
                 {twoFactorLoading ? 'Verifying...' : 'Verify and Enable 2FA'}
               </button>

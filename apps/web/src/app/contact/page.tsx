@@ -95,15 +95,15 @@ export default function ContactPage() {
                 <Mail className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold text-slate-900 dark:text-white">Electronic Mail</p>
-                  <p className="text-xs text-slate-500 mt-0.5">contact@nexisplatform.com</p>
+                  <p className="text-xs text-slate-500 mt-0.5">desk@avorabank.com | settlement@avorabank.com</p>
                 </div>
               </div>
 
               <div className="flex items-start gap-3">
-                <Clock className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <Clock className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">Counter Working Hours</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Monday &ndash; Friday: 10:00 &ndash; 18:00 (GET / UTC+4)</p>
+                  <p className="font-semibold text-slate-900 dark:text-white">Tbilisi Counter Working Hours</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Open daily until 21:00 (9:00 PM) GCC time (GET / UTC+4)</p>
                 </div>
               </div>
             </div>

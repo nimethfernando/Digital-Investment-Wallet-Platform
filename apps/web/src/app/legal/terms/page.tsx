@@ -23,7 +23,7 @@ export default function TermsPage() {
         <section className="space-y-2">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">1. Acceptance of Terms</h2>
           <p>
-            By registering, depositing, or utilizing any services provided by Nexis Global, including digital investment packages, currency exchange desk, or peer-to-peer transfers, you agree to be bound by these Terms of Service.
+            By registering, depositing, or utilizing any services provided by Avora Bank, including digital investment packages, currency exchange desk, or peer-to-peer transfers, you agree to be bound by these Terms of Service.
           </p>
         </section>
 

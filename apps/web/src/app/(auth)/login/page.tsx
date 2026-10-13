@@ -51,11 +51,11 @@ export default function LoginPage() {
       <div className="max-w-md w-full p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
         
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center text-white font-bold text-xl mx-auto shadow-md">
-            N
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-slate-900 via-indigo-900 to-emerald-600 flex items-center justify-center text-white font-black text-xl mx-auto shadow-md border border-indigo-400/30">
+            A
           </div>
-          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white">
-            {requires2FA ? 'Two-Factor Challenge' : 'Sign In to Nexis'}
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white">
+            {requires2FA ? 'Two-Factor Challenge' : 'Sign In to Avora Bank'}
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {requires2FA

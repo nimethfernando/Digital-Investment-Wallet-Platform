@@ -21,13 +21,13 @@ export default function RiskDisclosurePage() {
           Comprehensive Risk Disclosure Policy
         </h1>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Last revised: October 2026 &bull; Nexis Global Platform Compliance Committee
+          Last revised: October 2026 &bull; Avora Bank Compliance Committee
         </p>
       </div>
 
       <div className="max-w-none text-sm text-slate-700 dark:text-slate-300 space-y-6 leading-relaxed">
         <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 font-medium">
-          CRITICAL NOTICE: Nexis Global does NOT offer "guaranteed returns", "risk-free" products, or "principal-protected" schemes. All figures cited (including the 1.0% monthly return benchmark) represent proposed and target returns subject to virtual asset market conditions, counterparties, and platform operational terms.
+          CRITICAL NOTICE: Avora Bank does NOT offer "guaranteed returns", "risk-free" products, or "principal-protected" schemes. All figures cited (including the 1.0% monthly return benchmark) represent proposed and target returns subject to virtual asset market conditions, counterparties, and platform operational terms.
         </div>
 
         <section className="space-y-2">

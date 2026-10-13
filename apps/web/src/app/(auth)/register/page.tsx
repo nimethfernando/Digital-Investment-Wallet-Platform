@@ -60,14 +60,14 @@ export default function RegisterPage() {
       <div className="max-w-lg w-full p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
         
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center text-white font-bold text-xl mx-auto shadow-md">
-            N
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-slate-900 via-indigo-900 to-emerald-600 flex items-center justify-center text-white font-black text-xl mx-auto shadow-md border border-indigo-400/30">
+            A
           </div>
-          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white">
-            Create an Investor Account
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white">
+            Open Avora Bank Account
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Activate your digital investment wallet and access structured capital packages.
+            Activate your digital investment wallet, receive your unique Account Number, and access structured capital packages.
           </p>
         </div>
 
