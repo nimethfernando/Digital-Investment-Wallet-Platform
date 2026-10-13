@@ -686,6 +686,164 @@ export class LedgerService {
       })),
     };
   }
+
+  /**
+   * Execute an instant real multi-currency swap between a user's wallet balances.
+   * Debits fromCurrency, credits toCurrency using real exchange rates.
+   * Records balanced double-entry ledger entries and transaction record.
+   */
+  async executeCurrencySwap(params: {
+    userId: string;
+    fromCurrency: string;
+    toCurrency: string;
+    fromAmount: string | number;
+    notes?: string;
+  }) {
+    const fromAmountDec = new Decimal(params.fromAmount.toString());
+    if (fromAmountDec.lessThanOrEqualTo(0)) {
+      throw new Error('Swap amount must be greater than zero');
+    }
+
+    if (params.fromCurrency === params.toCurrency) {
+      throw new Error('From and To currencies must be different');
+    }
+
+    // Determine exchange rate:
+    const pair = await prisma.exchangePair.findFirst({
+      where: {
+        OR: [
+          { baseCurrency: params.fromCurrency, quoteCurrency: params.toCurrency },
+          { baseCurrency: params.toCurrency, quoteCurrency: params.fromCurrency },
+        ],
+        isActive: true,
+      },
+    });
+
+    let effectiveRate: Decimal;
+    if (pair) {
+      if (pair.baseCurrency === params.fromCurrency) {
+        // e.g. USDT -> USD: rate is baseRate * (1 - sellMarginPct / 100)
+        const margin = new Decimal(pair.sellMarginPct.toString()).dividedBy(100);
+        effectiveRate = new Decimal(pair.baseRate.toString()).times(new Decimal(1).minus(margin));
+      } else {
+        // e.g. USD -> USDT: rate is 1 / (baseRate * (1 + buyMarginPct / 100))
+        const margin = new Decimal(pair.buyMarginPct.toString()).dividedBy(100);
+        const effectiveBase = new Decimal(pair.baseRate.toString()).times(new Decimal(1).plus(margin));
+        effectiveRate = new Decimal(1).dividedBy(effectiveBase);
+      }
+    } else {
+      // Default benchmark fallback rates
+      const rates: Record<string, number> = {
+        USD: 1.0,
+        USDT: 1.0,
+        EUR: 1.08,
+        GEL: 0.36,
+        INR: 0.012,
+      };
+      const fromUsd = rates[params.fromCurrency] || 1.0;
+      const toUsd = rates[params.toCurrency] || 1.0;
+      const spotRate = fromUsd / toUsd;
+      // 1.0% platform spread
+      effectiveRate = new Decimal((spotRate * 0.99).toFixed(6));
+    }
+
+    const toAmountDec = fromAmountDec.times(effectiveRate);
+    const idempotencyKey = `SWAP-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+
+    const wallet = await this.ensureWallet(params.userId);
+
+    return await prisma.$transaction(
+      async (tx) => {
+        // Lock both balance rows to prevent race conditions
+        const fromLocked = await this.lockWalletBalance(tx, wallet.id, params.fromCurrency);
+        const toLocked = await this.lockWalletBalance(tx, wallet.id, params.toCurrency);
+
+        const fromAvail = new Decimal(fromLocked.availableBalance.toString());
+        if (fromAvail.lessThan(fromAmountDec)) {
+          throw new Error(
+            `Insufficient ${params.fromCurrency} balance. Available: ${fromAvail.toFixed(2)} ${params.fromCurrency}, Required: ${fromAmountDec.toFixed(2)}`
+          );
+        }
+
+        const fromBalAfter = fromAvail.minus(fromAmountDec);
+        const toAvail = new Decimal(toLocked.availableBalance.toString());
+        const toBalAfter = toAvail.plus(toAmountDec);
+
+        // Update wallet balances
+        await tx.walletBalance.update({
+          where: { id: fromLocked.id },
+          data: { availableBalance: fromBalAfter.toFixed(8) },
+        });
+
+        await tx.walletBalance.update({
+          where: { id: toLocked.id },
+          data: { availableBalance: toBalAfter.toFixed(8) },
+        });
+
+        // Record double-entry ledger entries
+        const fromAccount = `USER_AVAILABLE_${params.fromCurrency}`;
+        const toAccount = `USER_AVAILABLE_${params.toCurrency}`;
+
+        await this.recordJournal(tx, {
+          idempotencyKey,
+          referenceType: JournalReferenceType.EXCHANGE_BUY,
+          referenceId: idempotencyKey,
+          notes: `Instant swap: ${fromAmountDec.toFixed(2)} ${params.fromCurrency} -> ${toAmountDec.toFixed(2)} ${params.toCurrency} (Rate: ${effectiveRate.toFixed(4)})`,
+          createdBy: params.userId,
+          entries: [
+            {
+              accountId: fromAccount,
+              userId: params.userId,
+              direction: 'DEBIT',
+              amount: fromAmountDec.toFixed(8),
+              currency: params.fromCurrency,
+            },
+            {
+              accountId: toAccount,
+              userId: params.userId,
+              direction: 'CREDIT',
+              amount: fromAmountDec.toFixed(8),
+              currency: params.fromCurrency,
+            },
+          ],
+        });
+
+        // Create user transaction record
+        const transactionCode = `TX-SWAP-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+        await tx.transaction.create({
+          data: {
+            transactionCode,
+            userId: params.userId,
+            type: TransactionType.EXCHANGE_BUY,
+            amount: toAmountDec.toFixed(8),
+            currency: params.toCurrency,
+            status: 'COMPLETED',
+            balanceBefore: toAvail.toFixed(8),
+            balanceAfter: toBalAfter.toFixed(8),
+            notes: `Swapped ${fromAmountDec.toFixed(2)} ${params.fromCurrency} for ${toAmountDec.toFixed(2)} ${params.toCurrency} at rate ${effectiveRate.toFixed(4)}`,
+          },
+        });
+
+        return {
+          success: true,
+          transactionCode,
+          fromCurrency: params.fromCurrency,
+          toCurrency: params.toCurrency,
+          fromAmount: fromAmountDec.toFixed(2),
+          toAmount: toAmountDec.toFixed(2),
+          rate: effectiveRate.toFixed(4),
+          balanceAfter: {
+            [params.fromCurrency]: fromBalAfter.toFixed(2),
+            [params.toCurrency]: toBalAfter.toFixed(2),
+          },
+        };
+      },
+      {
+        maxWait: 15000,
+        timeout: 30000,
+      }
+    );
+  }
 }
 
 export const ledgerService = new LedgerService();

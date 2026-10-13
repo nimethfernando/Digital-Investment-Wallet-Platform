@@ -722,10 +722,12 @@ function DashboardContent() {
             <RedotPayAppModule
               user={user}
               wallet={wallet}
+              transactions={transactions}
               onOpenDeposit={() => setDepositModalOpen(true)}
               onOpenWithdraw={() => setWithdrawModalOpen(true)}
               onOpenP2P={() => setP2PModalOpen(true)}
               onOpenPackages={() => setActiveTab('packages')}
+              onRefresh={fetchDashboardData}
             />
           </div>
         )}
@@ -884,6 +886,7 @@ function DashboardContent() {
             <VirtualCardModule
               cardHolderName={`${user?.firstName || 'Avora Client'} ${user?.lastName || ''}`.trim()}
               accountNumber={userAccountNumber}
+              onRefresh={fetchDashboardData}
             />
           </div>
         )}

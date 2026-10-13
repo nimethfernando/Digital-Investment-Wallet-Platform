@@ -201,6 +201,7 @@ model User {
   inquiries         Inquiry[]
   transactions      Transaction[]
   deposits          DepositRequest[]
+  virtualCard       VirtualCard?
 
   @@map("diw_users")
 }
@@ -597,4 +598,26 @@ model DepositRequest {
 
   @@index([userId, status])
   @@map("diw_deposits")
+}
+
+model VirtualCard {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardNumberMask String   @default("4820 •••• •••• 5320") @db.VarChar(30)
+  cardHolderName String   @db.VarChar(100)
+  expiryDate     String   @default("08/29") @db.VarChar(10)
+  cvvEncrypted   String?  @db.VarChar(255)
+  cardTheme      String   @default("redot") @db.VarChar(20)
+  cardNetwork    String   @default("visa") @db.VarChar(20)
+  isFrozen       Boolean  @default(false)
+  dailyLimit     Decimal  @default(10000.00) @db.Decimal(20, 2)
+  monthlyLimit   Decimal  @default(50000.00) @db.Decimal(20, 2)
+  onlineEnabled  Boolean  @default(true)
+  intlEnabled    Boolean  @default(true)
+  atmEnabled     Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("diw_virtual_cards")
 }

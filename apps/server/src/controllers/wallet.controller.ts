@@ -3,6 +3,7 @@ import { PrismaClient, TransactionType } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { ledgerService } from '../services/ledger.service';
 import { depositService } from '../services/deposit.service';
+import { cardService } from '../services/card.service';
 
 const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -145,6 +146,104 @@ export class WalletController {
       const userId = (req as any).user.id;
       const deposits = await depositService.getUserDeposits(userId);
       res.json({ success: true, data: deposits });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Execute an instant real multi-currency swap between wallet balances
+   */
+  async executeSwap(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const { fromCurrency, toCurrency, fromAmount } = req.body;
+
+      if (!fromCurrency || !toCurrency || !fromAmount) {
+        return res.status(400).json({
+          success: false,
+          message: 'fromCurrency, toCurrency, and fromAmount are required',
+        });
+      }
+
+      const result = await ledgerService.executeCurrencySwap({
+        userId,
+        fromCurrency,
+        toCurrency,
+        fromAmount,
+      });
+
+      res.json({
+        success: true,
+        message: `Successfully swapped ${result.fromAmount} ${result.fromCurrency} for ${result.toAmount} ${result.toCurrency}!`,
+        data: result,
+      });
+    } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get user's VirtualCard
+   */
+  async getCard(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const card = await cardService.getOrCreateCard(userId);
+      res.json({ success: true, data: card });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Freeze/Unfreeze card
+   */
+  async toggleCardFreeze(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const result = await cardService.toggleFreeze(userId);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update card limits
+   */
+  async updateCardLimits(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const { dailyLimit, monthlyLimit } = req.body;
+      const result = await cardService.updateLimits(userId, dailyLimit, monthlyLimit);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update card security settings
+   */
+  async updateCardSettings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const result = await cardService.updateSettings(userId, req.body);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get card transaction feed
+   */
+  async getCardTransactions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const transactions = await cardService.getCardTransactions(userId);
+      res.json({ success: true, data: transactions });
     } catch (err) {
       next(err);
     }

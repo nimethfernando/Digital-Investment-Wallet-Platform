@@ -436,7 +436,9 @@ export default function P2PPage() {
                       {ad.traderName}
                     </span>
                     {ad.isVerified && (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" title="Avora Verified Merchant" />
+                      <span title="Avora Verified Merchant" className="inline-flex">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      </span>
                     )}
                   </div>
 

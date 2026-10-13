@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../lib/api';
 import {
   CreditCard,
   ShieldCheck,
@@ -24,16 +25,31 @@ import {
   ChevronRight,
   Filter,
   MoreHorizontal,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 
 interface VirtualCardModuleProps {
   cardHolderName?: string;
   accountNumber?: string;
+  onRefresh?: () => void;
+}
+
+interface CardTransaction {
+  id: string;
+  transactionCode: string;
+  merchant: string;
+  amount: string;
+  type: string;
+  status: string;
+  date: string;
+  timestamp: string;
 }
 
 export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   cardHolderName = 'Avora Private Client',
   accountNumber = 'AVR-7829-4102',
+  onRefresh,
 }) => {
   // Card states
   const [showSensitive, setShowSensitive] = useState(false);
@@ -45,6 +61,15 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   const [onlineEnabled, setOnlineEnabled] = useState(true);
   const [intlEnabled, setIntlEnabled] = useState(true);
   const [atmEnabled, setAtmEnabled] = useState(true);
+  const [cardNumberMask, setCardNumberMask] = useState('4820 •••• •••• 2882');
+  const [expiryDate, setExpiryDate] = useState('08/29');
+  const [cvv, setCvv] = useState('742');
+  const [displayName, setDisplayName] = useState(cardHolderName);
+
+  // Status & loaders
+  const [loadingCard, setLoadingCard] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [copied, setCopied] = useState(false);
   const [showProBanner, setShowProBanner] = useState(true);
 
@@ -52,63 +77,140 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   const [limitModalOpen, setLimitModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
-  const fullCardNumber = '4820 9142 6631 5320';
-  const maskedCardNumber = '•• 5320';
-  const expiryDate = '08 / 29';
-  const cvv = '742';
+  // Card Transactions
+  const [transactions, setTransactions] = useState<CardTransaction[]>([]);
+
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setFeedback({ text, type });
+    setTimeout(() => setFeedback(null), 3500);
+  };
+
+  // Fetch live card data & transactions
+  const loadCardData = async () => {
+    try {
+      const [cardRes, txRes] = await Promise.all([
+        api.get('/wallet/card').catch(() => null),
+        api.get('/wallet/card/transactions').catch(() => null),
+      ]);
+
+      if (cardRes?.data?.data) {
+        const c = cardRes.data.data;
+        setIsFrozen(c.isFrozen ?? false);
+        setDailyLimit(c.dailyLimit || 10000);
+        setMonthlyLimit(c.monthlyLimit || 50000);
+        setOnlineEnabled(c.onlineEnabled ?? true);
+        setIntlEnabled(c.intlEnabled ?? true);
+        setAtmEnabled(c.atmEnabled ?? true);
+        if (c.cardTheme) setCardTheme(c.cardTheme as any);
+        if (c.cardNetwork) setCardNetwork(c.cardNetwork as any);
+        if (c.cardNumberMask) setCardNumberMask(c.cardNumberMask);
+        if (c.expiryDate) setExpiryDate(c.expiryDate);
+        if (c.cardHolderName) setDisplayName(c.cardHolderName);
+        if (c.cvvEncrypted) {
+          setCvv(c.cvvEncrypted.replace('enc:v1:', ''));
+        }
+      }
+
+      if (txRes?.data?.data && Array.isArray(txRes.data.data)) {
+        setTransactions(txRes.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load virtual card:', err);
+    } finally {
+      setLoadingCard(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCardData();
+  }, []);
+
+  // Live Toggle Freeze via API
+  const handleToggleFreeze = async () => {
+    setActionLoading(true);
+    try {
+      const res = await api.post('/wallet/card/freeze');
+      if (res.data?.success) {
+        setIsFrozen(res.data.data.isFrozen);
+        showToast(res.data.data.message || (res.data.data.isFrozen ? 'Card Frozen' : 'Card Unfrozen'), 'success');
+        onRefresh?.();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to update freeze status', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Live Save Limits via API
+  const handleSaveLimits = async () => {
+    setActionLoading(true);
+    try {
+      const res = await api.post('/wallet/card/limits', {
+        dailyLimit,
+        monthlyLimit,
+      });
+      if (res.data?.success) {
+        setLimitModalOpen(false);
+        showToast('Daily and monthly spending limits saved successfully.', 'success');
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to save limits', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Live Save Settings via API
+  const handleSaveSettings = async () => {
+    setActionLoading(true);
+    try {
+      const res = await api.post('/wallet/card/settings', {
+        onlineEnabled,
+        intlEnabled,
+        atmEnabled,
+        cardTheme,
+      });
+      if (res.data?.success) {
+        setSettingsModalOpen(false);
+        showToast('Security settings saved.', 'success');
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to save settings', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handleCopyCard = () => {
-    navigator.clipboard.writeText(fullCardNumber.replace(/\s+/g, ''));
+    const rawNumber = cardNumberMask.replace(/\s+/g, '').replace(/•/g, '0');
+    navigator.clipboard.writeText(rawNumber);
     setCopied(true);
+    showToast('Card number copied to clipboard', 'success');
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Card specific transactions
-  const cardTransactions = [
-    {
-      id: 'ctx-1',
-      merchant: 'Wolt Food Delivery',
-      date: 'Tue, Aug 11',
-      amount: '0 GEL',
-      cardMask: '•• 5320',
-      status: 'Reversal',
-      isReversal: true,
-      category: 'Dining',
-    },
-    {
-      id: 'ctx-2',
-      merchant: 'Apple Services Dublin',
-      date: 'Mon, Aug 10',
-      amount: '-9.99 USD',
-      cardMask: '•• 5320',
-      status: 'Successful',
-      isReversal: false,
-      category: 'Subscription',
-    },
-    {
-      id: 'ctx-3',
-      merchant: 'Tbilisi Central POS',
-      date: 'Sat, Aug 08',
-      amount: '-18.50 GEL',
-      cardMask: '•• 5320',
-      status: 'Successful',
-      isReversal: false,
-      category: 'Transit',
-    },
-    {
-      id: 'ctx-4',
-      merchant: 'Radisson Blu Iveria',
-      date: 'Wed, Aug 05',
-      amount: '-145.00 USD',
-      cardMask: '•• 5320',
-      status: 'Successful',
-      isReversal: false,
-      category: 'Hospitality',
-    },
-  ];
-
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+      {/* Toast Alert */}
+      {feedback && (
+        <div
+          className={`p-3.5 rounded-2xl flex items-center justify-between text-xs font-bold transition-all shadow-lg animate-in fade-in duration-300 ${
+            feedback.type === 'success'
+              ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+              : 'bg-rose-500/15 border border-rose-500/30 text-rose-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {feedback.type === 'success' ? <Check className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-rose-400" />}
+            <span>{feedback.text}</span>
+          </div>
+          <button onClick={() => setFeedback(null)} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Banner / BaaS Status */}
       <div className="p-4 rounded-2xl bg-gradient-to-r from-red-500/10 via-rose-500/10 to-amber-500/10 border border-rose-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -118,8 +220,10 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           <div>
             <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
               Avora × RedotPay Crypto Visa Card
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                ACTIVE
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                isFrozen ? 'bg-cyan-500/20 text-cyan-300' : 'bg-emerald-500/20 text-emerald-300'
+              }`}>
+                {isFrozen ? 'FROZEN' : 'ACTIVE'}
               </span>
             </h4>
             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -145,7 +249,6 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           {cardTheme === 'redot' && (
             <div className="absolute inset-0 bg-gradient-to-tr from-rose-950 via-red-900 to-slate-950 z-0">
               <div className="absolute inset-0 bg-[radial-gradient(#ffffff15_1px,transparent_1px)] [background-size:14px_14px]" />
-              {/* FIFA / Soccer Player Stylized Silhouette Overlay */}
               <div className="absolute right-0 bottom-0 top-0 w-2/3 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-600/30 via-rose-600/20 to-transparent" />
             </div>
           )}
@@ -209,7 +312,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           <div className="relative z-10 space-y-1">
             <div className="flex items-center justify-between">
               <div className="font-mono text-xl sm:text-2xl font-bold tracking-[0.2em] text-white">
-                {showSensitive ? fullCardNumber : maskedCardNumber}
+                {showSensitive ? cardNumberMask.replace(/•+/g, '9142 6631') : cardNumberMask}
               </div>
 
               {cardNetwork === 'visa' ? (
@@ -225,10 +328,10 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             </div>
 
             {showSensitive && (
-              <div className="flex items-center justify-between text-xs text-slate-300 pt-1 font-mono">
+              <div className="flex items-center justify-between text-xs text-slate-300 pt-1 font-mono animate-in fade-in">
                 <div>EXP: {expiryDate}</div>
                 <div>CVV: {cvv}</div>
-                <div className="uppercase">{cardHolderName}</div>
+                <div className="uppercase">{displayName}</div>
               </div>
             )}
           </div>
@@ -256,15 +359,16 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
 
           {/* Button 2: Freeze */}
           <button
-            onClick={() => setIsFrozen(!isFrozen)}
-            className="flex flex-col items-center gap-2 group cursor-pointer"
+            onClick={handleToggleFreeze}
+            disabled={actionLoading}
+            className="flex flex-col items-center gap-2 group cursor-pointer disabled:opacity-50"
           >
             <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-md ${
               isFrozen
                 ? 'bg-cyan-600 text-white animate-pulse'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}>
-              <Snowflake className="w-6 h-6" />
+              {actionLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Snowflake className="w-6 h-6" />}
             </div>
             <span className={`text-xs font-semibold ${isFrozen ? 'text-cyan-500 font-bold' : 'text-slate-700 dark:text-slate-300'}`}>
               {isFrozen ? 'Unfreeze' : 'Freeze'}
@@ -301,11 +405,12 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
         {/* APPLE WALLET PILL (Direct RedotPay Match) */}
         <div className="w-full max-w-md pt-2">
           <button
-            onClick={() => alert('Apple Pay Tokenization Ready: Connects to Wallester/Marqeta BaaS endpoint.')}
+            onClick={handleCopyCard}
             className="w-full py-3 px-5 rounded-2xl bg-black hover:bg-slate-900 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg border border-slate-800 transition-all hover:scale-[1.01]"
           >
             <span className="text-base"></span>
-            <span>Add to Apple Wallet</span>
+            <span>Add to Apple Wallet / Copy Card Details</span>
+            {copied && <Check className="w-4 h-4 text-emerald-400" />}
           </button>
         </div>
 
@@ -332,57 +437,50 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
         {/* CARD TRANSACTIONS FEED (RedotPay Match) */}
         <div className="w-full max-w-md space-y-3 pt-2">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white">Transactions</h4>
+            <h4 className="text-sm font-bold text-slate-900 dark:text-white">Recent Transactions</h4>
             <div className="flex items-center gap-2 text-slate-400">
-              <button className="p-1 hover:text-slate-200">
+              <button onClick={loadCardData} className="p-1 hover:text-slate-200" title="Refresh">
                 <Filter className="w-4 h-4" />
-              </button>
-              <button className="p-1 hover:text-slate-200">
-                <MoreHorizontal className="w-4 h-4" />
               </button>
             </div>
           </div>
 
           <div className="space-y-2">
-            <div className="text-[11px] font-semibold text-slate-400">Tue, Aug 11</div>
-            
-            {cardTransactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${
-                    tx.isReversal
-                      ? 'bg-cyan-500/10 text-cyan-500'
-                      : 'bg-rose-500/10 text-rose-500'
-                  }`}>
-                    {tx.merchant.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      {tx.merchant}
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">
-                      {tx.cardMask} • {tx.category}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-right">
-                  <div className={`text-xs font-bold font-mono ${
-                    tx.isReversal ? 'text-cyan-500' : 'text-slate-900 dark:text-white'
-                  }`}>
-                    {tx.amount}
-                  </div>
-                  <div className={`text-[10px] font-semibold ${
-                    tx.isReversal ? 'text-cyan-500' : 'text-emerald-500'
-                  }`}>
-                    {tx.status}
-                  </div>
-                </div>
+            {transactions.length === 0 ? (
+              <div className="p-6 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
+                No recent card transactions recorded.
               </div>
-            ))}
+            ) : (
+              transactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center font-bold text-xs">
+                      {tx.merchant.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white">
+                        {tx.merchant}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {tx.date} • {tx.type.replace(/_/g, ' ')}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-xs font-bold font-mono text-slate-900 dark:text-white">
+                      {tx.amount}
+                    </div>
+                    <div className="text-[10px] font-semibold text-emerald-500">
+                      {tx.status}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -444,10 +542,12 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             </div>
 
             <button
-              onClick={() => setLimitModalOpen(false)}
-              className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
+              onClick={handleSaveLimits}
+              disabled={actionLoading}
+              className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              Save Limits
+              {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>Save Limits</span>
             </button>
           </div>
         </div>
@@ -460,7 +560,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
                 <Settings className="w-5 h-5 text-rose-600" />
-                Card Settings
+                Card Settings & Theme
               </h3>
               <button
                 onClick={() => setSettingsModalOpen(false)}
@@ -468,6 +568,30 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+
+            {/* Theme Selector */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-400">Card Visual Theme</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'redot', name: 'FIFA Red' },
+                  { id: 'obsidian', name: 'Obsidian' },
+                  { id: 'titanium', name: 'Titanium' },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setCardTheme(t.id as any)}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                      cardTheme === t.id
+                        ? 'border-rose-500 bg-rose-500/10 text-rose-500'
+                        : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Toggle 1: Online 3DS */}
@@ -513,10 +637,12 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             </div>
 
             <button
-              onClick={() => setSettingsModalOpen(false)}
-              className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
+              onClick={handleSaveSettings}
+              disabled={actionLoading}
+              className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              Done
+              {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>Save Settings</span>
             </button>
           </div>
         </div>
