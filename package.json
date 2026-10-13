@@ -6,6 +6,16 @@
     "dev:server": "cd apps/server && npm run dev",
     "dev:web": "cd apps/web && npm run dev",
     "build:server": "cd apps/server && npm run build",
-    "build:web": "cd apps/web && npm run build"
+    "build:web": "cd apps/web && npm run build",
+    "build": "npm run build:server && npm run build:web",
+    "db:generate": "cd apps/server && npm run db:generate",
+    "db:push": "cd apps/server && npm run db:push",
+    "db:seed": "cd apps/server && npm run db:seed",
+    "test:ledger": "cd apps/server && npm run test:ledger",
+    "test:security": "cd apps/server && npx tsx tests/security_controls.test.ts",
+    "test:all": "npm run test:ledger && npm run test:security",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
   }
 }

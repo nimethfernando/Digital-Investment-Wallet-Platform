@@ -1,0 +1,44 @@
+services:
+  server:
+    build:
+      context: ./apps/server
+      dockerfile: Dockerfile
+    container_name: avora-api-dev
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=development
+      - PORT=5000
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=dev_jwt_secret_key_12345
+      - JWT_REFRESH_SECRET=dev_refresh_secret_key_12345
+      - CORS_ORIGIN=http://localhost:3000
+      - UPLOAD_DIR=./uploads
+    volumes:
+      - ./apps/server/uploads:/app/uploads
+    networks:
+      - avora-dev-net
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: avora-web-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - INTERNAL_API_URL=http://server:5000
+    depends_on:
+      - server
+    networks:
+      - avora-dev-net
+
+networks:
+  avora-dev-net:
+    name: avora-dev-net
+    driver: bridge
+

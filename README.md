@@ -1,91 +1,98 @@
-# Nexis Global - Digital Investment & Wallet Platform
+# Avora Bank - Institutional Digital Wealth & Liquidity Platform
 
-Nexis Global is a digital investment and fintech platform built with Next.js, Node.js, Express, Prisma ORM, and MariaDB. The platform features an immutable double-entry ledger, fixed-term digital investment packages with automated return distributions, an internal multi-currency wallet, a USDT/Fiat currency exchange desk with physical counter pickup options in Tbilisi, Georgia, and peer-to-peer (P2P) transfers.
+Avora Bank is an enterprise-grade digital wealth management and liquidity platform built with Next.js 15 Standalone, Node.js, Express, Prisma ORM, and MariaDB. The platform features an immutable double-entry ledger, fixed-term digital investment packages with automated return distributions, an internal multi-currency wallet with saved payees and unique account numbers, a multi-rail P2P crypto exchange, a GeCrypto-style OTC desk with physical counter pickup in Tbilisi, Georgia, and an integrated support ticketing desk.
 
 ---
 
 ## 📑 Table of Contents
-1. [Core Features](#-core-features)
-2. [Architecture & Design Principles](#-architecture--design-principles)
-3. [Tech Stack](#-tech-stack)
-4. [Project Structure](#-project-structure)
-5. [Getting Started](#-getting-started)
-   - [Prerequisites](#prerequisites)
-   - [Environment Variables](#environment-variables)
-   - [Installation & Setup](#installation--setup)
-   - [Running the Services](#running-the-services)
-6. [Testing the Ledger](#-testing-the-ledger)
-7. [API Endpoints Overview](#-api-endpoints-overview)
-8. [Compliance & Risk Guidelines](#-compliance--risk-guidelines)
-9. [License](#-license)
+1. [Platform Highlights & Core Pillars](#-platform-highlights--core-pillars)
+2. [Production Architecture](#-production-architecture)
+3. [Enterprise Security & Financial Risk Controls](#-enterprise-security--financial-risk-controls)
+4. [Tech Stack](#-tech-stack)
+5. [Project Structure](#-project-structure)
+6. [Getting Started (Local Development)](#-getting-started-local-development)
+7. [Production Deployment (Docker & PM2)](#-production-deployment-docker--pm2)
+8. [Automated Testing & Auditing](#-automated-testing--auditing)
+9. [Operations & Administration Runbooks](#-operations--administration-runbooks)
+10. [Documentation Index](#-documentation-index)
+11. [License](#-license)
 
 ---
 
-## 🚀 Core Features
+## 🚀 Platform Highlights & Core Pillars
 
-### 1. Digital Investment Packages
-- **Configurable Tiers**: Admin-configurable minimum (\$1,000) and maximum (\$10,000) thresholds per package. Users can purchase multiple independent packages.
-- **Fixed Lock-in & Proposed Returns**: 6-month minimum lock-in with a target monthly return rate (default 1.0%/month), calculated independently per package from purchase date.
-- **Automated Payout Engine**: Cron-driven monthly returns scheduler (`00:05` UTC on the 1st of each month) crediting wallet balances idempotently without double-credits.
-- **Deposit Flexibility**: Fund packages directly from existing wallet balances or via manual deposits (Bank Wire, USDT TRC-20, or Tbilisi cash counter) with receipt proof upload and administrative verification.
+### 1. Digital Investment Package Engine
+- **Principal Tiers**: USD $1,000 to USD $10,000 per package with independent tracking via unique Package IDs (`PKG-XXXXXX`).
+- **Target Yield**: Automatic 1.00% monthly yield calculation credited directly to client liquid wallet balances.
+- **6-Month Lock-in Period**: Automatic tracking from purchase date to maturity with operational rationale disclosures.
+- **Two-Stage Settlement**: Withdrawal requests open on the 1st of each calendar month, entering a 15-day administrative review queue.
 
-### 2. Wallet & Immutable Double-Entry Ledger
-- **Multi-Currency Support**: Base currency in USD, structured for multi-currency handling (USD, USDT, EUR, INR, GEL).
-- **Strict Double-Entry Bookkeeping**: Every transaction requires balanced journal entries ($\sum \text{Debits} == \sum \text{Credits}$).
-- **Concurrency & Integrity Safeguards**: Row-level locking (`SELECT ... FOR UPDATE`) prevents race conditions and negative balances under simultaneous operations.
-- **Idempotency Keys**: All financial operations require unique idempotency keys to eliminate duplicate credits or debits.
-- **Reconciliation Engine**: Admin audit tool verifying net-zero balances across all chart-of-accounts and wallet liability parity.
+### 2. Internal Wallet & Double-Entry Ledger
+- **Mathematical Invariant**: Fully self-hosted double-entry ledger where $\sum \text{Debits} \equiv \sum \text{Credits}$ at all times.
+- **Unique Account Numbers**: Every investor is assigned a formatted account number (`AVR-XXXX-XXXX`) for internal P2P transfers.
+- **Saved Payees Directory**: Instant transfers to frequent contacts with recipient preview modal and email masking (`a***n@domain`).
+- **Multi-Currency Balances**: Real-time tracking of USD, USDT, EUR, INR, and GEL balances.
 
-### 3. Currency & USDT Exchange Desk (GeCrypto-Style)
-- **Supported Pairs**: USDT $\leftrightarrow$ USD, EUR, INR, GEL.
-- **Transparent Fee Structure**: Configurable spread margins and base rates with live conversion calculation.
-- **Multiple Settlement Channels**: Bank transfer, platform wallet balance, or cash pickup at our counter in Tbilisi, Georgia.
+### 3. P2P Crypto Exchange & Marketplace
+- **Order Board**: Binance/RedotPay-style peer-to-peer trading board for USDT buy/sell offers.
+- **Country-Specific Rails**: 10 pre-configured country rails (India: UPI/IMPS; UAE: AED Bank Transfer; Bahrain: BenefitPay; Georgia: Bank of Georgia/TBC; UK: Faster Payments; EU: SEPA; USA: Wire/ACH; Turkey: Papara; Nigeria: Bank Transfer; Philippines: GCash) with a "Request Your Country" intake form.
+- **Automated Escrow**: Crypto locked in `P2P_ESCROW_USDT` until fiat receipt is confirmed.
+- **Sponsored Ads**: VIP placement highlighting ads at the top of the trading board.
 
-### 4. Public Web Portal & CMS
-- **Responsive Next.js 15 UI**: Mobile-first design inspired by modern fintech leaders (Wise, Revolut, Trust Wallet).
-- **Multilingual (i18n)**: Native language support for English (`en`), Georgian (`ka`), and Hindi (`hi`).
-- **Accessible Theming**: WCAG AA compliant Light and Dark mode toggle.
-- **Compliance-Safe Copy**: Strictly enforces legally compliant terminology ("proposed / target return", "market risk disclosures") across all user touchpoints.
+### 4. GeCrypto-Style OTC Desk & Physical Tbilisi Counter
+- **Direct Conversions**: Instant quotes between USDT and USD, EUR, INR, GEL with configurable admin spreads (e.g. 1.0%–1.5%).
+- **Physical Cash Counter**: Chavchavadze Ave 37M, Tbilisi 0162, Georgia. Counter open 10:00–18:00 GET, desk open until 21:00 GCC time for Middle Eastern clientele.
+
+### 5. Virtual Card Module (Placeholder UI)
+- **Luxury Obsidian/Gold Card**: Masked PAN, CVV flip, freeze toggle, and limit slider ($1k–$25k), ready for BaaS integration (Wallester / Marqeta).
+
+### 6. Support Ticketing Helpdesk
+- **Integrated Helpdesk**: Users can submit and track support tickets directly in their dashboard with sub-admin responses.
 
 ---
 
-## 🏛 Architecture & Design Principles
+## 🏛 Production Architecture
 
 ```mermaid
 flowchart TD
-    Client["Next.js Web Frontend (Port 3000)"]
-    API["Express REST API (Port 5000)"]
+    Client["Clients / Mobile Web / Admin"]
+    Proxy["Nginx Reverse Proxy (Port 80/443)"]
+    Web["Next.js 15 Standalone Portal (Port 3000)"]
+    API["Express API Cluster (Port 5000)"]
     DB[(MariaDB / MySQL InnoDB)]
-    Cron["Returns Cron Job (node-cron)"]
+    Cron["Yields Cron Job"]
+    Volume[("Uploads Volume (KYC & Proofs)")]
 
-    subgraph Adapters ["Provider-Agnostic Adapters"]
-        Notif["NotificationProvider (SMTP/Nodemailer)"]
-        Payment["PaymentProvider (Wire, USDT, Tbilisi)"]
-        Settlement["SettlementProvider (Payout Queue)"]
-        Kyc["KycProvider (Manual Review)"]
-        Rate["RateFeedProvider (Configurable Margins)"]
-    end
-
-    Client -->|HTTP / JSON| API
-    API --> Adapters
-    API -->|Prisma ORM (Transactions & Locks)| DB
-    Cron -->|Monthly Payouts| API
+    Client -->|HTTPS| Proxy
+    Proxy -->|/_next, /| Web
+    Proxy -->|/api/v1/| API
+    Proxy -->|/uploads/| Volume
+    API -->|Prisma ACID| DB
+    Cron -->|1st of Month| API
 ```
 
-- **Provider-Agnostic Isolation**: External dependencies (Email, Blockchain, KYC, Payments, Settlement) sit behind strict adapter interfaces (`apps/server/src/adapters/`). Swapping a third-party vendor requires zero changes to core ledger or wallet logic.
-- **Safe Namespace Partitioning**: All database models use the `diw_` prefix (`diw_users`, `diw_wallets`, `diw_ledger_entries`, etc.) to safely coexist in shared database environments.
-- **Financial Precision**: All monetary values are handled using `DECIMAL(20, 8)` in the database and arbitrary-precision math (`decimal.js`) in code to eliminate floating-point rounding errors.
+---
+
+## 🔒 Enterprise Security & Financial Risk Controls
+
+| Control | Implementation | Purpose |
+| :--- | :--- | :--- |
+| **Server-Side Credentials** | Deep `.env` isolation | Zero client-side API keys or secrets exposure |
+| **Two-Factor Authentication** | RFC 6238 TOTP with QR code | Mandatory for Admins; protects withdrawals & transfers |
+| **Withdrawal Cooldown** | 24–48h lock on password change | Prevents wallet drain upon account takeover |
+| **P2P Safeguards** | Velocity limit ($5,000/day) & preview | Blocks self-transfers and typo errors |
+| **DDoS Rate Limiting** | Nginx zones + Express rate-limiter | Anti-brute-force on authentication and sensitive routes |
 
 ---
 
 ## 🛠 Tech Stack
 
-- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, Lucide Icons
-- **Backend**: Node.js, Express, TypeScript, Prisma ORM
-- **Database**: MariaDB / MySQL InnoDB (Foreign keys, transactional ACID guarantees)
-- **Email & Alerts**: Nodemailer (SMTP)
-- **Math Precision**: Decimal.js (28-digit precision)
-- **Task Scheduling**: Node-cron
+- **Frontend**: Next.js 15 Standalone (App Router), React 19, TypeScript, Tailwind CSS, Lucide Icons
+- **Backend**: Node.js 20, Express, TypeScript, Prisma ORM 6
+- **Database**: MariaDB / MySQL InnoDB with row-level locking (`SELECT ... FOR UPDATE`)
+- **Containerization**: Multi-stage Docker, Alpine Linux, dumb-init
+- **Reverse Proxy**: Nginx 1.27 with Gzip, rate-limiting, and security headers
+- **Process Manager**: PM2 Cluster Mode
 
 ---
 
@@ -94,171 +101,126 @@ flowchart TD
 ```text
 Digital-Investment-Wallet-Platform/
 ├── apps/
-│   ├── server/                         # Backend Express API & Engine
+│   ├── server/                         # Backend Express API & Accounting Engine
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma           # Prisma schema (diw_* models)
-│   │   │   └── seed.ts                 # Idempotent seed script
+│   │   │   ├── schema.prisma           # Complete database schema (diw_* tables)
+│   │   │   └── seed.ts                 # Idempotent database seeder
 │   │   ├── src/
-│   │   │   ├── adapters/               # Provider-agnostic adapters
-│   │   │   │   ├── blockchain/
-│   │   │   │   ├── kyc/
-│   │   │   │   ├── notification/
-│   │   │   │   ├── payment/
-│   │   │   │   ├── rate-feed/
-│   │   │   │   └── settlement/
-│   │   │   ├── config/                 # Environment & app configuration
-│   │   │   ├── controllers/            # Request handlers (auth, wallet, pkg, admin, cms)
-│   │   │   ├── middleware/             # JWT auth, role guards, error handling
-│   │   │   ├── routes/                 # Express routers
-│   │   │   └── services/               # Core domain logic
-│   │   │       ├── auth.service.ts
-│   │   │       ├── deposit.service.ts
-│   │   │       ├── ledger.service.ts   # Double-entry ledger & row locks
-│   │   │       ├── package.service.ts  # Investment package logic
-│   │   │       └── returns.job.ts      # Monthly returns background engine
-│   │   └── tests/
-│   │       └── ledger.test.ts          # Ledger integrity & concurrency test suite
+│   │   │   ├── adapters/               # Pluggable service providers
+│   │   │   ├── controllers/            # API request handlers
+│   │   │   ├── middleware/             # Auth, role guards, rate limiters
+│   │   │   ├── routes/                 # Express routing
+│   │   │   └── services/               # Ledger, packages, p2p, withdrawals
+│   │   ├── tests/                      # Automated test suites
+│   │   └── Dockerfile                  # Multi-stage production container
 │   │
-│   └── web/                            # Frontend Next.js 15 Application
-│       ├── public/                     # Static assets
-│       └── src/
-│           ├── app/                    # Next.js App Router pages
-│           │   ├── (auth)/             # Login, register, forgot/change password
-│           │   ├── about/              # Leadership & company profile
-│           │   ├── contact/            # Inquiry forms & direct SMTP routing
-│           │   ├── exchange/           # USDT/Fiat exchange desk
-│           │   ├── how-it-works/       # 4-step investor walkthrough
-│           │   ├── legal/              # Terms, privacy, AML, risk disclosure
-│           │   ├── p2p/                # Peer-to-peer transfer portal
-│           │   ├── packages/           # Investment packages allocator
-│           │   └── security/           # Architecture & custody overview
-│           ├── components/             # Reusable UI (Header, Footer, modals)
-│           ├── context/                # Auth, Theme, and Language Contexts
-│           └── locales/                # Dictionaries (en.json, ka.json, hi.json)
+│   └── web/                            # Next.js 15 Standalone Web Portal
+│       ├── public/                     # Brand logos, icons, brochures
+│       ├── src/
+│       │   ├── app/                    # 22 prerendered static & dynamic routes
+│       │   ├── components/             # Virtual Card, Modals, Navigation
+│       │   ├── context/                # Auth, Theme, Language
+│       │   └── locales/                # Multi-language dictionaries (en, ka, hi)
+│       └── Dockerfile                  # Standalone Next.js container (~150MB)
 │
-├── .env.example                        # Template environment variables
-├── .gitignore                          # Root ignore rules
-└── package.json                        # Root workspace configuration
+├── docs/                               # Institutional Documentation
+│   ├── ARCHITECTURE.md                 # System architecture & ledger invariant
+│   ├── DEPLOYMENT_GUIDE.md             # Production VPS / Docker deployment
+│   ├── ADMIN_GUIDE.md                  # Administrator operations runbook
+│   └── COMPLIANCE_AND_SECURITY.md      # Regulatory compliance (FATF, NBG)
+│
+├── nginx/
+│   └── nginx.conf                      # Production reverse proxy config
+├── scripts/
+│   ├── deploy.sh                       # Zero-downtime deployment script
+│   ├── backup-db.sh                    # Hot transactional database backup
+│   └── health-check.sh                 # Liveness & ledger balance verifier
+├── docker-compose.yml                  # Production multi-container orchestration
+├── docker-compose.dev.yml              # Local containerized development
+├── ecosystem.config.js                 # PM2 cluster mode configuration
+└── package.json                        # Root orchestration scripts
 ```
 
 ---
 
-## ⚡ Getting Started
+## ⚡ Getting Started (Local Development)
 
-### Prerequisites
-- **Node.js**: v18.18+ or v20+
-- **npm** or **pnpm**
-- **MariaDB / MySQL**: Running with InnoDB engine
+### 1. Prerequisites
+- Node.js >= 20.x
+- MariaDB / MySQL with InnoDB
 
-### Environment Variables
-Copy `.env.example` into `apps/server/.env`:
-
-```bash
-cp .env.example apps/server/.env
-```
-
-Configure the following variables in `apps/server/.env`:
+### 2. Configure Environment
+Ensure `.env` in the root workspace has:
 ```env
+DATABASE_URL="mysql://root:password@localhost:3306/avorabank"
+JWT_SECRET="your_cryptographic_jwt_secret"
+JWT_REFRESH_SECRET="your_cryptographic_refresh_secret"
 PORT=5000
-NODE_ENV=development
-JWT_SECRET=your-secure-jwt-secret-min-32-chars
-DATABASE_URL="mysql://user:password@localhost:3306/your_database"
-
-# Email Notifications (SMTP)
-EMAIL_HOST="smtp.gmail.com"
-EMAIL_PORT=587
-EMAIL_USER="your-email@gmail.com"
-EMAIL_PASS="your-app-password"
-EMAIL_FROM="Nexis Platform <no-reply@nexisplatform.com>"
 ```
 
-### Installation & Setup
-
-1. **Install dependencies**:
-   ```bash
-   # In apps/server
-   cd apps/server
-   npm install
-
-   # In apps/web
-   cd ../web
-   npm install
-   ```
-
-2. **Generate Prisma Client & Seed Database**:
-   ```bash
-   cd apps/server
-   npx prisma generate
-   npm run db:seed
-   ```
-
-### Running the Services
-
-- **Start Backend API** (Port 5000):
-  ```bash
-  cd apps/server
-  npm run dev
-  ```
-  API endpoint: `http://localhost:5000/api/v1`  
-  Health check: `http://localhost:5000/api/v1/health`
-
-- **Start Frontend Web App** (Port 3000):
-  ```bash
-  cd apps/web
-  npm run dev
-  ```
-  Web Portal: `http://localhost:3000`
-
----
-
-## 🧪 Testing the Ledger
-
-To run the automated test suite verifying double-entry equations, row-level locking, idempotency, and concurrency:
-
+### 3. Initialize Database & Seed
 ```bash
-cd apps/server
-npx tsx tests/ledger.test.ts
+npm run db:push
+npm run db:seed
 ```
 
-The test suite validates:
-1. Double-entry equation ($\sum \text{Debits} == \sum \text{Credits}$).
-2. Immediate rejection of unbalanced entries.
-3. Deposit verification and wallet crediting.
-4. Prevention of duplicate credits via idempotency keys.
-5. Investment package purchase and locked principal liability.
-6. Monthly return calculation and ledger distribution.
-7. Return idempotency for the same cycle.
-8. Concurrent debit protection (prevents negative balances under race conditions).
-9. System-wide ledger reconciliation check.
+### 4. Run Development Servers
+```bash
+# In Terminal 1 (API Server):
+npm run dev:server
+
+# In Terminal 2 (Next.js Frontend):
+npm run dev:web
+```
 
 ---
 
-## 📡 API Endpoints Overview
+## 🐳 Production Deployment (Docker & PM2)
 
-| Method | Endpoint | Description | Auth Required |
-|---|---|---|---|
-| `GET` | `/api/v1/health` | Service health status | No |
-| `POST` | `/api/v1/auth/register` | Register new investor account | No |
-| `POST` | `/api/v1/auth/login` | Authenticate investor / admin | No |
-| `GET` | `/api/v1/wallet` | Fetch user wallet balances | Yes (Bearer JWT) |
-| `GET` | `/api/v1/wallet/transactions`| Filterable transaction history (CSV export) | Yes (Bearer JWT) |
-| `POST` | `/api/v1/wallet/deposit` | Submit deposit with proof receipt | Yes (Bearer JWT) |
-| `GET` | `/api/v1/packages/tiers` | Get package configuration & rules | No |
-| `GET` | `/api/v1/packages` | List authenticated user packages | Yes (Bearer JWT) |
-| `POST` | `/api/v1/packages/purchase`| Purchase package (wallet or proof) | Yes (Bearer JWT) |
-| `GET` | `/api/v1/admin/packages` | Admin review list of all packages | Yes (Admin/Staff) |
-| `POST` | `/api/v1/admin/packages/:id/approve` | Approve and activate package | Yes (Admin/Staff) |
-| `POST` | `/api/v1/admin/deposits/:id/approve` | Approve deposit & credit ledger | Yes (Admin/Staff) |
-| `POST` | `/api/v1/admin/returns/run` | Trigger monthly returns distribution | Yes (Admin) |
-| `GET` | `/api/v1/admin/ledger/reconcile` | Verify ledger balance integrity | Yes (Admin) |
+### Option A: Docker Compose (One-Command Deployment)
+```bash
+docker compose up -d --build
+```
+This builds and launches the Nginx reverse proxy on port 80/443, the Express API on port 5000, and the standalone Next.js frontend on port 3000.
+
+### Option B: Native PM2 Cluster on Linux VPS
+```bash
+npm run build
+pm2 start ecosystem.config.js --env production
+pm2 save
+```
+
+### Option C: Automated Zero-Downtime Deployment
+```bash
+./scripts/deploy.sh
+```
 
 ---
 
-## ⚖️ Compliance & Risk Guidelines
+## 🧪 Automated Testing & Auditing
 
-- **Compliant Terminology**: All investor-facing copy uses "proposed / target return, subject to terms and market risk". Terms like "guaranteed returns", "risk-free", or "principal protected" are strictly restricted unless explicitly authorized by platform legal counsel.
-- **Risk Acknowledgement**: All package purchases require explicit user confirmation acknowledging market and operational risk disclosures.
-- **Audit Trails**: Every administrative action, package approval, and manual payout is recorded in `diw_admin_audit_logs`.
+Run all test suites with a single command:
+```bash
+npm run test:all
+```
+
+Or individually:
+```bash
+# 1. Double-Entry Ledger Invariant Suite (9/9 passing, Delta = $0.00):
+npm run test:ledger
+
+# 2. Security Controls Suite (14/14 passing: 2FA, 24h Cooldown, P2P Limits, Rate Limiters):
+npm run test:security
+```
+
+---
+
+## 📚 Documentation Index
+
+- [System Architecture](docs/ARCHITECTURE.md)
+- [Production Deployment Guide](docs/DEPLOYMENT_GUIDE.md)
+- [Administrator Operations Runbook](docs/ADMIN_GUIDE.md)
+- [Compliance & Security Policy](docs/COMPLIANCE_AND_SECURITY.md)
 
 ---
 
