@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import crypto from 'crypto';
 import { config } from '../config';
 import { notificationService } from '../adapters/notification/notification.provider';
+import { encryptAtRest, decryptAtRest } from '../utils/crypto';
 
 const prisma = new PrismaClient();
 
@@ -113,7 +114,8 @@ export class AuthService {
         throw new Error('2FA secret corrupted');
       }
 
-      const verified = authenticator.check(data.twoFactorCode, user.twoFactorSecret);
+      const plainSecret = decryptAtRest(user.twoFactorSecret);
+      const verified = authenticator.check(data.twoFactorCode, plainSecret);
       if (!verified) {
         throw new Error('Invalid 2FA authentication code');
       }
@@ -260,12 +262,13 @@ export class AuthService {
     if (!user) throw new Error('User not found');
 
     const secret = authenticator.generateSecret();
-    const otpauth = authenticator.keyuri(user.email, 'Nexis Platform', secret);
+    const otpauth = authenticator.keyuri(user.email, 'Avora Bank', secret);
     const qrCodeUrl = await QRCode.toDataURL(otpauth);
 
+    // Encrypt 2FA secret at rest using AES-256-GCM
     await prisma.user.update({
       where: { id: userId },
-      data: { twoFactorSecret: secret },
+      data: { twoFactorSecret: encryptAtRest(secret) },
     });
 
     return { secret, qrCodeUrl };
@@ -275,7 +278,8 @@ export class AuthService {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.twoFactorSecret) throw new Error('2FA setup not initiated. Please generate a 2FA secret first.');
 
-    const isValid = authenticator.check(code, user.twoFactorSecret);
+    const plainSecret = decryptAtRest(user.twoFactorSecret);
+    const isValid = authenticator.check(code, plainSecret);
     if (!isValid) throw new Error('Invalid Two-Factor Authentication (2FA) code');
 
     await prisma.user.update({
@@ -299,7 +303,8 @@ export class AuthService {
     if (!isValidPassword) throw new Error('Invalid password');
 
     if (!user.twoFactorSecret) throw new Error('2FA secret corrupted');
-    const isValidCode = authenticator.check(code, user.twoFactorSecret);
+    const plainSecret = decryptAtRest(user.twoFactorSecret);
+    const isValidCode = authenticator.check(code, plainSecret);
     if (!isValidCode) throw new Error('Invalid Two-Factor Authentication (2FA) code');
 
     await prisma.user.update({
@@ -332,7 +337,8 @@ export class AuthService {
       throw new Error('2FA configuration error. Please contact support.');
     }
 
-    const isValid = authenticator.check(code, user.twoFactorSecret);
+    const plainSecret = decryptAtRest(user.twoFactorSecret);
+    const isValid = authenticator.check(code, plainSecret);
     if (!isValid) {
       throw new Error('Invalid Two-Factor Authentication (2FA) code');
     }
