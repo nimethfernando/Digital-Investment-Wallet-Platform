@@ -1,0 +1,260 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.p2pService = exports.P2PService = void 0;
+exports.generateAvoraAccountNumber = generateAvoraAccountNumber;
+const client_1 = require("@prisma/client");
+const decimal_js_1 = __importDefault(require("decimal.js"));
+const prisma_1 = require("../lib/prisma");
+const ledger_service_1 = require("./ledger.service");
+const auth_service_1 = require("./auth.service");
+const notification_provider_1 = require("../adapters/notification/notification.provider");
+decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
+function generateAvoraAccountNumber(userId) {
+    let hash = 5381;
+    for (let i = 0; i < userId.length; i++) {
+        hash = ((hash << 5) + hash) + userId.charCodeAt(i);
+        hash |= 0;
+    }
+    const positive = Math.abs(hash).toString().padStart(8, '0');
+    return `AVR-${positive.slice(0, 4)}-${positive.slice(4, 8)}`;
+}
+class P2PService {
+    /**
+     * Recipient preview lookup for transfer confirmation modal
+     * Safeguards:
+     * 1. Blocks self-transfers
+     * 2. Masks recipient email for privacy
+     * 3. Confirms recipient exists and is active
+     * 4. Supports Account Number (AVR-XXXX-XXXX) or registered email
+     */
+    async lookupRecipient(senderUserId, identifier) {
+        const cleanId = identifier.trim();
+        if (!cleanId) {
+            throw new Error('Recipient Account Number or email is required');
+        }
+        let recipient = await prisma_1.prisma.user.findFirst({
+            where: {
+                OR: [
+                    { email: cleanId.toLowerCase() },
+                    { id: cleanId },
+                ],
+            },
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                status: true,
+                kycStatus: true,
+            },
+        });
+        if (!recipient && cleanId.toUpperCase().startsWith('AVR-')) {
+            const allUsers = await prisma_1.prisma.user.findMany({
+                select: { id: true, email: true, firstName: true, lastName: true, status: true, kycStatus: true },
+            });
+            recipient = allUsers.find((u) => generateAvoraAccountNumber(u.id) === cleanId.toUpperCase()) || null;
+        }
+        if (!recipient) {
+            throw new Error('Recipient not found. Please verify the Avora Account Number or email.');
+        }
+        if (recipient.id === senderUserId) {
+            throw new Error('Self-transfer is prohibited. You cannot transfer funds to your own account.');
+        }
+        if (recipient.status !== 'ACTIVE') {
+            throw new Error('Recipient account is not active or suspended.');
+        }
+        // Mask email for security/privacy (e.g. j***n@domain.com)
+        const emailParts = recipient.email.split('@');
+        const userPart = emailParts[0];
+        const domainPart = emailParts[1] || '';
+        let maskedUser = userPart;
+        if (userPart.length > 2) {
+            maskedUser = `${userPart[0]}***${userPart[userPart.length - 1]}`;
+        }
+        else {
+            maskedUser = `${userPart[0]}***`;
+        }
+        const emailMasked = `${maskedUser}@${domainPart}`;
+        const fullName = `${recipient.firstName || ''} ${recipient.lastName || ''}`.trim() || 'Verified User';
+        return {
+            recipientId: recipient.id,
+            emailMasked,
+            fullName,
+            accountNumber: generateAvoraAccountNumber(recipient.id),
+            kycStatus: recipient.kycStatus,
+        };
+    }
+    /**
+     * Execute instant internal P2P balance transfer
+     * Enforces:
+     * 1. 24h Security Cooldown after password reset/change
+     * 2. 2FA verification if sender has 2FA enabled
+     * 3. Self-transfer block
+     * 4. Daily velocity limit ($5,000 USD / 24h)
+     * 5. Atomic double-entry ledger debit & credit
+     */
+    async executeTransfer(senderUserId, params) {
+        const amountDec = new decimal_js_1.default(params.amount.toString());
+        const currency = params.currency || 'USD';
+        if (amountDec.lessThanOrEqualTo(0)) {
+            throw new Error('Transfer amount must be strictly greater than 0');
+        }
+        // 1. Enforce 24h credential update cooldown
+        await auth_service_1.authService.checkWithdrawalLock(senderUserId);
+        // 2. Enforce 2FA verification if sender has 2FA enabled
+        await auth_service_1.authService.verify2faForUser(senderUserId, params.twoFactorCode);
+        // 3. Lookup & validate recipient
+        const recipientLookup = await this.lookupRecipient(senderUserId, params.recipientIdentifier);
+        const recipient = await prisma_1.prisma.user.findUnique({
+            where: { id: recipientLookup.recipientId },
+        });
+        if (!recipient)
+            throw new Error('Recipient user not found');
+        const sender = await prisma_1.prisma.user.findUnique({
+            where: { id: senderUserId },
+        });
+        if (!sender)
+            throw new Error('Sender user not found');
+        // 4. Enforce Daily Velocity Limit (Default: $5,000 USD / 24 hours)
+        const dailyLimitSetting = await prisma_1.prisma.cmsSetting.findUnique({
+            where: { key: 'p2p_daily_limit_usd' },
+        });
+        const maxDailyLimit = new decimal_js_1.default(dailyLimitSetting?.value || '5000');
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const recentTransfers = await prisma_1.prisma.transaction.findMany({
+            where: {
+                userId: senderUserId,
+                type: client_1.TransactionType.P2P_TRANSFER_OUT,
+                status: client_1.TransactionStatus.COMPLETED,
+                createdAt: { gte: oneDayAgo },
+            },
+            select: { amount: true },
+        });
+        const dailyTransferred = recentTransfers.reduce((sum, tx) => sum.plus(new decimal_js_1.default(tx.amount.toString())), new decimal_js_1.default(0));
+        if (dailyTransferred.plus(amountDec).greaterThan(maxDailyLimit)) {
+            const remainingLimit = decimal_js_1.default.max(0, maxDailyLimit.minus(dailyTransferred));
+            throw new Error(`Daily P2P transfer velocity limit ($${maxDailyLimit.toFixed(2)} USD) exceeded. You have transferred $${dailyTransferred.toFixed(2)} in the last 24 hours. Remaining limit: $${remainingLimit.toFixed(2)}.`);
+        }
+        const referenceCode = `P2P-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+        const idempotencyKey = `P2P-XFER-${senderUserId}-${referenceCode}`;
+        // 5. Execute Atomic Double-Entry Ledger Transfer
+        const result = await prisma_1.prisma.$transaction(async (tx) => {
+            // Ensure both wallets
+            const senderWallet = await ledger_service_1.ledgerService.ensureWallet(senderUserId);
+            const recipientWallet = await ledger_service_1.ledgerService.ensureWallet(recipient.id);
+            // Row-level lock balances
+            const senderLockedBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, senderWallet.id, currency);
+            const recLockedBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, recipientWallet.id, currency);
+            const senderAvail = new decimal_js_1.default(senderLockedBal.availableBalance.toString());
+            const recAvail = new decimal_js_1.default(recLockedBal.availableBalance.toString());
+            if (senderAvail.lessThan(amountDec)) {
+                throw new Error(`Insufficient available balance ($${senderAvail.toFixed(2)} ${currency}). Requested: $${amountDec.toFixed(2)} ${currency}`);
+            }
+            const newSenderAvail = senderAvail.minus(amountDec);
+            const newRecAvail = recAvail.plus(amountDec);
+            // Update balances
+            await tx.walletBalance.update({
+                where: { id: senderLockedBal.id },
+                data: { availableBalance: newSenderAvail.toFixed(8) },
+            });
+            await tx.walletBalance.update({
+                where: { id: recLockedBal.id },
+                data: { availableBalance: newRecAvail.toFixed(8) },
+            });
+            // Record balanced double-entry journal: Debit Sender Liability, Credit Recipient Liability
+            await ledger_service_1.ledgerService.recordJournal(tx, {
+                idempotencyKey,
+                referenceType: client_1.JournalReferenceType.P2P_TRANSFER,
+                referenceId: referenceCode,
+                notes: params.notes || `P2P Transfer from ${sender.email} to ${recipient.email}`,
+                createdBy: senderUserId,
+                entries: [
+                    {
+                        accountId: 'USER_AVAILABLE_USD',
+                        userId: senderUserId,
+                        direction: 'DEBIT',
+                        amount: amountDec.toFixed(8),
+                        currency,
+                    },
+                    {
+                        accountId: 'USER_AVAILABLE_USD',
+                        userId: recipient.id,
+                        direction: 'CREDIT',
+                        amount: amountDec.toFixed(8),
+                        currency,
+                    },
+                ],
+            });
+            // Record sender transaction
+            await tx.transaction.create({
+                data: {
+                    transactionCode: `TX-OUT-${referenceCode}`,
+                    userId: senderUserId,
+                    type: client_1.TransactionType.P2P_TRANSFER_OUT,
+                    amount: amountDec.toFixed(8),
+                    currency,
+                    status: client_1.TransactionStatus.COMPLETED,
+                    balanceBefore: senderAvail.toFixed(8),
+                    balanceAfter: newSenderAvail.toFixed(8),
+                    settlementReference: referenceCode,
+                    createdBy: senderUserId,
+                    idempotencyKey: `${idempotencyKey}-OUT`,
+                    notes: `Sent to ${recipientLookup.fullName} (${recipientLookup.emailMasked}). Note: ${params.notes || 'None'}`,
+                },
+            });
+            // Record recipient transaction
+            await tx.transaction.create({
+                data: {
+                    transactionCode: `TX-IN-${referenceCode}`,
+                    userId: recipient.id,
+                    type: client_1.TransactionType.P2P_TRANSFER_IN,
+                    amount: amountDec.toFixed(8),
+                    currency,
+                    status: client_1.TransactionStatus.COMPLETED,
+                    balanceBefore: recAvail.toFixed(8),
+                    balanceAfter: newRecAvail.toFixed(8),
+                    settlementReference: referenceCode,
+                    createdBy: senderUserId,
+                    idempotencyKey: `${idempotencyKey}-IN`,
+                    notes: `Received from ${sender.firstName || 'Investor'} (${sender.email.split('@')[0]}***). Note: ${params.notes || 'None'}`,
+                },
+            });
+            return {
+                referenceCode,
+                amount: amountDec.toFixed(2),
+                currency,
+                recipient: recipientLookup,
+                balanceAfter: newSenderAvail.toFixed(2),
+            };
+        }, { timeout: 30000, maxWait: 10000 });
+        // 6. Asynchronous email notifications
+        await notification_provider_1.notificationService.sendEmail({
+            to: sender.email,
+            subject: `P2P Transfer Sent - ${referenceCode}`,
+            html: `
+        <div style="font-family: sans-serif; padding: 20px;">
+          <h3>Transfer Sent</h3>
+          <p>You have sent <strong>$${amountDec.toFixed(2)} ${currency}</strong> to <strong>${recipientLookup.fullName}</strong> (${recipientLookup.emailMasked}).</p>
+          <p>Reference: <strong>${referenceCode}</strong></p>
+        </div>
+      `,
+        }).catch(() => { });
+        await notification_provider_1.notificationService.sendEmail({
+            to: recipient.email,
+            subject: `P2P Funds Received - ${referenceCode}`,
+            html: `
+        <div style="font-family: sans-serif; padding: 20px;">
+          <h3>Funds Received</h3>
+          <p>You received <strong>$${amountDec.toFixed(2)} ${currency}</strong> in your platform wallet.</p>
+          <p>Reference: <strong>${referenceCode}</strong></p>
+        </div>
+      `,
+        }).catch(() => { });
+        return result;
+    }
+}
+exports.P2PService = P2PService;
+exports.p2pService = new P2PService();
