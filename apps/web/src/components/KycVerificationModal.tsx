@@ -332,3 +332,4 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
     </div>
   );
 };
+

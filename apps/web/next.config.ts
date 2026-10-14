@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 import path from 'path';
 
-const internalApiUrl = process.env.INTERNAL_API_URL || 'http://localhost:5000';
+const internalApiUrl = process.env.SERVER_URL || process.env.INTERNAL_API_URL || 'http://localhost:5000';
 
 const nextConfig: NextConfig = {
   output: 'standalone',
