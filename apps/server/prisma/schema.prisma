@@ -513,7 +513,7 @@ model BlogPost {
   summary     String   @db.Text
   content     String   @db.LongText
   coverImage  String?  @db.VarChar(500)
-  authorName  String   @default("Nexis Research Team")
+  authorName  String   @default("Avora Bank Research Team")
   readTime    String   @default("5 min read")
   isPublished Boolean  @default(true)
   publishedAt DateTime @default(now())

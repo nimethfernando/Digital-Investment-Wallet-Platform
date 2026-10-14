@@ -57,10 +57,10 @@ export class AuthService {
 
     await notificationService.sendEmail({
       to: user.email,
-      subject: 'Welcome to Nexis Platform - Verify Your Account',
+      subject: 'Welcome to Avora Bank - Verify Your Account',
       html: `
         <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
-          <h2>Welcome to Nexis, ${user.firstName || 'Investor'}!</h2>
+          <h2>Welcome to Avora Bank, ${user.firstName || 'Investor'}!</h2>
           <p>Your digital investment wallet has been successfully created.</p>
           <p>You can now explore our curated investment packages, check live USDT exchange rates, or fund your wallet.</p>
         </div>
@@ -164,7 +164,7 @@ export class AuthService {
 
     await notificationService.sendEmail({
       to: user.email,
-      subject: 'Password Reset Request - Nexis Platform',
+      subject: 'Password Reset Request - Avora Bank',
       html: `
         <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
           <h2>Password Reset Request</h2>

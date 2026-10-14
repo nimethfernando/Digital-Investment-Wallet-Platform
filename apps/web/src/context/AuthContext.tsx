@@ -36,14 +36,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem('nexis_token');
-    const savedUser = localStorage.getItem('nexis_user');
+    const savedToken = localStorage.getItem('avora_token') || localStorage.getItem('nexis_token');
+    const savedUser = localStorage.getItem('avora_user') || localStorage.getItem('nexis_user');
 
     if (savedToken && savedUser) {
       try {
         setToken(savedToken);
         setUser(JSON.parse(savedUser));
       } catch (e) {
+        localStorage.removeItem('avora_token');
+        localStorage.removeItem('avora_user');
         localStorage.removeItem('nexis_token');
         localStorage.removeItem('nexis_user');
       }
@@ -63,6 +65,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       timeoutId = setTimeout(() => {
         setUser(null);
         setToken(null);
+        localStorage.removeItem('avora_token');
+        localStorage.removeItem('avora_user');
         localStorage.removeItem('nexis_token');
         localStorage.removeItem('nexis_user');
         window.location.href = '/login?reason=inactivity';
@@ -89,8 +93,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.data.token && res.data.user) {
       setToken(res.data.token);
       setUser(res.data.user);
-      localStorage.setItem('nexis_token', res.data.token);
-      localStorage.setItem('nexis_user', JSON.stringify(res.data.user));
+      localStorage.setItem('avora_token', res.data.token);
+      localStorage.setItem('avora_user', JSON.stringify(res.data.user));
     }
     return res.data;
   };
@@ -100,8 +104,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.data.token && res.data.user) {
       setToken(res.data.token);
       setUser(res.data.user);
-      localStorage.setItem('nexis_token', res.data.token);
-      localStorage.setItem('nexis_user', JSON.stringify(res.data.user));
+      localStorage.setItem('avora_token', res.data.token);
+      localStorage.setItem('avora_user', JSON.stringify(res.data.user));
     }
     return res.data;
   };
@@ -109,6 +113,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setUser(null);
     setToken(null);
+    localStorage.removeItem('avora_token');
+    localStorage.removeItem('avora_user');
     localStorage.removeItem('nexis_token');
     localStorage.removeItem('nexis_user');
     window.location.href = '/login';
@@ -119,7 +125,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await api.get('/auth/me');
       if (res.data.user) {
         setUser((prev) => ({ ...prev, ...res.data.user }));
-        localStorage.setItem('nexis_user', JSON.stringify({ ...user, ...res.data.user }));
+        localStorage.setItem('avora_user', JSON.stringify({ ...user, ...res.data.user }));
       }
     } catch (e) {
       // Ignore

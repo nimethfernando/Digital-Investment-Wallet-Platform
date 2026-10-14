@@ -24,7 +24,7 @@ router.use('/tickets', ticketRoutes);
 router.get('/health', (req, res) => {
   res.json({
     status: 'HEALTHY',
-    service: 'Nexis Core API Engine',
+    service: 'Avora Bank Core API Engine',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
   });

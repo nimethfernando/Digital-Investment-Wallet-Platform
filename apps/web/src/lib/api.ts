@@ -9,7 +9,7 @@ export const api = axios.create({
 
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('nexis_token');
+    const token = localStorage.getItem('avora_token') || localStorage.getItem('nexis_token');
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -23,6 +23,8 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       const currentPath = window.location.pathname;
       if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
+        localStorage.removeItem('avora_token');
+        localStorage.removeItem('avora_user');
         localStorage.removeItem('nexis_token');
         localStorage.removeItem('nexis_user');
       }

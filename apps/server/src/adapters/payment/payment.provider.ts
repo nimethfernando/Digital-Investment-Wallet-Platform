@@ -26,7 +26,7 @@ export class ManualAdminPaymentProvider implements PaymentProvider {
           paymentMethod: 'USDT (TRC-20)',
           depositAddressOrAccount: 'TPlatformReserveAccountTRC20Example99X',
           networkOrBankDetails: 'TRON Network (TRC-20)',
-          recipientName: 'Nexis Liquidity Custody',
+          recipientName: 'Avora Bank Liquidity Custody',
           referenceCode: params.orderId,
           instructions: [
             'Send exact amount in USDT via TRC-20 network.',
@@ -41,7 +41,7 @@ export class ManualAdminPaymentProvider implements PaymentProvider {
           paymentMethod: 'Bank Wire / SEPA / SWIFT',
           depositAddressOrAccount: 'GE29NB0000000123456789',
           networkOrBankDetails: 'Bank of Georgia / TBC Bank (SWIFT: BAGAGE22)',
-          recipientName: 'Nexis Financial Group LLC',
+          recipientName: 'Avora Bank Financial Group LLC',
           referenceCode: params.orderId,
           instructions: [
             `Deposit ${params.amount} ${params.currency} to the specified IBAN.`,
@@ -56,7 +56,7 @@ export class ManualAdminPaymentProvider implements PaymentProvider {
           paymentMethod: 'Cash Deposit at Tbilisi Desk',
           depositAddressOrAccount: 'Chavchavadze Ave 37M, Tbilisi, Georgia',
           networkOrBankDetails: 'Desk Working Hours: Mon-Fri 10:00 - 18:00 GET',
-          recipientName: 'Nexis Counter Services Desk',
+          recipientName: 'Avora Bank Counter Services Desk',
           referenceCode: params.orderId,
           instructions: [
             'Visit our Tbilisi counter during operating hours.',
@@ -71,7 +71,7 @@ export class ManualAdminPaymentProvider implements PaymentProvider {
           paymentMethod: 'Standard Bank Deposit',
           depositAddressOrAccount: 'GE29NB0000000123456789',
           networkOrBankDetails: 'Bank Wire',
-          recipientName: 'Nexis Group',
+          recipientName: 'Avora Bank Group',
           referenceCode: params.orderId,
           instructions: ['Contact support or upload proof of deposit.']
         };

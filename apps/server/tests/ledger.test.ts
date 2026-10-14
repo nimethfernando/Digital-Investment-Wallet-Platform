@@ -29,7 +29,7 @@ async function runTestSuite() {
   }
 
   // Set up a test user
-  const testEmail = `fintech_tester_${Date.now()}@nexisplatform.com`;
+  const testEmail = `fintech_tester_${Date.now()}@avorabank.com`;
   const user = await prisma.user.create({
     data: {
       email: testEmail,

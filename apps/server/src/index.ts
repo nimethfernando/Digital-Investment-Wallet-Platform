@@ -39,7 +39,7 @@ app.use('/uploads', (req, res, next) => {
       return res.send(`
         <svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200" fill="#f1f5f9">
           <rect width="300" height="200" fill="#e2e8f0"/>
-          <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#64748b">Nexis Asset Placeholder</text>
+          <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#64748b">Avora Bank Asset Placeholder</text>
         </svg>
       `);
     }

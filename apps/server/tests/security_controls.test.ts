@@ -37,7 +37,7 @@ async function runSecurityTestSuite() {
   const passwordHash = await bcrypt.hash(rawPassword, 10);
 
   // 1. Setup Test Sender and Recipient
-  const senderEmail = `sec_sender_${timestamp}@nexistest.com`;
+  const senderEmail = `sec_sender_${timestamp}@avoratest.com`;
   const sender = await prisma.user.create({
     data: {
       email: senderEmail,
@@ -51,7 +51,7 @@ async function runSecurityTestSuite() {
   });
   const senderWallet = await ledgerService.ensureWallet(sender.id);
 
-  const recipientEmail = `sec_recipient_${timestamp}@nexistest.com`;
+  const recipientEmail = `sec_recipient_${timestamp}@avoratest.com`;
   const recipient = await prisma.user.create({
     data: {
       email: recipientEmail,

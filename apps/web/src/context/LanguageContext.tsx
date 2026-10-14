@@ -27,7 +27,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [language, setLanguageState] = useState<Language>('en');
 
   useEffect(() => {
-    const saved = localStorage.getItem('nexis_lang') as Language | null;
+    const saved = (localStorage.getItem('avora_lang') || localStorage.getItem('nexis_lang')) as Language | null;
     if (saved && ['en', 'ka', 'hi'].includes(saved)) {
       setLanguageState(saved);
     }
@@ -35,7 +35,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
-    localStorage.setItem('nexis_lang', lang);
+    localStorage.setItem('avora_lang', lang);
   };
 
   const t = (path: string, fallback = ''): string => {

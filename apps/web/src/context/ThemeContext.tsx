@@ -17,7 +17,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('nexis_theme') as Theme | null;
+    const saved = (localStorage.getItem('avora_theme') || localStorage.getItem('nexis_theme')) as Theme | null;
     if (saved === 'light' || saved === 'dark') {
       setThemeState(saved);
       applyTheme(saved);
@@ -42,13 +42,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
     setThemeState(next);
-    localStorage.setItem('nexis_theme', next);
+    localStorage.setItem('avora_theme', next);
     applyTheme(next);
   };
 
   const setTheme = (t: Theme) => {
     setThemeState(t);
-    localStorage.setItem('nexis_theme', t);
+    localStorage.setItem('avora_theme', t);
     applyTheme(t);
   };
 
