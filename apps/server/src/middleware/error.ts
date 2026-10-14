@@ -13,8 +13,30 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
     return;
   }
 
-  const statusCode = err.status || err.statusCode || 500;
+  if (err.code === 'P2002') {
+    res.status(409).json({
+      success: false,
+      message: 'An account or record with this unique identifier already exists.',
+    });
+    return;
+  }
+
+  let statusCode = err.status || err.statusCode;
   const message = err.message || 'Internal Server Error';
+
+  if (!statusCode) {
+    if (message.includes('already exists') || message.includes('already registered')) {
+      statusCode = 409;
+    } else if (message.includes('Invalid email') || message.includes('Invalid 2FA') || message.includes('authentication')) {
+      statusCode = 401;
+    } else if (message.includes('suspended') || message.includes('locked')) {
+      statusCode = 403;
+    } else if (message.includes('required') || message.includes('not found') || message.includes('expired')) {
+      statusCode = 400;
+    } else {
+      statusCode = 500;
+    }
+  }
 
   res.status(statusCode).json({
     success: false,

@@ -26,9 +26,17 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 app.use(morgan('dev'));
 
-const uploadsDirectory = path.resolve(config.uploadDir);
-if (!fs.existsSync(uploadsDirectory)) {
-  fs.mkdirSync(uploadsDirectory, { recursive: true });
+const isServerless = Boolean(process.env.VERCEL || process.env.VERCEL_ENV || process.env.NOW_REGION || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const uploadsDirectory = isServerless
+  ? path.join('/tmp', 'uploads')
+  : path.resolve(config.uploadDir);
+
+try {
+  if (!fs.existsSync(uploadsDirectory)) {
+    fs.mkdirSync(uploadsDirectory, { recursive: true });
+  }
+} catch (err) {
+  console.warn('[Server] Note on uploads directory creation:', err);
 }
 
 app.use('/uploads', (req, res, next) => {
@@ -55,16 +63,21 @@ app.use((req, res) => {
 
 app.use(errorHandler);
 
-const server = app.listen(config.port, () => {
-console.log(`====================================================`);
-console.log(`🚀 Avora Bank Core API Server running on port ${config.port}`);
-console.log(`📡 Base URL: http://localhost:${config.port}/api/v1`);
-  console.log(`📂 Uploads Volume: ${uploadsDirectory}`);
-  console.log(`🔒 Environment: ${config.nodeEnv}`);
-  console.log(`====================================================`);
-  
-  // Register automated financial background cron jobs
-  returnsJobService.startScheduler();
-});
+if (!isServerless && process.env.NODE_ENV !== 'test') {
+  const server = app.listen(config.port, () => {
+    console.log(`====================================================`);
+    console.log(`🚀 Avora Bank Core API Server running on port ${config.port}`);
+    console.log(`📡 Base URL: http://localhost:${config.port}/api/v1`);
+    console.log(`📂 Uploads Volume: ${uploadsDirectory}`);
+    console.log(`🔒 Environment: ${config.nodeEnv}`);
+    console.log(`====================================================`);
+    
+    // Register automated financial background cron jobs
+    returnsJobService.startScheduler();
+  });
+}
 
 export default app;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = app;
+}

@@ -40,7 +40,8 @@ export default function LoginPage() {
         router.push('/dashboard');
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Login failed. Please check credentials.');
+      const serverMsg = err.response?.data?.message || (typeof err.response?.data === 'string' ? err.response.data : null);
+      setError(serverMsg || err.message || 'Login failed. Please check credentials.');
     } finally {
       setLoading(false);
     }

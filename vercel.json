@@ -3,7 +3,9 @@
   "services": {
     "server": {
       "root": "apps/server",
-      "framework": "express"
+      "framework": "express",
+      "buildCommand": "npm run build",
+      "entrypoint": "index.js"
     },
     "web": {
       "root": "apps/web",
