@@ -1,6 +1,5 @@
-import { PrismaClient, KycStatus } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { KycStatus } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 
 export interface KycSubmissionInput {
   documentType: 'PASSPORT' | 'NATIONAL_ID' | 'DRIVERS_LICENSE' | 'PROOF_OF_ADDRESS';

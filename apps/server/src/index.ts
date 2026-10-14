@@ -55,7 +55,22 @@ app.use('/uploads', (req, res, next) => {
   next();
 }, express.static(uploadsDirectory));
 
+// Robust Health & Diagnostic Endpoint (runs without requiring DB access)
+app.get(['/health', '/api/health', '/api/v1/health'], (req, res) => {
+  res.json({
+    status: 'HEALTHY',
+    service: 'Avora Bank Core API Engine',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    isServerless,
+    databaseConfigured: Boolean(process.env.DATABASE_URL),
+  });
+});
+
 app.use('/api/v1', routes);
+app.use('/v1', routes);
+app.use('/api', routes);
+app.use('/', routes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.originalUrl}` });
@@ -80,4 +95,5 @@ if (!isServerless && process.env.NODE_ENV !== 'test') {
 export default app;
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = app;
+  (module.exports as any).default = app;
 }

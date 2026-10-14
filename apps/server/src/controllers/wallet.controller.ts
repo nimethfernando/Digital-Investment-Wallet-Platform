@@ -1,11 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient, TransactionType } from '@prisma/client';
+import { TransactionType } from '@prisma/client';
 import Decimal from 'decimal.js';
+import { prisma } from '../lib/prisma';
 import { ledgerService } from '../services/ledger.service';
 import { depositService } from '../services/deposit.service';
 import { cardService } from '../services/card.service';
 
-const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 export class WalletController {

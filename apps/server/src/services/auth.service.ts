@@ -1,14 +1,13 @@
-import { PrismaClient, Role, UserStatus } from '@prisma/client';
+import { Role, UserStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 import crypto from 'crypto';
+import { prisma } from '../lib/prisma';
 import { config } from '../config';
 import { notificationService } from '../adapters/notification/notification.provider';
 import { encryptAtRest, decryptAtRest } from '../utils/crypto';
-
-const prisma = new PrismaClient();
 
 export class AuthService {
   async register(data: {

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient, PackageStatus, DepositStatus, WithdrawalStatus } from '@prisma/client';
+import { PackageStatus, DepositStatus, WithdrawalStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
+import { prisma } from '../lib/prisma';
 import { packageService } from '../services/package.service';
 import { depositService } from '../services/deposit.service';
 import { returnsJobService } from '../services/returns.job';
@@ -8,7 +9,6 @@ import { ledgerService } from '../services/ledger.service';
 import { withdrawalService } from '../services/withdrawal.service';
 import { kycService } from '../services/kyc.service';
 
-const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 export class AdminController {

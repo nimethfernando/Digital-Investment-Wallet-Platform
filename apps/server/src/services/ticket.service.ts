@@ -1,7 +1,6 @@
-import { PrismaClient, Role } from '@prisma/client';
+import { Role } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { notificationService } from '../adapters/notification/notification.provider';
-
-const prisma = new PrismaClient();
 
 export interface CreateTicketDTO {
   category: string;

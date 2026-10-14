@@ -1,7 +1,6 @@
-import { PrismaClient, EntryDirection, JournalReferenceType, TransactionType, TransactionStatus } from '@prisma/client';
+import { EntryDirection, JournalReferenceType, TransactionType, TransactionStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
-
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma';
 
 // Configure Decimal.js precision for financial accuracy
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });

@@ -1,10 +1,10 @@
-import { PrismaClient, TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
+import { TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
 import Decimal from 'decimal.js';
+import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { authService } from './auth.service';
 import { notificationService } from '../adapters/notification/notification.provider';
 
-const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 export function generateAvoraAccountNumber(userId: string): string {

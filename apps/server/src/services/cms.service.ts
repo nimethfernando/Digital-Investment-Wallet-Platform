@@ -1,7 +1,6 @@
-import { PrismaClient, InquiryType } from '@prisma/client';
+import { InquiryType } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { notificationService } from '../adapters/notification/notification.provider';
-
-const prisma = new PrismaClient();
 
 export class CmsService {
   async getPublicSettings() {

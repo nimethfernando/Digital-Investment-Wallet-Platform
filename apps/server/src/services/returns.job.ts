@@ -1,10 +1,9 @@
-import { PrismaClient } from '@prisma/client';
 import Decimal from 'decimal.js';
 import cron from 'node-cron';
+import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { notificationService } from '../adapters/notification/notification.provider';
 
-const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 export interface ReturnsRunResult {
