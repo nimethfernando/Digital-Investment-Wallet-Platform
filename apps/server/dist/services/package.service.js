@@ -38,6 +38,11 @@ class PackageService {
             monthlyReturnRate: parseFloat(settingsMap['package_monthly_return_rate'] || '0.0100'), // 1%
             lockInMonths: parseInt(settingsMap['package_min_lockin_months'] || '6', 10),
             earlyExitPenaltyPct: parseFloat(settingsMap['package_early_exit_penalty_pct'] || '5.00'),
+            availableTerms: [
+                { months: 3, monthlyRate: 0.008, aprLabel: '9.6% APR', name: '3 Months (Quarterly)' },
+                { months: 6, monthlyRate: 0.010, aprLabel: '12.0% APR', name: '6 Months (Classic)' },
+                { months: 12, monthlyRate: 0.0125, aprLabel: '15.0% APR', name: '12 Months (Annual Maximizer)' },
+            ],
         };
     }
     /**
@@ -113,14 +118,25 @@ class PackageService {
         if (!user)
             throw new Error('User not found');
         const idempotencyKey = `PKG-BUY-${userId}-${Date.now()}`;
+        // Calculate term duration and yield rate based on FD selection
+        const termMonths = params.lockInMonths && [3, 6, 12].includes(params.lockInMonths)
+            ? params.lockInMonths
+            : rules.lockInMonths;
+        let termRate = rules.monthlyReturnRate;
+        if (termMonths === 3)
+            termRate = 0.008;
+        else if (termMonths === 6)
+            termRate = 0.010;
+        else if (termMonths === 12)
+            termRate = 0.0125;
         // Case 1: Instant purchase from Wallet Available Balance
         if (params.depositMethod === 'WALLET_BALANCE') {
             const pkg = await ledger_service_1.ledgerService.purchasePackageFromWallet({
                 userId,
                 amount: amountNum,
                 currency: 'USD',
-                returnRateSnapshot: rules.monthlyReturnRate,
-                lockInMonths: rules.lockInMonths,
+                returnRateSnapshot: termRate,
+                lockInMonths: termMonths,
                 idempotencyKey,
             });
             // Send confirmation notification
@@ -130,14 +146,14 @@ class PackageService {
                 html: `
           <h3>Investment Package Activated</h3>
           <p>Your package <strong>${pkg.packageCode}</strong> for <strong>$${amountNum.toLocaleString()} USD</strong> is now active!</p>
-          <p>Proposed monthly return: <strong>${(rules.monthlyReturnRate * 100).toFixed(1)}% ($${(amountNum * rules.monthlyReturnRate).toFixed(2)}/mo)</strong></p>
-          <p>Lock-in period: <strong>${rules.lockInMonths} months</strong></p>
+          <p>Proposed monthly return: <strong>${(termRate * 100).toFixed(2)}% ($${(amountNum * termRate).toFixed(2)}/mo)</strong></p>
+          <p>Lock-in period: <strong>${termMonths} months</strong></p>
         `,
             });
             return {
                 success: true,
                 package: pkg,
-                message: `Package ${pkg.packageCode} successfully funded from wallet balance and is now active.`,
+                message: `Package ${pkg.packageCode} successfully funded from wallet balance and is now active for ${termMonths} months at ${(termRate * 100).toFixed(2)}%/mo.`,
             };
         }
         // Case 2: Manual deposit with proof upload (Bank Wire, USDT TRC-20, Tbilisi Counter)
@@ -150,8 +166,8 @@ class PackageService {
                     userId,
                     amount: new decimal_js_1.default(amountNum).toFixed(8),
                     currency: 'USD',
-                    returnRateSnapshot: new decimal_js_1.default(rules.monthlyReturnRate).toFixed(4),
-                    lockInMonths: rules.lockInMonths,
+                    returnRateSnapshot: new decimal_js_1.default(termRate).toFixed(4),
+                    lockInMonths: termMonths,
                     status: 'PENDING_PAYMENT',
                     depositMethod: params.depositMethod,
                     depositProofUrl: params.proofUrl || null,
@@ -167,7 +183,7 @@ class PackageService {
                     proofUrl: params.proofUrl || null,
                     txHashOrRef: params.txHashOrRef || null,
                     status: 'PENDING',
-                    adminNotes: `Deposit intended for package ${packageCode}`,
+                    adminNotes: `Deposit intended for package ${packageCode} (${termMonths}-Month FD @ ${(termRate * 100).toFixed(2)}%/mo)`,
                 },
             });
             return [newPkg, newDeposit];

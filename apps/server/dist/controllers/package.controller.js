@@ -34,7 +34,7 @@ class PackageController {
     async purchase(req, res, next) {
         try {
             const userId = req.user.id;
-            const { amount, depositMethod, proofUrl, txHashOrRef } = req.body;
+            const { amount, depositMethod, proofUrl, txHashOrRef, lockInMonths } = req.body;
             if (!amount || !depositMethod) {
                 return res.status(400).json({ success: false, message: 'Amount and deposit method are required' });
             }
@@ -43,6 +43,7 @@ class PackageController {
                 depositMethod,
                 proofUrl,
                 txHashOrRef,
+                lockInMonths: lockInMonths ? parseInt(lockInMonths, 10) : undefined,
             });
             res.status(201).json(result);
         }

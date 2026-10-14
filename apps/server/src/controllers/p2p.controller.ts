@@ -21,6 +21,7 @@ export class P2PController {
       res.json({
         success: true,
         data: preview,
+        recipient: preview,
       });
     } catch (err: any) {
       next(err);
@@ -56,6 +57,191 @@ export class P2PController {
         data: result,
       });
     } catch (err: any) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get P2P Ads / Offers
+   */
+  async getOffers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { side, fiatCurrency } = req.query;
+      const offers = await p2pService.getOffers(
+        side as any,
+        fiatCurrency as string
+      );
+      res.json({ success: true, data: offers });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Create P2P Order (Locks seller crypto in Escrow)
+   */
+  async createOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const buyerId = (req as any).user.id;
+      const { offerId, cryptoAmount, fiatAmount } = req.body;
+
+      if (!offerId || !cryptoAmount) {
+        return res.status(400).json({
+          success: false,
+          message: 'offerId and cryptoAmount are required',
+        });
+      }
+
+      const order = await p2pService.createP2POrder(buyerId, {
+        offerId,
+        cryptoAmount,
+        fiatAmount,
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'Order created successfully. Escrow funds locked.',
+        data: order,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get user P2P orders (Filtered by ongoing, fulfilled, unpaid, paid, dispute)
+   */
+  async getUserOrders(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const { filter } = req.query;
+      const orders = await p2pService.getUserOrders(userId, filter as string);
+      res.json({ success: true, data: orders });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get single P2P order
+   */
+  async getOrderById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const orderId = req.params.orderId as string;
+      const order = await p2pService.getOrderById(orderId, userId);
+      res.json({ success: true, data: order });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Buyer marks payment as sent
+   */
+  async markPaymentSent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const orderId = req.params.orderId as string;
+      const { proofUrl } = req.body;
+
+      const order = await p2pService.markPaymentSent(orderId, userId, proofUrl);
+      res.json({
+        success: true,
+        message: 'Payment confirmed. Seller has been notified to release escrow.',
+        data: order,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Seller releases escrow to buyer
+   */
+  async releaseEscrow(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const orderId = req.params.orderId as string;
+
+      const order = await p2pService.releaseOrderEscrow(orderId, userId);
+      res.json({
+        success: true,
+        message: 'Escrow released! Crypto has been credited to the buyer wallet.',
+        data: order,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Open Dispute on order
+   */
+  async disputeOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const orderId = req.params.orderId as string;
+      const { reason } = req.body;
+
+      if (!reason) {
+        return res.status(400).json({ success: false, message: 'Dispute reason is required' });
+      }
+
+      const order = await p2pService.disputeOrder(orderId, userId, reason);
+      res.json({
+        success: true,
+        message: 'Dispute opened. Avora Compliance Officer will step in.',
+        data: order,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * In-Order Chat: Get messages
+   */
+  async getOrderMessages(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const orderId = req.params.orderId as string;
+      const chat = await p2pService.getOrderMessages(orderId, userId);
+      res.json({ success: true, data: chat });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * In-Order Chat: Send message
+   */
+  async sendOrderMessage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const senderId = (req as any).user.id;
+      const orderId = req.params.orderId as string;
+      const { message } = req.body;
+
+      if (!message || !message.trim()) {
+        return res.status(400).json({ success: false, message: 'Message text cannot be empty' });
+      }
+
+      const msg = await p2pService.sendOrderMessage(orderId, senderId, message);
+      res.status(201).json({ success: true, data: msg });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get all active P2P conversations for Chat Hub
+   */
+  async getUserChats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const chats = await p2pService.getUserChats(userId);
+      res.json({ success: true, data: chats });
+    } catch (err) {
       next(err);
     }
   }

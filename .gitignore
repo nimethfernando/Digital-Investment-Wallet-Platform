@@ -14,6 +14,8 @@ out/
 # Build and compilation outputs
 dist/
 **/dist/
+!apps/server/dist/
+!apps/server/dist/**
 build/
 **/build/
 .temp/
