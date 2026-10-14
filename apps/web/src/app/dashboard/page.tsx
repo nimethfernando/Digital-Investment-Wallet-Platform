@@ -7,6 +7,8 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { VirtualCardModule } from '../../components/VirtualCardModule';
 import { RedotPayAppModule } from '../../components/RedotPayAppModule';
+import { SupportTicketModule } from '../../components/SupportTicketModule';
+import { KycVerificationModal } from '../../components/KycVerificationModal';
 import {
   Wallet,
   TrendingUp,
@@ -217,6 +219,9 @@ function DashboardContent() {
   // Copy Account Number
   const [accountCopied, setAccountCopied] = useState(false);
 
+  // KYC Modal State
+  const [kycModalOpen, setKycModalOpen] = useState(false);
+
   const userAccountNumber = user?.accountNumber || generateLocalAccountNumber(user?.id);
 
   // Handle query params on initial load
@@ -274,28 +279,15 @@ function DashboardContent() {
         api.get('/packages').catch(() => ({ data: { packages: [] } })),
         api.get('/wallet/transactions').catch(() => ({ data: { transactions: [] } })),
         api.get('/withdrawals').catch(() => ({ data: { withdrawals: [] } })),
-        api.get('/cms/my-tickets').catch(() => ({ data: { tickets: [] } })),
+        api.get('/tickets').catch(() => ({ data: { data: [] } })),
       ]);
 
-      if (walletRes.data.wallet) setWallet(walletRes.data.wallet);
-      if (pkgRes.data.packages) setPackages(pkgRes.data.packages);
-      if (txRes.data.transactions) setTransactions(txRes.data.transactions);
-      if (wthRes.data.withdrawals) setWithdrawals(wthRes.data.withdrawals);
-      if (ticketRes.data.tickets) {
-        setTickets(ticketRes.data.tickets);
-      } else {
-        // Fallback demo ticket
-        setTickets([
-          {
-            id: 't-101',
-            type: 'TRADE_DISPUTE',
-            subject: 'P2P Order #92841 Escrow Confirmation',
-            message: 'Fiat payment sent via UPI. Waiting for counterparty release.',
-            status: 'OPEN',
-            adminNotes: 'Desk assigned. Monitoring counterparty banking statement.',
-            createdAt: new Date().toISOString(),
-          },
-        ]);
+      if (walletRes.data?.wallet) setWallet(walletRes.data.wallet);
+      if (pkgRes.data?.packages) setPackages(pkgRes.data.packages);
+      if (txRes.data?.transactions) setTransactions(txRes.data.transactions);
+      if (wthRes.data?.withdrawals) setWithdrawals(wthRes.data.withdrawals);
+      if (ticketRes.data?.data && Array.isArray(ticketRes.data.data)) {
+        setTickets(ticketRes.data.data);
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);
@@ -609,6 +601,27 @@ function DashboardContent() {
                   >
                     <Shield className="w-3.5 h-3.5" />
                     Enable 2FA
+                  </button>
+                )}
+
+                {/* KYC Identity Verification Badge */}
+                {user?.kycStatus === 'APPROVED' ? (
+                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    KYC Verified
+                  </span>
+                ) : user?.kycStatus === 'PENDING' ? (
+                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400">
+                    <Clock className="w-3.5 h-3.5" />
+                    KYC Pending Review
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setKycModalOpen(true)}
+                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 hover:bg-rose-200 transition-colors cursor-pointer"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    Verify Identity (KYC)
                   </button>
                 )}
               </div>
@@ -1150,57 +1163,7 @@ function DashboardContent() {
         {/* SUPPORT TICKETS TAB */}
         {activeTab === 'support' && (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-bold">Institutional Helpdesk & Support Tickets</h3>
-                <p className="text-xs text-slate-500">Raise tickets for trade disputes, KYC, or payout queries with our sub-admin team</p>
-              </div>
-              <button
-                onClick={() => setTicketModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 dark:bg-emerald-600 text-white shadow-md flex items-center gap-2"
-              >
-                <PlusCircle className="w-4 h-4" />
-                Raise Support Ticket
-              </button>
-            </div>
-
-            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-              {tickets.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 text-xs">
-                  No open support tickets. Raise a ticket if you need assistance with trades or account verification.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {tickets.map((t) => (
-                    <div
-                      key={t.id}
-                      className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs">{t.subject}</span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                            {t.type}
-                          </span>
-                        </div>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                          {t.status}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{t.message}</p>
-                      {t.adminNotes && (
-                        <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-[11px] text-blue-700 dark:text-blue-300">
-                          <span className="font-bold">Desk Response: </span> {t.adminNotes}
-                        </div>
-                      )}
-                      <div className="text-[10px] text-slate-400 pt-1">
-                        Submitted: {new Date(t.createdAt).toLocaleString()}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <SupportTicketModule onTicketCreated={fetchDashboardData} />
           </div>
         )}
 
@@ -1803,6 +1766,13 @@ function DashboardContent() {
           </div>
         </div>
       )}
+
+      {/* KYC Identity Verification Modal */}
+      <KycVerificationModal
+        isOpen={kycModalOpen}
+        onClose={() => setKycModalOpen(false)}
+        onVerified={fetchDashboardData}
+      />
 
     </div>
   );

@@ -22,6 +22,7 @@ import {
   X,
   TrendingDown,
   ArrowDownLeft,
+  ArrowLeft,
   ChevronRight,
   Filter,
   MoreHorizontal,
@@ -29,10 +30,21 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
+export const FIFA_TEAMS = [
+  { id: 'france', name: 'France', flag: '🇫🇷', gradient: 'from-blue-700 via-indigo-900 to-red-600', accent: '#2563eb' },
+  { id: 'england', name: 'England', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', gradient: 'from-slate-900 via-red-900 to-rose-950', accent: '#ef4444' },
+  { id: 'brazil', name: 'Brazil', flag: '🇧🇷', gradient: 'from-emerald-700 via-yellow-600 to-green-950', accent: '#10b981' },
+  { id: 'spain', name: 'Spain', flag: '🇪🇸', gradient: 'from-red-700 via-amber-600 to-red-950', accent: '#f59e0b' },
+  { id: 'portugal', name: 'Portugal', flag: '🇵🇹', gradient: 'from-emerald-800 via-red-800 to-slate-950', accent: '#dc2626' },
+  { id: 'saudi', name: 'Saudi Arabia', flag: '🇸🇦', gradient: 'from-emerald-800 via-green-900 to-emerald-950', accent: '#059669' },
+  { id: 'argentina', name: 'Argentina', flag: '🇦🇷', gradient: 'from-sky-600 via-slate-800 to-sky-900', accent: '#38bdf8' },
+];
+
 interface VirtualCardModuleProps {
   cardHolderName?: string;
   accountNumber?: string;
   onRefresh?: () => void;
+  defaultOpenChooseModal?: boolean;
 }
 
 interface CardTransaction {
@@ -50,11 +62,12 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   cardHolderName = 'Avora Private Client',
   accountNumber = 'AVR-7829-4102',
   onRefresh,
+  defaultOpenChooseModal = false,
 }) => {
   // Card states
   const [showSensitive, setShowSensitive] = useState(false);
   const [isFrozen, setIsFrozen] = useState(false);
-  const [cardTheme, setCardTheme] = useState<'obsidian' | 'redot' | 'titanium'>('redot');
+  const [cardTheme, setCardTheme] = useState<string>('redot');
   const [cardNetwork, setCardNetwork] = useState<'visa' | 'mastercard'>('visa');
   const [dailyLimit, setDailyLimit] = useState(10000);
   const [monthlyLimit, setMonthlyLimit] = useState(50000);
@@ -76,6 +89,10 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   // Modals
   const [limitModalOpen, setLimitModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [chooseCardModalOpen, setChooseCardModalOpen] = useState(defaultOpenChooseModal);
+  const [selectedCardType, setSelectedCardType] = useState<'virtual' | 'physical'>('virtual');
+  const [virtualEdition, setVirtualEdition] = useState<'standard' | 'fifa'>('standard');
+  const [selectedFifaCountry, setSelectedFifaCountry] = useState<string>('france');
 
   // Card Transactions
   const [transactions, setTransactions] = useState<CardTransaction[]>([]);
@@ -182,6 +199,31 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
     }
   };
 
+  // Apply or Switch Card Edition
+  const handleApplyCardEdition = async (themeToApply: string, cardType: 'virtual' | 'physical') => {
+    setActionLoading(true);
+    try {
+      const res = await api.post('/wallet/card/settings', {
+        cardTheme: themeToApply,
+      });
+      if (res.data?.success) {
+        setCardTheme(themeToApply);
+        setChooseCardModalOpen(false);
+        const name = themeToApply.startsWith('fifa-')
+          ? `FIFA World Cup™ ${FIFA_TEAMS.find((t) => t.id === themeToApply.replace('fifa-', ''))?.name || ''}`
+          : themeToApply === 'physical'
+          ? 'Physical Card'
+          : 'Standard Edition';
+        showToast(`Card edition successfully updated to ${name}!`, 'success');
+        onRefresh?.();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to update card edition', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleCopyCard = () => {
     const rawNumber = cardNumberMask.replace(/\s+/g, '').replace(/•/g, '0');
     navigator.clipboard.writeText(rawNumber);
@@ -225,6 +267,11 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
               }`}>
                 {isFrozen ? 'FROZEN' : 'ACTIVE'}
               </span>
+              {cardTheme.startsWith('fifa-') && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  FIFA {FIFA_TEAMS.find((t) => t.id === cardTheme.replace('fifa-', ''))?.flag}
+                </span>
+              )}
             </h4>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Spend crypto directly across 44M+ Visa merchants worldwide in USD, EUR, and GEL.
@@ -233,6 +280,13 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setChooseCardModalOpen(true)}
+            className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all hover:scale-[1.02] cursor-pointer"
+          >
+            <CreditCard className="w-3.5 h-3.5 text-rose-400" />
+            <span>Choose Card / Editions</span>
+          </button>
           <span className="text-[11px] font-mono font-semibold px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
             {accountNumber}
           </span>
@@ -252,6 +306,12 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
               <div className="absolute right-0 bottom-0 top-0 w-2/3 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-600/30 via-rose-600/20 to-transparent" />
             </div>
           )}
+          {cardTheme === 'physical' && (
+            <div className="absolute inset-0 bg-gradient-to-tr from-rose-700 via-red-600 to-rose-900 z-0">
+              <div className="absolute inset-0 bg-[radial-gradient(#ffffff20_1px,transparent_1px)] [background-size:12px_12px]" />
+              <div className="absolute right-0 bottom-0 top-0 w-2/3 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-amber-400/20 to-transparent" />
+            </div>
+          )}
           {cardTheme === 'obsidian' && (
             <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 z-0">
               <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:16px_16px]" />
@@ -262,6 +322,17 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
               <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:16px_16px]" />
             </div>
           )}
+          {cardTheme.startsWith('fifa-') && (() => {
+            const teamId = cardTheme.replace('fifa-', '');
+            const team = FIFA_TEAMS.find((t) => t.id === teamId) || FIFA_TEAMS[0];
+            return (
+              <div className={`absolute inset-0 bg-gradient-to-tr ${team.gradient} z-0 overflow-hidden`}>
+                <div className="absolute inset-0 bg-[radial-gradient(#ffffff20_1px,transparent_1px)] [background-size:14px_14px]" />
+                <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-white/20 blur-2xl" />
+                <div className="absolute bottom-0 right-0 w-40 h-40 bg-gradient-to-tl from-white/10 to-transparent rounded-full blur-xl" />
+              </div>
+            );
+          })()}
 
           {/* Frozen Frost Overlay */}
           {isFrozen && (
@@ -288,7 +359,13 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
 
             <div className="flex items-center gap-2">
               <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/10 backdrop-blur-md text-white/90 border border-white/10">
-                Worldwide Partner
+                {cardTheme.startsWith('fifa-') ? (
+                  <>FIFA · {FIFA_TEAMS.find((t) => t.id === cardTheme.replace('fifa-', ''))?.name} {FIFA_TEAMS.find((t) => t.id === cardTheme.replace('fifa-', ''))?.flag}</>
+                ) : cardTheme === 'physical' ? (
+                  'Physical Debit'
+                ) : (
+                  'Worldwide Partner'
+                )}
               </span>
               <Wifi className="w-4 h-4 text-slate-300 rotate-90" />
             </div>
@@ -644,6 +721,285 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
               {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
               <span>Save Settings</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* CHOOSE CARD MODAL (Direct RedotPay Match - Screenshots 2, 3, 5) */}
+      {chooseCardModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-black text-white rounded-3xl border border-slate-800 p-6 max-w-sm w-full space-y-5 shadow-2xl relative my-auto animate-in zoom-in-95">
+            {/* Top Bar: Back/Close & Title */}
+            <div className="flex items-center justify-between pb-1">
+              <button
+                onClick={() => setChooseCardModalOpen(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
+                title="Back"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <h3 className="font-bold text-base text-white">Choose card</h3>
+              <button
+                onClick={() => setChooseCardModalOpen(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Segmented Control / Tabs: Virtual card | Physical card */}
+            <div className="p-1 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center gap-1">
+              <button
+                onClick={() => setSelectedCardType('virtual')}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                  selectedCardType === 'virtual'
+                    ? 'bg-slate-800 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Virtual card
+              </button>
+              <button
+                onClick={() => setSelectedCardType('physical')}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                  selectedCardType === 'physical'
+                    ? 'bg-slate-800 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Physical card
+              </button>
+            </div>
+
+            {/* Virtual Card Tab */}
+            {selectedCardType === 'virtual' && (
+              <div className="space-y-4">
+                {/* Sub-toggle: Standard Edition vs FIFA World Cup Edition */}
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => setVirtualEdition('standard')}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${
+                      virtualEdition === 'standard'
+                        ? 'border-white bg-white text-black'
+                        : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Standard edition
+                  </button>
+                  <button
+                    onClick={() => setVirtualEdition('fifa')}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${
+                      virtualEdition === 'fifa'
+                        ? 'border-rose-500 bg-rose-600/20 text-rose-300'
+                        : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    FIFA World Cup™
+                  </button>
+                </div>
+
+                {/* Standard Edition View (Screenshot 3) */}
+                {virtualEdition === 'standard' && (
+                  <div className="space-y-4 flex flex-col items-center">
+                    {/* Vertical Card Preview */}
+                    <div className="w-48 aspect-[1/1.586] rounded-2xl p-4 bg-gradient-to-br from-slate-900 via-slate-950 to-zinc-900 border border-slate-800 flex flex-col justify-between shadow-2xl relative overflow-hidden select-none">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-full bg-rose-600 flex items-center justify-center text-[10px] font-black text-white">
+                            A
+                          </div>
+                          <span className="font-extrabold text-xs tracking-wider">AVORA</span>
+                        </div>
+                        <Wifi className="w-3.5 h-3.5 text-slate-400 rotate-90" />
+                      </div>
+
+                      <div className="w-8 h-6 rounded bg-amber-400/80 border border-amber-300/40 p-0.5 flex flex-col justify-between">
+                        <div className="h-0.5 bg-amber-700/40 rounded-full" />
+                        <div className="h-0.5 bg-amber-700/40 rounded-full w-2/3" />
+                        <div className="h-0.5 bg-amber-700/40 rounded-full" />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="font-mono text-xs tracking-widest text-slate-300">
+                          4820 •••• •••• {cardNumberMask.slice(-4)}
+                        </div>
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[9px] uppercase font-bold text-slate-400">Standard Virtual</span>
+                          <span className="font-black italic text-lg tracking-tighter text-white">VISA</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Design Tag */}
+                    <div className="px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-300">
+                      Card design: <span className="font-bold text-white">Free</span>
+                    </div>
+
+                    {/* Title & Desc */}
+                    <div className="text-center space-y-1">
+                      <h4 className="font-black text-lg text-white">Standard edition</h4>
+                      <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
+                        Works with Apple & Google Pay. Accepted by 130M+ merchants worldwide.
+                      </p>
+                    </div>
+
+                    {/* CTA Button */}
+                    <button
+                      onClick={() => handleApplyCardEdition('obsidian', 'virtual')}
+                      disabled={actionLoading}
+                      className="w-full py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-950 font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                    >
+                      {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                      <span>{cardTheme === 'obsidian' ? 'Active Edition · Switch/Refresh' : 'Apply for card · 10 USD'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* FIFA Edition View (Screenshot 5) */}
+                {virtualEdition === 'fifa' && (
+                  <div className="space-y-4 flex flex-col items-center">
+                    {/* Vertical Card Preview */}
+                    {(() => {
+                      const team = FIFA_TEAMS.find((t) => t.id === selectedFifaCountry) || FIFA_TEAMS[0];
+                      return (
+                        <div className={`w-48 aspect-[1/1.586] rounded-2xl p-4 bg-gradient-to-tr ${team.gradient} border border-white/20 flex flex-col justify-between shadow-2xl relative overflow-hidden select-none`}>
+                          <div className="absolute inset-0 bg-[radial-gradient(#ffffff20_1px,transparent_1px)] [background-size:12px_12px]" />
+                          <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/20 blur-xl" />
+                          
+                          <div className="relative z-10 flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-5 h-5 rounded-full bg-white text-rose-600 flex items-center justify-center text-[10px] font-black">
+                                A
+                              </div>
+                              <span className="font-extrabold text-xs tracking-wider text-white">AVORA</span>
+                            </div>
+                            <Wifi className="w-3.5 h-3.5 text-white/80 rotate-90" />
+                          </div>
+
+                          <div className="relative z-10 flex items-center justify-between">
+                            <div className="w-8 h-6 rounded bg-amber-300 border border-amber-200/40 p-0.5 flex flex-col justify-between shadow-sm">
+                              <div className="h-0.5 bg-amber-700/40 rounded-full" />
+                              <div className="h-0.5 bg-amber-700/40 rounded-full w-2/3" />
+                              <div className="h-0.5 bg-amber-700/40 rounded-full" />
+                            </div>
+                            <span className="text-2xl drop-shadow">⚽</span>
+                          </div>
+
+                          <div className="relative z-10 space-y-1">
+                            <div className="font-mono text-xs tracking-widest text-white/90">
+                              4820 •••• •••• {cardNumberMask.slice(-4)}
+                            </div>
+                            <div className="flex items-center justify-between pt-1">
+                              <span className="text-[9px] uppercase font-bold text-white/80">FIFA · {team.name}</span>
+                              <span className="font-black italic text-lg tracking-tighter text-white">VISA</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Tag */}
+                    <div className="px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-300">
+                      Design owned
+                    </div>
+
+                    {/* Title & Desc */}
+                    <div className="text-center space-y-1">
+                      <h4 className="font-black text-lg text-white">
+                        FIFA World Cup™ · {FIFA_TEAMS.find((t) => t.id === selectedFifaCountry)?.name}
+                      </h4>
+                      <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
+                        Pick your team and unlock a limited edition design
+                      </p>
+                    </div>
+
+                    {/* Flag Selector Row (7 Flags matching Screenshot 5) */}
+                    <div className="flex items-center justify-center gap-2 pt-1">
+                      {FIFA_TEAMS.map((team) => (
+                        <button
+                          key={team.id}
+                          onClick={() => setSelectedFifaCountry(team.id)}
+                          className={`w-9 h-9 rounded-full flex items-center justify-center text-lg transition-all cursor-pointer ${
+                            selectedFifaCountry === team.id
+                              ? 'ring-2 ring-white scale-110 shadow-lg bg-white/20'
+                              : 'opacity-70 hover:opacity-100 hover:scale-105'
+                          }`}
+                          title={team.name}
+                        >
+                          {team.flag}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* CTA Button */}
+                    <button
+                      onClick={() => handleApplyCardEdition(`fifa-${selectedFifaCountry}`, 'virtual')}
+                      disabled={actionLoading}
+                      className="w-full py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-950 font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                    >
+                      {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                      <span>{cardTheme === `fifa-${selectedFifaCountry}` ? 'Active Edition' : 'Apply for card · 10 USD'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Physical Card Tab (Screenshot 2) */}
+            {selectedCardType === 'physical' && (
+              <div className="space-y-4 flex flex-col items-center">
+                {/* Vertical Physical Card Preview */}
+                <div className="w-48 aspect-[1/1.586] rounded-2xl p-4 bg-gradient-to-tr from-rose-600 via-red-600 to-rose-700 border border-white/20 flex flex-col justify-between shadow-2xl relative overflow-hidden select-none">
+                  <div className="absolute inset-0 bg-[radial-gradient(#ffffff20_1px,transparent_1px)] [background-size:12px_12px]" />
+                  <div className="absolute -top-10 -right-10 w-36 h-36 rounded-full bg-white/10 blur-xl" />
+
+                  <div className="relative z-10 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-5 h-5 rounded-full bg-white text-rose-600 flex items-center justify-center text-[10px] font-black">
+                        A
+                      </div>
+                      <span className="font-extrabold text-xs tracking-wider text-white">AVORA</span>
+                    </div>
+                    <Wifi className="w-3.5 h-3.5 text-white/80 rotate-90" />
+                  </div>
+
+                  <div className="relative z-10 w-8 h-6 rounded bg-gradient-to-tr from-amber-300 to-yellow-400 border border-amber-200/50 p-0.5 flex flex-col justify-between shadow-sm">
+                    <div className="h-0.5 bg-amber-700/40 rounded-full" />
+                    <div className="h-0.5 bg-amber-700/40 rounded-full w-2/3" />
+                    <div className="h-0.5 bg-amber-700/40 rounded-full" />
+                  </div>
+
+                  <div className="relative z-10 space-y-1">
+                    <div className="font-mono text-xs tracking-widest text-white/90">
+                      4820 •••• •••• {cardNumberMask.slice(-4)}
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[9px] uppercase font-bold text-white/80">Physical Debit</span>
+                      <span className="font-black italic text-lg tracking-tighter text-white">VISA</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Title & Desc */}
+                <div className="text-center space-y-1">
+                  <h4 className="font-black text-lg text-white">Standard card</h4>
+                  <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
+                    No annual fees or hidden costs. Global ATM access
+                  </p>
+                </div>
+
+                {/* CTA Button */}
+                <button
+                  onClick={() => handleApplyCardEdition('physical', 'physical')}
+                  disabled={actionLoading}
+                  className="w-full py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-950 font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>{cardTheme === 'physical' ? 'Active Physical Card' : 'Apply for card · 100 USD'}</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

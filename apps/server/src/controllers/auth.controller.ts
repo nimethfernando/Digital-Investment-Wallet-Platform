@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { authService } from '../services/auth.service';
+import { kycService } from '../services/kyc.service';
 
 const prisma = new PrismaClient();
 
@@ -156,3 +157,45 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
     next(err);
   }
 };
+
+export const submitKyc = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const { documentType, documentUrl, idNumber, country, provider } = req.body;
+    if (!documentType || !documentUrl) {
+      return res.status(400).json({ success: false, message: 'Document type and URL are required' });
+    }
+    const result = await kycService.submitKyc(req.user.userId, {
+      documentType,
+      documentUrl,
+      idNumber,
+      country,
+      provider,
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getKycStatus = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const result = await kycService.getKycStatus(req.user.userId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getSumsubToken = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const provider = req.body.provider || 'SUMSUB';
+    const result = await kycService.generateProviderToken(req.user.userId, provider);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+};
+

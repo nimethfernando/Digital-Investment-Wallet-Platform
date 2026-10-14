@@ -6,6 +6,7 @@ import { depositService } from '../services/deposit.service';
 import { returnsJobService } from '../services/returns.job';
 import { ledgerService } from '../services/ledger.service';
 import { withdrawalService } from '../services/withdrawal.service';
+import { kycService } from '../services/kyc.service';
 
 const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -348,6 +349,73 @@ export class AdminController {
         message: `Withdrawal ${rejected.requestCode} has been rejected and funds refunded to user available balance.`,
         data: rejected,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * List pending KYC submissions
+   */
+  async getPendingKyc(req: Request, res: Response, next: NextFunction) {
+    try {
+      const documents = await kycService.getPendingKyc();
+      res.json({ success: true, data: documents });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Approve KYC submission
+   */
+  async approveKyc(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const documentId = req.params.id as string;
+
+      const result = await kycService.approveKyc(documentId, adminUserId);
+
+      // Audit Log
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'APPROVE_KYC',
+          entity: 'KycDocument',
+          entityId: documentId,
+          details: 'Approved investor identity verification document.',
+        },
+      });
+
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Reject KYC submission
+   */
+  async rejectKyc(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const documentId = req.params.id as string;
+      const { reason } = req.body;
+
+      const result = await kycService.rejectKyc(documentId, adminUserId, reason);
+
+      // Audit Log
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'REJECT_KYC',
+          entity: 'KycDocument',
+          entityId: documentId,
+          details: `Rejected KYC document. Reason: ${reason || 'Unspecified'}`,
+        },
+      });
+
+      res.json(result);
     } catch (err) {
       next(err);
     }

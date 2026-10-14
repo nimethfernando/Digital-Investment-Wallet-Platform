@@ -51,6 +51,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
   }, []);
 
+  // Session Management: Auto-logout after 15 minutes of user inactivity
+  useEffect(() => {
+    if (!token) return;
+
+    const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes of idle
+    let timeoutId: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        setUser(null);
+        setToken(null);
+        localStorage.removeItem('nexis_token');
+        localStorage.removeItem('nexis_user');
+        window.location.href = '/login?reason=inactivity';
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+    activityEvents.forEach((ev) => window.addEventListener(ev, resetTimer, { passive: true }));
+
+    resetTimer();
+
+    return () => {
+      clearTimeout(timeoutId);
+      activityEvents.forEach((ev) => window.removeEventListener(ev, resetTimer));
+    };
+  }, [token]);
+
   const login = async (data: { email: string; password: string; twoFactorCode?: string }) => {
     const res = await api.post('/auth/login', data);
     if (res.data.requires2FA) {

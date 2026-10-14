@@ -202,6 +202,7 @@ model User {
   transactions      Transaction[]
   deposits          DepositRequest[]
   virtualCard       VirtualCard?
+  supportTickets    SupportTicket[]
 
   @@map("diw_users")
 }
@@ -620,4 +621,37 @@ model VirtualCard {
   updatedAt      DateTime @updatedAt
 
   @@map("diw_virtual_cards")
+}
+
+model SupportTicket {
+  id           String        @id @default(uuid())
+  ticketNumber String        @unique @db.VarChar(30)
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category     String        @db.VarChar(50)
+  priority     String        @default("MEDIUM") @db.VarChar(20)
+  status       String        @default("OPEN") @db.VarChar(30)
+  subject      String        @db.VarChar(200)
+  message      String        @db.Text
+  adminNotes   String?       @db.Text
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  replies      TicketReply[]
+
+  @@index([userId, status])
+  @@map("diw_support_tickets")
+}
+
+model TicketReply {
+  id         String        @id @default(uuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId   String
+  senderName String        @db.VarChar(100)
+  senderRole String        @default("USER") @db.VarChar(20)
+  message    String        @db.Text
+  createdAt  DateTime      @default(now())
+
+  @@index([ticketId, createdAt])
+  @@map("diw_ticket_replies")
 }

@@ -22,6 +22,11 @@ router.get('/withdrawals', (req, res, next) => adminController.getWithdrawals(re
 router.post('/withdrawals/:id/settle', requireAdmin2FA, (req, res, next) => adminController.settleWithdrawal(req, res, next));
 router.post('/withdrawals/:id/reject', requireAdmin2FA, (req, res, next) => adminController.rejectWithdrawal(req, res, next));
 
+// KYC Compliance review operations
+router.get('/kyc', (req, res, next) => adminController.getPendingKyc(req, res, next));
+router.post('/kyc/:id/approve', requireAdmin2FA, (req, res, next) => adminController.approveKyc(req, res, next));
+router.post('/kyc/:id/reject', requireAdmin2FA, (req, res, next) => adminController.rejectKyc(req, res, next));
+
 // Strict Admin-only endpoints
 router.post(
   '/returns/run',

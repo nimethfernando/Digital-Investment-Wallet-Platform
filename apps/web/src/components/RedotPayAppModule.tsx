@@ -33,8 +33,18 @@ import {
   Check,
   X,
   AlertCircle,
+  Headphones,
+  LifeBuoy,
+  BookOpen,
+  Users,
+  Smartphone,
+  Layers,
+  Award,
+  Ticket,
+  HelpCircle,
 } from 'lucide-react';
 import { VirtualCardModule } from './VirtualCardModule';
+import { SupportTicketModule } from './SupportTicketModule';
 
 interface RedotPayAppModuleProps {
   user: any;
@@ -61,6 +71,12 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const [navTab, setNavTab] = useState<'home' | 'card' | 'send' | 'assets'>('home');
   const [showBalance, setShowBalance] = useState(true);
   const [assetsSubTab, setAssetsSubTab] = useState<'crypto' | 'fiat'>('crypto');
+  const [openChooseCardInTab, setOpenChooseCardInTab] = useState(false);
+
+  // Support & Services Modals
+  const [ticketCenterOpen, setTicketCenterOpen] = useState(false);
+  const [servicesModalOpen, setServicesModalOpen] = useState(false);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
 
   // Send Screen Form State
   const [sendFromCurrency, setSendFromCurrency] = useState('USDT');
@@ -84,7 +100,6 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const spotRate = (ratesInUsd[sendFromCurrency] || 1.0) / (ratesInUsd[sendToCurrency] || 1.0);
   const exchangeRate = Number((spotRate * 0.99).toFixed(4)); // 1% spread matching backend ledger
   const convertedAmount = (parseFloat(sendAmount || '0') * exchangeRate).toFixed(2);
-  const estimatedFee = Math.max(0.5, parseFloat(sendAmount || '0') * 0.01).toFixed(2);
 
   // Balances
   const usdBal = wallet?.balances?.find((b: any) => b.currency === 'USD')?.availableBalance || '0.00';
@@ -174,8 +189,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           </div>
         </div>
 
-        {/* Right Action Icons */}
-        <div className="flex items-center gap-3 text-slate-400">
+        {/* Right Action Icons: Scan, Ticket Desk, Notification */}
+        <div className="flex items-center gap-2 text-slate-400">
+          <button
+            onClick={() => setTicketCenterOpen(true)}
+            className="p-2 rounded-full hover:bg-slate-900 hover:text-rose-400 transition-colors"
+            title="Helpdesk & Tickets"
+          >
+            <Headphones className="w-5 h-5" />
+          </button>
           <button
             onClick={() => alert('Camera QR scanner ready for merchant POS payments.')}
             className="p-2 rounded-full hover:bg-slate-900 hover:text-white transition-colors"
@@ -184,7 +206,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             <Scan className="w-5 h-5" />
           </button>
           <button
-            onClick={() => alert('All system security alerts up to date.')}
+            onClick={() => alert('No unread security alerts.')}
             className="p-2 rounded-full hover:bg-slate-900 hover:text-white transition-colors relative"
             title="Notifications"
           >
@@ -252,9 +274,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Referral</span>
             </button>
 
-            {/* More / P2P */}
+            {/* More -> Opens Full Services & Support Drawer */}
             <button
-              onClick={onOpenP2P}
+              onClick={() => setServicesModalOpen(true)}
               className="flex flex-col items-center gap-2 group cursor-pointer"
             >
               <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-white group-hover:bg-slate-800 group-hover:border-rose-500 transition-all shadow-md">
@@ -275,6 +297,68 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             </div>
             <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-2xl shadow-inner shrink-0">
               🎁
+            </div>
+          </div>
+
+          {/* REDOTPAY SCREENSHOT 1 MATCH: SUPPORT HUB DIRECT ROW */}
+          <div className="p-4 rounded-3xl bg-slate-900/90 border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Headphones className="w-4 h-4 text-rose-500" />
+                <span className="text-xs font-bold text-white">Client Support Desk</span>
+              </div>
+              <button
+                onClick={() => setServicesModalOpen(true)}
+                className="text-[11px] text-slate-400 hover:text-white flex items-center"
+              >
+                All Services <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 pt-1 text-center">
+              {/* Support 1: Help */}
+              <button
+                onClick={() => setHelpModalOpen(true)}
+                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-800 transition-colors group cursor-pointer"
+              >
+                <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-300 group-hover:text-white group-hover:border-rose-500 transition-all">
+                  <HelpCircle className="w-5 h-5 text-sky-400" />
+                </div>
+                <span className="text-[11px] font-bold text-slate-300 group-hover:text-white">Help</span>
+              </button>
+
+              {/* Support 2: Community */}
+              <button
+                onClick={() => alert('Avora Bank VIP Community: Telegram Concierge channel open 24/7.')}
+                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-800 transition-colors group cursor-pointer"
+              >
+                <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-300 group-hover:text-white group-hover:border-rose-500 transition-all">
+                  <Users className="w-5 h-5 text-indigo-400" />
+                </div>
+                <span className="text-[11px] font-bold text-slate-300 group-hover:text-white">Community</span>
+              </button>
+
+              {/* Support 3: Learn */}
+              <Link
+                href="/how-it-works"
+                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-800 transition-colors group cursor-pointer"
+              >
+                <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-300 group-hover:text-white group-hover:border-rose-500 transition-all">
+                  <BookOpen className="w-5 h-5 text-amber-400" />
+                </div>
+                <span className="text-[11px] font-bold text-slate-300 group-hover:text-white">Learn</span>
+              </Link>
+
+              {/* Support 4: Ticket (RedotPay Match) */}
+              <button
+                onClick={() => setTicketCenterOpen(true)}
+                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-800 transition-colors group cursor-pointer"
+              >
+                <div className="w-11 h-11 rounded-full bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-rose-400 group-hover:bg-rose-600 group-hover:text-white transition-all shadow-md">
+                  <Ticket className="w-5 h-5 text-rose-500 group-hover:text-white" />
+                </div>
+                <span className="text-[11px] font-bold text-rose-400 group-hover:text-white">Ticket</span>
+              </button>
             </div>
           </div>
 
@@ -375,6 +459,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             cardHolderName={`${user?.firstName || 'Avora'} ${user?.lastName || 'Client'}`}
             accountNumber={user?.accountNumber || 'AVR-8820-4190'}
             onRefresh={onRefresh}
+            defaultOpenChooseModal={openChooseCardInTab}
           />
         </div>
       )}
@@ -676,7 +761,306 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       )}
 
       {/* ---------------------------------------------------------------------- */}
-      {/* 6. SWAP RECEIPT MODAL */}
+      {/* 6. MODAL: REDOTPAY ALL SERVICES SCREEN (DIRECT SCREENSHOT 1 MATCH) */}
+      {/* ---------------------------------------------------------------------- */}
+      {servicesModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto space-y-6 text-white shadow-2xl animate-in zoom-in-95">
+            
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h3 className="font-extrabold text-base flex items-center gap-2">
+                <span>Avora Hub</span>
+              </h3>
+              <button
+                onClick={() => setServicesModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* GROUP 1: CARD */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Card</h4>
+              <div className="grid grid-cols-4 gap-3 text-center">
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    setOpenChooseCardInTab(true);
+                    setNavTab('card');
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <CreditCard className="w-5 h-5 text-rose-500" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Apply</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Priority status: Avora Private Client Tier active.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Priority</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    setNavTab('card');
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Shield className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Security</span>
+                </button>
+
+                <Link
+                  href="/dashboard?tab=transactions"
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Statement</span>
+                </Link>
+              </div>
+            </div>
+
+            {/* GROUP 2: LIFESTYLE */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lifestyle</h4>
+              <div className="grid grid-cols-4 gap-3 text-center">
+                <button
+                  onClick={() => alert('Avora eSIM: International roaming data connected to crypto wallet.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Smartphone className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">eSIM</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Gift Cards: Purchase retail vouchers using USDT.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Gift className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Gift Card</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Mobile top-up available for 140+ countries.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Mobile top-up</span>
+                </button>
+              </div>
+            </div>
+
+            {/* GROUP 3: REWARDS */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Rewards</h4>
+              <div className="grid grid-cols-4 gap-3 text-center">
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenPackages();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <UserPlus className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Referral</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Mystery Gift box awarded weekly.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Award className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Gift</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Benefits: 3% Cashback on Visa Card transactions.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Sparkles className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Benefits</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Vouchers: 0% P2P trading fee coupons active.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Ticket className="w-5 h-5 text-cyan-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Vouchers</span>
+                </button>
+              </div>
+            </div>
+
+            {/* GROUP 4: SUPPORT (EXACT SCREENSHOT 1 MATCH) */}
+            <div className="space-y-3 pt-1 border-t border-slate-900">
+              <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider">Support</h4>
+              <div className="grid grid-cols-4 gap-3 text-center">
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    setHelpModalOpen(true);
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-sky-400">
+                    <HelpCircle className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Help</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Telegram VIP Community: @AvoraBankDesk official.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-indigo-400">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Community</span>
+                </button>
+
+                <Link
+                  href="/how-it-works"
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-amber-400">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Learn</span>
+                </Link>
+
+                {/* TICKET DESK */}
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    setTicketCenterOpen(true);
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shadow-md">
+                    <Ticket className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-bold text-rose-400">Ticket</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------------- */}
+      {/* 7. MODAL: SUPPORT TICKET CENTER */}
+      {/* ---------------------------------------------------------------------- */}
+      {ticketCenterOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-2xl w-full max-h-[92vh] overflow-y-auto space-y-4 text-white shadow-2xl relative animate-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-rose-600 flex items-center justify-center font-bold text-white text-xs">
+                  <Ticket className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base">Support Ticket Desk</h3>
+                  <p className="text-[11px] text-slate-400">Raise or track issues with Avora Bank operations</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setTicketCenterOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <SupportTicketModule onTicketCreated={onRefresh} />
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------------- */}
+      {/* 8. MODAL: HELP & FAQ CENTER */}
+      {/* ---------------------------------------------------------------------- */}
+      {helpModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-5 text-white shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center justify-between">
+              <h3 className="font-extrabold text-base flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-sky-400" />
+                <span>Frequently Asked Questions</span>
+              </h3>
+              <button
+                onClick={() => setHelpModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-300">
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+                <div className="font-bold text-white">How do I spend crypto with my Virtual Card?</div>
+                <p className="text-slate-400 text-[11px]">
+                  Your Avora card connects to your available USD ledger balance. Authorizations convert crypto automatically.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+                <div className="font-bold text-white">When are monthly investment returns paid?</div>
+                <p className="text-slate-400 text-[11px]">
+                  Fixed packages calculate a 1% monthly yield credited directly to your wallet on the 1st of every month.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+                <div className="font-bold text-white">How does P2P escrow work?</div>
+                <p className="text-slate-400 text-[11px]">
+                  Crypto is locked by automated smart escrow until the seller confirms fiat receipt in their bank account.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setHelpModalOpen(false);
+                setTicketCenterOpen(true);
+              }}
+              className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md flex items-center justify-center gap-2"
+            >
+              <Ticket className="w-4 h-4" />
+              <span>Still need help? Open a Ticket</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------------- */}
+      {/* 9. MODAL: SWAP RECEIPT */}
       {/* ---------------------------------------------------------------------- */}
       {swapReceipt && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
@@ -733,7 +1117,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       )}
 
       {/* ---------------------------------------------------------------------- */}
-      {/* 7. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Send, Assets) */}
+      {/* 10. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Send, Assets) */}
       {/* ---------------------------------------------------------------------- */}
       <div className="absolute bottom-0 left-0 right-0 h-20 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/80 px-6 flex items-center justify-around z-50">
         
