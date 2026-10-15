@@ -48,8 +48,10 @@ export default function RegisterPage() {
       });
 
       router.push('/dashboard');
-    } catch (err: any) {
-      const serverMsg = err.response?.data?.message || (typeof err.response?.data === 'string' ? err.response.data : null);
+      const serverMsg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        (typeof err.response?.data === 'string' ? err.response.data : null);
       setError(serverMsg || err.message || 'Registration failed.');
     } finally {
       setLoading(false);

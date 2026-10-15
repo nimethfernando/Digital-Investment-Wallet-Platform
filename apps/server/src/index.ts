@@ -78,22 +78,34 @@ app.use((req, res) => {
 
 app.use(errorHandler);
 
-if (!isServerless && process.env.NODE_ENV !== 'test') {
-  const server = app.listen(config.port, () => {
-    console.log(`====================================================`);
-    console.log(`🚀 Avora Bank Core API Server running on port ${config.port}`);
-    console.log(`📡 Base URL: http://localhost:${config.port}/api/v1`);
-    console.log(`📂 Uploads Volume: ${uploadsDirectory}`);
-    console.log(`🔒 Environment: ${config.nodeEnv}`);
-    console.log(`====================================================`);
-    
-    // Register automated financial background cron jobs
-    returnsJobService.startScheduler();
-  });
+const port = process.env.PORT || config.port || 5000;
+
+// Listen when started directly, with PORT specified, or in non-serverless mode
+if (process.env.PORT || (!isServerless && process.env.NODE_ENV !== 'test')) {
+  try {
+    app.listen(port, () => {
+      console.log(`====================================================`);
+      console.log(`🚀 Avora Bank Core API Server running on port ${port}`);
+      console.log(`📡 Base URL: http://localhost:${port}/api/v1`);
+      console.log(`📂 Uploads Volume: ${uploadsDirectory}`);
+      console.log(`🔒 Environment: ${config.nodeEnv}`);
+      console.log(`====================================================`);
+      
+      // Register automated financial background cron jobs
+      returnsJobService.startScheduler();
+    });
+  } catch (err: any) {
+    console.warn('[Server] Listen notice:', err.message);
+  }
 }
 
-export default app;
+const handler = (req: any, res: any) => {
+  return app(req, res);
+};
+
+export default handler;
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = app;
-  (module.exports as any).default = app;
+  module.exports = handler;
+  (module.exports as any).default = handler;
+  (module.exports as any).app = app;
 }

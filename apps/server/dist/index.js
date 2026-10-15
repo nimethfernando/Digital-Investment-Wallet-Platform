@@ -72,20 +72,31 @@ app.use((req, res) => {
     res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.originalUrl}` });
 });
 app.use(error_1.errorHandler);
-if (!isServerless && process.env.NODE_ENV !== 'test') {
-    const server = app.listen(config_1.config.port, () => {
-        console.log(`====================================================`);
-        console.log(`🚀 Avora Bank Core API Server running on port ${config_1.config.port}`);
-        console.log(`📡 Base URL: http://localhost:${config_1.config.port}/api/v1`);
-        console.log(`📂 Uploads Volume: ${uploadsDirectory}`);
-        console.log(`🔒 Environment: ${config_1.config.nodeEnv}`);
-        console.log(`====================================================`);
-        // Register automated financial background cron jobs
-        returns_job_1.returnsJobService.startScheduler();
-    });
+const port = process.env.PORT || config_1.config.port || 5000;
+// Listen when started directly, with PORT specified, or in non-serverless mode
+if (process.env.PORT || (!isServerless && process.env.NODE_ENV !== 'test')) {
+    try {
+        app.listen(port, () => {
+            console.log(`====================================================`);
+            console.log(`🚀 Avora Bank Core API Server running on port ${port}`);
+            console.log(`📡 Base URL: http://localhost:${port}/api/v1`);
+            console.log(`📂 Uploads Volume: ${uploadsDirectory}`);
+            console.log(`🔒 Environment: ${config_1.config.nodeEnv}`);
+            console.log(`====================================================`);
+            // Register automated financial background cron jobs
+            returns_job_1.returnsJobService.startScheduler();
+        });
+    }
+    catch (err) {
+        console.warn('[Server] Listen notice:', err.message);
+    }
 }
-exports.default = app;
+const handler = (req, res) => {
+    return app(req, res);
+};
+exports.default = handler;
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = app;
-    module.exports.default = app;
+    module.exports = handler;
+    module.exports.default = handler;
+    module.exports.app = app;
 }
