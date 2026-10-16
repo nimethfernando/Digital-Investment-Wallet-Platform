@@ -734,7 +734,7 @@ export default function P2PPage() {
                   className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
                     marketSide === 'BUY'
                       ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-neutral-400 hover:text-white'
+                      : 'text-neutral-200 hover:text-white hover:bg-neutral-800/60'
                   }`}
                 >
                   Buy USDT
@@ -744,7 +744,7 @@ export default function P2PPage() {
                   className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
                     marketSide === 'SELL'
                       ? 'bg-rose-600 text-white shadow-sm'
-                      : 'text-neutral-400 hover:text-white'
+                      : 'text-neutral-200 hover:text-white hover:bg-neutral-800/60'
                   }`}
                 >
                   Sell USDT
@@ -761,7 +761,7 @@ export default function P2PPage() {
                 className="bg-neutral-900 border border-neutral-800 text-xs font-bold text-white rounded-xl px-3 py-1.5 outline-none cursor-pointer"
               >
                 {COUNTRIES.map((c) => (
-                  <option key={c.id} value={c.id}>
+                  <option key={c.id} value={c.id} className="bg-neutral-900 text-white">
                     {c.flag} {c.currency} ({c.name})
                   </option>
                 ))}
@@ -883,7 +883,7 @@ export default function P2PPage() {
               <button
                 onClick={() => setOrdersMainTab('ongoing')}
                 className={`pb-2 relative transition-colors ${
-                  ordersMainTab === 'ongoing' ? 'text-white' : 'text-neutral-500 hover:text-neutral-400'
+                  ordersMainTab === 'ongoing' ? 'text-white' : 'text-neutral-300 hover:text-white'
                 }`}
               >
                 Ongoing
@@ -894,7 +894,7 @@ export default function P2PPage() {
               <button
                 onClick={() => setOrdersMainTab('fulfilled')}
                 className={`pb-2 relative transition-colors ${
-                  ordersMainTab === 'fulfilled' ? 'text-white' : 'text-neutral-500 hover:text-neutral-400'
+                  ordersMainTab === 'fulfilled' ? 'text-white' : 'text-neutral-300 hover:text-white'
                 }`}
               >
                 Fulfilled
@@ -923,7 +923,7 @@ export default function P2PPage() {
                       className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                         ordersFilterChip === chip
                           ? 'bg-[#2c2c2e] text-white'
-                          : 'text-neutral-400 hover:text-neutral-300'
+                          : 'text-neutral-300 hover:text-white'
                       }`}
                     >
                       {chip === 'all'
@@ -975,7 +975,7 @@ export default function P2PPage() {
                               ? 'text-amber-400 bg-amber-950/40 border border-amber-900/40'
                               : order.status === 'COMPLETED'
                               ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-900/40'
-                              : 'text-neutral-400 bg-neutral-900'
+                              : 'text-neutral-300 bg-neutral-900'
                           }`}
                         >
                           {order.statusBadge}
@@ -1119,7 +1119,7 @@ export default function P2PPage() {
                   key={tab}
                   onClick={() => setChatSubTab(tab)}
                   className={`pb-2 relative transition-colors ${
-                    chatSubTab === tab ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-400'
+                    chatSubTab === tab ? 'text-white font-bold' : 'text-neutral-300 hover:text-white'
                   }`}
                 >
                   {tab === 'all' ? 'All' : tab === 'active' ? 'Active orders' : 'Unread'}

@@ -670,6 +670,9 @@ export class LedgerService {
     return {
       walletId: wallet.id,
       baseCurrency: 'USD',
+      totalActiveInvestmentsUsd: locked.toFixed(2),
+      totalReturnsPaidUsd: accumulatedReturns.toFixed(2),
+      totalPendingWithdrawalsUsd: pending.toFixed(2),
       summary: {
         available: available.toFixed(2),
         lockedPrincipal: locked.toFixed(2),
@@ -677,12 +680,20 @@ export class LedgerService {
         total: total.toFixed(2),
         accumulatedReturns: accumulatedReturns.toFixed(2),
       },
-      balances: balances.map((b) => ({
-        currency: b.currency,
-        available: new Decimal(b.availableBalance.toString()).toFixed(2),
-        locked: new Decimal(b.lockedPrincipal.toString()).toFixed(2),
-        pending: new Decimal(b.pendingSettlement.toString()).toFixed(2),
-      })),
+      balances: balances.map((b) => {
+        const availStr = new Decimal(b.availableBalance.toString()).toFixed(2);
+        const lockedStr = new Decimal(b.lockedPrincipal.toString()).toFixed(2);
+        const pendingStr = new Decimal(b.pendingSettlement.toString()).toFixed(2);
+        return {
+          currency: b.currency,
+          available: availStr,
+          availableBalance: availStr,
+          locked: lockedStr,
+          lockedPrincipal: lockedStr,
+          pending: pendingStr,
+          pendingSettlement: pendingStr,
+        };
+      }),
     };
   }
 

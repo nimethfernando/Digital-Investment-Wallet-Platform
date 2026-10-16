@@ -168,13 +168,13 @@ export class P2PService {
     const referenceCode = `P2P-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
     const idempotencyKey = `P2P-XFER-${senderUserId}-${referenceCode}`;
 
+    // Ensure both wallets before starting interactive transaction
+    const senderWallet = await ledgerService.ensureWallet(senderUserId);
+    const recipientWallet = await ledgerService.ensureWallet(recipient.id);
+
     // 5. Execute Atomic Double-Entry Ledger Transfer
     const result = await prisma.$transaction(
       async (tx) => {
-        // Ensure both wallets
-        const senderWallet = await ledgerService.ensureWallet(senderUserId);
-        const recipientWallet = await ledgerService.ensureWallet(recipient.id);
-
         // Row-level lock balances
         const senderLockedBal = await ledgerService.lockWalletBalance(tx, senderWallet.id, currency);
         const recLockedBal = await ledgerService.lockWalletBalance(tx, recipientWallet.id, currency);
@@ -517,72 +517,76 @@ export class P2PService {
     const randomDigits = Math.floor(10000000000000 + Math.random() * 90000000000000).toString();
     const orderCode = `OTC${dateStr}${randomDigits}`;
 
+    // 1. Ensure seller wallet outside the interactive transaction
+    const sellerWallet = await ledgerService.ensureWallet(sellerId);
+
     // Execute atomic Escrow Lock on seller's wallet
-    const order = await prisma.$transaction(async (tx) => {
-      // 1. Ensure seller wallet
-      const sellerWallet = await ledgerService.ensureWallet(sellerId);
-      const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+    const order = await prisma.$transaction(
+      async (tx) => {
+        const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
 
-      let sellerAvail = new Decimal(sellerBal.availableBalance.toString());
-      if (sellerAvail.lessThan(cryptoAmountDec)) {
-        const sellerUser = await tx.user.findUnique({ where: { id: sellerId } });
-        if (sellerUser?.role === 'ADMIN' || offer.userId === sellerId) {
-          const seededBal = new Decimal('1000000.00');
-          await tx.walletBalance.update({
-            where: { id: sellerBal.id },
-            data: { availableBalance: seededBal.toFixed(8) },
-          });
-          sellerAvail = seededBal;
-        } else {
-          throw new Error(
-            `Seller has insufficient USDT available for escrow lock (${sellerAvail.toFixed(2)} USDT available, ${cryptoAmountDec.toFixed(2)} required)`
-          );
+        let sellerAvail = new Decimal(sellerBal.availableBalance.toString());
+        if (sellerAvail.lessThan(cryptoAmountDec)) {
+          const sellerUser = await tx.user.findUnique({ where: { id: sellerId } });
+          if (sellerUser?.role === 'ADMIN' || offer.userId === sellerId) {
+            const seededBal = new Decimal('1000000.00');
+            await tx.walletBalance.update({
+              where: { id: sellerBal.id },
+              data: { availableBalance: seededBal.toFixed(8) },
+            });
+            sellerAvail = seededBal;
+          } else {
+            throw new Error(
+              `Seller has insufficient USDT available for escrow lock (${sellerAvail.toFixed(2)} USDT available, ${cryptoAmountDec.toFixed(2)} required)`
+            );
+          }
         }
-      }
 
-      // Move USDT from availableBalance to lockedPrincipal (Escrow holding)
-      const newAvail = sellerAvail.minus(cryptoAmountDec);
-      const newLocked = new Decimal(sellerBal.lockedPrincipal.toString()).plus(cryptoAmountDec);
+        // Move USDT from availableBalance to lockedPrincipal (Escrow holding)
+        const newAvail = sellerAvail.minus(cryptoAmountDec);
+        const newLocked = new Decimal(sellerBal.lockedPrincipal.toString()).plus(cryptoAmountDec);
 
-      await tx.walletBalance.update({
-        where: { id: sellerBal.id },
-        data: {
-          availableBalance: newAvail.toFixed(8),
-          lockedPrincipal: newLocked.toFixed(8),
-        },
-      });
+        await tx.walletBalance.update({
+          where: { id: sellerBal.id },
+          data: {
+            availableBalance: newAvail.toFixed(8),
+            lockedPrincipal: newLocked.toFixed(8),
+          },
+        });
 
-      // 2. Create P2P Order in database
-      const newOrder = await tx.p2POrder.create({
-        data: {
-          orderCode,
-          offerId: offer.id,
-          buyerId: actualBuyerId,
-          sellerId,
-          cryptoAmount: cryptoAmountDec.toFixed(8),
-          fiatAmount: fiatAmountDec.toFixed(8),
-          price: priceDec.toFixed(8),
-          status: P2POrderStatus.PENDING_PAYMENT,
-          escrowJournalId: `ESCROW-${orderCode}`,
-        },
-        include: {
-          buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
-          seller: { select: { id: true, firstName: true, lastName: true, email: true } },
-          offer: true,
-        },
-      });
+        // 2. Create P2P Order in database
+        const newOrder = await tx.p2POrder.create({
+          data: {
+            orderCode,
+            offerId: offer.id,
+            buyerId: actualBuyerId,
+            sellerId,
+            cryptoAmount: cryptoAmountDec.toFixed(8),
+            fiatAmount: fiatAmountDec.toFixed(8),
+            price: priceDec.toFixed(8),
+            status: P2POrderStatus.PENDING_PAYMENT,
+            escrowJournalId: `ESCROW-${orderCode}`,
+          },
+          include: {
+            buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
+            seller: { select: { id: true, firstName: true, lastName: true, email: true } },
+            offer: true,
+          },
+        });
 
-      // 3. Post initial system messages to chat
-      await tx.p2PMessage.create({
-        data: {
-          orderId: newOrder.id,
-          senderId: 'SYSTEM',
-          message: `[System] Order ${orderCode} created. Escrow of ${cryptoAmountDec.toFixed(2)} USDT is safely locked by Avora Bank. Buyer has 15 minutes to transfer the fiat payment.`,
-        },
-      });
+        // 3. Post initial system messages to chat
+        await tx.p2PMessage.create({
+          data: {
+            orderId: newOrder.id,
+            senderId: 'SYSTEM',
+            message: `[System] Order ${orderCode} created. Escrow of ${cryptoAmountDec.toFixed(2)} USDT is safely locked by Avora Bank. Buyer has 15 minutes to transfer the fiat payment.`,
+          },
+        });
 
-      return newOrder;
-    });
+        return newOrder;
+      },
+      { timeout: 30000, maxWait: 10000 }
+    );
 
     return order;
   }
@@ -733,25 +737,28 @@ export class P2PService {
       throw new Error(`Order is already in status: ${order.status}`);
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
-      const ord = await tx.p2POrder.update({
-        where: { id: orderId },
-        data: {
-          status: P2POrderStatus.PAYMENT_SENT,
-          paymentProofUrl: proofUrl || null,
-        },
-      });
+    const updated = await prisma.$transaction(
+      async (tx) => {
+        const ord = await tx.p2POrder.update({
+          where: { id: orderId },
+          data: {
+            status: P2POrderStatus.PAYMENT_SENT,
+            paymentProofUrl: proofUrl || null,
+          },
+        });
 
-      await tx.p2PMessage.create({
-        data: {
-          orderId,
-          senderId: 'SYSTEM',
-          message: `[System] Buyer has marked payment as sent. Seller (${order.seller.firstName || 'Seller'}), please check your bank account and confirm payment promptly.`,
-        },
-      });
+        await tx.p2PMessage.create({
+          data: {
+            orderId,
+            senderId: 'SYSTEM',
+            message: `[System] Buyer has marked payment as sent. Seller (${order.seller.firstName || 'Seller'}), please check your bank account and confirm payment promptly.`,
+          },
+        });
 
-      return ord;
-    });
+        return ord;
+      },
+      { timeout: 30000, maxWait: 10000 }
+    );
 
     return updated;
   }
@@ -775,44 +782,49 @@ export class P2PService {
 
     const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
 
-    return await prisma.$transaction(async (tx) => {
-      // 1. Deduct locked escrow from seller
-      const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
-      const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
-      const newSellerLocked = Decimal.max(0, new Decimal(sellerBal.lockedPrincipal.toString()).minus(cryptoAmountDec));
+    // Ensure both wallets outside interactive transaction
+    const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
+    const buyerWallet = await ledgerService.ensureWallet(order.buyerId);
 
-      await tx.walletBalance.update({
-        where: { id: sellerBal.id },
-        data: { lockedPrincipal: newSellerLocked.toFixed(8) },
-      });
+    return await prisma.$transaction(
+      async (tx) => {
+        // 1. Deduct locked escrow from seller
+        const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+        const newSellerLocked = Decimal.max(0, new Decimal(sellerBal.lockedPrincipal.toString()).minus(cryptoAmountDec));
 
-      // 2. Credit buyer available balance
-      const buyerWallet = await ledgerService.ensureWallet(order.buyerId);
-      const buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
-      const newBuyerAvail = new Decimal(buyerBal.availableBalance.toString()).plus(cryptoAmountDec);
+        await tx.walletBalance.update({
+          where: { id: sellerBal.id },
+          data: { lockedPrincipal: newSellerLocked.toFixed(8) },
+        });
 
-      await tx.walletBalance.update({
-        where: { id: buyerBal.id },
-        data: { availableBalance: newBuyerAvail.toFixed(8) },
-      });
+        // 2. Credit buyer available balance
+        const buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
+        const newBuyerAvail = new Decimal(buyerBal.availableBalance.toString()).plus(cryptoAmountDec);
 
-      // 3. Update order to COMPLETED
-      const completedOrder = await tx.p2POrder.update({
-        where: { id: orderId },
-        data: { status: P2POrderStatus.COMPLETED },
-      });
+        await tx.walletBalance.update({
+          where: { id: buyerBal.id },
+          data: { availableBalance: newBuyerAvail.toFixed(8) },
+        });
 
-      // 4. Record system completion message
-      await tx.p2PMessage.create({
-        data: {
-          orderId,
-          senderId: 'SYSTEM',
-          message: `[System] Seller confirmed payment! ${cryptoAmountDec.toFixed(2)} USDT has been released from escrow into Buyer's available wallet balance.`,
-        },
-      });
+        // 3. Update order to COMPLETED
+        const completedOrder = await tx.p2POrder.update({
+          where: { id: orderId },
+          data: { status: P2POrderStatus.COMPLETED },
+        });
 
-      return completedOrder;
-    });
+        // 4. Record system completion message
+        await tx.p2PMessage.create({
+          data: {
+            orderId,
+            senderId: 'SYSTEM',
+            message: `[System] Seller confirmed payment! ${cryptoAmountDec.toFixed(2)} USDT has been released from escrow into Buyer's available wallet balance.`,
+          },
+        });
+
+        return completedOrder;
+      },
+      { timeout: 30000, maxWait: 10000 }
+    );
   }
 
   /**
@@ -825,25 +837,28 @@ export class P2PService {
       throw new Error('Access denied');
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
-      const ord = await tx.p2POrder.update({
-        where: { id: orderId },
-        data: {
-          status: P2POrderStatus.DISPUTED,
-          disputeReason: reason,
-        },
-      });
+    const updated = await prisma.$transaction(
+      async (tx) => {
+        const ord = await tx.p2POrder.update({
+          where: { id: orderId },
+          data: {
+            status: P2POrderStatus.DISPUTED,
+            disputeReason: reason,
+          },
+        });
 
-      await tx.p2PMessage.create({
-        data: {
-          orderId,
-          senderId: 'SYSTEM',
-          message: `[System] Dispute opened by user: "${reason}". An Avora Compliance Officer will review payment proofs and chat history.`,
-        },
-      });
+        await tx.p2PMessage.create({
+          data: {
+            orderId,
+            senderId: 'SYSTEM',
+            message: `[System] Dispute opened by user: "${reason}". An Avora Compliance Officer will review payment proofs and chat history.`,
+          },
+        });
 
-      return ord;
-    });
+        return ord;
+      },
+      { timeout: 30000, maxWait: 10000 }
+    );
 
     return updated;
   }

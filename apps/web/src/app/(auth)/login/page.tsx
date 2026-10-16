@@ -39,6 +39,7 @@ export default function LoginPage() {
       } else {
         router.push('/dashboard');
       }
+    } catch (err: any) {
       const serverMsg =
         err.response?.data?.message ||
         err.response?.data?.error ||

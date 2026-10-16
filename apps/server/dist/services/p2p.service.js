@@ -140,11 +140,11 @@ class P2PService {
         }
         const referenceCode = `P2P-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
         const idempotencyKey = `P2P-XFER-${senderUserId}-${referenceCode}`;
+        // Ensure both wallets before starting interactive transaction
+        const senderWallet = await ledger_service_1.ledgerService.ensureWallet(senderUserId);
+        const recipientWallet = await ledger_service_1.ledgerService.ensureWallet(recipient.id);
         // 5. Execute Atomic Double-Entry Ledger Transfer
         const result = await prisma_1.prisma.$transaction(async (tx) => {
-            // Ensure both wallets
-            const senderWallet = await ledger_service_1.ledgerService.ensureWallet(senderUserId);
-            const recipientWallet = await ledger_service_1.ledgerService.ensureWallet(recipient.id);
             // Row-level lock balances
             const senderLockedBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, senderWallet.id, currency);
             const recLockedBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, recipientWallet.id, currency);
@@ -451,10 +451,10 @@ class P2PService {
         const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
         const randomDigits = Math.floor(10000000000000 + Math.random() * 90000000000000).toString();
         const orderCode = `OTC${dateStr}${randomDigits}`;
+        // 1. Ensure seller wallet outside the interactive transaction
+        const sellerWallet = await ledger_service_1.ledgerService.ensureWallet(sellerId);
         // Execute atomic Escrow Lock on seller's wallet
         const order = await prisma_1.prisma.$transaction(async (tx) => {
-            // 1. Ensure seller wallet
-            const sellerWallet = await ledger_service_1.ledgerService.ensureWallet(sellerId);
             const sellerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
             let sellerAvail = new decimal_js_1.default(sellerBal.availableBalance.toString());
             if (sellerAvail.lessThan(cryptoAmountDec)) {
@@ -509,7 +509,7 @@ class P2PService {
                 },
             });
             return newOrder;
-        });
+        }, { timeout: 30000, maxWait: 10000 });
         return order;
     }
     /**
@@ -667,7 +667,7 @@ class P2PService {
                 },
             });
             return ord;
-        });
+        }, { timeout: 30000, maxWait: 10000 });
         return updated;
     }
     /**
@@ -687,9 +687,11 @@ class P2PService {
             throw new Error(`Cannot release funds while order is in status: ${order.status}`);
         }
         const cryptoAmountDec = new decimal_js_1.default(order.cryptoAmount.toString());
+        // Ensure both wallets outside interactive transaction
+        const sellerWallet = await ledger_service_1.ledgerService.ensureWallet(order.sellerId);
+        const buyerWallet = await ledger_service_1.ledgerService.ensureWallet(order.buyerId);
         return await prisma_1.prisma.$transaction(async (tx) => {
             // 1. Deduct locked escrow from seller
-            const sellerWallet = await ledger_service_1.ledgerService.ensureWallet(order.sellerId);
             const sellerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
             const newSellerLocked = decimal_js_1.default.max(0, new decimal_js_1.default(sellerBal.lockedPrincipal.toString()).minus(cryptoAmountDec));
             await tx.walletBalance.update({
@@ -697,7 +699,6 @@ class P2PService {
                 data: { lockedPrincipal: newSellerLocked.toFixed(8) },
             });
             // 2. Credit buyer available balance
-            const buyerWallet = await ledger_service_1.ledgerService.ensureWallet(order.buyerId);
             const buyerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
             const newBuyerAvail = new decimal_js_1.default(buyerBal.availableBalance.toString()).plus(cryptoAmountDec);
             await tx.walletBalance.update({
@@ -718,7 +719,7 @@ class P2PService {
                 },
             });
             return completedOrder;
-        });
+        }, { timeout: 30000, maxWait: 10000 });
     }
     /**
      * Open a dispute on an ongoing order
@@ -746,7 +747,7 @@ class P2PService {
                 },
             });
             return ord;
-        });
+        }, { timeout: 30000, maxWait: 10000 });
         return updated;
     }
     /**

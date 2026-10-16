@@ -106,12 +106,20 @@ export default function PackagesPage() {
             onClick={() => setSelectedTerm(t.months)}
             className={`flex-1 py-3 px-4 rounded-xl text-center transition-all ${
               selectedTerm === t.months
-                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-black shadow-md border border-slate-200 dark:border-slate-700'
-                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white font-semibold'
+                ? 'bg-emerald-600 text-white font-black shadow-md'
+                : 'bg-white/70 dark:bg-slate-800/70 text-slate-800 dark:text-slate-100 hover:bg-white dark:hover:bg-slate-800 font-bold border border-slate-200/80 dark:border-slate-700/80'
             }`}
           >
             <div className="text-sm">{t.label}</div>
-            <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">{t.apr}</div>
+            <div
+              className={`text-[11px] font-bold ${
+                selectedTerm === t.months
+                  ? 'text-emerald-100'
+                  : 'text-emerald-600 dark:text-emerald-400'
+              }`}
+            >
+              {t.apr}
+            </div>
           </button>
         ))}
       </div>

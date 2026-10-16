@@ -231,7 +231,7 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
                 type="button"
                 onClick={() => setMethod('sumsub')}
                 className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                  method === 'sumsub' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
+                  method === 'sumsub' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-200 hover:text-white hover:bg-slate-800/70'
                 }`}
               >
                 Fast-Track (Sumsub SDK)
@@ -240,7 +240,7 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
                 type="button"
                 onClick={() => setMethod('upload')}
                 className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                  method === 'upload' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
+                  method === 'upload' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-200 hover:text-white hover:bg-slate-800/70'
                 }`}
               >
                 Manual Document Upload
@@ -270,15 +270,15 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
             ) : (
               <form onSubmit={handleSubmitUpload} className="space-y-3 text-xs">
                 <div>
-                  <label className="text-slate-400 block mb-1">Document Type</label>
+                  <label className="text-slate-300 block mb-1 font-semibold">Document Type</label>
                   <select
                     value={documentType}
                     onChange={(e: any) => setDocumentType(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
                   >
-                    <option value="PASSPORT">Passport</option>
-                    <option value="NATIONAL_ID">National Identity Card</option>
-                    <option value="DRIVERS_LICENSE">Driver's License</option>
+                    <option value="PASSPORT" className="bg-slate-900 text-white">Passport</option>
+                    <option value="NATIONAL_ID" className="bg-slate-900 text-white">National Identity Card</option>
+                    <option value="DRIVERS_LICENSE" className="bg-slate-900 text-white">Driver's License</option>
                   </select>
                 </div>
 

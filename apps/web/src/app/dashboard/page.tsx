@@ -714,7 +714,7 @@ function DashboardContent() {
                   className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
                     active
                       ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400'
-                      : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -948,21 +948,23 @@ function DashboardContent() {
 
                     <div className="space-y-1">
                       <div className="text-2xl font-black">${parseFloat(pkg.amount).toLocaleString()} USD</div>
-                      <div className="text-xs text-slate-500">Yield: 1.0% Monthly Return</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        Yield: {pkg.returnRatePercent || `${(parseFloat(pkg.returnRateSnapshot || '0.01') * 100).toFixed(2)}%`} Monthly Return
+                      </div>
                     </div>
 
                     <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
                       <div className="flex justify-between">
                         <span>Lock-in Term:</span>
-                        <span className="font-bold text-slate-900 dark:text-white">6 Months</span>
+                        <span className="font-bold text-slate-900 dark:text-white">{pkg.lockInMonths || 6} Months FD</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Eligibility Date:</span>
-                        <span className="font-mono">{pkg.withdrawalEligibilityDate ? new Date(pkg.withdrawalEligibilityDate).toLocaleDateString() : 'Active'}</span>
+                        <span className="font-mono text-slate-800 dark:text-slate-200">{pkg.withdrawalEligibilityDate ? new Date(pkg.withdrawalEligibilityDate).toLocaleDateString() : 'Active'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Returns Paid:</span>
-                        <span className="font-bold text-emerald-600">${parseFloat(pkg.totalReturnsPaid || '0').toFixed(2)}</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">${parseFloat(pkg.totalEarned || pkg.totalReturnsPaid || '0').toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
@@ -1007,15 +1009,15 @@ function DashboardContent() {
               <select
                 value={txTypeFilter}
                 onChange={(e) => setTxTypeFilter(e.target.value)}
-                className="w-full sm:w-56 px-3 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none"
+                className="w-full sm:w-56 px-3 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none"
               >
-                <option value="">All Movement Types</option>
-                <option value="DEPOSIT">Deposits</option>
-                <option value="PACKAGE_PURCHASE">Package Purchases</option>
-                <option value="MONTHLY_RETURN">Monthly Returns</option>
-                <option value="P2P_TRANSFER_OUT">P2P Outbound</option>
-                <option value="P2P_TRANSFER_IN">P2P Inbound</option>
-                <option value="WITHDRAWAL_REQUEST">Withdrawals</option>
+                <option value="" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All Movement Types</option>
+                <option value="DEPOSIT" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Deposits</option>
+                <option value="PACKAGE_PURCHASE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Package Purchases</option>
+                <option value="MONTHLY_RETURN" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Monthly Returns</option>
+                <option value="P2P_TRANSFER_OUT" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">P2P Outbound</option>
+                <option value="P2P_TRANSFER_IN" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">P2P Inbound</option>
+                <option value="WITHDRAWAL_REQUEST" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Withdrawals</option>
               </select>
             </div>
 
@@ -1445,13 +1447,13 @@ function DashboardContent() {
                 <select
                   value={newTicketType}
                   onChange={(e) => setNewTicketType(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 >
-                  <option value="TRADE_DISPUTE">P2P Trade Dispute & Escrow</option>
-                  <option value="KYC_VERIFICATION">KYC Identity Verification</option>
-                  <option value="PAYOUT_QUERY">Settlement / Payout Query</option>
-                  <option value="VIRTUAL_CARD">Virtual Card & BaaS Inquiry</option>
-                  <option value="GENERAL">General Banking Inquiry</option>
+                  <option value="TRADE_DISPUTE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">P2P Trade Dispute & Escrow</option>
+                  <option value="KYC_VERIFICATION" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">KYC Identity Verification</option>
+                  <option value="PAYOUT_QUERY" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Settlement / Payout Query</option>
+                  <option value="VIRTUAL_CARD" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Virtual Card & BaaS Inquiry</option>
+                  <option value="GENERAL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">General Banking Inquiry</option>
                 </select>
               </div>
 
@@ -1463,7 +1465,7 @@ function DashboardContent() {
                   placeholder="Summary of issue"
                   value={newTicketSubject}
                   onChange={(e) => setNewTicketSubject(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
               </div>
 
@@ -1475,7 +1477,7 @@ function DashboardContent() {
                   placeholder="Provide transaction IDs or specific details..."
                   value={newTicketMessage}
                   onChange={(e) => setNewTicketMessage(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
               </div>
 
@@ -1536,11 +1538,11 @@ function DashboardContent() {
                 <select
                   value={depositCurrency}
                   onChange={(e) => setDepositCurrency(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 >
-                  <option value="USDT">USDT (TRC-20 / ERC-20 / BEP-20)</option>
-                  <option value="USD">USD (Bank Wire SWIFT)</option>
-                  <option value="EUR">EUR (SEPA Instant)</option>
+                  <option value="USDT" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">USDT (TRC-20 / ERC-20 / BEP-20)</option>
+                  <option value="USD" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">USD (Bank Wire SWIFT)</option>
+                  <option value="EUR" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">EUR (SEPA Instant)</option>
                 </select>
               </div>
 
@@ -1553,7 +1555,7 @@ function DashboardContent() {
                   placeholder="e.g. 5000"
                   value={depositAmount}
                   onChange={(e) => setDepositAmount(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-mono font-bold"
                 />
               </div>
 
@@ -1565,7 +1567,7 @@ function DashboardContent() {
                   placeholder="e.g. 0x9a8f... or UTR-92841"
                   value={depositTxHash}
                   onChange={(e) => setDepositTxHash(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-mono"
                 />
               </div>
 
@@ -1626,10 +1628,10 @@ function DashboardContent() {
                 <select
                   value={wthType}
                   onChange={(e) => setWthType(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 >
-                  <option value="MONTHLY_RETURNS">Monthly Yields Available</option>
-                  <option value="PRINCIPAL_RELEASE">Matured Package Principal</option>
+                  <option value="MONTHLY_RETURNS" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Monthly Yields Available</option>
+                  <option value="PRINCIPAL_RELEASE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Matured Package Principal</option>
                 </select>
               </div>
 
@@ -1638,11 +1640,11 @@ function DashboardContent() {
                 <select
                   value={wthMethod}
                   onChange={(e) => setWthMethod(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 >
-                  <option value="USDT_WALLET">USDT Wallet (TRC-20)</option>
-                  <option value="BANK_TRANSFER">Bank Wire (SWIFT / SEPA)</option>
-                  <option value="CASH_PICKUP_TBILISI">Tbilisi Cash Pickup (Freedom Square - Open until 21:00 GCC)</option>
+                  <option value="USDT_WALLET" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">USDT Wallet (TRC-20)</option>
+                  <option value="BANK_TRANSFER" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Bank Wire (SWIFT / SEPA)</option>
+                  <option value="CASH_PICKUP_TBILISI" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Tbilisi Cash Pickup (Freedom Square - Open until 21:00 GCC)</option>
                 </select>
               </div>
 

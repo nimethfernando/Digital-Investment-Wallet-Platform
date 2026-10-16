@@ -128,7 +128,7 @@ export default function BuyCryptoPage() {
                   className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none"
                 >
                   {FIAT_LIST.map((f) => (
-                    <option key={f.code} value={f.code}>
+                    <option key={f.code} value={f.code} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
                       {f.flag} {f.code}
                     </option>
                   ))}
@@ -143,7 +143,7 @@ export default function BuyCryptoPage() {
                   key={amt}
                   type="button"
                   onClick={() => handleQuickAmount(amt)}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950 text-slate-600 dark:text-slate-300 hover:text-emerald-600 transition-colors"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors"
                 >
                   {selectedFiat.symbol}{amt}
                 </button>
@@ -184,7 +184,7 @@ export default function BuyCryptoPage() {
                   className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none"
                 >
                   {CRYPTO_LIST.map((c, i) => (
-                    <option key={`${c.code}_${c.chain}_${i}`} value={`${c.code}_${c.chain}`}>
+                    <option key={`${c.code}_${c.chain}_${i}`} value={`${c.code}_${c.chain}`} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
                       {c.code} ({c.chain})
                     </option>
                   ))}
@@ -205,14 +205,14 @@ export default function BuyCryptoPage() {
                 onClick={() => setPaymentMethod('card')}
                 className={`p-3 rounded-2xl text-left border transition-all flex flex-col justify-between gap-2 ${
                   paymentMethod === 'card'
-                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 shadow-sm'
-                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
+                    ? 'border-2 border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/60 text-slate-900 dark:text-white shadow-sm'
+                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-800 dark:text-slate-200'
                 }`}
               >
-                <CreditCard className="w-5 h-5 text-emerald-600" />
+                <CreditCard className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                 <div>
                   <div className="text-xs font-bold">Credit/Debit</div>
-                  <div className="text-[10px] text-slate-400">Visa / MC</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Visa / MC</div>
                 </div>
               </button>
 
@@ -221,14 +221,14 @@ export default function BuyCryptoPage() {
                 onClick={() => setPaymentMethod('apple_pay')}
                 className={`p-3 rounded-2xl text-left border transition-all flex flex-col justify-between gap-2 ${
                   paymentMethod === 'apple_pay'
-                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 shadow-sm'
-                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
+                    ? 'border-2 border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/60 text-slate-900 dark:text-white shadow-sm'
+                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-800 dark:text-slate-200'
                 }`}
               >
-                <Smartphone className="w-5 h-5 text-indigo-500" />
+                <Smartphone className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
                 <div>
                   <div className="text-xs font-bold">Apple Pay</div>
-                  <div className="text-[10px] text-slate-400">1-Touch Pay</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">1-Touch Pay</div>
                 </div>
               </button>
 
@@ -237,14 +237,14 @@ export default function BuyCryptoPage() {
                 onClick={() => setPaymentMethod('google_pay')}
                 className={`p-3 rounded-2xl text-left border transition-all flex flex-col justify-between gap-2 ${
                   paymentMethod === 'google_pay'
-                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 shadow-sm'
-                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
+                    ? 'border-2 border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/60 text-slate-900 dark:text-white shadow-sm'
+                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-800 dark:text-slate-200'
                 }`}
               >
-                <Zap className="w-5 h-5 text-amber-500" />
+                <Zap className="w-5 h-5 text-amber-500 dark:text-amber-400" />
                 <div>
                   <div className="text-xs font-bold">Google Pay</div>
-                  <div className="text-[10px] text-slate-400">Instant</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Instant</div>
                 </div>
               </button>
 
@@ -253,14 +253,14 @@ export default function BuyCryptoPage() {
                 onClick={() => setPaymentMethod('wire')}
                 className={`p-3 rounded-2xl text-left border transition-all flex flex-col justify-between gap-2 ${
                   paymentMethod === 'wire'
-                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 shadow-sm'
-                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
+                    ? 'border-2 border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/60 text-slate-900 dark:text-white shadow-sm'
+                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-800 dark:text-slate-200'
                 }`}
               >
-                <Landmark className="w-5 h-5 text-blue-500" />
+                <Landmark className="w-5 h-5 text-blue-500 dark:text-blue-400" />
                 <div>
                   <div className="text-xs font-bold">Bank Wire</div>
-                  <div className="text-[10px] text-slate-400">SEPA / SWIFT</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">SEPA / SWIFT</div>
                 </div>
               </button>
             </div>

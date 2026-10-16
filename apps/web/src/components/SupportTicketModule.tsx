@@ -238,30 +238,30 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
   const getPriorityBadge = (priority: string) => {
     switch (priority.toUpperCase()) {
       case 'URGENT':
-        return 'bg-red-500/20 text-red-400 border border-red-500/30';
+        return 'bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30';
       case 'HIGH':
-        return 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+        return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30';
       case 'LOW':
-        return 'bg-slate-500/20 text-slate-400 border border-slate-500/30';
+        return 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30';
       default:
-        return 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
+        return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30';
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'OPEN':
-        return 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
+        return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30';
       case 'WAITING_USER':
-        return 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30';
+        return 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30';
       case 'IN_REVIEW':
-        return 'bg-blue-500/15 text-blue-400 border border-blue-500/30';
+        return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30';
       case 'RESOLVED':
-        return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+        return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30';
       case 'CLOSED':
-        return 'bg-slate-500/15 text-slate-400 border border-slate-500/30';
+        return 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30';
       default:
-        return 'bg-slate-500/15 text-slate-400';
+        return 'bg-slate-500/15 text-slate-700 dark:text-slate-300';
     }
   };
 
@@ -311,8 +311,8 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
               onClick={() => setActiveFilter(tab.id as any)}
               className={`px-3.5 py-1.5 rounded-xl font-bold transition-all ${
                 activeFilter === tab.id
-                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
+                  ? 'bg-rose-600 text-white shadow-sm'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               {tab.label}
@@ -392,7 +392,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
 
                   <div className="flex items-center gap-2 shrink-0">
                     {t.replyCount !== undefined && t.replyCount > 0 && (
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-500">
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300">
                         {t.replyCount} {t.replyCount === 1 ? 'reply' : 'replies'}
                       </span>
                     )}
@@ -438,14 +438,14 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
             </div>
 
             {formSuccess && (
-              <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-2">
+              <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-2">
                 <Check className="w-4 h-4" />
                 <span>{formSuccess}</span>
               </div>
             )}
 
             {formError && (
-              <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-bold flex items-center gap-2">
+              <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
                 <AlertCircle className="w-4 h-4" />
                 <span>{formError}</span>
               </div>
@@ -463,7 +463,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
                   className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white outline-none"
                 >
                   {CATEGORIES.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
+                    <option key={cat.id} value={cat.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
                       {cat.label}
                     </option>
                   ))}
@@ -487,12 +487,12 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
                       onClick={() => setNewPriority(p.id as any)}
                       className={`p-2.5 rounded-xl border text-left transition-all ${
                         newPriority === p.id
-                          ? 'border-rose-500 bg-rose-500/10 text-rose-500 font-bold'
-                          : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                          ? 'border-2 border-rose-500 bg-rose-600 text-white font-bold shadow-sm'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
                     >
                       <div className="text-xs font-bold">{p.label}</div>
-                      <div className="text-[10px] opacity-75">{p.desc}</div>
+                      <div className={`text-[10px] ${newPriority === p.id ? 'text-rose-100' : 'text-slate-500 dark:text-slate-400'}`}>{p.desc}</div>
                     </button>
                   ))}
                 </div>
@@ -571,7 +571,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
                 {selectedTicket.status !== 'RESOLVED' && selectedTicket.status !== 'CLOSED' && (
                   <button
                     onClick={handleCloseTicket}
-                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
                     title="Mark issue as resolved"
                   >
                     Mark Resolved
@@ -579,7 +579,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
                 )}
                 <button
                   onClick={() => setSelectedTicket(null)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-white"
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -595,7 +595,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
                     <span className="w-2 h-2 rounded-full bg-emerald-500" />
                     Initial Ticket Request
                   </span>
-                  <span className="text-[10px] text-slate-400 font-normal">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
                     {new Date(selectedTicket.createdAt).toLocaleString()}
                   </span>
                 </div>
@@ -606,9 +606,9 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
 
               {/* Admin Note if present */}
               {selectedTicket.adminNotes && (
-                <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300 space-y-1">
+                <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-500/30 text-xs text-blue-800 dark:text-blue-200 space-y-1">
                   <div className="font-extrabold flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-blue-400" />
+                    <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     <span>Desk Official Note</span>
                   </div>
                   <p>{selectedTicket.adminNotes}</p>
@@ -634,20 +634,20 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
                       key={r.id}
                       className={`p-4 rounded-2xl space-y-1.5 max-w-[85%] ${
                         isStaff
-                          ? 'mr-auto bg-blue-950/40 border border-blue-500/30 text-white'
-                          : 'ml-auto bg-rose-950/40 border border-rose-500/30 text-white'
+                          ? 'mr-auto bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-500/30 text-slate-900 dark:text-white'
+                          : 'ml-auto bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-500/30 text-slate-900 dark:text-white'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-4 text-[10px]">
-                        <span className={`font-bold flex items-center gap-1 ${isStaff ? 'text-blue-400' : 'text-rose-400'}`}>
+                        <span className={`font-bold flex items-center gap-1 ${isStaff ? 'text-blue-700 dark:text-blue-300' : 'text-rose-700 dark:text-rose-300'}`}>
                           {isStaff ? <ShieldCheck className="w-3 h-3" /> : null}
                           {isStaff ? 'Avora Desk Specialist' : 'You'}
                         </span>
-                        <span className="text-slate-400">
+                        <span className="text-slate-500 dark:text-slate-400">
                           {new Date(r.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-200 leading-relaxed whitespace-pre-wrap">
+                      <p className="text-xs text-slate-800 dark:text-slate-100 leading-relaxed whitespace-pre-wrap">
                         {r.message}
                       </p>
                     </div>

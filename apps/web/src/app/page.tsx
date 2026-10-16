@@ -339,9 +339,9 @@ export default function HomePage() {
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between text-xs font-bold">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-900 dark:text-white">
               <span>Select Package Size (USD):</span>
-              <span className="font-mono text-emerald-600 text-lg">${calcAmount.toLocaleString()} USD</span>
+              <span className="font-mono text-emerald-600 dark:text-emerald-400 text-lg">${calcAmount.toLocaleString()} USD</span>
             </div>
 
             <input

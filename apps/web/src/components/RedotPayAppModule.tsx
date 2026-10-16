@@ -168,7 +168,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto bg-slate-950 text-white rounded-[36px] border border-slate-800 shadow-2xl overflow-hidden relative pb-24 font-sans select-none">
+    <div className="dark w-full max-w-2xl mx-auto bg-slate-950 text-white rounded-[36px] border border-slate-800 shadow-2xl overflow-hidden relative pb-24 font-sans select-none">
       
       {/* ---------------------------------------------------------------------- */}
       {/* 1. TOP APP HEADER (RedotPay / iOS Mobile Style) */}
@@ -516,11 +516,11 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   onChange={(e) => setSendFromCurrency(e.target.value)}
                   className="bg-slate-800 text-white font-bold text-sm px-3 py-2 rounded-2xl border border-slate-700 outline-none"
                 >
-                  <option value="USDT">USDT</option>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GEL">GEL</option>
-                  <option value="INR">INR</option>
+                  <option value="USDT" className="bg-slate-900 text-white">USDT</option>
+                  <option value="USD" className="bg-slate-900 text-white">USD</option>
+                  <option value="EUR" className="bg-slate-900 text-white">EUR</option>
+                  <option value="GEL" className="bg-slate-900 text-white">GEL</option>
+                  <option value="INR" className="bg-slate-900 text-white">INR</option>
                 </select>
 
                 <input
@@ -543,11 +543,11 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   onChange={(e) => setSendToCurrency(e.target.value)}
                   className="bg-slate-800 text-white font-bold text-sm px-3 py-2 rounded-2xl border border-slate-700 outline-none"
                 >
-                  <option value="USD">USD</option>
-                  <option value="USDT">USDT</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GEL">GEL</option>
-                  <option value="INR">INR</option>
+                  <option value="USD" className="bg-slate-900 text-white">USD</option>
+                  <option value="USDT" className="bg-slate-900 text-white">USDT</option>
+                  <option value="EUR" className="bg-slate-900 text-white">EUR</option>
+                  <option value="GEL" className="bg-slate-900 text-white">GEL</option>
+                  <option value="INR" className="bg-slate-900 text-white">INR</option>
                 </select>
 
                 <div className="text-right font-mono text-2xl font-black text-emerald-400">
@@ -665,7 +665,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               className={`pb-2 transition-all relative ${
                 assetsSubTab === 'crypto'
                   ? 'text-white border-b-2 border-rose-500 font-extrabold'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-slate-300 hover:text-white'
               }`}
             >
               Crypto
@@ -676,7 +676,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               className={`pb-2 transition-all relative ${
                 assetsSubTab === 'fiat'
                   ? 'text-white border-b-2 border-rose-500 font-extrabold'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-slate-300 hover:text-white'
               }`}
             >
               Fiat

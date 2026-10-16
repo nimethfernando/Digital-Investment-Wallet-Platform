@@ -557,6 +557,9 @@ class LedgerService {
         return {
             walletId: wallet.id,
             baseCurrency: 'USD',
+            totalActiveInvestmentsUsd: locked.toFixed(2),
+            totalReturnsPaidUsd: accumulatedReturns.toFixed(2),
+            totalPendingWithdrawalsUsd: pending.toFixed(2),
             summary: {
                 available: available.toFixed(2),
                 lockedPrincipal: locked.toFixed(2),
@@ -564,12 +567,20 @@ class LedgerService {
                 total: total.toFixed(2),
                 accumulatedReturns: accumulatedReturns.toFixed(2),
             },
-            balances: balances.map((b) => ({
-                currency: b.currency,
-                available: new decimal_js_1.default(b.availableBalance.toString()).toFixed(2),
-                locked: new decimal_js_1.default(b.lockedPrincipal.toString()).toFixed(2),
-                pending: new decimal_js_1.default(b.pendingSettlement.toString()).toFixed(2),
-            })),
+            balances: balances.map((b) => {
+                const availStr = new decimal_js_1.default(b.availableBalance.toString()).toFixed(2);
+                const lockedStr = new decimal_js_1.default(b.lockedPrincipal.toString()).toFixed(2);
+                const pendingStr = new decimal_js_1.default(b.pendingSettlement.toString()).toFixed(2);
+                return {
+                    currency: b.currency,
+                    available: availStr,
+                    availableBalance: availStr,
+                    locked: lockedStr,
+                    lockedPrincipal: lockedStr,
+                    pending: pendingStr,
+                    pendingSettlement: pendingStr,
+                };
+            }),
         };
     }
     /**

@@ -649,7 +649,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
 
             {/* Theme Selector */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-400">Card Visual Theme</label>
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Card Visual Theme</label>
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { id: 'redot', name: 'FIFA Red' },
@@ -661,8 +661,8 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
                     onClick={() => setCardTheme(t.id as any)}
                     className={`py-2 rounded-xl text-xs font-bold border transition-all ${
                       cardTheme === t.id
-                        ? 'border-rose-500 bg-rose-500/10 text-rose-500'
-                        : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                        ? 'border-2 border-rose-500 bg-rose-600 text-white shadow-sm'
+                        : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
                     }`}
                   >
                     {t.name}
@@ -675,7 +675,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800">
               <div>
                 <div className="text-xs font-bold text-slate-900 dark:text-white">Online Purchases</div>
-                <div className="text-[10px] text-slate-400">Enable 3D Secure Web Payments</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400">Enable 3D Secure Web Payments</div>
               </div>
               <button
                 onClick={() => setOnlineEnabled(!onlineEnabled)}
@@ -689,7 +689,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800">
               <div>
                 <div className="text-xs font-bold text-slate-900 dark:text-white">International Rail</div>
-                <div className="text-[10px] text-slate-400">Cross-border FX authorizations</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400">Cross-border FX authorizations</div>
               </div>
               <button
                 onClick={() => setIntlEnabled(!intlEnabled)}
@@ -703,7 +703,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800">
               <div>
                 <div className="text-xs font-bold text-slate-900 dark:text-white">ATM Withdrawals</div>
-                <div className="text-[10px] text-slate-400">Physical terminal cash out</div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400">Physical terminal cash out</div>
               </div>
               <button
                 onClick={() => setAtmEnabled(!atmEnabled)}
@@ -733,7 +733,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             <div className="flex items-center justify-between pb-1">
               <button
                 onClick={() => setChooseCardModalOpen(false)}
-                className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
+                className="p-1 rounded-full text-slate-300 hover:text-white hover:bg-slate-900 transition-colors"
                 title="Back"
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -741,7 +741,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
               <h3 className="font-bold text-base text-white">Choose card</h3>
               <button
                 onClick={() => setChooseCardModalOpen(false)}
-                className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
+                className="p-1 rounded-full text-slate-300 hover:text-white hover:bg-slate-900 transition-colors"
                 title="Close"
               >
                 <X className="w-4 h-4" />
@@ -754,8 +754,8 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
                 onClick={() => setSelectedCardType('virtual')}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
                   selectedCardType === 'virtual'
-                    ? 'bg-slate-800 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'text-slate-200 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
                 Virtual card
@@ -764,8 +764,8 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
                 onClick={() => setSelectedCardType('physical')}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
                   selectedCardType === 'physical'
-                    ? 'bg-slate-800 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'text-slate-200 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
                 Physical card
@@ -779,20 +779,20 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
                 <div className="flex items-center justify-center gap-2">
                   <button
                     onClick={() => setVirtualEdition('standard')}
-                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${
+                    className={`px-3.5 py-1.5 rounded-full text-[11px] font-bold transition-all border ${
                       virtualEdition === 'standard'
-                        ? 'border-white bg-white text-black'
-                        : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
+                        ? 'border-white bg-white text-black shadow-sm'
+                        : 'border-slate-700 bg-slate-900 text-slate-200 hover:text-white hover:border-slate-600'
                     }`}
                   >
                     Standard edition
                   </button>
                   <button
                     onClick={() => setVirtualEdition('fifa')}
-                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${
+                    className={`px-3.5 py-1.5 rounded-full text-[11px] font-bold transition-all border ${
                       virtualEdition === 'fifa'
-                        ? 'border-rose-500 bg-rose-600/20 text-rose-300'
-                        : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
+                        ? 'border-rose-500 bg-rose-600 text-white shadow-sm'
+                        : 'border-slate-700 bg-slate-900 text-slate-200 hover:text-white hover:border-slate-600'
                     }`}
                   >
                     FIFA World Cup™

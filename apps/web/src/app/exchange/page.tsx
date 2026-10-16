@@ -76,13 +76,13 @@ export default function ExchangeDeskPage() {
         <div className="lg:col-span-7 p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
           
           {/* DIRECTION SWITCH */}
-          <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800">
+          <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 gap-1.5 border border-slate-200 dark:border-slate-700">
             <button
               onClick={() => setDirection('BUY')}
               className={`flex-1 py-3 rounded-xl font-bold text-xs sm:text-sm transition-all ${
                 direction === 'BUY'
-                  ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-md'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'bg-white/80 dark:bg-slate-900/80 text-slate-800 dark:text-slate-100 hover:bg-white dark:hover:bg-slate-900'
               }`}
             >
               Buy USDT with Fiat
@@ -91,8 +91,8 @@ export default function ExchangeDeskPage() {
               onClick={() => setDirection('SELL')}
               className={`flex-1 py-3 rounded-xl font-bold text-xs sm:text-sm transition-all ${
                 direction === 'SELL'
-                  ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-md'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'bg-white/80 dark:bg-slate-900/80 text-slate-800 dark:text-slate-100 hover:bg-white dark:hover:bg-slate-900'
               }`}
             >
               Sell USDT for Fiat
@@ -101,7 +101,7 @@ export default function ExchangeDeskPage() {
 
           {/* CURRENCY SELECTOR */}
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
               Select Fiat Settlement Currency
             </label>
             <div className="grid grid-cols-4 gap-2">
@@ -111,8 +111,8 @@ export default function ExchangeDeskPage() {
                   onClick={() => setCurrency(curr)}
                   className={`py-2.5 rounded-xl text-xs font-bold font-mono transition-all ${
                     currency === curr
-                      ? 'border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 shadow-sm'
-                      : 'border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      ? 'border-2 border-emerald-500 bg-emerald-600 text-white shadow-sm'
+                      : 'border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   {curr}
@@ -163,7 +163,7 @@ export default function ExchangeDeskPage() {
 
           {/* PAYOUT OPTIONS */}
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
               Payout & Settlement Rail
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
@@ -171,45 +171,45 @@ export default function ExchangeDeskPage() {
                 onClick={() => setPayoutOption('CASH_TBILISI')}
                 className={`p-3 rounded-2xl border text-left flex flex-col gap-1 transition-all ${
                   payoutOption === 'CASH_TBILISI'
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 shadow-sm'
-                    : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-400'
+                    ? 'border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-slate-900 dark:text-white shadow-sm'
+                    : 'border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200'
                 }`}
               >
                 <div className="flex items-center gap-1.5 font-bold">
-                  <Building2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <Building2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   <span>Tbilisi Cash Pickup</span>
                 </div>
-                <span className="text-[11px] opacity-80">Freedom Square Desk (until 21:00 GCC)</span>
+                <span className="text-[11px] text-slate-600 dark:text-slate-300">Freedom Square Desk (until 21:00 GCC)</span>
               </button>
 
               <button
                 onClick={() => setPayoutOption('BANK')}
                 className={`p-3 rounded-2xl border text-left flex flex-col gap-1 transition-all ${
                   payoutOption === 'BANK'
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 shadow-sm'
-                    : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-400'
+                    ? 'border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-slate-900 dark:text-white shadow-sm'
+                    : 'border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200'
                 }`}
               >
                 <div className="flex items-center gap-1.5 font-bold">
-                  <Landmark className="w-3.5 h-3.5 text-blue-500" />
+                  <Landmark className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
                   <span>Bank Wire</span>
                 </div>
-                <span className="text-[11px] opacity-80">SWIFT / SEPA / IMPS</span>
+                <span className="text-[11px] text-slate-600 dark:text-slate-300">SWIFT / SEPA / IMPS</span>
               </button>
 
               <button
                 onClick={() => setPayoutOption('WALLET')}
                 className={`p-3 rounded-2xl border text-left flex flex-col gap-1 transition-all ${
                   payoutOption === 'WALLET'
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 shadow-sm'
-                    : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-400'
+                    ? 'border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-slate-900 dark:text-white shadow-sm'
+                    : 'border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200'
                 }`}
               >
                 <div className="flex items-center gap-1.5 font-bold">
-                  <Wallet className="w-3.5 h-3.5 text-indigo-500" />
+                  <Wallet className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
                   <span>Avora Wallet</span>
                 </div>
-                <span className="text-[11px] opacity-80">Instant Internal Credit</span>
+                <span className="text-[11px] text-slate-600 dark:text-slate-300">Instant Internal Credit</span>
               </button>
             </div>
           </div>
