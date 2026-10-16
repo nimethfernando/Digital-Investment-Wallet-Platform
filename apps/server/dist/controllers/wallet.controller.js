@@ -239,6 +239,66 @@ class WalletController {
             next(err);
         }
     }
+    /**
+     * Authorize & settle a merchant card charge (e.g. Netflix, Amazon, Spotify, Apple Pay)
+     */
+    async chargeCard(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const { merchantName, amount, isOnline, isInternational } = req.body;
+            const result = await card_service_1.cardService.authorizeAndChargeCard({
+                userId,
+                merchantName: merchantName || 'Netflix.com Subscription',
+                amount: amount || 15.99,
+                isOnline: isOnline !== false,
+                isInternational: Boolean(isInternational),
+            });
+            res.json({
+                success: true,
+                message: `Approved! Charged $${result.amount} ${result.currency} at ${result.merchant}.`,
+                data: result,
+            });
+        }
+        catch (err) {
+            res.status(400).json({
+                success: false,
+                approved: false,
+                message: err.message || 'Card authorization declined',
+            });
+        }
+    }
+    /**
+     * Real-time Visa / Stripe Issuing / Interlace BaaS Authorization Webhook
+     */
+    async authorizeCardWebhook(req, res) {
+        try {
+            const body = req.body || {};
+            // Support both Stripe Issuing (issuing_authorization.request) and Interlace webhook payloads
+            const stripeAuth = body?.data?.object;
+            const userId = body.userId || stripeAuth?.metadata?.userId;
+            const amount = body.amount || (stripeAuth?.amount ? stripeAuth.amount / 100 : 0);
+            const merchantName = body.merchantName ||
+                stripeAuth?.merchant_data?.name ||
+                'Visa Merchant Authorization';
+            const externalAuthId = body.authId || stripeAuth?.id;
+            if (!userId || !amount) {
+                return res.status(400).json({ approved: false, reason: 'missing_user_or_amount' });
+            }
+            const result = await card_service_1.cardService.authorizeAndChargeCard({
+                userId,
+                merchantName,
+                amount,
+                externalAuthId,
+            });
+            return res.json({ approved: true, data: result });
+        }
+        catch (err) {
+            return res.status(200).json({
+                approved: false,
+                reason: err.message || 'declined',
+            });
+        }
+    }
 }
 exports.WalletController = WalletController;
 exports.walletController = new WalletController();

@@ -6,6 +6,8 @@ const withdrawal_controller_1 = require("../controllers/withdrawal.controller");
 const auth_1 = require("../middleware/auth");
 const rate_limiter_1 = require("../middleware/rate-limiter");
 const router = (0, express_1.Router)();
+// Public BaaS / Visa Issuer Real-Time Authorization Webhook (Stripe Issuing / Interlace)
+router.post('/card/webhook/authorize', (req, res) => wallet_controller_1.walletController.authorizeCardWebhook(req, res));
 router.use(auth_1.authenticateToken);
 router.get('/', (req, res, next) => wallet_controller_1.walletController.getWalletOverview(req, res, next));
 router.get('/transactions', (req, res, next) => wallet_controller_1.walletController.getTransactions(req, res, next));
@@ -18,6 +20,7 @@ router.post('/card/freeze', (req, res, next) => wallet_controller_1.walletContro
 router.post('/card/limits', (req, res, next) => wallet_controller_1.walletController.updateCardLimits(req, res, next));
 router.post('/card/settings', (req, res, next) => wallet_controller_1.walletController.updateCardSettings(req, res, next));
 router.get('/card/transactions', (req, res, next) => wallet_controller_1.walletController.getCardTransactions(req, res, next));
+router.post('/card/charge', (req, res, next) => wallet_controller_1.walletController.chargeCard(req, res, next));
 // Withdrawal shortcuts under /wallet
 router.post('/withdraw', rate_limiter_1.withdrawalRateLimiter, (req, res, next) => withdrawal_controller_1.withdrawalController.requestWithdrawal(req, res, next));
 router.get('/withdrawals', (req, res, next) => withdrawal_controller_1.withdrawalController.getWithdrawals(req, res, next));

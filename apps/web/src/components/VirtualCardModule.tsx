@@ -234,6 +234,26 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleTestMerchantCharge = async (merchantName: string, amount: number) => {
+    setActionLoading(true);
+    try {
+      const res = await api.post('/wallet/card/charge', {
+        merchantName,
+        amount,
+        isOnline: true,
+      });
+      if (res.data?.success) {
+        showToast(res.data.message || `Approved $${amount} at ${merchantName}!`, 'success');
+        await loadCardData();
+        onRefresh?.();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Card transaction declined', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       {/* Toast Alert */}
@@ -482,15 +502,49 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
         </div>
 
         {/* APPLE WALLET PILL (Direct RedotPay Match) */}
-        <div className="w-full max-w-md pt-2">
+        <div className="w-full max-w-md pt-2 space-y-2.5">
           <button
             onClick={handleCopyCard}
-            className="w-full py-3 px-5 rounded-2xl bg-black hover:bg-slate-900 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg border border-slate-800 transition-all hover:scale-[1.01]"
+            className="w-full py-3 px-5 rounded-2xl bg-black hover:bg-slate-900 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg border border-slate-800 transition-all hover:scale-[1.01] cursor-pointer"
           >
             <span className="text-base"></span>
             <span>Add to Apple Wallet / Copy Card Details</span>
             {copied && <Check className="w-4 h-4 text-emerald-400" />}
           </button>
+
+          {/* LIVE MERCHANT AUTHORIZATION SIMULATOR (NETFLIX / SPOTIFY / AMAZON) */}
+          <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="font-bold text-slate-200">Test Live Card Authorization (Debits Wallet):</span>
+              <span className="text-emerald-400 font-mono text-[10px]">Visa Webhook Engine Ready</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => handleTestMerchantCharge('Netflix.com Subscription', 15.99)}
+                className="py-2 px-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-200 hover:text-white font-bold text-[11px] transition-all cursor-pointer disabled:opacity-50"
+              >
+                Netflix $15.99
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => handleTestMerchantCharge('Spotify Premium', 11.99)}
+                className="py-2 px-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-200 hover:text-white font-bold text-[11px] transition-all cursor-pointer disabled:opacity-50"
+              >
+                Spotify $11.99
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => handleTestMerchantCharge('Amazon Prime Order', 42.50)}
+                className="py-2 px-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-200 hover:text-white font-bold text-[11px] transition-all cursor-pointer disabled:opacity-50"
+              >
+                Amazon $42.50
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* PRO CASHBACK BANNER (Direct RedotPay Match) */}

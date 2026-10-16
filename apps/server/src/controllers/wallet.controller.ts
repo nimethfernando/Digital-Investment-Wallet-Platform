@@ -248,6 +248,71 @@ export class WalletController {
       next(err);
     }
   }
+
+  /**
+   * Authorize & settle a merchant card charge (e.g. Netflix, Amazon, Spotify, Apple Pay)
+   */
+  async chargeCard(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const { merchantName, amount, isOnline, isInternational } = req.body;
+      const result = await cardService.authorizeAndChargeCard({
+        userId,
+        merchantName: merchantName || 'Netflix.com Subscription',
+        amount: amount || 15.99,
+        isOnline: isOnline !== false,
+        isInternational: Boolean(isInternational),
+      });
+      res.json({
+        success: true,
+        message: `Approved! Charged $${result.amount} ${result.currency} at ${result.merchant}.`,
+        data: result,
+      });
+    } catch (err: any) {
+      res.status(400).json({
+        success: false,
+        approved: false,
+        message: err.message || 'Card authorization declined',
+      });
+    }
+  }
+
+  /**
+   * Real-time Visa / Stripe Issuing / Interlace BaaS Authorization Webhook
+   */
+  async authorizeCardWebhook(req: Request, res: Response) {
+    try {
+      const body = req.body || {};
+      // Support both Stripe Issuing (issuing_authorization.request) and Interlace webhook payloads
+      const stripeAuth = body?.data?.object;
+      const userId = body.userId || stripeAuth?.metadata?.userId;
+      const amount = body.amount || (stripeAuth?.amount ? stripeAuth.amount / 100 : 0);
+      const merchantName =
+        body.merchantName ||
+        stripeAuth?.merchant_data?.name ||
+        'Visa Merchant Authorization';
+      const externalAuthId = body.authId || stripeAuth?.id;
+
+      if (!userId || !amount) {
+        return res.status(400).json({ approved: false, reason: 'missing_user_or_amount' });
+      }
+
+      const result = await cardService.authorizeAndChargeCard({
+        userId,
+        merchantName,
+        amount,
+        externalAuthId,
+      });
+
+      return res.json({ approved: true, data: result });
+    } catch (err: any) {
+      return res.status(200).json({
+        approved: false,
+        reason: err.message || 'declined',
+      });
+    }
+  }
 }
 
 export const walletController = new WalletController();
+
