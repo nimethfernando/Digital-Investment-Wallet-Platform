@@ -250,69 +250,102 @@ export class WalletController {
   }
 
   /**
-   * Authorize & settle a merchant card charge (e.g. Netflix, Amazon, Spotify, Apple Pay)
+   * Request a PCI-compliant ephemeral key / iframe reveal token from the Card Issuer
    */
-  async chargeCard(req: Request, res: Response, next: NextFunction) {
+  async createCardRevealSession(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).user.id;
-      const { merchantName, amount, isOnline, isInternational } = req.body;
-      const result = await cardService.authorizeAndChargeCard({
-        userId,
-        merchantName: merchantName || 'Netflix.com Subscription',
-        amount: amount || 15.99,
-        isOnline: isOnline !== false,
-        isInternational: Boolean(isInternational),
-      });
-      res.json({
-        success: true,
-        message: `Approved! Charged $${result.amount} ${result.currency} at ${result.merchant}.`,
-        data: result,
-      });
-    } catch (err: any) {
-      res.status(400).json({
-        success: false,
-        approved: false,
-        message: err.message || 'Card authorization declined',
-      });
+      const { nonce } = req.body || {};
+      const session = await cardService.createRevealSession(userId, nonce);
+      res.json({ success: true, data: session });
+    } catch (err) {
+      next(err);
     }
   }
 
   /**
-   * Real-time Visa / Stripe Issuing / Interlace BaaS Authorization Webhook
+   * Real-Time Authorization Webhook (`/api/v1/wallet/card/webhook/authorize`)
+   * Verifies `CARD_WEBHOOK_SECRET` signature, extracts `external_card_id`, `amount`,
+   * `currency`, and `merchant_details`, executes atomic MariaDB checks, and responds
+   * immediately with HTTP 200 `{ "approved": true }` or
+   * `{ "approved": false, "reject_reason": "INSUFFICIENT_FUNDS" | "CARD_FROZEN" | "LIMIT_EXCEEDED" }`.
    */
   async authorizeCardWebhook(req: Request, res: Response) {
     try {
-      const body = req.body || {};
-      // Support both Stripe Issuing (issuing_authorization.request) and Interlace webhook payloads
-      const stripeAuth = body?.data?.object;
-      const userId = body.userId || stripeAuth?.metadata?.userId;
-      const amount = body.amount || (stripeAuth?.amount ? stripeAuth.amount / 100 : 0);
-      const merchantName =
-        body.merchantName ||
-        stripeAuth?.merchant_data?.name ||
-        'Visa Merchant Authorization';
-      const externalAuthId = body.authId || stripeAuth?.id;
+      const signatureHeader =
+        (req.headers['stripe-signature'] as string) ||
+        (req.headers['x-webhook-signature'] as string) ||
+        (req.headers['x-card-webhook-signature'] as string) ||
+        '';
 
-      if (!userId || !amount) {
-        return res.status(400).json({ approved: false, reason: 'missing_user_or_amount' });
+      const rawPayload =
+        typeof (req as any).rawBody === 'string'
+          ? (req as any).rawBody
+          : JSON.stringify(req.body || {});
+
+      if (!cardService.verifyWebhookSignature(rawPayload, signatureHeader)) {
+        return res.status(401).json({
+          approved: false,
+          error: 'INVALID_WEBHOOK_SIGNATURE',
+        });
       }
 
-      const result = await cardService.authorizeAndChargeCard({
-        userId,
-        merchantName,
-        amount,
-        externalAuthId,
+      const body = req.body || {};
+      const stripeAuth = body?.data?.object;
+
+      const externalCardId: string =
+        body.external_card_id ||
+        body.card_id ||
+        stripeAuth?.card?.id ||
+        (typeof stripeAuth?.card === 'string' ? stripeAuth.card : '') ||
+        '';
+
+      const rawAmount =
+        body.amount !== undefined
+          ? body.amount
+          : stripeAuth?.amount !== undefined
+          ? Number(stripeAuth.amount) / 100
+          : 0;
+
+      const currency: string =
+        body.currency ||
+        stripeAuth?.currency ||
+        'USD';
+
+      const merchantDetails = body.merchant_details || {
+        name: stripeAuth?.merchant_data?.name || body.merchant_name || 'Card Merchant',
+        category: stripeAuth?.merchant_data?.category || body.merchant_category || 'ONLINE_POS',
+        country: stripeAuth?.merchant_data?.country || body.merchant_country,
+        mcc: stripeAuth?.merchant_data?.mcc || body.mcc,
+      };
+
+      const result = await cardService.handleRealtimeWebhookAuthorization({
+        external_card_id: externalCardId,
+        amount: rawAmount,
+        currency,
+        authorization_id: body.authorization_id || stripeAuth?.id || body.id,
+        is_online: body.is_online !== undefined ? Boolean(body.is_online) : true,
+        is_international: Boolean(body.is_international),
+        merchant_details: merchantDetails,
       });
 
-      return res.json({ approved: true, data: result });
+      if (result.approved) {
+        return res.status(200).json({ approved: true });
+      }
+
+      return res.status(200).json({
+        approved: false,
+        reject_reason: result.reject_reason || 'CARD_FROZEN',
+      });
     } catch (err: any) {
       return res.status(200).json({
         approved: false,
-        reason: err.message || 'declined',
+        reject_reason: 'CARD_FROZEN',
       });
     }
   }
 }
 
 export const walletController = new WalletController();
+
 

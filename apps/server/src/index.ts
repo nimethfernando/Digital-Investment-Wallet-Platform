@@ -17,11 +17,16 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: [config.corsOrigin, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: [config.corsOrigin, 'http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'],
   credentials: true,
 }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req: any, _res, buf) => {
+    req.rawBody = buf.toString('utf8');
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 app.use(morgan('dev'));

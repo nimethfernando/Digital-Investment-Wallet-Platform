@@ -147,6 +147,7 @@ enum TransactionType {
   P2P_TRANSFER_IN
   EXCHANGE_BUY
   EXCHANGE_SELL
+  CARD_PAYMENT
   FEE
   ADJUSTMENT
   REVERSAL
@@ -155,6 +156,8 @@ enum TransactionType {
 enum TransactionStatus {
   PENDING
   COMPLETED
+  APPROVED
+  DECLINED
   FAILED
   REVERSED
 }
@@ -603,23 +606,29 @@ model DepositRequest {
 }
 
 model VirtualCard {
-  id             String   @id @default(uuid())
-  userId         String   @unique
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  cardNumberMask String   @default("4820 •••• •••• 5320") @db.VarChar(30)
-  cardHolderName String   @db.VarChar(100)
-  expiryDate     String   @default("08/29") @db.VarChar(10)
-  cvvEncrypted   String?  @db.VarChar(255)
-  cardTheme      String   @default("redot") @db.VarChar(20)
-  cardNetwork    String   @default("visa") @db.VarChar(20)
-  isFrozen       Boolean  @default(false)
-  dailyLimit     Decimal  @default(10000.00) @db.Decimal(20, 2)
-  monthlyLimit   Decimal  @default(50000.00) @db.Decimal(20, 2)
-  onlineEnabled  Boolean  @default(true)
-  intlEnabled    Boolean  @default(true)
-  atmEnabled     Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  externalCardId       String?  @unique @map("external_card_id") @db.VarChar(128)
+  externalCardholderId String?  @map("external_cardholder_id") @db.VarChar(128)
+  last4                String   @default("0000") @db.VarChar(4)
+  expMonth             Int      @default(8) @map("exp_month")
+  expYear              Int      @default(2029) @map("exp_year")
+  brand                String   @default("visa") @db.VarChar(20)
+  cardNumberMask       String   @default("•••• •••• •••• 0000") @db.VarChar(30)
+  cardHolderName       String   @db.VarChar(100)
+  expiryDate           String   @default("08/29") @db.VarChar(10)
+  cvvEncrypted         String?  @db.VarChar(255)
+  cardTheme            String   @default("redot") @db.VarChar(20)
+  cardNetwork          String   @default("visa") @db.VarChar(20)
+  isFrozen             Boolean  @default(false)
+  dailyLimit           Decimal  @default(10000.00) @db.Decimal(20, 2)
+  monthlyLimit         Decimal  @default(50000.00) @db.Decimal(20, 2)
+  onlineEnabled        Boolean  @default(true)
+  intlEnabled          Boolean  @default(true)
+  atmEnabled           Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@map("diw_virtual_cards")
 }

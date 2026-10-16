@@ -19,10 +19,15 @@ app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 app.use((0, cors_1.default)({
-    origin: [config_1.config.corsOrigin, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: [config_1.config.corsOrigin, 'http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'],
     credentials: true,
 }));
-app.use(express_1.default.json({ limit: '10mb' }));
+app.use(express_1.default.json({
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+        req.rawBody = buf.toString('utf8');
+    },
+}));
 app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
 app.use((0, cookie_parser_1.default)());
 app.use((0, morgan_1.default)('dev'));

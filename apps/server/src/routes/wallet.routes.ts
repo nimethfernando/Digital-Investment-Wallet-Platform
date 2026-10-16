@@ -20,11 +20,11 @@ router.post('/swap', (req, res, next) => walletController.executeSwap(req, res, 
 
 // Virtual Card Endpoints
 router.get('/card', (req, res, next) => walletController.getCard(req, res, next));
+router.post('/card/reveal-session', (req, res, next) => walletController.createCardRevealSession(req, res, next));
 router.post('/card/freeze', (req, res, next) => walletController.toggleCardFreeze(req, res, next));
 router.post('/card/limits', (req, res, next) => walletController.updateCardLimits(req, res, next));
 router.post('/card/settings', (req, res, next) => walletController.updateCardSettings(req, res, next));
 router.get('/card/transactions', (req, res, next) => walletController.getCardTransactions(req, res, next));
-router.post('/card/charge', (req, res, next) => walletController.chargeCard(req, res, next));
 
 // Withdrawal shortcuts under /wallet
 router.post('/withdraw', withdrawalRateLimiter, (req, res, next) => withdrawalController.requestWithdrawal(req, res, next));

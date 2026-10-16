@@ -74,9 +74,10 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   const [onlineEnabled, setOnlineEnabled] = useState(true);
   const [intlEnabled, setIntlEnabled] = useState(true);
   const [atmEnabled, setAtmEnabled] = useState(true);
-  const [cardNumberMask, setCardNumberMask] = useState('4820 •••• •••• 2882');
-  const [expiryDate, setExpiryDate] = useState('08/29');
-  const [cvv, setCvv] = useState('742');
+  const [cardNumberMask, setCardNumberMask] = useState('•••• •••• •••• ••••');
+  const [expiryDate, setExpiryDate] = useState('--/--');
+  const [externalCardId, setExternalCardId] = useState<string | null>(null);
+  const [revealIframeUrl, setRevealIframeUrl] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState(cardHolderName);
 
   // Status & loaders
@@ -119,13 +120,11 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
         setIntlEnabled(c.intlEnabled ?? true);
         setAtmEnabled(c.atmEnabled ?? true);
         if (c.cardTheme) setCardTheme(c.cardTheme as any);
-        if (c.cardNetwork) setCardNetwork(c.cardNetwork as any);
+        if (c.brand || c.cardNetwork) setCardNetwork((c.brand || c.cardNetwork) as any);
         if (c.cardNumberMask) setCardNumberMask(c.cardNumberMask);
         if (c.expiryDate) setExpiryDate(c.expiryDate);
         if (c.cardHolderName) setDisplayName(c.cardHolderName);
-        if (c.cvvEncrypted) {
-          setCvv(c.cvvEncrypted.replace('enc:v1:', ''));
-        }
+        if (c.externalCardId) setExternalCardId(c.externalCardId);
       }
 
       if (txRes?.data?.data && Array.isArray(txRes.data.data)) {
@@ -200,7 +199,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   };
 
   // Apply or Switch Card Edition
-  const handleApplyCardEdition = async (themeToApply: string, cardType: 'virtual' | 'physical') => {
+  const handleApplyCardEdition = async (themeToApply: string, _cardType: 'virtual' | 'physical') => {
     setActionLoading(true);
     try {
       const res = await api.post('/wallet/card/settings', {
@@ -224,34 +223,37 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
     }
   };
 
-  const fullCardNumber = cardNumberMask.replace(/•+\s*•+/, '9142 6631');
+  // PCI-Compliant Reveal Session via Issuer Ephemeral Token / Iframe
+  const handleToggleReveal = async () => {
+    if (showSensitive) {
+      setShowSensitive(false);
+      setRevealIframeUrl(null);
+      return;
+    }
 
-  const handleCopyCard = () => {
-    const rawNumber = fullCardNumber.replace(/\s+/g, '');
-    navigator.clipboard.writeText(rawNumber);
-    setCopied(true);
-    showToast('16-digit card number copied to clipboard', 'success');
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleTestMerchantCharge = async (merchantName: string, amount: number) => {
     setActionLoading(true);
     try {
-      const res = await api.post('/wallet/card/charge', {
-        merchantName,
-        amount,
-        isOnline: true,
-      });
+      const res = await api.post('/wallet/card/reveal-session', {});
       if (res.data?.success) {
-        showToast(res.data.message || `Approved $${amount} at ${merchantName}!`, 'success');
-        await loadCardData();
-        onRefresh?.();
+        setShowSensitive(true);
+        if (res.data.data?.iframeUrl) {
+          setRevealIframeUrl(res.data.data.iframeUrl);
+        }
+        showToast('PCI-DSS ephemeral reveal session established with Card Issuer.', 'success');
       }
     } catch (err: any) {
-      showToast(err.response?.data?.message || 'Card transaction declined', 'error');
+      showToast(
+        err.response?.data?.message ||
+          'Configure CARD_ISSUER_API_KEY in .env to initialize PCI-compliant PAN/CVV reveal.',
+        'error'
+      );
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleCopyCard = async () => {
+    await handleToggleReveal();
   };
 
   return (
@@ -411,7 +413,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           <div className="relative z-10 space-y-1">
             <div className="flex items-center justify-between">
               <div className="font-mono text-lg sm:text-xl font-bold tracking-[0.18em] text-white whitespace-nowrap">
-                {showSensitive ? fullCardNumber : cardNumberMask}
+                {cardNumberMask}
               </div>
 
               {cardNetwork === 'visa' ? (
@@ -426,11 +428,20 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
               )}
             </div>
 
-            {showSensitive && (
-              <div className="flex items-center justify-between text-xs text-slate-300 pt-1 font-mono animate-in fade-in">
-                <div>EXP: {expiryDate}</div>
-                <div>CVV: {cvv}</div>
-                <div className="uppercase">{displayName}</div>
+            <div className="flex items-center justify-between text-xs text-slate-300 pt-1 font-mono">
+              <div>EXP: {expiryDate}</div>
+              <div>CVV: •••</div>
+              <div className="uppercase">{displayName}</div>
+            </div>
+
+            {showSensitive && revealIframeUrl && (
+              <div className="pt-2">
+                <iframe
+                  src={revealIframeUrl}
+                  title="PCI-DSS Secure Card Reveal"
+                  className="w-full h-12 rounded-lg border border-white/20 bg-black/50"
+                  sandbox="allow-scripts allow-same-origin"
+                />
               </div>
             )}
           </div>
@@ -439,10 +450,11 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
         {/* 4 REDOTPAY CIRCULAR ACTION BUTTONS UNDER CARD */}
         <div className="w-full max-w-md grid grid-cols-4 gap-4 px-2">
           
-          {/* Button 1: View */}
+          {/* Button 1: View (PCI Ephemeral Reveal) */}
           <button
-            onClick={() => setShowSensitive(!showSensitive)}
-            className="flex flex-col items-center gap-2 group cursor-pointer"
+            onClick={handleToggleReveal}
+            disabled={actionLoading}
+            className="flex flex-col items-center gap-2 group cursor-pointer disabled:opacity-50"
           >
             <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-md ${
               showSensitive
@@ -501,50 +513,20 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           </button>
         </div>
 
-        {/* APPLE WALLET PILL (Direct RedotPay Match) */}
-        <div className="w-full max-w-md pt-2 space-y-2.5">
+        {/* APPLE WALLET / PCI REVEAL PILL */}
+        <div className="w-full max-w-md pt-2">
           <button
             onClick={handleCopyCard}
             className="w-full py-3 px-5 rounded-2xl bg-black hover:bg-slate-900 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg border border-slate-800 transition-all hover:scale-[1.01] cursor-pointer"
           >
             <span className="text-base"></span>
-            <span>Add to Apple Wallet / Copy Card Details</span>
+            <span>
+              {externalCardId
+                ? `Add to Apple Wallet (${externalCardId})`
+                : 'Add to Apple Wallet / Reveal via Issuer SDK'}
+            </span>
             {copied && <Check className="w-4 h-4 text-emerald-400" />}
           </button>
-
-          {/* LIVE MERCHANT AUTHORIZATION SIMULATOR (NETFLIX / SPOTIFY / AMAZON) */}
-          <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="font-bold text-slate-200">Test Live Card Authorization (Debits Wallet):</span>
-              <span className="text-emerald-400 font-mono text-[10px]">Visa Webhook Engine Ready</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={() => handleTestMerchantCharge('Netflix.com Subscription', 15.99)}
-                className="py-2 px-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-200 hover:text-white font-bold text-[11px] transition-all cursor-pointer disabled:opacity-50"
-              >
-                Netflix $15.99
-              </button>
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={() => handleTestMerchantCharge('Spotify Premium', 11.99)}
-                className="py-2 px-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-200 hover:text-white font-bold text-[11px] transition-all cursor-pointer disabled:opacity-50"
-              >
-                Spotify $11.99
-              </button>
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={() => handleTestMerchantCharge('Amazon Prime Order', 42.50)}
-                className="py-2 px-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-200 hover:text-white font-bold text-[11px] transition-all cursor-pointer disabled:opacity-50"
-              >
-                Amazon $42.50
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* PRO CASHBACK BANNER (Direct RedotPay Match) */}

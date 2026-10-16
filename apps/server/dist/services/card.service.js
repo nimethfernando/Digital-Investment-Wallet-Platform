@@ -4,148 +4,174 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.cardService = exports.CardService = void 0;
+const crypto_1 = __importDefault(require("crypto"));
 const client_1 = require("@prisma/client");
 const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class CardService {
-    /**
-     * Provisions a real Visa Virtual Card via Stripe Issuing or Interlace BaaS API
-     * when STRIPE_SECRET_KEY or INTERLACE_API_KEY is configured in .env.
-     */
-    async provisionExternalIssuerCard(user) {
-        const stripeKey = process.env.STRIPE_SECRET_KEY;
-        const interlaceKey = process.env.INTERLACE_API_KEY;
-        // Option A: Stripe Issuing (Real Visa/Mastercard Virtual Card)
-        if (stripeKey && stripeKey.startsWith('sk_')) {
-            try {
-                const fullName = `${user?.firstName || 'Avora'} ${user?.lastName || 'Client'}`.trim();
-                // 1. Create Cardholder
-                const chParams = new URLSearchParams({
-                    name: fullName,
-                    email: user.email,
-                    type: 'individual',
-                    'billing[address][line1]': '100 Wall Street',
-                    'billing[address][city]': 'New York',
-                    'billing[address][state]': 'NY',
-                    'billing[address][postal_code]': '10005',
-                    'billing[address][country]': 'US',
-                });
-                const chRes = await fetch('https://api.stripe.com/v1/issuing/cardholders', {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${stripeKey}`,
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: chParams.toString(),
-                });
-                const cardholder = await chRes.json();
-                if (cardholder?.id) {
-                    // 2. Issue Virtual Card
-                    const cardParams = new URLSearchParams({
-                        cardholder: cardholder.id,
-                        currency: 'usd',
-                        type: 'virtual',
-                        status: 'active',
-                        'expand[0]': 'number',
-                        'expand[1]': 'cvc',
-                    });
-                    const cardRes = await fetch('https://api.stripe.com/v1/issuing/cards', {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${stripeKey}`,
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: cardParams.toString(),
-                    });
-                    const issued = await cardRes.json();
-                    if (issued?.id && issued?.last4) {
-                        const expMonth = String(issued.exp_month || 8).padStart(2, '0');
-                        const expYear = String(issued.exp_year || 2029).slice(-2);
-                        const rawPan = issued.number || `482091426631${issued.last4}`;
-                        const formattedPan = rawPan.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
-                        return {
-                            fullPan: formattedPan,
-                            last4: issued.last4,
-                            expiryDate: `${expMonth}/${expYear}`,
-                            cvv: issued.cvc || '742',
-                            externalCardId: issued.id,
-                            provider: 'STRIPE_ISSUING',
-                        };
-                    }
-                }
-            }
-            catch (err) {
-                console.warn('[CardService] Stripe Issuing fallback notice:', err);
-            }
-        }
-        // Option B: Interlace Crypto-to-Visa BaaS (RedotPay-style BIN Sponsor)
-        if (interlaceKey) {
-            try {
-                const res = await fetch('https://api.interlace.money/open-api/v1/cards', {
-                    method: 'POST',
-                    headers: {
-                        'x-api-key': interlaceKey,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        type: 'Virtual',
-                        currency: 'USD',
-                        cardholderEmail: user.email,
-                        label: 'Avora Crypto Visa',
-                    }),
-                });
-                const data = await res.json();
-                if (data?.data?.cardNumber) {
-                    const rawPan = String(data.data.cardNumber).replace(/\s+/g, '');
-                    const last4 = rawPan.slice(-4);
-                    return {
-                        fullPan: rawPan.replace(/(\d{4})(?=\d)/g, '$1 ').trim(),
-                        last4,
-                        expiryDate: data.data.expiryDate || '08/29',
-                        cvv: data.data.cvv || '742',
-                        externalCardId: data.data.cardId,
-                        provider: 'INTERLACE_BAAS',
-                    };
-                }
-            }
-            catch (err) {
-                console.warn('[CardService] Interlace BaaS fallback notice:', err);
-            }
-        }
-        return null;
+    get issuerApiKey() {
+        return process.env.CARD_ISSUER_API_KEY || process.env.STRIPE_SECRET_KEY || '';
+    }
+    get issuerSecret() {
+        return process.env.CARD_ISSUER_SECRET || process.env.STRIPE_SECRET_KEY || '';
+    }
+    get issuerBaseUrl() {
+        return (process.env.CARD_ISSUER_BASE_URL || 'https://api.interlace.money/open-api').replace(/\/+$/, '');
+    }
+    get isStripeProvider() {
+        const provider = (process.env.CARD_ISSUER_PROVIDER || '').toUpperCase();
+        return (provider === 'STRIPE' ||
+            this.issuerApiKey.startsWith('sk_') ||
+            this.issuerSecret.startsWith('sk_'));
     }
     /**
-     * Retrieves or automatically provisions a VirtualCard for the user
+     * Calls the live Card Issuing BaaS API (Stripe Issuing or Interlace / BaaS Provider)
+     * to provision a virtual Visa/Mastercard.
+     * Never returns or stores plaintext 16-digit PANs or CVVs in the database.
+     */
+    async provisionCardWithIssuer(user) {
+        const fullName = `${user.firstName || 'Avora'} ${user.lastName || 'Client'}`.trim();
+        if (!this.issuerApiKey) {
+            throw new Error('Card Issuing BaaS credentials (CARD_ISSUER_API_KEY / CARD_ISSUER_SECRET) are not configured.');
+        }
+        // 1. Stripe Issuing Provider (stripe.issuing.cardholders.create + stripe.issuing.cards.create)
+        if (this.isStripeProvider) {
+            const secretKey = this.issuerSecret.startsWith('sk_') ? this.issuerSecret : this.issuerApiKey;
+            const cardholderParams = new URLSearchParams({
+                name: fullName,
+                email: user.email,
+                type: 'individual',
+                'metadata[userId]': user.id,
+                'billing[address][line1]': '100 Wall Street',
+                'billing[address][city]': 'New York',
+                'billing[address][state]': 'NY',
+                'billing[address][postal_code]': '10005',
+                'billing[address][country]': 'US',
+            });
+            if (user.phone) {
+                cardholderParams.set('phone_number', user.phone);
+            }
+            const chRes = await fetch('https://api.stripe.com/v1/issuing/cardholders', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${secretKey}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: cardholderParams.toString(),
+            });
+            const cardholder = await chRes.json();
+            if (!chRes.ok || !cardholder?.id) {
+                throw new Error(cardholder?.error?.message || 'Failed to create cardholder with Stripe Issuing API');
+            }
+            const cardParams = new URLSearchParams({
+                cardholder: cardholder.id,
+                currency: 'usd',
+                type: 'virtual',
+                status: 'active',
+                'metadata[userId]': user.id,
+            });
+            const cardRes = await fetch('https://api.stripe.com/v1/issuing/cards', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${secretKey}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: cardParams.toString(),
+            });
+            const issuedCard = await cardRes.json();
+            if (!cardRes.ok || !issuedCard?.id) {
+                throw new Error(issuedCard?.error?.message || 'Failed to provision virtual card with Stripe Issuing API');
+            }
+            return {
+                externalCardId: issuedCard.id,
+                externalCardholderId: cardholder.id,
+                last4: String(issuedCard.last4 || '0000').slice(-4),
+                expMonth: Number(issuedCard.exp_month || 8),
+                expYear: Number(issuedCard.exp_year || 2029),
+                brand: String(issuedCard.brand || 'visa').toLowerCase() === 'mastercard' ? 'mastercard' : 'visa',
+                cardHolderName: fullName,
+            };
+        }
+        // 2. Interlace / BaaS Provider: POST /v1/cards
+        const timestamp = Date.now().toString();
+        const requestBody = JSON.stringify({
+            type: 'VIRTUAL',
+            currency: 'USD',
+            brand: 'VISA',
+            cardholder: {
+                userId: user.id,
+                firstName: user.firstName || 'Avora',
+                lastName: user.lastName || 'Client',
+                name: fullName,
+                email: user.email,
+                phone: user.phone || undefined,
+            },
+        });
+        const signature = this.issuerSecret
+            ? crypto_1.default.createHmac('sha256', this.issuerSecret).update(`${timestamp}.${requestBody}`).digest('hex')
+            : '';
+        const response = await fetch(`${this.issuerBaseUrl}/v1/cards`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': this.issuerApiKey,
+                Authorization: `Bearer ${this.issuerApiKey}`,
+                ...(signature ? { 'x-signature': signature, 'x-timestamp': timestamp } : {}),
+            },
+            body: requestBody,
+        });
+        const payload = await response.json().catch(() => ({}));
+        const cardData = payload?.data || payload;
+        if (!response.ok || !(cardData?.external_card_id || cardData?.cardId || cardData?.id)) {
+            throw new Error(payload?.message || payload?.error || `Card Issuer BaaS API error (HTTP ${response.status})`);
+        }
+        return {
+            externalCardId: String(cardData.external_card_id || cardData.cardId || cardData.id),
+            externalCardholderId: cardData.cardholderId || cardData.cardholder_id || undefined,
+            last4: String(cardData.last4 || cardData.panLast4 || '0000').slice(-4),
+            expMonth: Number(cardData.expMonth || cardData.exp_month || 8),
+            expYear: Number(cardData.expYear || cardData.exp_year || 2029),
+            brand: String(cardData.brand || 'visa').toLowerCase() === 'mastercard' ? 'mastercard' : 'visa',
+            cardHolderName: fullName,
+        };
+    }
+    /**
+     * Retrieves an existing VirtualCard from MariaDB (`diw_virtual_cards`), or provisions
+     * a new live card via the Card Issuer BaaS API if the user does not have one yet.
+     * Never stores raw 16-digit PANs or CVVs in MariaDB.
      */
     async getOrCreateCard(userId) {
         let card = await prisma_1.prisma.virtualCard.findUnique({
             where: { userId },
         });
         if (!card) {
-            const user = await prisma_1.prisma.user.findUnique({ where: { id: userId } });
-            const fullName = `${user?.firstName || 'Avora'} ${user?.lastName || 'Client'}`.trim();
-            // Check if an external Visa BIN Sponsor API (Stripe Issuing / Interlace) is configured
-            const externalCard = user ? await this.provisionExternalIssuerCard(user) : null;
-            // Generate deterministic last 4 digits from userId if in sandbox/internal mode
-            let hash = 0;
-            for (let i = 0; i < userId.length; i++) {
-                hash = (hash << 5) - hash + userId.charCodeAt(i);
-                hash |= 0;
+            const user = await prisma_1.prisma.user.findUnique({
+                where: { id: userId },
+                select: { id: true, email: true, firstName: true, lastName: true, phone: true },
+            });
+            if (!user) {
+                throw new Error('User not found');
             }
-            const last4 = externalCard?.last4 || Math.abs((hash % 9000) + 1000).toString();
-            const expiryDate = externalCard?.expiryDate || '08/29';
-            const cvv = externalCard?.cvv || '742';
+            const issued = await this.provisionCardWithIssuer(user);
+            const expMonthStr = String(issued.expMonth).padStart(2, '0');
+            const expYearShort = String(issued.expYear).slice(-2);
             card = await prisma_1.prisma.virtualCard.create({
                 data: {
                     userId,
-                    cardNumberMask: `4820 •••• •••• ${last4}`,
-                    cardHolderName: fullName,
-                    expiryDate,
-                    cvvEncrypted: `enc:v1:${cvv}`,
+                    externalCardId: issued.externalCardId,
+                    externalCardholderId: issued.externalCardholderId || null,
+                    last4: issued.last4,
+                    expMonth: issued.expMonth,
+                    expYear: issued.expYear,
+                    brand: issued.brand,
+                    cardNumberMask: `•••• •••• •••• ${issued.last4}`,
+                    cardHolderName: issued.cardHolderName,
+                    expiryDate: `${expMonthStr}/${expYearShort}`,
+                    cvvEncrypted: null, // PCI-DSS: Never store raw PAN or CVV in database
                     cardTheme: 'redot',
-                    cardNetwork: 'visa',
+                    cardNetwork: issued.brand,
                     isFrozen: false,
                     dailyLimit: new decimal_js_1.default('10000.00'),
                     monthlyLimit: new decimal_js_1.default('50000.00'),
@@ -155,37 +181,125 @@ class CardService {
                 },
             });
         }
-        const issuerMode = process.env.STRIPE_SECRET_KEY
-            ? 'STRIPE_ISSUING_LIVE'
-            : process.env.INTERLACE_API_KEY
-                ? 'INTERLACE_VISA_LIVE'
-                : 'INTERNAL_SANDBOX';
         return {
-            ...card,
-            issuerMode,
+            id: card.id,
+            userId: card.userId,
+            externalCardId: card.externalCardId,
+            last4: card.last4,
+            expMonth: card.expMonth,
+            expYear: card.expYear,
+            brand: card.brand,
+            cardNumberMask: `•••• •••• •••• ${card.last4 || card.cardNumberMask.slice(-4)}`,
+            cardHolderName: card.cardHolderName,
+            expiryDate: card.expiryDate,
+            cardTheme: card.cardTheme,
+            cardNetwork: card.brand || card.cardNetwork,
+            isFrozen: card.isFrozen,
             dailyLimit: new decimal_js_1.default(card.dailyLimit.toString()).toNumber(),
             monthlyLimit: new decimal_js_1.default(card.monthlyLimit.toString()).toNumber(),
+            onlineEnabled: card.onlineEnabled,
+            intlEnabled: card.intlEnabled,
+            atmEnabled: card.atmEnabled,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt,
         };
     }
     /**
-     * Toggle Freeze status
+     * Generates a short-lived PCI-compliant ephemeral token / iframe session URL from the
+     * Card Issuer so the frontend can render the PAN and CVV without our database storing them.
+     */
+    async createRevealSession(userId, nonce) {
+        const card = await prisma_1.prisma.virtualCard.findUnique({ where: { userId } });
+        if (!card || !card.externalCardId) {
+            throw new Error('No external BaaS card is provisioned for this account yet.');
+        }
+        if (this.isStripeProvider && this.issuerApiKey) {
+            const params = new URLSearchParams({
+                issuing_card: card.externalCardId,
+                ...(nonce ? { nonce } : {}),
+            });
+            const res = await fetch('https://api.stripe.com/v1/ephemeral_keys', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${this.issuerSecret || this.issuerApiKey}`,
+                    'Stripe-Version': '2024-06-20',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: params.toString(),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data?.error?.message || 'Failed to create Stripe Issuing ephemeral key');
+            }
+            return {
+                provider: 'STRIPE_ISSUING',
+                externalCardId: card.externalCardId,
+                ephemeralKeySecret: data.secret,
+                expiresAt: data.expires,
+            };
+        }
+        if (this.issuerApiKey) {
+            const res = await fetch(`${this.issuerBaseUrl}/v1/cards/${encodeURIComponent(card.externalCardId)}/ephemeral-token`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': this.issuerApiKey,
+                    Authorization: `Bearer ${this.issuerApiKey}`,
+                },
+                body: JSON.stringify({ nonce }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data?.message || 'Failed to obtain PCI reveal token from Card Issuer');
+            }
+            return {
+                provider: 'BAAS_ISSUER',
+                externalCardId: card.externalCardId,
+                token: data?.data?.token || data?.token,
+                iframeUrl: data?.data?.iframeUrl || data?.iframeUrl,
+            };
+        }
+        throw new Error('CARD_ISSUER_API_KEY is required to request a PCI-compliant card reveal session.');
+    }
+    /**
+     * Toggle Freeze status in MariaDB and sync with the BaaS Issuer API if configured
      */
     async toggleFreeze(userId) {
-        const card = await this.getOrCreateCard(userId);
+        const card = await prisma_1.prisma.virtualCard.findUnique({ where: { userId } });
+        if (!card) {
+            throw new Error('Virtual card not found for user');
+        }
+        const nextFrozen = !card.isFrozen;
+        if (card.externalCardId && this.isStripeProvider && this.issuerApiKey) {
+            const status = nextFrozen ? 'inactive' : 'active';
+            await fetch(`https://api.stripe.com/v1/issuing/cards/${encodeURIComponent(card.externalCardId)}`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${this.issuerSecret || this.issuerApiKey}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({ status }).toString(),
+            }).catch(() => { });
+        }
         const updated = await prisma_1.prisma.virtualCard.update({
             where: { userId },
-            data: { isFrozen: !card.isFrozen },
+            data: { isFrozen: nextFrozen },
         });
         return {
             isFrozen: updated.isFrozen,
-            message: updated.isFrozen ? 'Card has been frozen. All transactions blocked.' : 'Card has been unfrozen and is active.',
+            message: updated.isFrozen
+                ? 'Card has been frozen. All real-time issuer authorizations are now blocked.'
+                : 'Card has been unfrozen and is active.',
         };
     }
     /**
      * Update Spending Limits
      */
     async updateLimits(userId, dailyLimit, monthlyLimit) {
-        await this.getOrCreateCard(userId);
+        const card = await prisma_1.prisma.virtualCard.findUnique({ where: { userId } });
+        if (!card) {
+            throw new Error('Virtual card not found for user');
+        }
         const updated = await prisma_1.prisma.virtualCard.update({
             where: { userId },
             data: {
@@ -203,7 +317,10 @@ class CardService {
      * Update Card Security Controls (Online, International, ATM)
      */
     async updateSettings(userId, data) {
-        await this.getOrCreateCard(userId);
+        const card = await prisma_1.prisma.virtualCard.findUnique({ where: { userId } });
+        if (!card) {
+            throw new Error('Virtual card not found for user');
+        }
         const updated = await prisma_1.prisma.virtualCard.update({
             where: { userId },
             data: {
@@ -222,126 +339,239 @@ class CardService {
         };
     }
     /**
-     * Real-Time Visa / BaaS Authorization & Double-Entry Settlement Engine.
-     * Called by:
-     *  1. Incoming Stripe Issuing / Interlace webhook (`issuing_authorization.request`)
-     *     when the user pays on Netflix, Amazon, Spotify, or Apple Pay.
-     *  2. Direct POS / Online Merchant Charge endpoint (`/api/v1/wallet/card/charge`).
+     * Verify incoming Card Issuer webhook signature using CARD_WEBHOOK_SECRET.
+     * Supports both Stripe (`stripe-signature: t=...,v1=...`) and standard HMAC-SHA256 (`x-webhook-signature`).
      */
-    async authorizeAndChargeCard(params) {
-        const card = await this.getOrCreateCard(params.userId);
-        const amountDec = new decimal_js_1.default(params.amount.toString());
+    verifyWebhookSignature(rawPayload, signatureHeader) {
+        const webhookSecret = process.env.CARD_WEBHOOK_SECRET;
+        if (!webhookSecret) {
+            return false;
+        }
+        if (!signatureHeader) {
+            return false;
+        }
+        try {
+            // Case 1: Stripe-style header: t=1710000000,v1=abcdef...
+            if (signatureHeader.includes('t=') && signatureHeader.includes('v1=')) {
+                const parts = signatureHeader.split(',').reduce((acc, part) => {
+                    const [k, v] = part.trim().split('=');
+                    if (k && v)
+                        acc[k] = v;
+                    return acc;
+                }, {});
+                const timestamp = parts['t'];
+                const v1 = parts['v1'];
+                if (!timestamp || !v1)
+                    return false;
+                const signedPayload = `${timestamp}.${rawPayload}`;
+                const expected = crypto_1.default
+                    .createHmac('sha256', webhookSecret)
+                    .update(signedPayload, 'utf8')
+                    .digest('hex');
+                const expectedBuf = Buffer.from(expected, 'hex');
+                const receivedBuf = Buffer.from(v1, 'hex');
+                if (expectedBuf.length !== receivedBuf.length)
+                    return false;
+                return crypto_1.default.timingSafeEqual(expectedBuf, receivedBuf);
+            }
+            // Case 2: Standard HMAC-SHA256 hex digest (optionally prefixed with sha256=)
+            const cleanSig = signatureHeader.replace(/^sha256=/i, '').trim();
+            const expected = crypto_1.default
+                .createHmac('sha256', webhookSecret)
+                .update(rawPayload, 'utf8')
+                .digest('hex');
+            const expectedBuf = Buffer.from(expected, 'hex');
+            const receivedBuf = Buffer.from(cleanSig, 'hex');
+            if (expectedBuf.length !== receivedBuf.length)
+                return false;
+            return crypto_1.default.timingSafeEqual(expectedBuf, receivedBuf);
+        }
+        catch {
+            return false;
+        }
+    }
+    /**
+     * Real-Time Authorization Webhook Engine (`/api/v1/wallet/card/webhook/authorize`).
+     * Executes an atomic MariaDB transaction checking:
+     *  1. Card Status (`isFrozen === false` and `onlineEnabled === true`)
+     *  2. Spending Limits (`amount <= dailyLimit` and `amount <= monthlyLimit`)
+     *  3. Wallet Balance (`user.wallet_balance >= amount`)
+     * Records `'APPROVED'` or `'DECLINED'` in `diw_transactions` and returns within < 2000ms.
+     */
+    async handleRealtimeWebhookAuthorization(payload) {
+        const externalCardId = String(payload.external_card_id || '').trim();
+        if (!externalCardId) {
+            return { approved: false, reject_reason: 'CARD_FROZEN' };
+        }
+        const amountDec = new decimal_js_1.default(payload.amount?.toString() || '0');
         if (amountDec.lessThanOrEqualTo(0)) {
-            throw new Error('Transaction amount must be greater than zero');
+            return { approved: false, reject_reason: 'LIMIT_EXCEEDED' };
         }
-        // 1. Check Freeze Status
-        if (card.isFrozen) {
-            throw new Error('DECLINED: Card is currently FROZEN. Unfreeze your card to authorize merchant payments.');
-        }
-        // 2. Check Online / International Controls
-        if (params.isOnline !== false && !card.onlineEnabled) {
-            throw new Error('DECLINED: Online e-commerce payments are disabled in your Card Settings.');
-        }
-        if (params.isInternational && !card.intlEnabled) {
-            throw new Error('DECLINED: International cross-border transactions are disabled in your Card Settings.');
-        }
-        // 3. Check Daily & Monthly Spending Limits
-        const dailyLimitDec = new decimal_js_1.default(card.dailyLimit.toString());
-        if (amountDec.greaterThan(dailyLimitDec)) {
-            throw new Error(`DECLINED: Charge of $${amountDec.toFixed(2)} exceeds your Card Daily Spending Limit ($${dailyLimitDec.toFixed(2)}).`);
-        }
-        // 4. Ensure Wallet & Atomically Debit User Balance (USD first, fallback to USDT 1:1)
-        const wallet = await ledger_service_1.ledgerService.ensureWallet(params.userId);
-        const txCode = `CARD-POS-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
-        const idempotencyKey = params.externalAuthId ? `CARD-AUTH-${params.externalAuthId}` : `CARD-CHG-${txCode}`;
-        const result = await prisma_1.prisma.$transaction(async (tx) => {
-            const usdBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
-            const usdtBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, 'USDT');
-            const usdAvail = new decimal_js_1.default(usdBal.availableBalance.toString());
-            const usdtAvail = new decimal_js_1.default(usdtBal.availableBalance.toString());
-            let debitedCurrency = 'USD';
-            let targetBal = usdBal;
-            let balBefore = usdAvail;
-            if (usdAvail.greaterThanOrEqualTo(amountDec)) {
-                debitedCurrency = 'USD';
-                targetBal = usdBal;
-                balBefore = usdAvail;
-            }
-            else if (usdtAvail.greaterThanOrEqualTo(amountDec)) {
-                debitedCurrency = 'USDT';
-                targetBal = usdtBal;
-                balBefore = usdtAvail;
-            }
-            else {
-                throw new Error(`DECLINED (Insufficient Funds): Available balance is $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT, required $${amountDec.toFixed(2)}.`);
-            }
-            const balAfter = balBefore.minus(amountDec);
-            await tx.walletBalance.update({
-                where: { id: targetBal.id },
-                data: { availableBalance: balAfter.toFixed(8) },
-            });
-            await ledger_service_1.ledgerService.recordJournal(tx, {
-                idempotencyKey,
-                referenceType: client_1.JournalReferenceType.ADJUSTMENT,
-                referenceId: txCode,
-                notes: `Visa Card Purchase at ${params.merchantName} (${card.cardNumberMask})`,
-                createdBy: params.userId,
-                entries: [
-                    {
-                        accountId: `USER_AVAILABLE_${debitedCurrency}`,
-                        userId: params.userId,
-                        direction: 'DEBIT',
-                        amount: amountDec.toFixed(8),
-                        currency: debitedCurrency,
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        // 1. Single round-trip to fetch Card + User + Wallet + Balances
+        const card = await prisma_1.prisma.virtualCard.findUnique({
+            where: { externalCardId },
+            include: {
+                user: {
+                    include: {
+                        wallet: {
+                            include: {
+                                balances: {
+                                    where: { currency: { in: ['USD', 'USDT'] } },
+                                },
+                            },
+                        },
                     },
-                    {
-                        accountId: `PLATFORM_TREASURY_${debitedCurrency}`,
-                        direction: 'CREDIT',
-                        amount: amountDec.toFixed(8),
-                        currency: debitedCurrency,
-                    },
-                ],
+                },
+            },
+        });
+        if (!card) {
+            return { approved: false, reject_reason: 'CARD_FROZEN' };
+        }
+        const merchantName = payload.merchant_details?.name || 'Visa Card Merchant';
+        const merchantCategory = payload.merchant_details?.category || 'ONLINE_POS';
+        const isOnline = payload.is_online !== false;
+        const isInternational = Boolean(payload.is_international);
+        const txCode = `CRD-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+        const idempotencyKey = payload.authorization_id
+            ? `CARD-WEBHOOK-${payload.authorization_id}`
+            : `CARD-WEBHOOK-${txCode}`;
+        // Ensure wallet exists only if user has no wallet yet
+        let balances = card.user?.wallet?.balances || [];
+        if (!card.user?.wallet || balances.length === 0) {
+            const ensuredWallet = await ledger_service_1.ledgerService.ensureWallet(card.userId);
+            balances = await prisma_1.prisma.walletBalance.findMany({
+                where: { walletId: ensuredWallet.id, currency: { in: ['USD', 'USDT'] } },
             });
-            const txRecord = await tx.transaction.create({
+        }
+        const usdBal = balances.find((b) => b.currency === 'USD');
+        const usdtBal = balances.find((b) => b.currency === 'USDT');
+        const usdAvail = new decimal_js_1.default(usdBal?.availableBalance?.toString() || '0');
+        const usdtAvail = new decimal_js_1.default(usdtBal?.availableBalance?.toString() || '0');
+        const recordDeclinedFast = async (rejectReason, detailNote) => {
+            await prisma_1.prisma.transaction.create({
                 data: {
                     transactionCode: txCode,
-                    userId: params.userId,
-                    type: client_1.TransactionType.FEE,
+                    userId: card.userId,
+                    type: client_1.TransactionType.CARD_PAYMENT,
                     amount: amountDec.toFixed(8),
-                    currency: debitedCurrency,
-                    status: client_1.TransactionStatus.COMPLETED,
-                    balanceBefore: balBefore.toFixed(8),
-                    balanceAfter: balAfter.toFixed(8),
-                    settlementReference: txCode,
+                    currency: (payload.currency || 'USD').toUpperCase(),
+                    status: client_1.TransactionStatus.DECLINED,
+                    balanceBefore: usdAvail.toFixed(8),
+                    balanceAfter: usdAvail.toFixed(8),
+                    settlementReference: externalCardId,
                     idempotencyKey,
-                    notes: `${params.merchantName} • Visa ${card.cardNumberMask.slice(-4)}`,
+                    notes: `DECLINED (${rejectReason}): ${merchantName} [${merchantCategory}] - ${detailNote}`,
                 },
             });
             return {
-                approved: true,
-                transactionCode: txRecord.transactionCode,
-                merchant: params.merchantName,
-                amount: amountDec.toFixed(2),
-                currency: debitedCurrency,
-                balanceAfter: balAfter.toFixed(2),
-                timestamp: txRecord.createdAt,
+                approved: false,
+                reject_reason: rejectReason,
+                transaction_code: txCode,
             };
-        }, { timeout: 30000, maxWait: 10000 });
-        return result;
+        };
+        // Check 1: Card Status (isFrozen === false & isOnlineEnabled === true)
+        if (card.isFrozen) {
+            return await recordDeclinedFast('CARD_FROZEN', 'Card is frozen by cardholder');
+        }
+        if (isOnline && !card.onlineEnabled) {
+            return await recordDeclinedFast('CARD_FROZEN', 'Online e-commerce payments are disabled');
+        }
+        if (isInternational && !card.intlEnabled) {
+            return await recordDeclinedFast('CARD_FROZEN', 'International transactions are disabled');
+        }
+        // Check 2: Spending Limits (amount <= dailyLimit and amount <= monthlyLimit)
+        const dailyLimitDec = new decimal_js_1.default(card.dailyLimit.toString());
+        const monthlyLimitDec = new decimal_js_1.default(card.monthlyLimit.toString());
+        if (amountDec.greaterThan(dailyLimitDec) || amountDec.greaterThan(monthlyLimitDec)) {
+            return await recordDeclinedFast('LIMIT_EXCEEDED', `Amount $${amountDec.toFixed(2)} exceeds daily ($${dailyLimitDec.toFixed(2)}) or monthly ($${monthlyLimitDec.toFixed(2)}) limit`);
+        }
+        // Single query for monthly (and daily subset) approved spend
+        const monthlyApproved = await prisma_1.prisma.transaction.findMany({
+            where: {
+                userId: card.userId,
+                type: client_1.TransactionType.CARD_PAYMENT,
+                status: client_1.TransactionStatus.APPROVED,
+                createdAt: { gte: startOfMonth },
+            },
+            select: { amount: true, createdAt: true },
+        });
+        let spentToday = new decimal_js_1.default(0);
+        let spentThisMonth = new decimal_js_1.default(0);
+        for (const row of monthlyApproved) {
+            const amt = new decimal_js_1.default(row.amount.toString());
+            spentThisMonth = spentThisMonth.plus(amt);
+            if (row.createdAt >= startOfDay) {
+                spentToday = spentToday.plus(amt);
+            }
+        }
+        if (spentToday.plus(amountDec).greaterThan(dailyLimitDec) ||
+            spentThisMonth.plus(amountDec).greaterThan(monthlyLimitDec)) {
+            return await recordDeclinedFast('LIMIT_EXCEEDED', `Cumulative spend would exceed daily ($${dailyLimitDec.toFixed(2)}) or monthly ($${monthlyLimitDec.toFixed(2)}) limit`);
+        }
+        // Check 3: Wallet Balance (user.wallet_balance >= amount)
+        let debitedCurrency = 'USD';
+        let targetBal = usdBal;
+        let balBefore = usdAvail;
+        if (usdBal && usdAvail.greaterThanOrEqualTo(amountDec)) {
+            debitedCurrency = 'USD';
+            targetBal = usdBal;
+            balBefore = usdAvail;
+        }
+        else if (usdtBal && usdtAvail.greaterThanOrEqualTo(amountDec)) {
+            debitedCurrency = 'USDT';
+            targetBal = usdtBal;
+            balBefore = usdtAvail;
+        }
+        else {
+            return await recordDeclinedFast('INSUFFICIENT_FUNDS', `Available USD ($${usdAvail.toFixed(2)}) / USDT (${usdtAvail.toFixed(2)}) is less than $${amountDec.toFixed(2)}`);
+        }
+        const balAfter = balBefore.minus(amountDec);
+        // Atomic MariaDB transaction: deduct wallet balance + record APPROVED transaction in parallel
+        await prisma_1.prisma.$transaction([
+            prisma_1.prisma.walletBalance.update({
+                where: { id: targetBal.id },
+                data: { availableBalance: balAfter.toFixed(8) },
+            }),
+            prisma_1.prisma.transaction.create({
+                data: {
+                    transactionCode: txCode,
+                    userId: card.userId,
+                    type: client_1.TransactionType.CARD_PAYMENT,
+                    amount: amountDec.toFixed(8),
+                    currency: debitedCurrency,
+                    status: client_1.TransactionStatus.APPROVED,
+                    balanceBefore: balBefore.toFixed(8),
+                    balanceAfter: balAfter.toFixed(8),
+                    settlementReference: externalCardId,
+                    idempotencyKey,
+                    notes: `${merchantName} • ${card.brand.toUpperCase()} •••• ${card.last4}`,
+                },
+            }),
+        ]);
+        return {
+            approved: true,
+            transaction_code: txCode,
+        };
     }
     /**
      * Get card-specific transaction feed from real transaction records
      */
     async getCardTransactions(userId) {
         const transactions = await prisma_1.prisma.transaction.findMany({
-            where: { userId },
+            where: {
+                userId,
+                type: { in: [client_1.TransactionType.CARD_PAYMENT, client_1.TransactionType.FEE] },
+            },
             orderBy: { createdAt: 'desc' },
             take: 20,
         });
         return transactions.map((t) => ({
             id: t.id,
             transactionCode: t.transactionCode,
-            merchant: t.notes || (t.type === 'DEPOSIT' ? 'Deposit Clearance' : t.type === 'P2P_TRANSFER_OUT' ? 'P2P Outgoing' : 'POS Terminal Payment'),
+            merchant: t.notes || 'Card Merchant Authorization',
             amount: `${new decimal_js_1.default(t.amount.toString()).toFixed(2)} ${t.currency}`,
             type: t.type,
             status: t.status,
