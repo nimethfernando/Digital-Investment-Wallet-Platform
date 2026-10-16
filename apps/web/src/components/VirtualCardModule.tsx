@@ -224,11 +224,13 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
     }
   };
 
+  const fullCardNumber = cardNumberMask.replace(/•+\s*•+/, '9142 6631');
+
   const handleCopyCard = () => {
-    const rawNumber = cardNumberMask.replace(/\s+/g, '').replace(/•/g, '0');
+    const rawNumber = fullCardNumber.replace(/\s+/g, '');
     navigator.clipboard.writeText(rawNumber);
     setCopied(true);
-    showToast('Card number copied to clipboard', 'success');
+    showToast('16-digit card number copied to clipboard', 'success');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -388,8 +390,8 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           {/* Card Bottom: Masked Number, Expiry, Brand */}
           <div className="relative z-10 space-y-1">
             <div className="flex items-center justify-between">
-              <div className="font-mono text-xl sm:text-2xl font-bold tracking-[0.2em] text-white">
-                {showSensitive ? cardNumberMask.replace(/•+/g, '9142 6631') : cardNumberMask}
+              <div className="font-mono text-lg sm:text-xl font-bold tracking-[0.18em] text-white whitespace-nowrap">
+                {showSensitive ? fullCardNumber : cardNumberMask}
               </div>
 
               {cardNetwork === 'visa' ? (
