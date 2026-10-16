@@ -108,9 +108,10 @@
     fill="#FBBF24"
     font-family="'Inter', 'Segoe UI', 'Montserrat', sans-serif"
     font-size="24"
-    font-weight="400"
-    letter-spacing="28"
+    font-weight="500"
+    letter-spacing="10"
   >
     BANK
   </text>
 </svg>
+

@@ -5,13 +5,12 @@ import React from 'react';
 interface AvoraBankLogoProps {
   variant?: 'emerald' | 'gold';
   size?: 'sm' | 'md' | 'lg';
-  showTagline?: boolean;
   className?: string;
 }
 
 /**
- * Avora Bank vector brand mark & wordmark matching the sister company (Avora Innovations)
- * 3D folded ribbon 'A' + 4 digital pixel squares + stylized 'Λ V O R Λ' + wide-tracked 'B A N K'.
+ * Avora Bank vector brand mark & wordmark matching the sister company (Avora Innovations):
+ * 3D folded ribbon 'A' + 4 digital pixel squares + custom vector 'Λ V O R Λ' + closer-spaced 'B A N K'.
  */
 export const AvoraBankLogo: React.FC<AvoraBankLogoProps> = ({
   variant = 'emerald',
@@ -22,9 +21,9 @@ export const AvoraBankLogo: React.FC<AvoraBankLogoProps> = ({
   const isGold = variant === 'gold';
 
   const dimensions = {
-    sm: { icon: 34, titleClass: 'text-base', subClass: 'text-[8px] tracking-[0.48em]' },
-    md: { icon: 42, titleClass: 'text-xl', subClass: 'text-[9.5px] tracking-[0.52em]' },
-    lg: { icon: 52, titleClass: 'text-2xl', subClass: 'text-[11px] tracking-[0.55em]' },
+    sm: { icon: 34, wordWidth: 105, wordHeight: 18, subClass: 'text-[8.5px] tracking-[0.22em]' },
+    md: { icon: 42, wordWidth: 126, wordHeight: 21, subClass: 'text-[10px] tracking-[0.24em]' },
+    lg: { icon: 52, wordWidth: 155, wordHeight: 26, subClass: 'text-[12px] tracking-[0.26em]' },
   }[size];
 
   return (
@@ -98,16 +97,38 @@ export const AvoraBankLogo: React.FC<AvoraBankLogoProps> = ({
         <rect x="115" y="53" width="14" height="14" rx="2.2" fill={isGold ? '#F59E0B' : '#10B981'} />
       </svg>
 
-      {/* Wordmark: Λ V O R Λ + B A N K */}
-      <div className="flex flex-col justify-center leading-none">
-        <span
-          className={`font-black ${dimensions.titleClass} tracking-[0.18em] text-slate-900 dark:text-white`}
-          style={{ fontFamily: "'Inter', 'Montserrat', sans-serif" }}
+      {/* Wordmark: Custom Vector Λ V O R Λ + Closer-Spaced B A N K */}
+      <div className="flex flex-col items-center justify-center leading-none">
+        <svg
+          width={dimensions.wordWidth}
+          height={dimensions.wordHeight}
+          viewBox="0 0 415 68"
+          fill="currentColor"
+          xmlns="http://www.w3.org/2000/svg"
+          className="text-slate-900 dark:text-white"
         >
-          ΛVORΛ
-        </span>
+          {/* Λ */}
+          <path d="M0 68 L28 4 C29.5 0.8 32 0 34.5 0 C37 0 39.5 0.8 41 4 L69 68 L54.5 68 L34.5 19 L14.5 68 Z" />
+          {/* V */}
+          <path d="M88 0 L102.5 0 L122.5 49 L142.5 0 L157 0 L129 64 C127.5 67.2 125 68 122.5 68 C120 68 117.5 67.2 116 64 Z" />
+          {/* O */}
+          <path
+            fillRule="evenodd"
+            clipRule="evenodd"
+            d="M210 0 C230.5 0 246 14.8 246 34 C246 53.2 230.5 68 210 68 C189.5 68 174 53.2 174 34 C174 14.8 189.5 0 210 0 Z M210 12.5 C197.5 12.5 188 21.8 188 34 C188 46.2 197.5 55.5 210 55.5 C222.5 55.5 232 46.2 232 34 C232 21.8 222.5 12.5 210 12.5 Z"
+          />
+          {/* R */}
+          <path
+            fillRule="evenodd"
+            clipRule="evenodd"
+            d="M268 0 L302 0 C316.5 0 326 8.8 326 21.5 C326 31.2 319.8 38.6 310.2 41.2 L328 68 L312 68 L296 42.5 L281.5 42.5 L281.5 68 L268 68 Z M281.5 12 L281.5 31 L300.5 31 C308 31 312.5 27.2 312.5 21.5 C312.5 15.8 308 12 300.5 12 Z"
+          />
+          {/* Λ */}
+          <path d="M346 68 L374 4 C375.5 0.8 378 0 380.5 0 C383 0 385.5 0.8 387 4 L415 68 L400.5 68 L380.5 19 L360.5 68 Z" />
+        </svg>
+
         <span
-          className={`mt-1 font-medium uppercase ${dimensions.subClass} ${
+          className={`mt-1.5 font-semibold uppercase ${dimensions.subClass} ${
             isGold
               ? 'text-amber-500 dark:text-amber-300'
               : 'text-emerald-600 dark:text-emerald-300'
