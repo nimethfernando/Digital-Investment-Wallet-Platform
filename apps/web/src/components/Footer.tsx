@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { useLanguage } from '../context/LanguageContext';
 import { MapPin, Phone, Mail, Clock, ShieldAlert, CreditCard, Send, Lock } from 'lucide-react';
+import { AvoraBankLogo } from './AvoraBankLogo';
 
 export const Footer: React.FC = () => {
   const { t } = useLanguage();
@@ -15,14 +16,7 @@ export const Footer: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10">
           
           <div className="lg:col-span-2 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-900 via-indigo-900 to-emerald-600 flex items-center justify-center text-white font-black text-xl shadow-md border border-indigo-400/30">
-                A
-              </div>
-              <span className="font-black text-xl tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5">
-                AVORA <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">BANK</span>
-              </span>
-            </div>
+            <AvoraBankLogo variant="emerald" size="md" />
             
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-sm">
               {t('footer.description', 'Avora Bank provides institutional-grade digital asset packages, virtual cards, OTC exchange services, and P2P trading with immutable double-entry ledger accounting.')}

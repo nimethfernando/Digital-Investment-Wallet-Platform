@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 180" fill="none">
+  <defs>
+    <!-- Dark Navy Background -->
+    <linearGradient id="bgGradGold" x1="0" y1="0" x2="680" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#060911" />
+      <stop offset="100%" stop-color="#0B111E" />
+    </linearGradient>
+
+    <!-- Left Leg Deep Gold/Amber Gradient -->
+    <linearGradient id="leftLegGold" x1="95" y1="30" x2="40" y2="155" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#92400E" />
+      <stop offset="45%" stop-color="#D97706" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+
+    <!-- Upper Folded Ribbon Bright Champagne-Gold Gradient -->
+    <linearGradient id="topRibbonGold" x1="88" y1="22" x2="138" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FEF3C7" />
+      <stop offset="45%" stop-color="#FBBF24" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+
+    <!-- Lower Sweeping Wing Gold Gradient -->
+    <linearGradient id="wingGold" x1="85" y1="115" x2="165" y2="155" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#B45309" />
+      <stop offset="50%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#FDE68A" />
+    </linearGradient>
+
+    <!-- Lower Wing Highlight Sheen -->
+    <linearGradient id="wingSheenGold" x1="115" y1="96" x2="162" y2="152" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDE68A" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0.2" />
+    </linearGradient>
+
+    <!-- Pixel Squares Gradient -->
+    <linearGradient id="pixelGold" x1="130" y1="35" x2="170" y2="85" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDE68A" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="680" height="180" rx="16" fill="url(#bgGradGold)" />
+
+  <!-- ========================================== -->
+  <!-- AVORA 3D RIBBON 'A' MARK + 4 PIXEL SQUARES -->
+  <!-- ========================================== -->
+  <g transform="translate(18, 6)">
+    <!-- Left Ascending Leg of 'A' -->
+    <path
+      d="M32 148 L78 36 C81 29 87 26 93 26 L70 148 L32 148 Z"
+      fill="url(#leftLegGold)"
+    />
+    <!-- Subtle inner shadow fold near apex -->
+    <path
+      d="M78 36 C81 29 87 26 93 26 L104 68 L66 95 L78 36 Z"
+      fill="#451A03"
+      opacity="0.35"
+    />
+
+    <!-- Upper Folded Right Ribbon of 'A' -->
+    <path
+      d="M79 34 C83 24 96 24 101 34 L132 94 C116 96 102 101 91 108 L74 72 C71 65 74 45 79 34 Z"
+      fill="url(#topRibbonGold)"
+    />
+
+    <!-- Lower Sweeping Curved Wing (Separated by gap) -->
+    <path
+      d="M76 130 C92 108 116 99 136 98 L160 148 L126 148 C115 130 96 125 76 130 Z"
+      fill="url(#wingGold)"
+    />
+    <path
+      d="M104 110 C116 102 126 99 136 98 L160 148 L145 148 C134 126 120 115 104 110 Z"
+      fill="url(#wingSheenGold)"
+    />
+
+    <!-- 4 Floating Digital Pixel Squares (Top-Right of 'A') -->
+    <rect x="135" y="38" width="11" height="11" rx="2" fill="url(#pixelGold)" />
+    <rect x="121" y="52" width="11" height="11" rx="2" fill="#FBBF24" opacity="0.85" />
+    <rect x="150" y="53" width="9" height="9" rx="1.8" fill="#FDE68A" opacity="0.9" />
+    <rect x="133" y="65" width="14" height="14" rx="2.2" fill="#F59E0B" />
+  </g>
+
+  <!-- ========================================== -->
+  <!-- TYPOGRAPHY: Λ V O R Λ                      -->
+  <!-- ========================================== -->
+  <g fill="#FFFFFF" transform="translate(215, 38)">
+    <!-- Λ -->
+    <path d="M0 68 L28 4 C29.5 0.8 32 0 34.5 0 C37 0 39.5 0.8 41 4 L69 68 L54.5 68 L34.5 19 L14.5 68 Z" />
+    <!-- V -->
+    <path d="M88 0 L102.5 0 L122.5 49 L142.5 0 L157 0 L129 64 C127.5 67.2 125 68 122.5 68 C120 68 117.5 67.2 116 64 Z" />
+    <!-- O -->
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M210 0 C230.5 0 246 14.8 246 34 C246 53.2 230.5 68 210 68 C189.5 68 174 53.2 174 34 C174 14.8 189.5 0 210 0 Z M210 12.5 C197.5 12.5 188 21.8 188 34 C188 46.2 197.5 55.5 210 55.5 C222.5 55.5 232 46.2 232 34 C232 21.8 222.5 12.5 210 12.5 Z" />
+    <!-- R -->
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M268 0 L302 0 C316.5 0 326 8.8 326 21.5 C326 31.2 319.8 38.6 310.2 41.2 L328 68 L312 68 L296 42.5 L281.5 42.5 L281.5 68 L268 68 Z M281.5 12 L281.5 31 L300.5 31 C308 31 312.5 27.2 312.5 21.5 C312.5 15.8 308 12 300.5 12 Z" />
+    <!-- Λ -->
+    <path d="M346 68 L374 4 C375.5 0.8 378 0 380.5 0 C383 0 385.5 0.8 387 4 L415 68 L400.5 68 L380.5 19 L360.5 68 Z" />
+  </g>
+
+  <!-- ========================================== -->
+  <!-- SUBTITLE: B A N K (Wide-tracked)           -->
+  <!-- ========================================== -->
+  <text
+    x="422"
+    y="144"
+    text-anchor="middle"
+    fill="#FBBF24"
+    font-family="'Inter', 'Segoe UI', 'Montserrat', sans-serif"
+    font-size="24"
+    font-weight="400"
+    letter-spacing="28"
+  >
+    BANK
+  </text>
+</svg>

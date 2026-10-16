@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useTheme } from '../context/ThemeContext';
 import { useLanguage, languageNames, Language } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { AvoraBankLogo } from './AvoraBankLogo';
 import {
   Sun,
   Moon,
@@ -77,18 +78,8 @@ export const Header: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
         
         {/* AVORA BANK LOGO */}
-        <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-900 via-indigo-900 to-emerald-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-indigo-950/30 group-hover:scale-105 transition-transform border border-indigo-400/30">
-            A
-          </div>
-          <div className="flex flex-col">
-            <span className="font-black text-xl tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5">
-              AVORA <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">BANK</span>
-            </span>
-            <span className="text-[10px] tracking-wider uppercase text-slate-500 dark:text-slate-400 font-bold">
-              Private Wealth & Digital Desk
-            </span>
-          </div>
+        <Link href="/" className="flex items-center group">
+          <AvoraBankLogo variant="emerald" size="md" />
         </Link>
 
         {/* Desktop Navigation Links */}
