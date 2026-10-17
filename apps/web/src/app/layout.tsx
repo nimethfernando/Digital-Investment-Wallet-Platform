@@ -10,6 +10,10 @@ export const metadata: Metadata = {
   title: 'Avora Bank | Digital Wealth, Private Wallet & Institutional OTC Desk',
   description: 'Fixed-term digital investment packages with 1% monthly returns, immutable double-entry ledger security, virtual cards, and GeCrypto-style OTC settlement in Tbilisi.',
   keywords: ['Avora Bank', 'digital investment', 'private wallet', 'crypto exchange', 'USDT Tbilisi', 'virtual visa mastercard', 'double entry ledger'],
+  icons: {
+    icon: '/images/avora-bank-logo.png',
+    apple: '/images/avora-bank-logo.png',
+  },
 };
 
 export const viewport: Viewport = {

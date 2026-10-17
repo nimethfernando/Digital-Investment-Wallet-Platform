@@ -1,33 +1,58 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
+import Image from 'next/image';
 
 interface AvoraBankLogoProps {
   variant?: 'emerald' | 'gold';
   size?: 'sm' | 'md' | 'lg';
   className?: string;
+  forceVector?: boolean;
 }
 
 /**
- * Avora Bank vector brand mark & wordmark matching the sister company (Avora Innovations):
- * 3D folded ribbon 'A' + 4 digital pixel squares + custom vector 'Λ V O R Λ' + closer-spaced 'B A N K'.
+ * Avora Bank official brand logo matching the chosen identity:
+ * 3D folded ribbon 'A' + glowing emerald digital pixels + 'Λ V O R Λ' + bold gradient 'B A N K'.
  */
 export const AvoraBankLogo: React.FC<AvoraBankLogoProps> = ({
   variant = 'emerald',
   size = 'md',
   className = '',
+  forceVector = false,
 }) => {
+  const [imgError, setImgError] = useState(false);
   const uid = React.useId().replace(/:/g, '');
   const isGold = variant === 'gold';
 
+  const heights = {
+    sm: { h: 32, w: 96, css: 'h-8' },
+    md: { h: 40, w: 120, css: 'h-10' },
+    lg: { h: 48, w: 144, css: 'h-12' },
+  }[size];
+
+  // If raster PNG is available and not in forced vector mode, render the official logo asset
+  if (!forceVector && !imgError && !isGold) {
+    return (
+      <div className={`inline-flex items-center select-none group ${className}`}>
+        <img
+          src="/images/avora-bank-logo.png"
+          alt="Avora Bank"
+          className={`${heights.css} w-auto object-contain transition-transform duration-200 group-hover:scale-105 drop-shadow-sm`}
+          onError={() => setImgError(true)}
+        />
+      </div>
+    );
+  }
+
+  // High-fidelity vector SVG fallback
   const dimensions = {
-    sm: { icon: 34, wordWidth: 105, wordHeight: 18, subClass: 'text-[8.5px] tracking-[0.22em]' },
-    md: { icon: 42, wordWidth: 126, wordHeight: 21, subClass: 'text-[10px] tracking-[0.24em]' },
-    lg: { icon: 52, wordWidth: 155, wordHeight: 26, subClass: 'text-[12px] tracking-[0.26em]' },
+    sm: { icon: 32, wordWidth: 98, wordHeight: 18, bankHeight: 14 },
+    md: { icon: 40, wordWidth: 118, wordHeight: 21, bankHeight: 16 },
+    lg: { icon: 48, wordWidth: 140, wordHeight: 25, bankHeight: 19 },
   }[size];
 
   return (
-    <div className={`inline-flex items-center gap-3 select-none ${className}`}>
+    <div className={`inline-flex items-center gap-2.5 select-none ${className}`}>
       {/* 3D Folded Ribbon 'A' Mark + 4 Floating Digital Pixels */}
       <svg
         width={dimensions.icon}
@@ -97,7 +122,7 @@ export const AvoraBankLogo: React.FC<AvoraBankLogoProps> = ({
         <rect x="115" y="53" width="14" height="14" rx="2.2" fill={isGold ? '#F59E0B' : '#10B981'} />
       </svg>
 
-      {/* Wordmark: Custom Vector Λ V O R Λ + Closer-Spaced B A N K */}
+      {/* Wordmark: Custom Vector Λ V O R Λ + Bold Gradient B A N K */}
       <div className="flex flex-col items-center justify-center leading-none">
         <svg
           width={dimensions.wordWidth}
@@ -128,10 +153,10 @@ export const AvoraBankLogo: React.FC<AvoraBankLogoProps> = ({
         </svg>
 
         <span
-          className={`mt-1.5 font-semibold uppercase ${dimensions.subClass} ${
+          className={`mt-1 font-extrabold uppercase tracking-[0.28em] text-[11px] bg-clip-text text-transparent ${
             isGold
-              ? 'text-amber-500 dark:text-amber-300'
-              : 'text-emerald-600 dark:text-emerald-300'
+              ? 'bg-gradient-to-r from-amber-400 via-amber-300 to-amber-500'
+              : 'bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300'
           }`}
         >
           BANK
