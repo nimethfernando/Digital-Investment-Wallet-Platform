@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { useLanguage } from '../../../context/LanguageContext';
+import { extractErrorMessage } from '../../../lib/api';
 import { Lock, Mail, KeyRound, AlertCircle, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
@@ -40,11 +41,7 @@ export default function LoginPage() {
         router.push('/dashboard');
       }
     } catch (err: any) {
-      const serverMsg =
-        err.response?.data?.message ||
-        err.response?.data?.error ||
-        (typeof err.response?.data === 'string' ? err.response.data : null);
-      setError(serverMsg || err.message || 'Login failed. Please check credentials.');
+      setError(extractErrorMessage(err, 'Login failed. Please check credentials.'));
     } finally {
       setLoading(false);
     }

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '../../../lib/api';
+import { api, extractErrorMessage } from '../../../lib/api';
 import { useAuth } from '../../../context/AuthContext';
 import { Lock, CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
 
@@ -48,7 +48,7 @@ export default function ChangePasswordPage() {
         }
       }, 1500);
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Failed to change password');
+      setError(extractErrorMessage(err, 'Failed to change password'));
     } finally {
       setLoading(false);
     }

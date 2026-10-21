@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { api } from '../../../lib/api';
+import { api, extractErrorMessage } from '../../../lib/api';
 import { Mail, CheckCircle2, AlertCircle, ArrowLeft, KeyRound } from 'lucide-react';
 
 export default function ForgotPasswordPage() {
@@ -20,7 +20,7 @@ export default function ForgotPasswordPage() {
       await api.post('/auth/forgot-password', { email });
       setSubmitted(true);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to dispatch reset instructions.');
+      setError(extractErrorMessage(err, 'Failed to dispatch reset instructions.'));
     } finally {
       setLoading(false);
     }

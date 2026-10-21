@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
+import { extractErrorMessage } from '../../../lib/api';
 import { Mail, Lock, User, Phone, AlertCircle, ArrowRight } from 'lucide-react';
 
 export default function RegisterPage() {
@@ -49,11 +50,7 @@ export default function RegisterPage() {
 
       router.push('/dashboard');
     } catch (err: any) {
-      const serverMsg =
-        err.response?.data?.message ||
-        err.response?.data?.error ||
-        (typeof err.response?.data === 'string' ? err.response.data : null);
-      setError(serverMsg || err.message || 'Registration failed.');
+      setError(extractErrorMessage(err, 'Registration failed.'));
     } finally {
       setLoading(false);
     }
