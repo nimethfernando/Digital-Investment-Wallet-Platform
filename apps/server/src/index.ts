@@ -16,8 +16,35 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 
+const configuredOrigins = (config.corsOrigin || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const defaultOrigins = [
+  'https://www.avorabank.com',
+  'https://avorabank.com',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+];
+
+const allAllowedOrigins = new Set([...configuredOrigins, ...defaultOrigins]);
+
 app.use(cors({
-  origin: [config.corsOrigin, 'http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'],
+  origin: (origin, callback) => {
+    // Allow server-to-server, curl, mobile apps, or webhooks without origin
+    if (!origin) return callback(null, true);
+    if (config.corsOrigin === '*' || allAllowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+    // Allow subdomains of avorabank.com
+    if (/^https?:\/\/([a-zA-Z0-9-]+\.)*avorabank\.com$/i.test(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
   credentials: true,
 }));
 
