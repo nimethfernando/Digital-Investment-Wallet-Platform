@@ -12,7 +12,7 @@ FROM base AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
-RUN npm ci
+RUN npm install
 RUN npx prisma generate
 
 # 3. TypeScript compilation stage
