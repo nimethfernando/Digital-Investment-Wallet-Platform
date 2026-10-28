@@ -9,6 +9,7 @@ import { VirtualCardModule } from '../../components/VirtualCardModule';
 import { RedotPayAppModule } from '../../components/RedotPayAppModule';
 import { SupportTicketModule } from '../../components/SupportTicketModule';
 import { KycVerificationModal } from '../../components/KycVerificationModal';
+import { QrTransferModal } from '../../components/QrTransferModal';
 import {
   Wallet,
   TrendingUp,
@@ -221,6 +222,9 @@ function DashboardContent() {
 
   // KYC Modal State
   const [kycModalOpen, setKycModalOpen] = useState(false);
+
+  // QR Send / Receive Modal State
+  const [qrModalOpen, setQrModalOpen] = useState(false);
 
   const userAccountNumber = user?.accountNumber || generateLocalAccountNumber(user?.id);
 
@@ -668,6 +672,14 @@ function DashboardContent() {
               >
                 <Send className="w-4 h-4" />
                 Internal P2P
+              </button>
+
+              <button
+                onClick={() => setQrModalOpen(true)}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-md shadow-emerald-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>QR Pay & Address</span>
               </button>
 
               <Link
@@ -1784,6 +1796,15 @@ function DashboardContent() {
         isOpen={kycModalOpen}
         onClose={() => setKycModalOpen(false)}
         onVerified={fetchDashboardData}
+      />
+
+      {/* QR Send / Receive Modal */}
+      <QrTransferModal
+        isOpen={qrModalOpen}
+        onClose={() => setQrModalOpen(false)}
+        user={user}
+        userAccountNumber={userAccountNumber}
+        onTransferSuccess={fetchDashboardData}
       />
 
     </div>

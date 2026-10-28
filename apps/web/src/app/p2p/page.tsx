@@ -45,6 +45,14 @@ interface CountryRail {
 
 const COUNTRIES: CountryRail[] = [
   {
+    id: 'lk',
+    name: 'Sri Lanka',
+    code: 'LK',
+    flag: '🇱🇰',
+    currency: 'LKR',
+    methods: ['Commercial Bank CEFTS', 'Sampath Bank Vishwa', 'BOC / HNB', 'Colombo OTC Cash'],
+  },
+  {
     id: 'in',
     name: 'India',
     code: 'IN',
@@ -214,6 +222,67 @@ export default function P2PPage() {
   const [internalTransferLoading, setInternalTransferLoading] = useState(false);
   const [internalTransferSuccess, setInternalTransferSuccess] = useState<string | null>(null);
   const [internalTransferError, setInternalTransferError] = useState<string | null>(null);
+
+  // $50 Merchant Security Deposit State
+  const [merchantStatus, setMerchantStatus] = useState<any>(null);
+  const [merchantLoading, setMerchantLoading] = useState(false);
+  const [merchantMsg, setMerchantMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchMerchantStatus = async () => {
+    try {
+      const res = await api.get('/p2p/merchant/status');
+      if (res.data?.success) {
+        setMerchantStatus(res.data.data);
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchMerchantStatus();
+    }
+  }, [user]);
+
+  const handleApplyMerchant = async () => {
+    setMerchantLoading(true);
+    setMerchantMsg(null);
+    try {
+      const res = await api.post('/p2p/merchant/deposit');
+      if (res.data?.success) {
+        setMerchantMsg({ type: 'success', text: res.data.message });
+        fetchMerchantStatus();
+      }
+    } catch (err: any) {
+      setMerchantMsg({
+        type: 'error',
+        text: err.response?.data?.message || 'Failed to activate Merchant status. Ensure you have $50 USD/USDT available balance.',
+      });
+    } finally {
+      setMerchantLoading(false);
+    }
+  };
+
+  const handleRefundMerchant = async () => {
+    if (!confirm('Are you sure you want to close your P2P Merchant status and refund your $50 deposit?')) return;
+    setMerchantLoading(true);
+    setMerchantMsg(null);
+    try {
+      const res = await api.post('/p2p/merchant/refund');
+      if (res.data?.success) {
+        setMerchantMsg({ type: 'success', text: res.data.message });
+        fetchMerchantStatus();
+      }
+    } catch (err: any) {
+      setMerchantMsg({
+        type: 'error',
+        text: err.response?.data?.message || 'Failed to refund Merchant deposit.',
+      });
+    } finally {
+      setMerchantLoading(false);
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // Load Offers
@@ -1235,15 +1304,68 @@ export default function P2PPage() {
         )}
 
         {/* ------------------------------------------------------------------ */}
-        {/* TAB 4: POST ADS */}
+        {/* TAB 4: POST ADS & MERCHANT STATUS */}
         {/* ------------------------------------------------------------------ */}
         {activeNav === 'ads' && (
           <div className="flex-1 flex flex-col p-6 space-y-5">
             <div className="flex items-center justify-between pt-1">
-              <h2 className="text-base font-bold text-white tracking-tight">Post Trading Ad</h2>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold">
-                Merchant Board
+              <h2 className="text-base font-bold text-white tracking-tight">P2P Merchant & Ads</h2>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
+                $50 Deposit Protected
               </span>
+            </div>
+
+            {/* Merchant Security Deposit Status Banner */}
+            <div className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span className="font-bold text-white">P2P Merchant Status:</span>
+                </div>
+                {merchantStatus?.isP2pMerchant ? (
+                  <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    ACTIVE MERCHANT ($50 LOCKED)
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-neutral-800 text-neutral-400">
+                    NOT ACTIVATED
+                  </span>
+                )}
+              </div>
+
+              <p className="text-[11px] text-neutral-400 leading-relaxed">
+                Avora Bank requires a 100% refundable security deposit of $50 USD to post trading advertisements and protect counterparties against fraud.
+              </p>
+
+              {merchantMsg && (
+                <div
+                  className={`p-2.5 rounded-xl text-xs font-bold ${
+                    merchantMsg.type === 'success'
+                      ? 'bg-emerald-950/60 border border-emerald-800 text-emerald-300'
+                      : 'bg-rose-950/60 border border-rose-800 text-rose-300'
+                  }`}
+                >
+                  {merchantMsg.text}
+                </div>
+              )}
+
+              {!merchantStatus?.isP2pMerchant ? (
+                <button
+                  onClick={handleApplyMerchant}
+                  disabled={merchantLoading}
+                  className="w-full mt-2 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 transition-colors shadow-sm"
+                >
+                  {merchantLoading ? 'Processing Deposit...' : 'Lock $50 Security Deposit & Become Merchant'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleRefundMerchant}
+                  disabled={merchantLoading}
+                  className="w-full mt-2 py-2 rounded-xl font-bold text-xs bg-neutral-800 hover:bg-neutral-700 text-rose-400 transition-colors"
+                >
+                  {merchantLoading ? 'Processing...' : 'Close Merchant Status & Refund $50'}
+                </button>
+              )}
             </div>
 
             <p className="text-xs text-neutral-400">
@@ -1262,7 +1384,7 @@ export default function P2PPage() {
                 <label className="block text-xs font-bold text-neutral-300 mb-1">Unit Price ({selectedCountry.currency} per USDT)</label>
                 <input
                   type="number"
-                  defaultValue={selectedCountry.currency === 'INR' ? '103.20' : '1.00'}
+                  defaultValue={selectedCountry.currency === 'LKR' ? '304.50' : selectedCountry.currency === 'INR' ? '103.20' : '1.00'}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-900 border border-neutral-800 text-xs font-mono font-bold text-white outline-none"
                 />
               </div>
@@ -1288,6 +1410,10 @@ export default function P2PPage() {
 
               <button
                 onClick={() => {
+                  if (!merchantStatus?.isP2pMerchant) {
+                    alert('Please lock the $50 merchant security deposit above before publishing P2P ads.');
+                    return;
+                  }
                   alert('Ad submitted! Institutional desk has published your offer.');
                   setActiveNav('p2p');
                 }}

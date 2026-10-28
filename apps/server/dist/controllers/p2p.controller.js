@@ -222,9 +222,48 @@ class P2PController {
      */
     async getUserChats(req, res, next) {
         try {
-            const userId = req.user.id;
+            const userId = req.user?.id || req.user?.userId;
             const chats = await p2p_service_1.p2pService.getUserChats(userId);
             res.json({ success: true, data: chats });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * GET /api/v1/p2p/merchant/status
+     */
+    async getMerchantStatus(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            const status = await p2p_service_1.p2pService.getP2pMerchantStatus(userId);
+            res.json({ success: true, data: status });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/p2p/merchant/deposit
+     */
+    async applyMerchant(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            const result = await p2p_service_1.p2pService.applyP2pMerchant(userId);
+            res.status(201).json(result);
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/p2p/merchant/refund
+     */
+    async refundMerchant(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            const result = await p2p_service_1.p2pService.refundP2pMerchant(userId);
+            res.json(result);
         }
         catch (err) {
             next(err);

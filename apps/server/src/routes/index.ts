@@ -6,6 +6,7 @@ import walletRoutes from './wallet.routes';
 import packageRoutes from './package.routes';
 import adminRoutes from './admin.routes';
 import p2pRoutes from './p2p.routes';
+import otcRoutes from './otc.routes';
 import withdrawalRoutes from './withdrawal.routes';
 import ticketRoutes from './ticket.routes';
 
@@ -18,6 +19,7 @@ router.use('/wallet', walletRoutes);
 router.use('/packages', packageRoutes);
 router.use('/admin', adminRoutes);
 router.use('/p2p', p2pRoutes);
+router.use('/otc', otcRoutes);
 router.use('/withdrawals', withdrawalRoutes);
 router.use('/tickets', ticketRoutes);
 

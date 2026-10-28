@@ -11,6 +11,7 @@ const wallet_routes_1 = __importDefault(require("./wallet.routes"));
 const package_routes_1 = __importDefault(require("./package.routes"));
 const admin_routes_1 = __importDefault(require("./admin.routes"));
 const p2p_routes_1 = __importDefault(require("./p2p.routes"));
+const otc_routes_1 = __importDefault(require("./otc.routes"));
 const withdrawal_routes_1 = __importDefault(require("./withdrawal.routes"));
 const ticket_routes_1 = __importDefault(require("./ticket.routes"));
 const router = (0, express_1.Router)();
@@ -21,6 +22,7 @@ router.use('/wallet', wallet_routes_1.default);
 router.use('/packages', package_routes_1.default);
 router.use('/admin', admin_routes_1.default);
 router.use('/p2p', p2p_routes_1.default);
+router.use('/otc', otc_routes_1.default);
 router.use('/withdrawals', withdrawal_routes_1.default);
 router.use('/tickets', ticket_routes_1.default);
 router.get('/health', (req, res) => {

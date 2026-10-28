@@ -53,6 +53,11 @@ enum JournalReferenceType {
   P2P_ESCROW_RELEASE
   EXCHANGE_BUY
   EXCHANGE_SELL
+  OTC_DEPOSIT_LOCK
+  OTC_DEPOSIT_REFUND
+  P2P_DEPOSIT_LOCK
+  P2P_DEPOSIT_REFUND
+  OTC_TRADE_SETTLEMENT
   FEE
   ADJUSTMENT
   REVERSAL
@@ -148,6 +153,11 @@ enum TransactionType {
   EXCHANGE_BUY
   EXCHANGE_SELL
   CARD_PAYMENT
+  OTC_DEPOSIT_LOCK
+  OTC_DEPOSIT_REFUND
+  P2P_DEPOSIT_LOCK
+  P2P_DEPOSIT_REFUND
+  OTC_TRADE
   FEE
   ADJUSTMENT
   REVERSAL
@@ -187,26 +197,33 @@ model User {
   emailVerificationToken String?
   passwordResetToken     String?
   passwordResetExpires   DateTime?
+  otcDepositLocked       Decimal    @default(0.00000000) @db.Decimal(20, 8)
+  p2pDepositLocked       Decimal    @default(0.00000000) @db.Decimal(20, 8)
+  isP2pMerchant          Boolean    @default(false)
   lastLoginAt            DateTime?
   createdAt              DateTime   @default(now())
   updatedAt              DateTime   @updatedAt
 
-  wallet            Wallet?
-  kycDocuments      KycDocument[]
-  refreshTokens     RefreshToken[]
-  packages          InvestmentPackage[]
-  packageReturns    PackageReturn[]
-  withdrawals       WithdrawalRequest[]
-  exchangeOrders    ExchangeOrder[]
-  p2pOffers         P2POffer[]
-  p2pOrdersAsBuyer  P2POrder[]          @relation("BuyerOrders")
-  p2pOrdersAsSeller P2POrder[]          @relation("SellerOrders")
-  auditLogs         AdminAuditLog[]
-  inquiries         Inquiry[]
-  transactions      Transaction[]
-  deposits          DepositRequest[]
-  virtualCard       VirtualCard?
-  supportTickets    SupportTicket[]
+  wallet                Wallet?
+  kycDocuments          KycDocument[]
+  refreshTokens         RefreshToken[]
+  packages              InvestmentPackage[]
+  packageReturns        PackageReturn[]
+  withdrawals           WithdrawalRequest[]
+  exchangeOrders        ExchangeOrder[]
+  p2pOffers             P2POffer[]
+  p2pOrdersAsBuyer      P2POrder[]          @relation("BuyerOrders")
+  p2pOrdersAsSeller     P2POrder[]          @relation("SellerOrders")
+  auditLogs             AdminAuditLog[]
+  inquiries             Inquiry[]
+  transactions          Transaction[]
+  deposits              DepositRequest[]
+  virtualCard           VirtualCard?
+  supportTickets        SupportTicket[]
+  otcDesk               OtcDesk?
+  otcQuotesRequested    OtcQuote[]          @relation("CustomerOtcQuotes")
+  otcTradesAsCustomer   OtcTrade[]          @relation("CustomerOtcTrades")
+  otcTradesAsOperator   OtcTrade[]          @relation("OperatorOtcTrades")
 
   @@map("diw_users")
 }
@@ -664,4 +681,108 @@ model TicketReply {
 
   @@index([ticketId, createdAt])
   @@map("diw_ticket_replies")
+}
+
+model OtcDesk {
+  id                  String     @id @default(uuid())
+  deskCode            String     @unique @db.VarChar(30) // OTC-CMB-001
+  userId              String     @unique
+  user                User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deskName            String     @db.VarChar(100)
+  country             String     @db.VarChar(60) // Sri Lanka, UAE, Georgia, India...
+  countryCode         String     @db.VarChar(10) // LK, AE, GE, IN...
+  city                String     @db.VarChar(60) // Colombo, Dubai, Tbilisi...
+  locationAddress     String?    @db.VarChar(255)
+  supportedCurrencies String     @db.VarChar(100) // JSON or comma: ["LKR", "USDT", "USD"]
+  settlementMethods   String     @db.Text // JSON: ["Cash Pickup", "Commercial Bank", "Sampath Bank"]
+  securityDeposit     Decimal    @default(1000.00000000) @db.Decimal(20, 8) // $1,000 locked
+  depositStatus       String     @default("ACTIVE") // ACTIVE, REFUND_REQUESTED, REFUNDED, FORFEITED
+  isOnline            Boolean    @default(true)
+  buyRateMarginPct    Decimal    @default(1.00) @db.Decimal(6, 4) // Operator markup (1.0% default)
+  sellRateMarginPct   Decimal    @default(1.00) @db.Decimal(6, 4)
+  totalTrades         Int        @default(0)
+  completedTrades     Int        @default(0)
+  cancelledTrades     Int        @default(0)
+  rating              Decimal    @default(5.00) @db.Decimal(3, 2)
+  status              String     @default("ACTIVE") // ACTIVE, UNDER_REVIEW, SUSPENDED, CLOSED
+  adminNotes          String?    @db.Text
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  quotes              OtcQuote[]
+  trades              OtcTrade[]
+
+  @@index([countryCode, city, isOnline, status])
+  @@map("diw_otc_desks")
+}
+
+model OtcQuote {
+  id           String    @id @default(uuid())
+  quoteCode    String    @unique @db.VarChar(30) // QTE-00101
+  deskId       String
+  desk         OtcDesk   @relation(fields: [deskId], references: [id], onDelete: Cascade)
+  customerId   String
+  customer     User      @relation("CustomerOtcQuotes", fields: [customerId], references: [id])
+  tradeType    String    // BUY_USDT, SELL_USDT
+  cryptoAmount Decimal   @db.Decimal(20, 8)
+  fiatAmount   Decimal   @db.Decimal(20, 8)
+  fiatCurrency String    @db.VarChar(10)
+  quotedRate   Decimal   @db.Decimal(20, 8)
+  operatorFee  Decimal   @db.Decimal(20, 8) // 1.0%
+  platformFee  Decimal   @db.Decimal(20, 8) // 0.5%
+  totalFee     Decimal   @db.Decimal(20, 8) // 1.5%
+  status       String    @default("PENDING") // PENDING, ACCEPTED, REJECTED, EXPIRED
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+
+  trade        OtcTrade?
+
+  @@index([deskId, customerId, status])
+  @@map("diw_otc_quotes")
+}
+
+model OtcTrade {
+  id              String       @id @default(uuid())
+  tradeCode       String       @unique @db.VarChar(30) // TRD-00101
+  quoteId         String       @unique
+  quote           OtcQuote     @relation(fields: [quoteId], references: [id])
+  deskId          String
+  desk            OtcDesk      @relation(fields: [deskId], references: [id])
+  customerId      String
+  customer        User         @relation("CustomerOtcTrades", fields: [customerId], references: [id])
+  operatorId      String
+  operator        User         @relation("OperatorOtcTrades", fields: [operatorId], references: [id])
+  tradeType       String       // BUY_USDT, SELL_USDT
+  cryptoAmount    Decimal      @db.Decimal(20, 8)
+  fiatAmount      Decimal      @db.Decimal(20, 8)
+  fiatCurrency    String       @db.VarChar(10)
+  quotedRate      Decimal      @db.Decimal(20, 8)
+  operatorFee     Decimal      @db.Decimal(20, 8) // 1.0%
+  platformFee     Decimal      @db.Decimal(20, 8) // 0.5%
+  escrowLocked    Boolean      @default(true)
+  escrowJournalId String?      @db.VarChar(36)
+  paymentProofUrl String?      @db.VarChar(500)
+  status          String       @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, DISPUTED, CANCELLED
+  disputeReason   String?      @db.Text
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  messages        OtcMessage[]
+
+  @@index([deskId, customerId, status])
+  @@map("diw_otc_trades")
+}
+
+model OtcMessage {
+  id         String   @id @default(uuid())
+  tradeId    String
+  trade      OtcTrade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  senderId   String
+  senderName String   @db.VarChar(100)
+  message    String   @db.Text
+  createdAt  DateTime @default(now())
+
+  @@index([tradeId, createdAt])
+  @@map("diw_otc_messages")
 }

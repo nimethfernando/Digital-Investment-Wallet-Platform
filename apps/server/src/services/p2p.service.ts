@@ -987,6 +987,220 @@ export class P2PService {
       };
     });
   }
+
+  /**
+   * Get current user's P2P merchant status and deposit info ($50 security deposit model)
+   */
+  async getP2pMerchantStatus(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        isP2pMerchant: true,
+        p2pDepositLocked: true,
+        kycStatus: true,
+      },
+    });
+
+    if (!user) throw new Error('User not found');
+
+    const DEPOSIT_REQUIRED = 50.0;
+    return {
+      isP2pMerchant: Boolean(user.isP2pMerchant),
+      p2pDepositLocked: Number(user.p2pDepositLocked || 0),
+      depositRequired: DEPOSIT_REQUIRED,
+      isKycApproved: user.kycStatus === 'APPROVED',
+      kycStatus: user.kycStatus,
+    };
+  }
+
+  /**
+   * Apply for P2P Merchant status by locking $50 security deposit
+   */
+  async applyP2pMerchant(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, kycStatus: true, isP2pMerchant: true, p2pDepositLocked: true, status: true },
+    });
+
+    if (!user || user.status !== 'ACTIVE') {
+      throw new Error('User account is not active.');
+    }
+
+    if (user.isP2pMerchant && Number(user.p2pDepositLocked || 0) >= 50) {
+      throw new Error('You are already an authorized P2P Merchant with a locked security deposit.');
+    }
+
+    if (user.kycStatus !== 'APPROVED') {
+      throw new Error('KYC verification is required to participate as a P2P Merchant. Please complete identity verification first.');
+    }
+
+    const DEPOSIT_REQUIRED = new Decimal('50.00');
+
+    // Check available balance in USD or USDT
+    const wallet = await ledgerService.ensureWallet(userId);
+    const usdBal = await prisma.walletBalance.findUnique({
+      where: { walletId_currency: { walletId: wallet.id, currency: 'USD' } },
+    });
+    const usdtBal = await prisma.walletBalance.findUnique({
+      where: { walletId_currency: { walletId: wallet.id, currency: 'USDT' } },
+    });
+
+    const usdAvail = new Decimal(usdBal?.availableBalance?.toString() || '0');
+    const usdtAvail = new Decimal(usdtBal?.availableBalance?.toString() || '0');
+
+    let depositCurrency: 'USD' | 'USDT' = 'USD';
+    let targetBalId = usdBal?.id;
+
+    if (usdAvail.greaterThanOrEqualTo(DEPOSIT_REQUIRED)) {
+      depositCurrency = 'USD';
+      targetBalId = usdBal!.id;
+    } else if (usdtAvail.greaterThanOrEqualTo(DEPOSIT_REQUIRED)) {
+      depositCurrency = 'USDT';
+      targetBalId = usdtBal!.id;
+    } else {
+      throw new Error(
+        `Insufficient funds. P2P Marketplace merchant status requires a security deposit of $50.00 USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
+      );
+    }
+
+    const txCode = `P2PD-${Date.now().toString().slice(-6)}`;
+    const currentAvail = depositCurrency === 'USD' ? usdAvail : usdtAvail;
+    const newAvail = currentAvail.minus(DEPOSIT_REQUIRED);
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Deduct available balance
+      await tx.walletBalance.update({
+        where: { id: targetBalId },
+        data: {
+          availableBalance: { decrement: DEPOSIT_REQUIRED.toFixed(8) },
+        },
+      });
+
+      // 2. Lock deposit and update User
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          p2pDepositLocked: { increment: DEPOSIT_REQUIRED.toFixed(8) },
+          isP2pMerchant: true,
+        },
+      });
+
+      // 3. Record transaction
+      await tx.transaction.create({
+        data: {
+          transactionCode: txCode,
+          userId,
+          type: TransactionType.P2P_DEPOSIT_LOCK,
+          amount: DEPOSIT_REQUIRED.toFixed(8),
+          currency: depositCurrency,
+          status: TransactionStatus.COMPLETED,
+          balanceBefore: currentAvail.toFixed(8),
+          balanceAfter: newAvail.toFixed(8),
+          notes: 'Security deposit of $50 locked for Avora Bank P2P Marketplace Merchant status',
+          settlementReference: txCode,
+        },
+      });
+    });
+
+    return {
+      success: true,
+      message: 'Successfully activated P2P Merchant status! $50 security deposit is securely locked by Avora Bank.',
+      isP2pMerchant: true,
+      p2pDepositLocked: 50,
+    };
+  }
+
+  /**
+   * Request refund of $50 P2P merchant deposit and revoke merchant status
+   */
+  async refundP2pMerchant(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, isP2pMerchant: true, p2pDepositLocked: true },
+    });
+
+    if (!user || !user.isP2pMerchant) {
+      throw new Error('You do not currently have an active P2P Merchant deposit.');
+    }
+
+    const depositAmount = new Decimal(user.p2pDepositLocked?.toString() || '0');
+    if (depositAmount.lessThanOrEqualTo(0)) {
+      throw new Error('No locked P2P security deposit found to refund.');
+    }
+
+    // Safety check: Ensure no open or disputed orders
+    const activeOrders = await prisma.p2POrder.findMany({
+      where: {
+        OR: [{ buyerId: userId }, { sellerId: userId }],
+        status: { in: [P2POrderStatus.PENDING_PAYMENT, P2POrderStatus.PAYMENT_SENT, P2POrderStatus.DISPUTED] },
+      },
+    });
+
+    if (activeOrders.length > 0) {
+      throw new Error(
+        `Cannot refund security deposit. You have ${activeOrders.length} active or disputed P2P order(s) pending completion.`
+      );
+    }
+
+    const wallet = await ledgerService.ensureWallet(userId);
+    const txCode = `P2PR-${Date.now().toString().slice(-6)}`;
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Credit USD balance
+      const usdBal = await tx.walletBalance.findUnique({
+        where: { walletId_currency: { walletId: wallet.id, currency: 'USD' } },
+      });
+
+      const currentUsdAvail = new Decimal(usdBal?.availableBalance?.toString() || '0');
+      const newUsdAvail = currentUsdAvail.plus(depositAmount);
+
+      if (usdBal) {
+        await tx.walletBalance.update({
+          where: { id: usdBal.id },
+          data: { availableBalance: { increment: depositAmount.toFixed(8) } },
+        });
+      }
+
+      // 2. Clear user lock & merchant status
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          p2pDepositLocked: 0,
+          isP2pMerchant: false,
+        },
+      });
+
+      // 3. Close open offers
+      await tx.p2POffer.updateMany({
+        where: { userId, status: P2POfferStatus.OPEN },
+        data: { status: P2POfferStatus.CANCELLED },
+      });
+
+      // 4. Record transaction
+      await tx.transaction.create({
+        data: {
+          transactionCode: txCode,
+          userId,
+          type: TransactionType.P2P_DEPOSIT_REFUND,
+          amount: depositAmount.toFixed(8),
+          currency: 'USD',
+          status: TransactionStatus.COMPLETED,
+          balanceBefore: currentUsdAvail.toFixed(8),
+          balanceAfter: newUsdAvail.toFixed(8),
+          notes: 'Security deposit of $50 refunded upon closing P2P Merchant status',
+          settlementReference: txCode,
+        },
+      });
+    });
+
+    return {
+      success: true,
+      message: 'P2P Merchant status closed and $50 security deposit refunded to your available balance.',
+      isP2pMerchant: false,
+      p2pDepositLocked: 0,
+    };
+  }
 }
 
 export const p2pService = new P2PService();

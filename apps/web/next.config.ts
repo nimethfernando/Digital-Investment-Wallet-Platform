@@ -4,8 +4,7 @@ import path from 'path';
 const internalApiUrl = process.env.SERVER_URL || process.env.INTERNAL_API_URL || 'http://localhost:5000';
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
-  outputFileTracingRoot: path.join(__dirname, '../../'),
+  ...(process.env.BUILD_STANDALONE ? { output: 'standalone' as const, outputFileTracingRoot: path.join(__dirname, '../../') } : {}),
   reactStrictMode: true,
   typescript: {
     ignoreBuildErrors: true,

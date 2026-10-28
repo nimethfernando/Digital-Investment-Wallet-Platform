@@ -36,4 +36,10 @@ router.post('/orders/:orderId/messages', (req, res, next) => p2p_controller_1.p2
  * User P2P Conversations Hub
  */
 router.get('/chats', (req, res, next) => p2p_controller_1.p2pController.getUserChats(req, res, next));
+/**
+ * P2P $50 Merchant Security Deposit Lifecycle
+ */
+router.get('/merchant/status', (req, res, next) => p2p_controller_1.p2pController.getMerchantStatus(req, res, next));
+router.post('/merchant/deposit', (req, res, next) => p2p_controller_1.p2pController.applyMerchant(req, res, next));
+router.post('/merchant/refund', (req, res, next) => p2p_controller_1.p2pController.refundMerchant(req, res, next));
 exports.default = router;
