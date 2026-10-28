@@ -20,13 +20,32 @@ export const api = axios.create({
 export const extractErrorMessage = (err: any, fallback = 'Operation failed'): string => {
   if (!err) return fallback;
   const data = err.response?.data;
-  if (!data) return err.message || fallback;
-  if (typeof data === 'string') return data;
-  if (typeof data.message === 'string') return data.message;
-  if (typeof data.error === 'string') return data.error;
-  if (data.message && typeof data.message.message === 'string') return data.message.message;
-  if (data.error && typeof data.error.message === 'string') return data.error.message;
-  return err.message || fallback;
+  if (data) {
+    if (typeof data === 'string') return data;
+    if (typeof data.message === 'string') return data.message;
+    if (typeof data.error === 'string') return data.error;
+    if (data.message && typeof data.message === 'object') {
+      if (typeof data.message.message === 'string') return data.message.message;
+      if (typeof data.message.code === 'string') return `${data.message.code}: ${data.message.message || 'Request failed'}`;
+      try { return JSON.stringify(data.message); } catch {}
+    }
+    if (data.error && typeof data.error === 'object') {
+      if (typeof data.error.message === 'string') return data.error.message;
+      if (typeof data.error.code === 'string') return `${data.error.code}: ${data.error.message || 'Request failed'}`;
+      try { return JSON.stringify(data.error); } catch {}
+    }
+    if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+      const first = data.errors[0];
+      if (typeof first === 'string') return first;
+      if (typeof first?.message === 'string') return first.message;
+    }
+    if (typeof data.code === 'string' && data.message) {
+      return typeof data.message === 'string' ? data.message : String(data.message);
+    }
+  }
+  if (typeof err.message === 'string') return err.message;
+  if (typeof err === 'string') return err;
+  return fallback;
 };
 
 api.interceptors.request.use((config) => {

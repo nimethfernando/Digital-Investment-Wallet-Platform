@@ -58,13 +58,13 @@ export const Header: React.FC = () => {
 
   const navLinks = [
     { href: '/', label: t('nav.home', 'Home') },
+    { href: '/investments', label: 'Investments' },
+    { href: '/transfer', label: 'Global Transfer' },
     { href: '/packages', label: t('nav.packages', 'Packages') },
-    { href: '/buy-crypto', label: t('nav.buyCrypto', 'Buy Crypto') },
     { href: '/exchange', label: t('nav.exchange', 'OTC Desk') },
-    { href: '/p2p', label: t('nav.p2p', 'P2P Marketplace') },
-    { href: '/strategy', label: t('nav.strategy', 'Strategy & Disclosures') },
-    { href: '/how-it-works', label: t('nav.howItWorks', 'How It Works') },
-    { href: '/security', label: t('nav.security', 'Security') },
+    { href: '/p2p', label: t('nav.p2p', 'P2P') },
+    { href: '/token', label: 'Avora Token' },
+    { href: '/strategy', label: t('nav.strategy', 'Strategy') },
     { href: '/contact', label: t('nav.contact', 'Contact') },
   ];
 

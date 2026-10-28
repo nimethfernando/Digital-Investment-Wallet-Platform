@@ -58,6 +58,10 @@ enum JournalReferenceType {
   P2P_DEPOSIT_LOCK
   P2P_DEPOSIT_REFUND
   OTC_TRADE_SETTLEMENT
+  GLOBAL_TRANSFER
+  INVESTMENT_ALLOCATION
+  INVESTMENT_PROFIT_SHARE
+  INVESTMENT_DISTRIBUTION
   FEE
   ADJUSTMENT
   REVERSAL
@@ -158,6 +162,12 @@ enum TransactionType {
   P2P_DEPOSIT_LOCK
   P2P_DEPOSIT_REFUND
   OTC_TRADE
+  GLOBAL_TRANSFER_OUT
+  GLOBAL_TRANSFER_FEE
+  INVESTMENT_ALLOCATION
+  INVESTMENT_FEE
+  INVESTMENT_PROFIT_SHARE
+  INVESTMENT_DISTRIBUTION
   FEE
   ADJUSTMENT
   REVERSAL
@@ -224,6 +234,12 @@ model User {
   otcQuotesRequested    OtcQuote[]          @relation("CustomerOtcQuotes")
   otcTradesAsCustomer   OtcTrade[]          @relation("CustomerOtcTrades")
   otcTradesAsOperator   OtcTrade[]          @relation("OperatorOtcTrades")
+  globalTransfers       GlobalTransfer[]
+  tokenEarlyAccess      TokenEarlyAccess?
+  fundSeekerListings    StartupListing[]    @relation("FundSeekerListings")
+  investorCommitments   InvestmentCommitment[] @relation("InvestorCommitments")
+  investmentWatchlist   InvestmentWatchlist[]
+  investmentInquiries   InvestmentInquiry[]
 
   @@map("diw_users")
 }
@@ -785,4 +801,179 @@ model OtcMessage {
 
   @@index([tradeId, createdAt])
   @@map("diw_otc_messages")
+}
+
+// ============================================================================
+// GLOBAL MONEY TRANSFER (7. Global Money Transfer Service)
+// ============================================================================
+model GlobalTransfer {
+  id                     String    @id @default(uuid())
+  transferCode           String    @unique @db.VarChar(30) // GMT-2026-XXXX
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderName             String    @db.VarChar(150)
+  senderEmail            String    @db.VarChar(150)
+  sendingCurrency        String    @db.VarChar(10) // USD, EUR, GBP, AED, USDT
+  sendingAmount          Decimal   @db.Decimal(20, 8)
+  destinationCountry     String    @db.VarChar(100)
+  destinationCountryCode String    @db.VarChar(10)
+  recipientCurrency      String    @db.VarChar(10) // INR, LKR, AED, GEL, EUR, GBP, USD
+  recipientAmount        Decimal   @db.Decimal(20, 8)
+  recipientName          String    @db.VarChar(150)
+  recipientAccount       String    @db.VarChar(100)
+  recipientBankName      String    @db.VarChar(150)
+  recipientBicSwift      String?   @db.VarChar(50)
+  recipientAddress       String?   @db.VarChar(255)
+  transferReason         String?   @db.VarChar(255)
+  referenceRate          Decimal   @db.Decimal(20, 8)
+  rateAdjustmentPct      Decimal   @default(2.00) @db.Decimal(5, 2) // 2.0%
+  effectiveRate          Decimal   @db.Decimal(20, 8)
+  transferFeePct         Decimal   @default(3.00) @db.Decimal(5, 2) // 3.0%
+  transferFeeAmount      Decimal   @db.Decimal(20, 8)
+  totalPaidAmount        Decimal   @db.Decimal(20, 8)
+  status                 String    @default("SUBMITTED") // SUBMITTED, COMPLIANCE_SCREENED, PROCESSING, COMPLETED, REJECTED, REFUNDED
+  estimatedDeliveryDate  DateTime
+  trackingTimeline       String?   @db.Text
+  complianceNotes        String?   @db.Text
+  rejectionReason        String?   @db.Text
+  completedAt            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([transferCode])
+  @@map("diw_global_transfers")
+}
+
+// ============================================================================
+// AVORA TOKEN (8. Avora Token - Early Access & Future Mainnet Launch)
+// ============================================================================
+model TokenEarlyAccess {
+  id                     String    @id @default(uuid())
+  userId                 String    @unique
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  testnetBalance         Decimal   @default(0.00000000) @db.Decimal(20, 8)
+  lastFaucetClaimAt      DateTime?
+  registeredInterest     Boolean   @default(false)
+  requestedAllocationUsd Decimal   @default(0.00) @db.Decimal(20, 2)
+  status                 String    @default("REGISTERED") // REGISTERED, WHITELISTED, ALLOCATED
+  walletAddress          String?   @db.VarChar(100)
+  notes                  String?   @db.Text
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@map("diw_token_early_access")
+}
+
+// ============================================================================
+// AVORA INVESTMENTS (Funding Marketplace & Investor Dashboard)
+// ============================================================================
+model StartupListing {
+  id                  String                 @id @default(uuid())
+  slug                String                 @unique @db.VarChar(120)
+  companyName         String                 @db.VarChar(150)
+  tagline             String                 @db.VarChar(255)
+  logoUrl             String?                @db.VarChar(500)
+  coverImageUrl       String?                @db.VarChar(500)
+  country             String                 @db.VarChar(100)
+  countryCode         String                 @db.VarChar(10)
+  city                String                 @db.VarChar(100)
+  industry            String                 @db.VarChar(100)
+  stage               String                 @default("SEED") // PRE_SEED, SEED, SERIES_A, GROWTH
+  instrument          String                 @default("SAFE") // SAFE, EQUITY, DEBT, REVENUE_SHARE, TOKEN
+  valuation           Decimal                @db.Decimal(20, 2)
+  fundingTarget       Decimal                @db.Decimal(20, 2)
+  minInvestment       Decimal                @default(250.00) @db.Decimal(20, 2)
+  verifiedFundsRaised Decimal                @default(0.00) @db.Decimal(20, 2)
+  investorCount       Int                    @default(0)
+  deadline            DateTime
+  status              String                 @default("PUBLISHED") // DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED, PUBLISHED, CLOSED, SUSPENDED
+  dueDiligenceStatus  String                 @default("VERIFIED") // PENDING, UNDER_REVIEW, VERIFIED, REJECTED
+  dueDiligenceSummary String?                @db.Text
+  dueDiligenceDate    DateTime?
+  pitchOverview       String                 @db.Text
+  problemSolution     String?                @db.Text
+  businessModel       String?                @db.Text
+  marketOpportunity   String?                @db.Text
+  useOfFunds          String?                @db.Text
+  milestones          String?                @db.Text
+  financialHighlights String?                @db.Text
+  founders            String?                @db.Text
+  pitchDeckUrl        String?                @db.VarChar(500)
+  allocationFeePct    Decimal                @default(5.00) @db.Decimal(5, 2) // 5% Investment Allocation Fee
+  profitShareFeePct   Decimal                @default(5.00) @db.Decimal(5, 2) // 5% Profit-Sharing Fee
+  fundSeekerUserId    String?
+  fundSeeker          User?                  @relation("FundSeekerListings", fields: [fundSeekerUserId], references: [id])
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  investments         InvestmentCommitment[]
+  watchlistUsers      InvestmentWatchlist[]
+  inquiries           InvestmentInquiry[]
+
+  @@index([industry, status])
+  @@index([countryCode, status])
+  @@map("diw_startup_listings")
+}
+
+model InvestmentCommitment {
+  id                   String         @id @default(uuid())
+  investmentCode       String         @unique @db.VarChar(30) // INV-2026-XXXX
+  listingId            String
+  listing              StartupListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  investorUserId       String
+  investor             User           @relation("InvestorCommitments", fields: [investorUserId], references: [id])
+  grossAmount          Decimal        @db.Decimal(20, 2)
+  allocationFeePct     Decimal        @default(5.00) @db.Decimal(5, 2) // 5%
+  allocationFeeAmount  Decimal        @db.Decimal(20, 2)
+  netInvestedAmount    Decimal        @db.Decimal(20, 2)
+  instrument           String         @default("SAFE")
+  ownershipPct         Decimal?       @db.Decimal(8, 4)
+  status               String         @default("CLEARED_FUNDS") // EXPRESSION_OF_INTEREST, DOCUMENT_SIGNED, CLEARED_FUNDS, ACTIVE, EXITED, CANCELLED
+  currentValuation     Decimal?       @db.Decimal(20, 2)
+  unrealizedReturnPct  Decimal?       @db.Decimal(8, 2)
+  realizedProceeds     Decimal        @default(0.00) @db.Decimal(20, 2)
+  returnOfCapital      Decimal        @default(0.00) @db.Decimal(20, 2)
+  eligibleNetProfit    Decimal        @default(0.00) @db.Decimal(20, 2)
+  profitShareFeePct    Decimal        @default(5.00) @db.Decimal(5, 2) // 5%
+  profitShareFeeAmount Decimal        @default(0.00) @db.Decimal(20, 2)
+  netDistributedProfit Decimal        @default(0.00) @db.Decimal(20, 2)
+  settlementReference  String?        @db.VarChar(50)
+  notes                String?        @db.Text
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([investorUserId, status])
+  @@index([listingId])
+  @@map("diw_investment_commitments")
+}
+
+model InvestmentWatchlist {
+  id        String         @id @default(uuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   StartupListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@unique([userId, listingId])
+  @@map("diw_investment_watchlist")
+}
+
+model InvestmentInquiry {
+  id             String         @id @default(uuid())
+  listingId      String
+  listing        StartupListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  investorUserId String
+  investor       User           @relation(fields: [investorUserId], references: [id], onDelete: Cascade)
+  type           String         @default("QUESTION") // QUESTION, INTRO_REQUEST, DOC_REQUEST
+  subject        String         @db.VarChar(150)
+  message        String         @db.Text
+  response       String?        @db.Text
+  status         String         @default("PENDING") // PENDING, RESPONDED, CLOSED
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([listingId, status])
+  @@map("diw_investment_inquiries")
 }

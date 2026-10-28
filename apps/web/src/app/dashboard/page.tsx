@@ -39,6 +39,8 @@ import {
   AlertCircle,
   Landmark,
   Smartphone,
+  Globe,
+  Coins,
 } from 'lucide-react';
 
 interface WalletSummary {
@@ -688,6 +690,30 @@ function DashboardContent() {
               >
                 <Package className="w-4 h-4" />
                 Invest Package
+              </Link>
+
+              <Link
+                href="/transfer"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white shadow-md flex items-center gap-1.5 transition-all"
+              >
+                <Globe className="w-4 h-4" />
+                <span>Global Remit</span>
+              </Link>
+
+              <Link
+                href="/investments"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-amber-600 hover:bg-amber-700 text-white shadow-md flex items-center gap-1.5 transition-all"
+              >
+                <TrendingUp className="w-4 h-4" />
+                <span>Startup Equity</span>
+              </Link>
+
+              <Link
+                href="/token"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-purple-600 hover:bg-purple-700 text-white shadow-md flex items-center gap-1.5 transition-all"
+              >
+                <Coins className="w-4 h-4" />
+                <span>Avora Token ($AVR)</span>
               </Link>
 
               <button

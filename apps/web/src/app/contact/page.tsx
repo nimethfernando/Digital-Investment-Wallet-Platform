@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { api } from '../../lib/api';
+import { api, extractErrorMessage } from '../../lib/api';
 import {
   MapPin,
   Phone,
@@ -44,7 +44,7 @@ export default function ContactPage() {
         message: '',
       });
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to submit inquiry. Please try again.');
+      setError(extractErrorMessage(err, 'Failed to submit inquiry. Please try again.'));
     } finally {
       setLoading(false);
     }
