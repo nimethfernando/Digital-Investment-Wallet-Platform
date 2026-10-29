@@ -313,3 +313,4 @@ export class GlobalMoneyTransferService {
 }
 
 export const globalMoneyTransferService = new GlobalMoneyTransferService();
+

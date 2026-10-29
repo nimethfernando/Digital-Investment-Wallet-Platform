@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: avora-bank-backend
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: apps/server
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        value: https://www.avorabank.com,https://avorabank.com
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_USER
+        value: gnbmailsender@gmail.com
+      - key: EMAIL_PASS
+        sync: false
+      - key: EMAIL_FROM
+        value: "Avora Bank <gnbmailsender@gmail.com>"
+      - key: ADMIN_NOTIFICATION_EMAIL
+        value: gnbmailsender@gmail.com

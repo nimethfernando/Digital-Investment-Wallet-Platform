@@ -480,3 +480,4 @@ export class InvestmentsService {
 }
 
 export const investmentsService = new InvestmentsService();
+

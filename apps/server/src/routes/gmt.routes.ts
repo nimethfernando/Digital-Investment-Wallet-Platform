@@ -20,3 +20,4 @@ router.get('/admin/transfers', (req, res, next) => gmtController.listAllTransfer
 router.patch('/admin/transfers/:id', (req, res, next) => gmtController.updateTransferStatusAdmin(req, res, next));
 
 export default router;
+

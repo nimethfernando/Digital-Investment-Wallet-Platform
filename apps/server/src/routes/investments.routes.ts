@@ -18,3 +18,4 @@ router.post('/inquiries', (req, res, next) => investmentsController.submitInquir
 router.get('/dashboard', (req, res, next) => investmentsController.getDashboard(req, res, next));
 
 export default router;
+

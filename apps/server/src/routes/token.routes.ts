@@ -14,3 +14,4 @@ router.post('/faucet/claim', (req, res, next) => tokenController.claimFaucet(req
 router.post('/early-access/register', (req, res, next) => tokenController.registerEarlyAccess(req, res, next));
 
 export default router;
+
