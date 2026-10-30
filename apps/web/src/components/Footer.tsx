@@ -89,6 +89,11 @@ export const Footer: React.FC = () => {
             </h4>
             <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
               <li>
+                <Link href="/blog" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors font-medium">
+                  Research &amp; Market Blogs
+                </Link>
+              </li>
+              <li>
                 <Link href="/security" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                   Double-Entry Ledger Security
                 </Link>

@@ -64,6 +64,7 @@ export const Header: React.FC = () => {
     { href: '/exchange', label: t('nav.exchange', 'OTC Desk') },
     { href: '/p2p', label: t('nav.p2p', 'P2P') },
     { href: '/token', label: 'Avora Token' },
+    { href: '/blog', label: t('nav.blog', 'Blog') },
     { href: '/strategy', label: t('nav.strategy', 'Strategy') },
     { href: '/contact', label: t('nav.contact', 'Contact') },
   ];
@@ -75,11 +76,11 @@ export const Header: React.FC = () => {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-3">
         
         {/* AVORA BANK LOGO */}
-        <Link href="/" className="flex items-center group">
-          <AvoraBankLogo variant="emerald" size="md" />
+        <Link href="/" className="flex-shrink-0 flex items-center group">
+          <AvoraBankLogo size="md" />
         </Link>
 
         {/* Desktop Navigation Links */}
