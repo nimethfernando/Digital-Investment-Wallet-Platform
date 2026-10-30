@@ -47,22 +47,27 @@ export const Footer: React.FC = () => {
 
           <div className="space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
-              Banking & Wealth
+              Banking & Facilities
             </h4>
             <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
+              <li>
+                <Link href="/transfer" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors font-medium">
+                  Global Remittance Corridors
+                </Link>
+              </li>
+              <li>
+                <Link href="/investments" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors font-medium">
+                  Startup Equity Marketplace
+                </Link>
+              </li>
               <li>
                 <Link href="/packages" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                   Digital Investment Packages
                 </Link>
               </li>
               <li>
-                <Link href="/buy-crypto" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
-                  Buy Crypto Gateway
-                </Link>
-              </li>
-              <li>
                 <Link href="/exchange" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
-                  GeCrypto-Style OTC Desk
+                  OTC Desk & Tbilisi Counter
                 </Link>
               </li>
               <li>
@@ -71,8 +76,8 @@ export const Footer: React.FC = () => {
                 </Link>
               </li>
               <li>
-                <Link href="/strategy" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors font-medium text-emerald-600 dark:text-emerald-400">
-                  Yield Strategy Disclosures
+                <Link href="/token" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                  Avora Token ($AVR) Hub
                 </Link>
               </li>
             </ul>

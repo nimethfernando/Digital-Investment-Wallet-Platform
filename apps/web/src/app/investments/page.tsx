@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { api, extractErrorMessage } from '../../lib/api';
 import {
@@ -60,6 +61,7 @@ interface StartupItem {
 }
 
 export default function InvestmentsMarketplacePage() {
+  const router = useRouter();
   const { user } = useAuth();
 
   // Directory State
@@ -147,7 +149,7 @@ export default function InvestmentsMarketplacePage() {
   const handleExecuteInvest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      alert('Please sign in to invest in startup campaigns.');
+      router.push('/login?redirect=/investments');
       return;
     }
     if (!selectedCampaign) return;
@@ -185,7 +187,7 @@ export default function InvestmentsMarketplacePage() {
   const handleApplyFunding = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      alert('Please sign in to submit a fundraising application.');
+      router.push('/login?redirect=/investments');
       return;
     }
 
@@ -276,6 +278,29 @@ export default function InvestmentsMarketplacePage() {
           <span className="text-emerald-600 font-bold">• 0% Fee on Unrealized Valuation</span>
         </div>
       </div>
+
+      {/* Guest Preview Notice */}
+      {!user && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 text-white border border-amber-500/30 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-sm text-white">Avora Angel & Venture Nominee Facility</p>
+              <p className="text-xs text-slate-300">You are browsing verified campaigns in preview mode. Sign in to your account to commit capital or manage your angel ledger.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link href="/login?redirect=/investments" className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-all shadow-md">
+              Sign In to Invest
+            </Link>
+            <Link href="/register" className="px-4 py-2 rounded-xl text-xs font-bold border border-white/20 hover:bg-white/10 text-white transition-all">
+              Open Account
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-4">

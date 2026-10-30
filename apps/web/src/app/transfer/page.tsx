@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { api, extractErrorMessage } from '../../lib/api';
 import {
@@ -44,6 +45,7 @@ const COUNTRIES: CountryItem[] = [
 ];
 
 export default function GlobalMoneyTransferPage() {
+  const router = useRouter();
   const { user } = useAuth();
 
   // Step state: 1 = Form & Quote, 2 = Recipient Details, 3 = Confirmation & Live Tracking
@@ -120,7 +122,7 @@ export default function GlobalMoneyTransferPage() {
   const handleConfirmAndFund = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      alert('Please sign in to confirm and fund this transfer.');
+      router.push('/login?redirect=/transfer');
       return;
     }
     setSubmitting(true);
@@ -169,6 +171,29 @@ export default function GlobalMoneyTransferPage() {
           Send funds directly to bank accounts worldwide in local currencies. Guaranteed exchange rates, transparent 3% transfer fee, automated sanctions screening, and delivery within 2 business days.
         </p>
       </div>
+
+      {/* Guest Preview Notice */}
+      {!user && (
+        <div className="max-w-5xl mx-auto p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 text-white border border-blue-500/30 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0">
+              <Globe className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-sm text-white">Avora Bank Member Remittance Facility</p>
+              <p className="text-xs text-slate-300">You are calculating live exchange rates in preview mode. Please sign in to fund and execute your transfer.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link href="/login?redirect=/transfer" className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-500 hover:bg-blue-400 text-slate-950 transition-all shadow-md">
+              Sign In
+            </Link>
+            <Link href="/register" className="px-4 py-2 rounded-xl text-xs font-bold border border-white/20 hover:bg-white/10 text-white transition-all">
+              Open Account
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Progress Steps Header */}
       <div className="max-w-2xl mx-auto flex items-center justify-between text-xs font-bold text-slate-400 border-b border-slate-200 dark:border-slate-800 pb-4">

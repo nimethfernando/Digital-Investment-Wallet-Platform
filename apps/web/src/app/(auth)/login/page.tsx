@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { useLanguage } from '../../../context/LanguageContext';
 import { extractErrorMessage } from '../../../lib/api';
-import { Lock, Mail, KeyRound, AlertCircle, ArrowRight } from 'lucide-react';
+import { AvoraBankLogo } from '../../../components/AvoraBankLogo';
+import { Lock, Mail, KeyRound, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,10 +34,15 @@ export default function LoginPage() {
         return;
       }
 
+      const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const redirectUrl = searchParams?.get('redirect');
+
       if (res.user?.mustChangePassword) {
         router.push('/change-password');
       } else if (res.user?.role === 'ADMIN') {
         router.push('/admin');
+      } else if (redirectUrl && redirectUrl.startsWith('/')) {
+        router.push(redirectUrl);
       } else {
         router.push('/dashboard');
       }
@@ -51,9 +57,9 @@ export default function LoginPage() {
     <div className="min-h-[80vh] flex items-center justify-center px-4 py-12">
       <div className="max-w-md w-full p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
         
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-slate-900 via-indigo-900 to-emerald-600 flex items-center justify-center text-white font-black text-xl mx-auto shadow-md border border-indigo-400/30">
-            A
+        <div className="text-center space-y-3">
+          <div className="flex justify-center pb-1">
+            <AvoraBankLogo variant="emerald" size="lg" />
           </div>
           <h1 className="text-2xl font-black text-slate-900 dark:text-white">
             {requires2FA ? 'Two-Factor Challenge' : 'Sign In to Avora Bank'}
@@ -61,7 +67,7 @@ export default function LoginPage() {
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {requires2FA
               ? 'Enter the 6-digit TOTP code from your authenticator application.'
-              : 'Access your digital investment wallet and liquidity desk.'}
+              : 'Sign in to access all private banking facilities, global transfers, and investment desks.'}
           </p>
         </div>
 

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import {
   TrendingUp,
@@ -27,10 +28,17 @@ import {
   Users,
   Scale,
   Landmark,
+  Globe,
+  Rocket,
+  Smartphone,
+  LockKeyhole,
+  Check,
+  ArrowRight,
 } from 'lucide-react';
 
 export default function HomePage() {
   const { t } = useLanguage();
+  const { user } = useAuth();
 
   const [calcAmount, setCalcAmount] = useState<number>(5000);
   const monthlyReturn = calcAmount * 0.01;
@@ -211,116 +219,333 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* 7 PILLARS SHOWCASE */}
+      {/* AVORA BANK FACILITIES & MEMBER PORTAL */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-3xl mx-auto space-y-3 mb-12">
+        <div className="text-center max-w-3xl mx-auto space-y-3 mb-8">
           <h2 className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
-            Avora Bank Architecture
+            Avora Bank Facilities
           </h2>
           <h3 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-            Comprehensive Digital Banking & Liquidity Desk
+            Institutional Facilities & Member Services
           </h3>
           <p className="text-slate-600 dark:text-slate-400 text-sm">
-            Self-hosted, API-independent financial infrastructure designed to institutional production standards.
+            Self-hosted digital banking infrastructure with double-entry ledger integrity, cross-border remittance, and startup equity.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {/* Member Access Gateway Banner */}
+        {!user ? (
+          <div className="mb-10 p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white border border-emerald-500/30 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                <LockKeyhole className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold uppercase tracking-wider">
+                  Guest Preview Mode
+                </div>
+                <h4 className="text-base sm:text-lg font-black">Sign In to Unlock All Platform Facilities</h4>
+                <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                  Browse our full suite of banking facilities below. To fund global transfers, invest in startup equity, open an OTC desk, or access your wallet, please sign in.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 shrink-0 w-full sm:w-auto justify-end">
+              <Link
+                href="/login"
+                className="px-5 py-2.5 rounded-xl font-bold text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-1.5"
+              >
+                <span>Sign In to Access</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link
+                href="/register"
+                className="px-5 py-2.5 rounded-xl font-bold text-xs bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all"
+              >
+                Open Account
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-10 p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-emerald-950/70 via-slate-900 to-teal-950/70 text-white border border-emerald-500/30 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-md">
+                <Check className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="inline-flex items-center gap-1.5 text-xs text-emerald-300 font-bold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Private Banking Session Active • {user.email}</span>
+                </div>
+                <h4 className="text-base font-black">All 7 Facilities Fully Unlocked and Ready to Transact</h4>
+              </div>
+            </div>
+            <Link
+              href="/dashboard"
+              className="px-5 py-2.5 rounded-xl font-bold text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md transition-all shrink-0 flex items-center gap-1.5"
+            >
+              <span>Open Private Dashboard</span>
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           
-          {/* Card 1: Investment Engine */}
-          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
-              <TrendingUp className="w-6 h-6" />
+          {/* Facility 1: Global Remittance */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900">
+                  7 Corridors
+                </span>
+              </div>
+              <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                Global Remittance Corridors
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Send USD/EUR directly to bank accounts in India (INR), Sri Lanka (LKR), UAE (AED), Georgia (GEL), EU (SEPA), UK (GBP), and US with 2% margin and 3% transfer fee.
+              </p>
             </div>
-            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
-              Digital Investment Packages
-            </h4>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Packages from $1,000 to $10,000 per package with unique Package IDs, independent 6-month lock-in periods, and 1% monthly distributions credited directly to your internal wallet.
-            </p>
-            <Link href="/packages" className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:underline pt-2">
-              Calculate Returns <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <Link
+                href={user ? '/transfer' : '/login?redirect=/transfer'}
+                className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+              >
+                {user ? 'Launch Corridors' : 'Sign In to Remit'}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link href="/transfer" className="text-[11px] text-slate-400 hover:text-slate-600">
+                Preview rates
+              </Link>
+            </div>
           </div>
 
-          {/* Card 2: Virtual Visa/Mastercard */}
-          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 flex items-center justify-center">
-              <CreditCard className="w-6 h-6" />
+          {/* Facility 2: Startup Equity Marketplace */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="w-11 h-11 rounded-2xl bg-amber-50 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
+                  <Rocket className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900">
+                  StartEngine Model
+                </span>
+              </div>
+              <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                Startup Equity Marketplace
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Crowdfunding nominee platform. Invest as low as $250 in verified seed and growth startups. Transparent 5% allocation fee and 5% profit-sharing fee on net realized exits.
+              </p>
             </div>
-            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
-              Virtual Visa / Mastercard
-            </h4>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Every client dashboard features a luxury virtual card module from day one, equipped for Apple Pay, Google Pay, spending sliders, and direct plug-in to licensed BaaS providers (Wallester / Marqeta).
-            </p>
-            <Link href="/dashboard?tab=card" className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline pt-2">
-              Preview Card Module <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <Link
+                href={user ? '/investments' : '/login?redirect=/investments'}
+                className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
+              >
+                {user ? 'Invest in Startups' : 'Sign In to Invest'}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link href="/investments" className="text-[11px] text-slate-400 hover:text-slate-600">
+                View deals
+              </Link>
+            </div>
           </div>
 
-          {/* Card 3: Double-Entry Ledger */}
-          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 flex items-center justify-center">
-              <ShieldCheck className="w-6 h-6" />
+          {/* Facility 3: Investment Packages */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900">
+                  1.0% / Month
+                </span>
+              </div>
+              <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                Digital Investment Packages
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Packages from $1,000 to $10,000 with independent 6-month lock-in periods, monthly yield distributions credited to your internal ledger balance on the 1st of each month.
+              </p>
             </div>
-            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
-              Immutable Double-Entry Ledger
-            </h4>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              API-independent double-entry accounting where every movement is permanently recorded with transaction ID, before/after balances, and zero direct editing or deletion permitted.
-            </p>
-            <Link href="/security" className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 dark:text-slate-300 hover:underline pt-2">
-              Audit Architecture <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <Link
+                href={user ? '/packages' : '/login?redirect=/packages'}
+                className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+              >
+                {user ? 'Choose Package' : 'Sign In to Subscribe'}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link href="/packages" className="text-[11px] text-slate-400 hover:text-slate-600">
+                Calculator
+              </Link>
+            </div>
           </div>
 
-          {/* Card 4: P2P Escrow Board */}
-          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
-              <Users className="w-6 h-6" />
+          {/* Facility 4: OTC Trading Desk */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="w-11 h-11 rounded-2xl bg-rose-50 dark:bg-rose-950 text-rose-600 flex items-center justify-center">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900">
+                  Tbilisi Counter
+                </span>
+              </div>
+              <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                OTC Desk & Cash Counters
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Freedom Square Tbilisi cash counter open until 21:00 GCC time, plus decentralized global operator desks ($1,000 security deposit) with 1.5% commission split.
+              </p>
             </div>
-            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
-              P2P Escrow & 10 Dynamic Rails
-            </h4>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              RedotPay/Binance style trading board across 10 pre-configured countries (India UPI, UAE Bank, Bahrain BenefitPay, etc.) with automated escrow locking crypto until fiat confirmation.
-            </p>
-            <Link href="/p2p" className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 hover:underline pt-2">
-              Explore P2P Board <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <Link
+                href={user ? '/exchange' : '/login?redirect=/exchange'}
+                className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1"
+              >
+                {user ? 'Open OTC Desk' : 'Sign In for OTC'}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link href="/exchange" className="text-[11px] text-slate-400 hover:text-slate-600">
+                Desk discovery
+              </Link>
+            </div>
           </div>
 
-          {/* Card 5: GeCrypto OTC Desk */}
-          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950 text-rose-600 flex items-center justify-center">
-              <Building2 className="w-6 h-6" />
+          {/* Facility 5: P2P Escrow Board */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="w-11 h-11 rounded-2xl bg-purple-50 dark:bg-purple-950 text-purple-600 flex items-center justify-center">
+                  <Users className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-900">
+                  10 Rails Escrow
+                </span>
+              </div>
+              <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                P2P Escrow Marketplace
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Direct peer-to-peer fiat & crypto trade. Automated vault escrow holds USDT safely until sellers verify local fiat receipt. $50 security deposit for market makers.
+              </p>
             </div>
-            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
-              GeCrypto-Style OTC Desk
-            </h4>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Convert USDT for USD, EUR, INR, or GEL directly with the platform. Flexible settlements including SWIFT/SEPA wires and a dedicated Tbilisi cash counter open until 21:00 GCC time.
-            </p>
-            <Link href="/exchange" className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:underline pt-2">
-              OTC Exchange Desk <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <Link
+                href={user ? '/p2p' : '/login?redirect=/p2p'}
+                className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
+              >
+                {user ? 'Enter P2P Board' : 'Sign In to Trade'}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link href="/p2p" className="text-[11px] text-slate-400 hover:text-slate-600">
+                View offers
+              </Link>
+            </div>
           </div>
 
-          {/* Card 6: Strategy & Compliance */}
-          <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-teal-50 dark:bg-teal-950 text-teal-600 flex items-center justify-center">
-              <Scale className="w-6 h-6" />
+          {/* Facility 6: Virtual Cards & RedotPay Experience */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 flex items-center justify-center">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900">
+                  Visa / Mastercard
+                </span>
+              </div>
+              <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                Virtual Cards & Mobile Wallet
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Multi-currency virtual debit cards with instant provisioning, spending limit sliders, freeze toggles, Apple/Google Pay readiness, and sandbox ledger simulation.
+              </p>
             </div>
-            <h4 className="text-xl font-bold text-slate-900 dark:text-white">
-              Strategy & Risk Disclosures
-            </h4>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Transparent institutional yield generation: quantitative delta-neutral arbitrage, OTC counter spreads, short-term debt facilities, and venture allocations aligned with NBG VASP directives.
-            </p>
-            <Link href="/strategy" className="inline-flex items-center gap-1 text-xs font-bold text-teal-600 hover:underline pt-2">
-              Read Disclosures <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <Link
+                href={user ? '/dashboard?tab=card' : '/login?redirect=/dashboard'}
+                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+              >
+                {user ? 'Manage Cards' : 'Sign In for Cards'}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link href="/dashboard" className="text-[11px] text-slate-400 hover:text-slate-600">
+                Features
+              </Link>
+            </div>
+          </div>
+
+          {/* Facility 7: Avora Token ($AVR) */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="w-11 h-11 rounded-2xl bg-teal-50 dark:bg-teal-950 text-teal-600 flex items-center justify-center">
+                  <Coins className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950 text-teal-600 dark:text-teal-400 border border-teal-200 dark:border-teal-900">
+                  $AVR Testnet
+                </span>
+              </div>
+              <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                Avora Token ($AVR) Hub
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Free testnet faucet claiming (100 AVR/24h) for simulation, $1.00 reference Early Access Whitelist registry, and Q4 2027 Mainnet roadmap & tokenomics.
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <Link
+                href={user ? '/token' : '/login?redirect=/token'}
+                className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
+              >
+                {user ? 'Claim Faucet' : 'Sign In for Faucet'}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link href="/token" className="text-[11px] text-slate-400 hover:text-slate-600">
+                Roadmap
+              </Link>
+            </div>
+          </div>
+
+          {/* Facility 8: Immutable Double-Entry Ledger */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                  Zero Trust
+                </span>
+              </div>
+              <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                Immutable Ledger Vault
+              </h4>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                API-independent cryptographic double-entry ledger where every journal balance is strictly reconciled. Debits equal credits with zero reliance on 3rd-party banking APIs.
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <Link
+                href="/security"
+                className="text-xs font-bold text-slate-800 dark:text-slate-200 hover:underline flex items-center gap-1"
+              >
+                Audit Architecture
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link href="/strategy" className="text-[11px] text-slate-400 hover:text-slate-600">
+                Disclosures
+              </Link>
+            </div>
           </div>
 
         </div>

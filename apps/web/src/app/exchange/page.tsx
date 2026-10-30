@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { api, extractErrorMessage } from '../../lib/api';
 import {
@@ -119,6 +120,7 @@ const DEFAULT_DESKS: OtcDeskItem[] = [
 ];
 
 export default function ExchangeDeskPage() {
+  const router = useRouter();
   const { user } = useAuth();
 
   // Filter States
@@ -234,7 +236,7 @@ export default function ExchangeDeskPage() {
   const handleApplyDesk = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      alert('Please sign in or register with Avora Bank to apply for an OTC Desk.');
+      router.push('/login?redirect=/exchange');
       return;
     }
     setApplyLoading(true);
@@ -398,6 +400,29 @@ export default function ExchangeDeskPage() {
           </Link>
         </div>
       </div>
+
+      {/* Guest Preview Notice */}
+      {!user && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-rose-950 via-slate-900 to-rose-950 text-white border border-rose-500/30 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-sm text-white">Avora Bank OTC & Physical Liquidity Desk</p>
+              <p className="text-xs text-slate-300">You are browsing active desks in preview mode. Please sign in to initiate quotes, chat with operators, or apply for an OTC desk.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link href="/login?redirect=/exchange" className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-500 hover:bg-rose-400 text-slate-950 transition-all shadow-md">
+              Sign In to Trade
+            </Link>
+            <Link href="/register" className="px-4 py-2 rounded-xl text-xs font-bold border border-white/20 hover:bg-white/10 text-white transition-all">
+              Open Account
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* SECTION 1: GLOBAL OTC DESK DISCOVERY (COLOMBO, DUBAI, TBILISI, ETC.) */}

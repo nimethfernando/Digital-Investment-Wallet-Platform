@@ -31,3 +31,4 @@ services:
         value: "Avora Bank <gnbmailsender@gmail.com>"
       - key: ADMIN_NOTIFICATION_EMAIL
         value: gnbmailsender@gmail.com
+
