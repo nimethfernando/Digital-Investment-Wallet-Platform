@@ -9,7 +9,7 @@ export class PackageController {
     try {
       const userId = (req as any).user.id;
       const packages = await packageService.getUserPackages(userId);
-      res.json({ success: true, data: packages });
+      res.json({ success: true, data: packages, packages });
     } catch (err) {
       next(err);
     }

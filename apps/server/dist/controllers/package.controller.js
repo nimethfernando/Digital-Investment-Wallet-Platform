@@ -10,7 +10,7 @@ class PackageController {
         try {
             const userId = req.user.id;
             const packages = await package_service_1.packageService.getUserPackages(userId);
-            res.json({ success: true, data: packages });
+            res.json({ success: true, data: packages, packages });
         }
         catch (err) {
             next(err);

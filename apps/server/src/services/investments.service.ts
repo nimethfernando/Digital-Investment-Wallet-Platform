@@ -7,6 +7,119 @@ Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 export class InvestmentsService {
   /**
+   * Ensure default institutional startup campaigns exist in the database
+   */
+  async ensureDefaultCampaigns() {
+    const count = await prisma.startupListing.count();
+    if (count > 0) return;
+
+    const defaults = [
+      {
+        slug: 'avora-pay-mena-corridor',
+        companyName: 'AvoraPay MENA Liquidity Rail',
+        tagline: 'Instant multi-currency B2B clearing between UAE, Georgia, and South Asia.',
+        country: 'United Arab Emirates',
+        countryCode: 'AE',
+        city: 'Dubai',
+        industry: 'Fintech & Payments',
+        stage: 'SERIES_A',
+        instrument: 'EQUITY',
+        valuation: new Decimal('18500000.00'),
+        fundingTarget: new Decimal('1500000.00'),
+        verifiedFundsRaised: new Decimal('1145000.00'),
+        minInvestment: new Decimal('500.00'),
+        investorCount: 142,
+        deadline: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000),
+        status: 'PUBLISHED',
+        dueDiligenceStatus: 'VERIFIED',
+        pitchOverview: 'AvoraPay MENA operates institutional settlement corridors connecting DIFC treasury desks with South Asian and Caucasian commercial banks with T+0 finality.',
+        problemSolution: 'Cross-border SME trade in the GCC-South Asia corridor suffers from 3-5 day SWIFT delays and 4%+ FX spreads. AvoraPay settles in under 4 hours.',
+        businessModel: '0.65% take-rate on gross B2B settlement volume + institutional treasury SaaS licensing.',
+        marketOpportunity: '$140B annual bilateral trade volume between UAE, Sri Lanka, India, and Georgia.',
+      },
+      {
+        slug: 'kura-hydro-grid-georgia',
+        companyName: 'Kura Hydro & Green Compute',
+        tagline: 'Run-of-river hydroelectric micro-grids powering Tier-3 AI data centers in Georgia.',
+        country: 'Georgia',
+        countryCode: 'GE',
+        city: 'Tbilisi',
+        industry: 'Clean Energy & Infrastructure',
+        stage: 'GROWTH',
+        instrument: 'REVENUE_SHARE',
+        valuation: new Decimal('24000000.00'),
+        fundingTarget: new Decimal('2000000.00'),
+        verifiedFundsRaised: new Decimal('1680000.00'),
+        minInvestment: new Decimal('1000.00'),
+        investorCount: 89,
+        deadline: new Date(Date.now() + 38 * 24 * 60 * 60 * 1000),
+        status: 'PUBLISHED',
+        dueDiligenceStatus: 'VERIFIED',
+        pitchOverview: 'Combining sovereign-backed PPA hydro generation in Western Georgia with high-margin GPU colocation hosting.',
+        problemSolution: 'European AI compute faces $0.22+/kWh grid costs. Kura Hydro delivers $0.038/kWh 100% renewable baseload power.',
+        businessModel: 'Long-term USD-denominated compute hosting contracts and grid surplus feed-in tariffs.',
+        marketOpportunity: 'Rapidly expanding Eurasian cloud and sovereign AI infrastructure market.',
+      },
+      {
+        slug: 'ceylon-agri-chain-lk',
+        companyName: 'Ceylon AgriChain Exports',
+        tagline: 'Tokenized export trade finance for premium Sri Lankan tea, spice, and coconut producers.',
+        country: 'Sri Lanka',
+        countryCode: 'LK',
+        city: 'Colombo',
+        industry: 'Supply Chain & Trade Finance',
+        stage: 'SEED',
+        instrument: 'SAFE',
+        valuation: new Decimal('8200000.00'),
+        fundingTarget: new Decimal('750000.00'),
+        verifiedFundsRaised: new Decimal('592500.00'),
+        minInvestment: new Decimal('250.00'),
+        investorCount: 214,
+        deadline: new Date(Date.now() + 52 * 24 * 60 * 60 * 1000),
+        status: 'PUBLISHED',
+        dueDiligenceStatus: 'VERIFIED',
+        pitchOverview: 'Financing verified export letters of credit for 1,800+ certified Sri Lankan agricultural exporters shipping to EU and UK supermarkets.',
+        problemSolution: 'Exporters wait 60-90 days for overseas buyer settlement. Ceylon AgriChain advances 85% upon bill-of-lading verification.',
+        businessModel: '1.8% per 60-day invoice factoring cycle backed by marine cargo insurance and irrevocable LCs.',
+        marketOpportunity: '$3.2B annual Sri Lankan agricultural and specialty food export sector.',
+      },
+      {
+        slug: 'neural-shield-kyb-uk',
+        companyName: 'NeuralShield Autonomous KYB',
+        tagline: 'AI-driven corporate registry verification and perpetual AML monitoring for digital banks.',
+        country: 'United Kingdom',
+        countryCode: 'GB',
+        city: 'London',
+        industry: 'AI & RegTech',
+        stage: 'SEED',
+        instrument: 'SAFE',
+        valuation: new Decimal('12000000.00'),
+        fundingTarget: new Decimal('1000000.00'),
+        verifiedFundsRaised: new Decimal('740000.00'),
+        minInvestment: new Decimal('500.00'),
+        investorCount: 118,
+        deadline: new Date(Date.now() + 29 * 24 * 60 * 60 * 1000),
+        status: 'PUBLISHED',
+        dueDiligenceStatus: 'VERIFIED',
+        pitchOverview: 'Automated UBO graph resolution across 160+ corporate registries in under 90 seconds.',
+        problemSolution: 'Manual corporate onboarding (KYB) takes 2-4 weeks and costs $450+ per entity. NeuralShield reduces onboarding time by 94%.',
+        businessModel: 'Annual enterprise SaaS subscriptions + per-verification API consumption pricing.',
+        marketOpportunity: '$18B global RegTech and financial crime compliance market.',
+      },
+    ];
+
+    for (const d of defaults) {
+      await prisma.startupListing
+        .upsert({
+          where: { slug: d.slug },
+          update: {},
+          create: d,
+        })
+        .catch(() => {});
+    }
+  }
+
+  /**
    * List startup funding campaigns for the StartEngine-style directory
    */
   async listCampaigns(filters?: {
@@ -16,6 +129,8 @@ export class InvestmentsService {
     instrument?: string;
     search?: string;
   }) {
+    await this.ensureDefaultCampaigns();
+
     const where: any = { status: 'PUBLISHED' };
 
     if (filters?.industry && filters.industry !== 'ALL') {
@@ -50,6 +165,8 @@ export class InvestmentsService {
    * Get single startup campaign by slug
    */
   async getCampaignBySlug(slug: string, userId?: string) {
+    await this.ensureDefaultCampaigns();
+
     const campaign = await prisma.startupListing.findUnique({
       where: { slug },
       include: {

@@ -86,6 +86,33 @@ class LedgerService {
         if (!totalDebit.equals(totalCredit)) {
             throw new Error(`Double-entry imbalance! Debits (${totalDebit.toString()}) != Credits (${totalCredit.toString()})`);
         }
+        // 2b. Ensure all referenced Chart of Accounts rows exist before inserting entries
+        const uniqueAccounts = new Map();
+        for (const entry of params.entries) {
+            if (!uniqueAccounts.has(entry.accountId)) {
+                uniqueAccounts.set(entry.accountId, entry.currency || 'USD');
+            }
+        }
+        for (const [accId, accCurrency] of uniqueAccounts.entries()) {
+            const accountType = accId.startsWith('PLATFORM_TREASURY')
+                ? 'ASSET'
+                : accId.includes('EXPENSE')
+                    ? 'EXPENSE'
+                    : accId.includes('INCOME') || accId.includes('REVENUE')
+                        ? 'REVENUE'
+                        : 'LIABILITY';
+            await tx.ledgerAccount.upsert({
+                where: { id: accId },
+                update: {},
+                create: {
+                    id: accId,
+                    accountName: accId.replace(/_/g, ' '),
+                    accountType: accountType,
+                    currency: accCurrency,
+                    description: `Automated Double-Entry Ledger Account (${accId})`,
+                },
+            });
+        }
         // 3. Create Journal and entries
         const journal = await tx.ledgerJournal.create({
             data: {
@@ -557,6 +584,7 @@ class LedgerService {
         return {
             walletId: wallet.id,
             baseCurrency: 'USD',
+            totalPortfolioValueUsd: total.toFixed(2),
             totalActiveInvestmentsUsd: locked.toFixed(2),
             totalReturnsPaidUsd: accumulatedReturns.toFixed(2),
             totalPendingWithdrawalsUsd: pending.toFixed(2),

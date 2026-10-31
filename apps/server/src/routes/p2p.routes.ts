@@ -5,6 +5,11 @@ import { p2pRateLimiter } from '../middleware/rate-limiter';
 
 const router = Router();
 
+/**
+ * Public P2P Offers / Market Ads (viewable before or after login)
+ */
+router.get('/offers', (req, res, next) => p2pController.getOffers(req, res, next));
+
 router.use(authenticateToken);
 
 /**
@@ -20,11 +25,6 @@ router.post(['/lookup-recipient', '/lookup'], p2pRateLimiter, (req, res, next) =
 router.post('/transfer', p2pRateLimiter, (req, res, next) =>
   p2pController.transferFunds(req, res, next)
 );
-
-/**
- * P2P Offers / Market Ads
- */
-router.get('/offers', (req, res, next) => p2pController.getOffers(req, res, next));
 
 /**
  * P2P Orders & Escrow

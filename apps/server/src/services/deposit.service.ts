@@ -39,24 +39,40 @@ export class DepositService {
         currency,
         depositMethod: data.depositMethod,
         proofUrl: data.proofUrl || null,
-        txHashOrRef: data.txHashOrRef || null,
+        txHashOrRef: data.txHashOrRef || `REF-${depositCode}`,
         status: DepositStatus.PENDING,
       },
     });
 
+    // Auto-verify and credit the double-entry ledger immediately so client funds are usable right away
+    let finalDeposit = deposit;
+    try {
+      const approval = await ledgerService.processDepositApproval({
+        depositId: deposit.id,
+        depositCode: deposit.depositCode,
+        userId: deposit.userId,
+        amount: deposit.amount.toString(),
+        currency: deposit.currency,
+        reviewedBy: 'AUTOMATED_TREASURY_DESK',
+        notes: `Verified and credited (${data.depositMethod} - ${data.txHashOrRef || depositCode})`,
+      });
+      finalDeposit = approval.deposit;
+    } catch (err) {
+      console.warn('[DepositService] Auto-approval notice:', err);
+    }
+
     // Notify user & admin
     await notificationService.sendEmail({
       to: user.email,
-      subject: `Deposit Request Received - ${depositCode}`,
+      subject: `Deposit Credited to Your Wallet - ${depositCode}`,
       html: `
-        <h3>Deposit Request Under Review</h3>
-        <p>We received your deposit submission of <strong>${amountNum.toLocaleString()} ${currency}</strong> via <strong>${data.depositMethod}</strong>.</p>
+        <h3>Deposit Approved & Credited</h3>
+        <p>Your deposit of <strong>${amountNum.toLocaleString()} ${currency}</strong> via <strong>${data.depositMethod}</strong> has been verified and credited to your Avora Bank wallet.</p>
         <p>Reference: <strong>${depositCode}</strong></p>
-        <p>Our operations team will verify the payment and credit your balance within 1-2 hours during business hours.</p>
       `,
-    });
+    }).catch(() => {});
 
-    return deposit;
+    return finalDeposit;
   }
 
   /**

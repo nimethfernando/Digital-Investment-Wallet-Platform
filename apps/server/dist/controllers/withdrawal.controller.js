@@ -58,6 +58,7 @@ class WithdrawalController {
             res.json({
                 success: true,
                 data: list,
+                withdrawals: list,
             });
         }
         catch (err) {

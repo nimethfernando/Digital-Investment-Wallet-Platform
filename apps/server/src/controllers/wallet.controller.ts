@@ -16,7 +16,7 @@ export class WalletController {
     try {
       const userId = (req as any).user.id;
       const summary = await ledgerService.getUserWalletSummary(userId);
-      res.json({ success: true, data: summary });
+      res.json({ success: true, data: summary, wallet: summary });
     } catch (err) {
       next(err);
     }
@@ -78,23 +78,26 @@ export class WalletController {
         prisma.transaction.count({ where }),
       ]);
 
+      const formattedTransactions = transactions.map((t) => ({
+        id: t.id,
+        transactionCode: t.transactionCode,
+        type: t.type,
+        amount: new Decimal(t.amount.toString()).toFixed(2),
+        currency: t.currency,
+        status: t.status,
+        balanceBefore: new Decimal(t.balanceBefore.toString()).toFixed(2),
+        balanceAfter: new Decimal(t.balanceAfter.toString()).toFixed(2),
+        settlementReference: t.settlementReference,
+        packageCode: t.package?.packageCode || null,
+        notes: t.notes,
+        createdAt: t.createdAt,
+      }));
+
       res.json({
         success: true,
+        transactions: formattedTransactions,
         data: {
-          transactions: transactions.map((t) => ({
-            id: t.id,
-            transactionCode: t.transactionCode,
-            type: t.type,
-            amount: new Decimal(t.amount.toString()).toFixed(2),
-            currency: t.currency,
-            status: t.status,
-            balanceBefore: new Decimal(t.balanceBefore.toString()).toFixed(2),
-            balanceAfter: new Decimal(t.balanceAfter.toString()).toFixed(2),
-            settlementReference: t.settlementReference,
-            packageCode: t.package?.packageCode || null,
-            notes: t.notes,
-            createdAt: t.createdAt,
-          })),
+          transactions: formattedTransactions,
           pagination: {
             page,
             limit,

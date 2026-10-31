@@ -18,7 +18,7 @@ class WalletController {
         try {
             const userId = req.user.id;
             const summary = await ledger_service_1.ledgerService.getUserWalletSummary(userId);
-            res.json({ success: true, data: summary });
+            res.json({ success: true, data: summary, wallet: summary });
         }
         catch (err) {
             next(err);
@@ -74,23 +74,25 @@ class WalletController {
                 }),
                 prisma_1.prisma.transaction.count({ where }),
             ]);
+            const formattedTransactions = transactions.map((t) => ({
+                id: t.id,
+                transactionCode: t.transactionCode,
+                type: t.type,
+                amount: new decimal_js_1.default(t.amount.toString()).toFixed(2),
+                currency: t.currency,
+                status: t.status,
+                balanceBefore: new decimal_js_1.default(t.balanceBefore.toString()).toFixed(2),
+                balanceAfter: new decimal_js_1.default(t.balanceAfter.toString()).toFixed(2),
+                settlementReference: t.settlementReference,
+                packageCode: t.package?.packageCode || null,
+                notes: t.notes,
+                createdAt: t.createdAt,
+            }));
             res.json({
                 success: true,
+                transactions: formattedTransactions,
                 data: {
-                    transactions: transactions.map((t) => ({
-                        id: t.id,
-                        transactionCode: t.transactionCode,
-                        type: t.type,
-                        amount: new decimal_js_1.default(t.amount.toString()).toFixed(2),
-                        currency: t.currency,
-                        status: t.status,
-                        balanceBefore: new decimal_js_1.default(t.balanceBefore.toString()).toFixed(2),
-                        balanceAfter: new decimal_js_1.default(t.balanceAfter.toString()).toFixed(2),
-                        settlementReference: t.settlementReference,
-                        packageCode: t.package?.packageCode || null,
-                        notes: t.notes,
-                        createdAt: t.createdAt,
-                    })),
+                    transactions: formattedTransactions,
                     pagination: {
                         page,
                         limit,

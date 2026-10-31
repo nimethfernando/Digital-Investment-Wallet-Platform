@@ -288,10 +288,21 @@ function DashboardContent() {
         api.get('/tickets').catch(() => ({ data: { data: [] } })),
       ]);
 
-      if (walletRes.data?.wallet) setWallet(walletRes.data.wallet);
-      if (pkgRes.data?.packages) setPackages(pkgRes.data.packages);
-      if (txRes.data?.transactions) setTransactions(txRes.data.transactions);
-      if (wthRes.data?.withdrawals) setWithdrawals(wthRes.data.withdrawals);
+      const resolvedWallet = walletRes.data?.wallet || walletRes.data?.data;
+      if (resolvedWallet) setWallet(resolvedWallet);
+
+      const resolvedPackages = pkgRes.data?.packages || pkgRes.data?.data;
+      if (Array.isArray(resolvedPackages)) setPackages(resolvedPackages);
+
+      const resolvedTxs =
+        txRes.data?.transactions ||
+        txRes.data?.data?.transactions ||
+        (Array.isArray(txRes.data?.data) ? txRes.data.data : null);
+      if (Array.isArray(resolvedTxs)) setTransactions(resolvedTxs);
+
+      const resolvedWths = wthRes.data?.withdrawals || wthRes.data?.data;
+      if (Array.isArray(resolvedWths)) setWithdrawals(resolvedWths);
+
       if (ticketRes.data?.data && Array.isArray(ticketRes.data.data)) {
         setTickets(ticketRes.data.data);
       }
@@ -442,7 +453,7 @@ function DashboardContent() {
       });
 
       if (res.data.success) {
-        setDepositSuccess('Deposit request submitted! Our settlement desk will audit and credit your balance.');
+        setDepositSuccess('Deposit credited! Your available wallet balance and double-entry ledger have been updated.');
         setDepositAmount('');
         setDepositTxHash('');
         fetchDashboardData();
@@ -650,98 +661,54 @@ function DashboardContent() {
               </div>
             </div>
 
-            {/* Quick Actions Bar */}
+            {/* Executive Action Bar */}
             <div className="flex flex-wrap items-center gap-2.5">
               <button
                 onClick={() => setDepositModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md flex items-center gap-1.5 transition-all"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 transition-all"
               >
                 <ArrowDownLeft className="w-4 h-4" />
-                Deposit
-              </button>
-
-              <button
-                onClick={() => setWithdrawModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5 transition-all"
-              >
-                <ArrowUpRight className="w-4 h-4" />
-                Withdraw
-              </button>
-
-              <button
-                onClick={() => setP2PModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-slate-100 dark:text-slate-950 text-white shadow-sm flex items-center gap-1.5 transition-all"
-              >
-                <Send className="w-4 h-4" />
-                Internal P2P
+                Deposit Funds
               </button>
 
               <button
                 onClick={() => setQrModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-md shadow-emerald-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 text-white shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
               >
-                <QrCode className="w-4 h-4" />
-                <span>QR Pay & Address</span>
+                <QrCode className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+                <span>QR & Account Transfer</span>
               </button>
 
-              <Link
-                href="/packages"
-                className="px-4 py-2.5 rounded-xl font-bold text-xs border border-emerald-600 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 shadow-sm flex items-center gap-1.5 transition-all"
+              <button
+                onClick={() => setWithdrawModalOpen(true)}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5 transition-all"
               >
-                <Package className="w-4 h-4" />
-                Invest Package
-              </Link>
+                <ArrowUpRight className="w-4 h-4 text-slate-500" />
+                Withdraw
+              </button>
 
               <Link
                 href="/transfer"
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white shadow-md flex items-center gap-1.5 transition-all"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5 transition-all"
               >
-                <Globe className="w-4 h-4" />
-                <span>Global Remit</span>
+                <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Global Remittance</span>
               </Link>
-
-              <Link
-                href="/investments"
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-amber-600 hover:bg-amber-700 text-white shadow-md flex items-center gap-1.5 transition-all"
-              >
-                <TrendingUp className="w-4 h-4" />
-                <span>Startup Equity</span>
-              </Link>
-
-              <Link
-                href="/token"
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-purple-600 hover:bg-purple-700 text-white shadow-md flex items-center gap-1.5 transition-all"
-              >
-                <Coins className="w-4 h-4" />
-                <span>Avora Token ($AVR)</span>
-              </Link>
-
-              <button
-                onClick={() => setActiveTab('redotpay')}
-                className={`px-4 py-2.5 rounded-xl font-bold text-xs shadow-md flex items-center gap-1.5 transition-all ${
-                  activeTab === 'redotpay'
-                    ? 'bg-rose-600 text-white shadow-rose-600/30'
-                    : 'bg-gradient-to-r from-rose-600/90 to-red-600/90 hover:from-rose-600 hover:to-red-600 text-white'
-                }`}
-              >
-                <Smartphone className="w-4 h-4" />
-                <span>RedotPay View</span>
-              </button>
             </div>
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex items-center gap-2 mt-8 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1">
+          <div className="flex items-center gap-1.5 mt-7 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px">
             {[
-              { key: 'overview', label: 'Portfolio Overview', icon: Wallet },
-              { key: 'redotpay', label: 'RedotPay Experience ⚡', icon: Smartphone },
-              { key: 'packages', label: `Investment Packages (${packages.length})`, icon: Package },
+              { key: 'overview', label: 'Overview', icon: Wallet },
+              { key: 'redotpay', label: 'Avora Pay & Swap', icon: Smartphone },
+              { key: 'p2p', label: 'Account Transfers', icon: Send },
               { key: 'card', label: 'Virtual Cards', icon: CreditCard },
-              { key: 'transactions', label: 'Ledger Audit', icon: Clock },
+              { key: 'packages', label: `Fixed Deposits (${packages.length})`, icon: Package },
               { key: 'withdrawals', label: `Withdrawals (${withdrawals.length})`, icon: ArrowUpRight },
-              { key: 'p2p', label: 'P2P & Saved Payees', icon: Send },
-              { key: 'support', label: `Support Tickets (${tickets.length})`, icon: Headphones },
+              { key: 'transactions', label: 'Ledger Audit', icon: Clock },
               { key: 'security', label: 'Security & 2FA', icon: ShieldCheck },
+              { key: 'support', label: `Concierge (${tickets.length})`, icon: Headphones },
             ].map((tab) => {
               const Icon = tab.icon;
               const active = activeTab === tab.key;
@@ -845,6 +812,81 @@ function DashboardContent() {
                 </div>
               </div>
 
+            </div>
+
+            {/* Institutional Banking & Liquidity Suite Hub */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Link
+                href="/exchange"
+                className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 transition-all group flex flex-col justify-between gap-3 shadow-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                    OTC Desks • $1K Bond
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Global OTC Exchange</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Request live quotes from Colombo, Tbilisi, Dubai & London desks
+                  </p>
+                </div>
+              </Link>
+
+              <Link
+                href="/p2p"
+                className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 transition-all group flex flex-col justify-between gap-3 shadow-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                    P2P Escrow • $50 Bond
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">P2P Marketplace</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Buy & sell USDT in LKR, INR, AED, GEL, EUR & USD with escrow
+                  </p>
+                </div>
+              </Link>
+
+              <Link
+                href="/investments"
+                className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 transition-all group flex flex-col justify-between gap-3 shadow-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                    Venture Crowdfunding
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Startup Equity Portal</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Allocate capital into vetted growth companies (5% fee model)
+                  </p>
+                </div>
+              </Link>
+
+              <Link
+                href="/token"
+                className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 transition-all group flex flex-col justify-between gap-3 shadow-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                    $AVR Early Access
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Avora Token & Testnet</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Acquire early-access $AVR at $0.10 or claim testnet faucet tokens
+                  </p>
+                </div>
+              </Link>
             </div>
 
             {/* Quick Banner to Virtual Card */}
@@ -1585,7 +1627,21 @@ function DashboardContent() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold mb-1">Amount</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold">Amount</label>
+                  <div className="flex items-center gap-1">
+                    {['1000', '5000', '10000', '25000'].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setDepositAmount(preset)}
+                        className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition-colors"
+                      >
+                        +${Number(preset).toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <input
                   type="number"
                   step="0.01"
@@ -1598,11 +1654,10 @@ function DashboardContent() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold mb-1">Blockchain Tx Hash or Bank Wire Reference</label>
+                <label className="block text-xs font-bold mb-1">Blockchain Tx Hash or Bank Wire Reference (Optional)</label>
                 <input
                   type="text"
-                  required
-                  placeholder="e.g. 0x9a8f... or UTR-92841"
+                  placeholder="Auto-generated if left blank (e.g. 0x9a8f... or UTR-92841)"
                   value={depositTxHash}
                   onChange={(e) => setDepositTxHash(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-mono"
@@ -1614,7 +1669,7 @@ function DashboardContent() {
                 disabled={depositLoading || !depositAmount}
                 className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 transition-colors shadow-md"
               >
-                {depositLoading ? 'Submitting deposit...' : 'Submit Deposit for Verification'}
+                {depositLoading ? 'Crediting account...' : 'Confirm & Credit Deposit'}
               </button>
             </form>
           </div>
