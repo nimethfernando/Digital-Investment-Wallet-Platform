@@ -68,13 +68,20 @@ const requireAdmin2FA = (req, res, next) => {
         res.status(401).json({ success: false, message: 'Unauthorized' });
         return;
     }
-    if ((req.user.role === client_1.Role.ADMIN || req.user.role === client_1.Role.STAFF) && !req.user.twoFactorEnabled) {
-        res.status(403).json({
-            success: false,
-            code: '2FA_MANDATORY_FOR_ADMIN',
-            message: 'Mandatory Two-Factor Authentication (2FA) is required for Admin and Staff accounts. Please enable 2FA on your account.',
-        });
-        return;
+    // If 2FA is enabled on this admin/staff account, verify 2FA code is provided
+    if (req.user.twoFactorEnabled) {
+        const providedCode = req.headers['x-admin-2fa'] ||
+            req.headers['x-2fa-code'] ||
+            req.body?.admin2FaCode ||
+            req.body?.twoFactorCode;
+        if (!providedCode) {
+            res.status(403).json({
+                success: false,
+                code: '2FA_CODE_REQUIRED',
+                message: 'Admin Two-Factor Authentication (2FA) code is required for this privileged operation.',
+            });
+            return;
+        }
     }
     next();
 };

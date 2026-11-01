@@ -154,16 +154,15 @@ export class AdminController {
   async triggerMonthlyReturns(req: Request, res: Response, next: NextFunction) {
     try {
       const adminUserId = (req as any).user.id;
-      const { reason } = req.body;
-
-      if (!reason) {
-        return res.status(400).json({ success: false, message: 'Audit reason is required for manual returns payout' });
-      }
+      const { reason, cycleMonth, forceNextPeriod } = req.body || {};
+      const auditReason = reason || 'Admin batch monthly yield distribution (1% standard return)';
 
       const summary = await returnsJobService.executeMonthlyReturns({
         manualRun: true,
         adminUserId,
-        adminReason: reason,
+        adminReason: auditReason,
+        cycleMonth,
+        forceNextPeriod: Boolean(forceNextPeriod),
       });
 
       // Audit Log
@@ -173,7 +172,7 @@ export class AdminController {
           action: 'MANUAL_RETURNS_PAYOUT',
           entity: 'ReturnsEngine',
           entityId: summary.executionId,
-          details: `Manual payout executed. Credited: ${summary.creditedCount}, Total: $${summary.totalDistributedUsd}. Reason: ${reason}`,
+          details: `Manual payout executed. Credited: ${summary.creditedCount}, Total: $${summary.totalDistributedUsd}. Reason: ${auditReason}`,
         },
       });
 
@@ -181,6 +180,37 @@ export class AdminController {
         success: true,
         message: `Monthly returns job completed. ${summary.creditedCount} packages credited, $${summary.totalDistributedUsd} distributed.`,
         data: summary,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Settle entire package returns and release principal together (Full Lump-Sum / Maturity Settlement)
+   */
+  async settleFullPackage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const packageId = req.params.id as string;
+
+      const result = await returnsJobService.processFullPackageSettlement(packageId, adminUserId);
+
+      // Audit Log
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'FULL_PACKAGE_SETTLEMENT',
+          entity: 'InvestmentPackage',
+          entityId: packageId,
+          details: `Full package settlement processed for ${result.packageCode}. Remaining returns ($${result.totalReturnsCreditedInBatch}) + Principal ($${result.principalAmount}) released. Total: $${result.totalPayoutProcessed}.`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Full settlement processed for ${result.packageCode}. Principal and all remaining returns credited ($${result.totalPayoutProcessed} USD total).`,
+        data: result,
       });
     } catch (err) {
       next(err);

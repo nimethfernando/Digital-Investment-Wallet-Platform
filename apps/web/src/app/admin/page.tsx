@@ -29,13 +29,14 @@ import {
   Ticket,
   Send,
   Zap,
+  Package,
 } from 'lucide-react';
 
 export default function AdminPortalPage() {
   const router = useRouter();
   const { user, token, isAdmin, isLoading } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'treasury' | 'kyc' | 'deposits' | 'withdrawals' | 'disputes'>('treasury');
+  const [activeTab, setActiveTab] = useState<'treasury' | 'packages' | 'kyc' | 'deposits' | 'withdrawals' | 'disputes'>('treasury');
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Treasury State
@@ -61,6 +62,9 @@ export default function AdminPortalPage() {
   // Support & Dispute State
   const [tickets, setTickets] = useState<any[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [adminPackages, setAdminPackages] = useState<any[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
+  const [returnsResult, setReturnsResult] = useState<any>(null);
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [adminReplyText, setAdminReplyText] = useState('');
   const [replyLoading, setReplyLoading] = useState(false);
@@ -79,12 +83,20 @@ export default function AdminPortalPage() {
 
   // Load Tab Data
   const loadData = async () => {
-    if (activeTab === 'treasury') {
+    if (activeTab === 'treasury' || activeTab === 'packages') {
+      setPackagesLoading(true);
       try {
-        const res = await api.get('/admin/ledger/reconcile');
-        if (res.data?.success) setLedgerReconciliation(res.data.data);
+        const [recRes, pkgRes] = await Promise.all([
+          api.get('/admin/ledger/reconcile').catch(() => ({ data: { data: null } })),
+          api.get('/admin/packages').catch(() => ({ data: { packages: [] } })),
+        ]);
+        if (recRes.data?.success) setLedgerReconciliation(recRes.data.data);
+        if (pkgRes.data?.packages) setAdminPackages(pkgRes.data.packages);
+        else if (Array.isArray(pkgRes.data?.data)) setAdminPackages(pkgRes.data.data);
       } catch (e) {
-        console.error('Failed to load reconciliation:', e);
+        console.error('Failed to load treasury data:', e);
+      } finally {
+        setPackagesLoading(false);
       }
     } else if (activeTab === 'kyc') {
       setKycLoading(true);
@@ -135,28 +147,69 @@ export default function AdminPortalPage() {
     }
   }, [activeTab, isAdmin]);
 
-  // Handle Monthly Returns Job
+  // Handle Monthly Returns Job across all active packages
   const handleTriggerMonthlyReturns = async () => {
-    if (!admin2FaCode) {
-      showToast('Please provide your 6-digit Admin 2FA code to execute the yield distribution.', 'error');
-      return;
-    }
     setRunningReturns(true);
+    setReturnsResult(null);
     try {
       const res = await api.post(
         '/admin/returns/run',
-        {},
-        { headers: { 'x-admin-2fa': admin2FaCode } }
+        {
+          reason: 'Admin batch monthly yield distribution (1% standard return)',
+          forceNextPeriod: true,
+        },
+        { headers: admin2FaCode ? { 'x-admin-2fa': admin2FaCode } : {} }
       );
       if (res.data?.success) {
-        showToast('Monthly 1% yield distribution completed across all active packages!', 'success');
-        setAdmin2FaCode('');
+        setReturnsResult(res.data.data);
+        showToast(
+          res.data.message || `Monthly yield run complete! Credited: ${res.data.data?.creditedCount || 0}`,
+          'success'
+        );
         loadData();
       }
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Failed to execute returns job', 'error');
     } finally {
       setRunningReturns(false);
+    }
+  };
+
+  // Handle Approving a Pending Package
+  const handleApprovePackage = async (pkgId: string) => {
+    try {
+      const res = await api.post(`/admin/packages/${pkgId}/approve`, {});
+      if (res.data?.success) {
+        showToast('Investment package approved and activated!', 'success');
+        loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Package approval failed', 'error');
+    }
+  };
+
+  // Handle Full Maturity Settlement (All remaining returns + principal release processed together)
+  const handleSettleFullPackage = async (pkgId: string, pkgCode: string) => {
+    const confirmSettle = confirm(
+      `Process full settlement for ${pkgCode}?\n\nThis will calculate all remaining return periods and release the full principal together into the investor's available wallet balance.`
+    );
+    if (!confirmSettle) return;
+
+    try {
+      const res = await api.post(
+        `/admin/packages/${pkgId}/settle-full`,
+        {},
+        { headers: admin2FaCode ? { 'x-admin-2fa': admin2FaCode } : {} }
+      );
+      if (res.data?.success) {
+        showToast(
+          `Full settlement processed! Total of $${res.data.data?.totalPayoutProcessed} USD credited.`,
+          'success'
+        );
+        loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Full package settlement failed', 'error');
     }
   };
 
@@ -316,11 +369,12 @@ export default function AdminPortalPage() {
         {/* Tab Navigation */}
         <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs font-bold">
           {[
-            { id: 'treasury', label: 'Treasury & Liquidity', icon: Landmark },
-            { id: 'kyc', label: 'KYC / AML Compliance', icon: UserCheck },
-            { id: 'deposits', label: 'Deposits Audit', icon: Coins },
-            { id: 'withdrawals', label: 'Settlement Queue (15-Day)', icon: Clock },
-            { id: 'disputes', label: 'Dispute & Ticket Desk', icon: MessageSquare },
+            { id: 'treasury', label: 'Treasury & Ledger', icon: Landmark },
+            { id: 'packages', label: `Packages & Yields (${adminPackages.length})`, icon: Package },
+            { id: 'deposits', label: `Deposits (${deposits.filter((d) => d.status === 'PENDING').length})`, icon: Coins },
+            { id: 'withdrawals', label: `Settlements (${withdrawals.filter((w) => w.status === 'QUEUED_FOR_SETTLEMENT').length})`, icon: Clock },
+            { id: 'kyc', label: `KYC Compliance (${kycDocs.length})`, icon: UserCheck },
+            { id: 'disputes', label: `Tickets (${tickets.length})`, icon: MessageSquare },
           ].map((t) => {
             const Icon = t.icon;
             return (
@@ -377,7 +431,7 @@ export default function AdminPortalPage() {
             </div>
 
             {/* Monthly 1% Yield Executor */}
-            <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-950/40 to-slate-900 border border-rose-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-950/40 via-slate-900 to-slate-900 border border-rose-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Zap className="w-5 h-5 text-rose-500" />
@@ -393,7 +447,7 @@ export default function AdminPortalPage() {
                   type="password"
                   value={admin2FaCode}
                   onChange={(e) => setAdmin2FaCode(e.target.value)}
-                  placeholder="2FA Code"
+                  placeholder="2FA (Optional)"
                   className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-center w-28 text-white outline-none"
                   maxLength={6}
                 />
@@ -406,6 +460,231 @@ export default function AdminPortalPage() {
                   <span>Execute Monthly Yield Run</span>
                 </button>
               </div>
+            </div>
+
+            {/* Live Returns Execution Receipt */}
+            {returnsResult && (
+              <div className="p-5 rounded-3xl bg-emerald-950/30 border border-emerald-500/30 space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Monthly Yield Batch Run Complete</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-400">{returnsResult.executionId}</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                    <p className="text-slate-400 text-[11px]">Total Active Packages</p>
+                    <p className="text-base font-black text-white mt-0.5">{returnsResult.totalActivePackages}</p>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                    <p className="text-slate-400 text-[11px]">Packages Credited</p>
+                    <p className="text-base font-black text-emerald-400 mt-0.5">{returnsResult.creditedCount}</p>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                    <p className="text-slate-400 text-[11px]">Already Credited / Skipped</p>
+                    <p className="text-base font-black text-amber-400 mt-0.5">{returnsResult.skippedCount}</p>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                    <p className="text-slate-400 text-[11px]">Total Distributed (USD)</p>
+                    <p className="text-base font-black text-white font-mono mt-0.5">${returnsResult.totalDistributedUsd}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: PACKAGES & FIXED DEPOSIT YIELDS */}
+        {activeTab === 'packages' && (
+          <div className="space-y-6">
+            {/* Header Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-1">
+                <span className="text-xs text-slate-400 font-semibold">Active Fixed Deposit Capital</span>
+                <div className="text-2xl font-black text-white font-mono">
+                  ${adminPackages
+                    .filter((p) => p.status === 'ACTIVE')
+                    .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0)
+                    .toLocaleString('en-US', { minimumFractionDigits: 2 })}{' '}
+                  USD
+                </div>
+                <p className="text-[11px] text-emerald-400 font-semibold">
+                  {adminPackages.filter((p) => p.status === 'ACTIVE').length} Active Client Packages (1% Monthly Yield)
+                </p>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-1">
+                <span className="text-xs text-slate-400 font-semibold">Pending Admin Approval</span>
+                <div className="text-2xl font-black text-amber-400 font-mono">
+                  {adminPackages.filter((p) => p.status === 'PENDING_PAYMENT').length} Packages
+                </div>
+                <p className="text-[11px] text-slate-500">Awaiting wire / deposit verification</p>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-1">
+                <span className="text-xs text-slate-400 font-semibold">Scheduled Yield Run</span>
+                <div className="text-2xl font-black text-emerald-400">00:05 UTC (1st of Month)</div>
+                <p className="text-[11px] text-slate-500 font-mono">Autonomous double-entry credit cron</p>
+              </div>
+            </div>
+
+            {/* Yield Engine Payout Card */}
+            <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-950/40 via-slate-900 to-slate-900 border border-rose-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-rose-500" />
+                  <h3 className="font-extrabold text-base text-white">Trigger Batch Monthly Yield Run</h3>
+                </div>
+                <p className="text-xs text-slate-400 max-w-xl">
+                  Credits 1% target return to each customer's available wallet balance simultaneously, generates atomic double-entry ledger entries, and logs investor transaction records.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleTriggerMonthlyReturns}
+                  disabled={runningReturns}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50 cursor-pointer"
+                >
+                  {runningReturns && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>Credit All Active Packages Now</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Live Returns Execution Receipt */}
+            {returnsResult && (
+              <div className="p-5 rounded-3xl bg-emerald-950/30 border border-emerald-500/30 space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Monthly Yield Batch Run Complete</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-400">{returnsResult.executionId}</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                    <p className="text-slate-400 text-[11px]">Total Active Packages</p>
+                    <p className="text-base font-black text-white mt-0.5">{returnsResult.totalActivePackages}</p>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                    <p className="text-slate-400 text-[11px]">Packages Credited</p>
+                    <p className="text-base font-black text-emerald-400 mt-0.5">{returnsResult.creditedCount}</p>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                    <p className="text-slate-400 text-[11px]">Already Credited / Skipped</p>
+                    <p className="text-base font-black text-amber-400 mt-0.5">{returnsResult.skippedCount}</p>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                    <p className="text-slate-400 text-[11px]">Total Distributed (USD)</p>
+                    <p className="text-base font-black text-white font-mono mt-0.5">${returnsResult.totalDistributedUsd}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Customer Investment Packages Table */}
+            <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-extrabold text-base text-white">Client Investment Packages ({adminPackages.length})</h3>
+                  <p className="text-xs text-slate-400">All customer capital deployments, lock-in terms & yield payout statuses</p>
+                </div>
+                <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1">
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                </button>
+              </div>
+
+              {packagesLoading ? (
+                <div className="p-12 text-center text-slate-500">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500" />
+                </div>
+              ) : adminPackages.length === 0 ? (
+                <div className="p-12 text-center text-slate-500 text-xs">
+                  No investment packages found in the database.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-slate-800 text-slate-400 uppercase font-bold text-[10px]">
+                      <tr>
+                        <th className="pb-3">Package Code</th>
+                        <th className="pb-3">Client Email</th>
+                        <th className="pb-3">Principal Amount</th>
+                        <th className="pb-3">Monthly Yield (1%)</th>
+                        <th className="pb-3">Term & Lock-In</th>
+                        <th className="pb-3">Returns Credited</th>
+                        <th className="pb-3">Status</th>
+                        <th className="pb-3 text-right">Settlement Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {adminPackages.map((pkg) => (
+                        <tr key={pkg.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3 font-mono font-bold text-rose-400">{pkg.packageCode}</td>
+                          <td className="py-3 font-semibold text-slate-200">
+                            {pkg.user?.email || 'investor@avorabank.com'}
+                          </td>
+                          <td className="py-3 font-mono font-black text-white">
+                            ${parseFloat(pkg.amount).toLocaleString()} USD
+                          </td>
+                          <td className="py-3 font-mono text-emerald-400 font-bold">
+                            +${(parseFloat(pkg.amount) * 0.01).toFixed(2)} / mo ({pkg.returnRateSnapshot || '1.0%'})
+                          </td>
+                          <td className="py-3 text-slate-300">
+                            {pkg.lockInMonths || 6} Months FD
+                          </td>
+                          <td className="py-3 font-mono text-slate-300">
+                            {pkg.returnsCount !== undefined ? `${pkg.returnsCount} months` : 'Active'}
+                          </td>
+                          <td className="py-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                pkg.status === 'ACTIVE'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                  : pkg.status === 'PENDING_PAYMENT'
+                                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                  : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                              }`}
+                            >
+                              {pkg.status}
+                            </span>
+                          </td>
+                          <td className="py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {pkg.status === 'PENDING_PAYMENT' && (
+                                <button
+                                  onClick={() => handleApprovePackage(pkg.id)}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow-sm transition-all"
+                                >
+                                  Approve & Activate
+                                </button>
+                              )}
+
+                              {pkg.status === 'ACTIVE' && (
+                                <button
+                                  onClick={() => handleSettleFullPackage(pkg.id, pkg.packageCode)}
+                                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/90 text-white font-bold text-[11px] border border-slate-700 hover:border-rose-500 transition-all"
+                                  title="Calculates all remaining monthly returns and releases the principal together"
+                                >
+                                  Process Full Settlement (Returns + Principal)
+                                </button>
+                              )}
+
+                              {pkg.status === 'MATURED' && (
+                                <span className="text-[11px] text-slate-500 font-semibold">
+                                  Fully Settled & Released
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}

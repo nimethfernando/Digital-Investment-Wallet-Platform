@@ -502,7 +502,7 @@ export class LedgerService {
   /**
    * Release principal when package has matured (past lock-in end date)
    */
-  async releaseMaturedPrincipal(packageId: string, adminUserId: string = 'SYSTEM') {
+  async releaseMaturedPrincipal(packageId: string, adminUserId: string = 'SYSTEM', force: boolean = false) {
     return await prisma.$transaction(async (tx) => {
       const pkg = await tx.investmentPackage.findUnique({
         where: { id: packageId },
@@ -513,7 +513,7 @@ export class LedgerService {
       }
 
       const now = new Date();
-      if (pkg.lockInEnd && now < pkg.lockInEnd) {
+      if (!force && pkg.lockInEnd && now < pkg.lockInEnd) {
         throw new Error(`Package lock-in period has not ended yet. Ends at: ${pkg.lockInEnd.toISOString()}`);
       }
 

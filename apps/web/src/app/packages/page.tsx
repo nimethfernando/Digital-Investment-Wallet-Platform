@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 
 export default function PackagesPage() {
+  const router = useRouter();
   const { t } = useLanguage();
   const { user } = useAuth();
 
@@ -52,6 +54,10 @@ export default function PackagesPage() {
   ];
 
   const handlePurchase = async () => {
+    if (!user) {
+      router.push('/login?redirect=/packages');
+      return;
+    }
     if (!riskAcknowledged) {
       setPurchaseError('Please acknowledge the terms and market risk disclosure.');
       return;

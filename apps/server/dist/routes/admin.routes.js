@@ -10,6 +10,7 @@ router.use((0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]));
 // Package operations
 router.get('/packages', (req, res, next) => admin_controller_1.adminController.getPackages(req, res, next));
 router.post('/packages/:id/approve', (req, res, next) => admin_controller_1.adminController.approvePackage(req, res, next));
+router.post('/packages/:id/settle-full', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.settleFullPackage(req, res, next));
 // Deposit operations
 router.get('/deposits', (req, res, next) => admin_controller_1.adminController.getDeposits(req, res, next));
 router.post('/deposits/:id/approve', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.approveDeposit(req, res, next));

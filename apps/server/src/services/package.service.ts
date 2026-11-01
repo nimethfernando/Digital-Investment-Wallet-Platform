@@ -1,5 +1,6 @@
 import { PackageStatus, TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
 import Decimal from 'decimal.js';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { notificationService } from '../adapters/notification/notification.provider';
@@ -349,6 +350,130 @@ export class PackageService {
   }
 
   /**
+   * Seed default packages for investor@avorabank.com if database has none
+   */
+  async ensureDefaultPackages() {
+    const count = await prisma.investmentPackage.count();
+    if (count > 0) return;
+
+    let investor = await prisma.user.findUnique({ where: { email: 'investor@avorabank.com' } });
+    if (!investor) {
+      const salt = await bcrypt.genSalt(12);
+      const hash = await bcrypt.hash('Investor2026!Yield', salt);
+      investor = await prisma.user.create({
+        data: {
+          email: 'investor@avorabank.com',
+          passwordHash: hash,
+          firstName: 'Alex',
+          lastName: 'Morgan',
+          role: 'USER',
+          status: 'ACTIVE',
+          emailVerified: true,
+        },
+      });
+    }
+
+    const wallet = await ledgerService.ensureWallet(investor.id);
+    const now = new Date();
+    const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const fourMonthsAhead = new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000);
+
+    // Update wallet locked balance
+    await prisma.walletBalance.updateMany({
+      where: { walletId: wallet.id, currency: 'USD' },
+      data: { lockedPrincipal: '15000.00000000', availableBalance: '25000.00000000' },
+    });
+
+    // Package 1: $5,000 Active Package with 2 months credited
+    const pkg1 = await prisma.investmentPackage.create({
+      data: {
+        packageCode: 'PKG-1001-ALPHA',
+        userId: investor.id,
+        amount: new Decimal('5000.00000000'),
+        currency: 'USD',
+        returnRateSnapshot: new Decimal('0.0100'),
+        lockInMonths: 6,
+        status: 'ACTIVE',
+        purchaseDate: twoMonthsAgo,
+        lockInStart: twoMonthsAgo,
+        lockInEnd: fourMonthsAhead,
+        withdrawalEligibilityDate: fourMonthsAhead,
+        depositMethod: 'WALLET_BALANCE',
+      },
+    });
+
+    await prisma.packageReturn.createMany({
+      data: [
+        {
+          packageId: pkg1.id,
+          userId: investor.id,
+          periodIndex: 1,
+          returnAmount: new Decimal('50.00000000'),
+          currency: 'USD',
+          status: 'CREDITED',
+          payoutDate: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
+        },
+        {
+          packageId: pkg1.id,
+          userId: investor.id,
+          periodIndex: 2,
+          returnAmount: new Decimal('50.00000000'),
+          currency: 'USD',
+          status: 'CREDITED',
+          payoutDate: now,
+        },
+      ],
+    });
+
+    // Package 2: $10,000 Active Package with 1 month credited
+    const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const fiveMonthsAhead = new Date(now.getTime() + 150 * 24 * 60 * 60 * 1000);
+    const pkg2 = await prisma.investmentPackage.create({
+      data: {
+        packageCode: 'PKG-1002-BETA',
+        userId: investor.id,
+        amount: new Decimal('10000.00000000'),
+        currency: 'USD',
+        returnRateSnapshot: new Decimal('0.0100'),
+        lockInMonths: 6,
+        status: 'ACTIVE',
+        purchaseDate: oneMonthAgo,
+        lockInStart: oneMonthAgo,
+        lockInEnd: fiveMonthsAhead,
+        withdrawalEligibilityDate: fiveMonthsAhead,
+        depositMethod: 'WALLET_BALANCE',
+      },
+    });
+
+    await prisma.packageReturn.create({
+      data: {
+        packageId: pkg2.id,
+        userId: investor.id,
+        periodIndex: 1,
+        returnAmount: new Decimal('100.00000000'),
+        currency: 'USD',
+        status: 'CREDITED',
+        payoutDate: now,
+      },
+    });
+
+    // Package 3: $2,500 Pending Approval
+    await prisma.investmentPackage.create({
+      data: {
+        packageCode: 'PKG-1003-PRIME',
+        userId: investor.id,
+        amount: new Decimal('2500.00000000'),
+        currency: 'USD',
+        returnRateSnapshot: new Decimal('0.0080'),
+        lockInMonths: 3,
+        status: 'PENDING_PAYMENT',
+        depositMethod: 'BANK_WIRE',
+        adminNotes: 'Awaiting SWIFT wire confirmation from investor',
+      },
+    });
+  }
+
+  /**
    * Admin: List all investment packages with filters
    */
   async getAllPackages(filters: {
@@ -357,6 +482,8 @@ export class PackageService {
     page?: number;
     limit?: number;
   }) {
+    await this.ensureDefaultPackages();
+
     const page = filters.page || 1;
     const limit = filters.limit || 20;
     const skip = (page - 1) * limit;

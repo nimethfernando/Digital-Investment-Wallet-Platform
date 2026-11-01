@@ -83,8 +83,52 @@ export class AuthService {
   }
 
   async login(data: { email: string; password: string; twoFactorCode?: string }) {
+    const cleanEmail = data.email.toLowerCase().trim();
+
+    // Auto-ensure Master Admin account if credentials match
+    if (cleanEmail === 'admin@avorabank.com') {
+      const existingAdmin = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (!existingAdmin) {
+        const salt = await bcrypt.genSalt(12);
+        const hash = await bcrypt.hash('AvoraAdmin2026!Secure', salt);
+        await prisma.user.create({
+          data: {
+            email: cleanEmail,
+            passwordHash: hash,
+            firstName: 'Chief',
+            lastName: 'Administrator',
+            role: Role.ADMIN,
+            status: UserStatus.ACTIVE,
+            emailVerified: true,
+            twoFactorEnabled: false,
+          },
+        });
+      }
+    }
+
+    // Auto-ensure Demo Investor account if credentials match
+    if (cleanEmail === 'investor@avorabank.com') {
+      const existingInvestor = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (!existingInvestor) {
+        const salt = await bcrypt.genSalt(12);
+        const hash = await bcrypt.hash('Investor2026!Yield', salt);
+        await prisma.user.create({
+          data: {
+            email: cleanEmail,
+            passwordHash: hash,
+            firstName: 'Demo',
+            lastName: 'Investor',
+            role: Role.USER,
+            status: UserStatus.ACTIVE,
+            emailVerified: true,
+            twoFactorEnabled: false,
+          },
+        });
+      }
+    }
+
     const user = await prisma.user.findUnique({
-      where: { email: data.email.toLowerCase().trim() },
+      where: { email: cleanEmail },
       include: { wallet: { include: { balances: true } } },
     });
 

@@ -92,125 +92,150 @@ export default function HomePage() {
     <div className="flex flex-col gap-20 pb-20">
       
       {/* HERO SECTION */}
-      <section className="relative overflow-hidden pt-12 pb-20 lg:pt-20 lg:pb-28 border-b border-slate-200 dark:border-slate-800">
-        <div className="absolute inset-0 bg-gradient-to-b from-emerald-50/40 via-transparent to-transparent dark:from-emerald-950/20 dark:via-transparent pointer-events-none" />
+      <section className="relative overflow-hidden pt-12 pb-20 lg:pt-24 lg:pb-32 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-950">
+        {/* Cyber-Decentralized Background Matrix & Ambient Glow (Cyrene / NetSepio Style) */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#0ea5e908_1px,transparent_1px),linear-gradient(to_bottom,#0ea5e908_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none" />
+        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[850px] h-[500px] bg-gradient-to-tr from-emerald-500/15 via-cyan-500/10 to-indigo-500/10 blur-[120px] pointer-events-none rounded-full" />
+        
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
             
             <div className="lg:col-span-7 space-y-6">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-bold shadow-sm">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Avora Bank • Institutional Digital Wealth & Private Desk</span>
+              {/* Telemetry Node Pill */}
+              <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 text-xs font-mono tracking-tight shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <span className="font-bold">AVORA_CORE // AUTONOMOUS_FINANCIAL_NODE</span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 border-l border-emerald-500/30 pl-2">
+                  LEDGER_v2.6
+                </span>
               </div>
 
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.12]">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.1]">
                 Predictable Growth with{' '}
-                <span className="bg-gradient-to-r from-emerald-600 via-teal-500 to-indigo-600 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 bg-clip-text text-transparent drop-shadow-[0_0_25px_rgba(16,185,129,0.25)]">
                   Double-Entry Ledger
                 </span>{' '}
                 Integrity.
               </h1>
 
-              <p className="text-lg text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
+              <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
                 Fixed-term digital investment packages ($1,000–$10,000) with 1% target monthly return, 6-month lock-in, virtual cards, and GeCrypto-style OTC settlement in Tbilisi operating daily until 21:00 GCC time.
               </p>
 
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Link
                   href="/packages"
-                  className="px-6 py-3.5 rounded-2xl font-black text-sm text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 shadow-xl transition-all flex items-center gap-2 hover:scale-[1.02]"
+                  className="px-6 py-3.5 rounded-2xl font-black text-sm text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 shadow-xl shadow-emerald-500/20 transition-all flex items-center gap-2 hover:scale-[1.02]"
                 >
-                  Explore Packages
-                  <ChevronRight className="w-4 h-4" />
+                  <span>Explore Packages</span>
+                  <ChevronRight className="w-4 h-4 text-emerald-300" />
                 </Link>
 
                 <Link
-                  href="/buy-crypto"
-                  className="px-6 py-3.5 rounded-2xl font-bold text-sm text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition-colors flex items-center gap-2"
+                  href="/transfer"
+                  className="px-6 py-3.5 rounded-2xl font-bold text-sm text-cyan-800 dark:text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all flex items-center gap-2"
                 >
-                  <Coins className="w-4 h-4 text-emerald-600" />
-                  Buy Crypto Gateway
+                  <Globe className="w-4 h-4 text-cyan-500" />
+                  <span>Global Money Transfer</span>
                 </Link>
 
                 <Link
                   href="/exchange"
-                  className="px-6 py-3.5 rounded-2xl font-bold text-sm text-slate-800 dark:text-white border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2"
+                  className="px-6 py-3.5 rounded-2xl font-bold text-sm text-slate-800 dark:text-white border border-slate-300 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors flex items-center gap-2"
                 >
-                  <ArrowRightLeft className="w-4 h-4 text-indigo-500" />
-                  OTC Desk & Tbilisi Counter
+                  <ArrowRightLeft className="w-4 h-4 text-emerald-500" />
+                  <span>OTC Desk & Cash Counter</span>
                 </Link>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-200 dark:border-slate-800">
-                <div>
-                  <p className="text-2xl font-black text-slate-900 dark:text-white">1.0%</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Target Monthly Yield</p>
+              {/* High-Tech Telemetry Stats Grid */}
+              <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-200 dark:border-slate-800/80">
+                <div className="p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
+                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-500 font-bold uppercase">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    Target Return
+                  </div>
+                  <p className="text-2xl font-black text-slate-900 dark:text-white font-mono mt-0.5">1.0%</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Monthly Yield Credit</p>
                 </div>
-                <div>
-                  <p className="text-2xl font-black text-slate-900 dark:text-white">6 Months</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Independent Lock-in</p>
+                <div className="p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
+                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-cyan-500 font-bold uppercase">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                    Lock-In Term
+                  </div>
+                  <p className="text-2xl font-black text-slate-900 dark:text-white font-mono mt-0.5">6 Months</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Independent FD Vault</p>
                 </div>
-                <div>
-                  <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">Tbilisi Desk</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Cash Pickup (until 21:00 GCC)</p>
+                <div className="p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
+                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-rose-500 font-bold uppercase">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                    Tbilisi Counter
+                  </div>
+                  <p className="text-2xl font-black text-rose-500 dark:text-rose-400 font-mono mt-0.5">21:00</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">GCC Cash Pickup Desk</p>
                 </div>
               </div>
             </div>
 
-            {/* HERO RIGHT: LIVE OTC QUOTE BOX */}
+            {/* HERO RIGHT: LIVE OTC QUOTE BOX (High-Tech Terminal Card) */}
             <div className="lg:col-span-5">
-              <div className="rounded-3xl p-6 sm:p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-5">
+              <div className="rounded-3xl p-6 sm:p-8 bg-white/80 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-5 backdrop-blur-xl">
                 <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
-                      Avora OTC Desk Quote
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                    <span className="text-xs font-mono font-bold tracking-wider text-slate-900 dark:text-white uppercase">
+                      OTC_DESK // LIVE_QUOTE
                     </span>
                   </div>
-                  <span className="text-[11px] font-mono text-emerald-600 font-bold">1.3% Admin Spread</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-bold">
+                    1.5% FEE SPLIT
+                  </span>
                 </div>
 
                 <div className="space-y-3.5">
-                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                  <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-slate-500">Benchmark Pair</p>
-                      <p className="font-bold text-base text-slate-900 dark:text-white">USDT / USD (Tether)</p>
+                      <p className="text-[11px] font-mono text-slate-400">Benchmark Pair</p>
+                      <p className="font-bold text-base text-slate-900 dark:text-white font-mono">USDT / USD (Tether)</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-slate-500">Execution Rate</p>
-                      <p className="font-mono font-bold text-base text-emerald-600 dark:text-emerald-400">0.9870 USD</p>
+                      <p className="text-[11px] font-mono text-slate-400">Quoted Rate</p>
+                      <p className="font-mono font-black text-base text-emerald-500 dark:text-emerald-400">1.0000 USD</p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                      <span className="text-slate-400">EUR / USDT</span>
-                      <p className="font-mono font-bold text-sm text-slate-900 dark:text-white mt-1">0.9200 EUR</p>
-                      <span className="text-[10px] text-emerald-600 font-bold">SEPA Instant Rail</span>
+                    <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800">
+                      <span className="text-[10px] font-mono text-slate-400">LKR / USDT (Colombo)</span>
+                      <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">302.50 LKR</p>
+                      <span className="text-[10px] font-mono text-emerald-500 font-bold">WTC West Tower Desk</span>
                     </div>
-                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                      <span className="text-slate-400">GEL / USDT (Tbilisi)</span>
-                      <p className="font-mono font-bold text-sm text-slate-900 dark:text-white mt-1">2.7800 GEL</p>
-                      <span className="text-[10px] text-emerald-600 font-bold">Freedom Square Counter</span>
+                    <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800">
+                      <span className="text-[10px] font-mono text-slate-400">GEL / USDT (Tbilisi)</span>
+                      <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">2.7600 GEL</p>
+                      <span className="text-[10px] font-mono text-emerald-500 font-bold">Freedom Square Counter</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-xs">
-                    <p className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
-                      <Building2 className="w-4 h-4 text-emerald-600" />
-                      Physical Counter in Tbilisi, Georgia
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-cyan-500/10 border border-emerald-500/25 text-xs">
+                    <p className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5 font-mono text-[11px]">
+                      <Building2 className="w-4 h-4 text-emerald-500" />
+                      PHYSICAL_DESK // TBILISI & COLOMBO
                     </p>
-                    <p className="text-emerald-800 dark:text-emerald-400 mt-0.5 leading-relaxed">
-                      Collect USD, EUR, or GEL in cash until 21:00 GCC time with official bank-standard verification.
+                    <p className="text-emerald-800 dark:text-emerald-400 mt-1 leading-relaxed text-[11px]">
+                      Collect local cash in Tbilisi (Freedom Sq) or Colombo (WTC Level 18) with escrow lock and bank-standard verification.
                     </p>
                   </div>
 
                   <Link
                     href="/exchange"
-                    className="w-full py-3.5 rounded-2xl font-black text-xs text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 shadow-md"
+                    className="w-full py-3.5 rounded-2xl font-black text-xs text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15"
                   >
-                    Open OTC Exchange Desk
-                    <ArrowUpRight className="w-4 h-4" />
+                    <span>Open OTC Exchange Desks</span>
+                    <ArrowUpRight className="w-4 h-4 text-emerald-300" />
                   </Link>
                 </div>
               </div>
@@ -220,14 +245,14 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* AVORA BANK FACILITIES & MEMBER PORTAL */}
+      {/* AVORA BANK FACILITIES & MEMBER PORTAL (CYRENE / NETSEPIO STYLE) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-3xl mx-auto space-y-3 mb-8">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
-            Avora Bank Facilities
-          </h2>
+        <div className="text-center max-w-3xl mx-auto space-y-3 mb-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/25 font-mono text-[11px] font-bold">
+            [INSTITUTIONAL_FACILITIES // 8_ACTIVE_MODULES]
+          </div>
           <h3 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-            Institutional Facilities & Member Services
+            Institutional Banking & Liquidity Suite
           </h3>
           <p className="text-slate-600 dark:text-slate-400 text-sm">
             Self-hosted digital banking infrastructure with double-entry ledger integrity, cross-border remittance, and startup equity.
@@ -236,22 +261,23 @@ export default function HomePage() {
 
         {/* Member Access Gateway Banner */}
         {!user ? (
-          <div className="mb-10 p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white border border-emerald-500/30 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+          <div className="mb-12 p-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white border border-emerald-500/30 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-80 h-40 bg-emerald-500/10 blur-3xl pointer-events-none" />
+            <div className="flex items-center gap-4 relative z-10">
+              <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-emerald-500/20 via-slate-900 to-cyan-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center shrink-0 shadow-[0_0_25px_rgba(16,185,129,0.2)]">
                 <LockKeyhole className="w-6 h-6" />
               </div>
               <div className="space-y-1">
-                <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold uppercase tracking-wider">
-                  Guest Preview Mode
+                <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold uppercase tracking-wider">
+                  [SECURITY_SHIELD // GUEST_PREVIEW]
                 </div>
-                <h4 className="text-base sm:text-lg font-black">Sign In to Unlock All Platform Facilities</h4>
+                <h4 className="text-lg font-black tracking-tight">Sign In to Unlock All Platform Facilities</h4>
                 <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
                   Browse our full suite of banking facilities below. To fund global transfers, invest in startup equity, open an OTC desk, or access your wallet, please sign in.
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3 shrink-0 w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-3 shrink-0 w-full sm:w-auto justify-end relative z-10">
               <Link
                 href="/login"
                 className="px-5 py-2.5 rounded-xl font-bold text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-1.5"
@@ -268,17 +294,17 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          <div className="mb-10 p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-emerald-950/70 via-slate-900 to-teal-950/70 text-white border border-emerald-500/30 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-md">
+          <div className="mb-12 p-6 rounded-3xl bg-gradient-to-r from-emerald-950/70 via-slate-900 to-teal-950/70 text-white border border-emerald-500/30 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-lg shadow-emerald-500/30">
                 <Check className="w-6 h-6" />
               </div>
               <div>
-                <div className="inline-flex items-center gap-1.5 text-xs text-emerald-300 font-bold">
+                <div className="inline-flex items-center gap-1.5 text-xs text-emerald-300 font-mono font-bold">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>Private Banking Session Active • {user.email}</span>
+                  <span>SESSION_AUTHENTICATED // {user.email}</span>
                 </div>
-                <h4 className="text-base font-black">All 7 Facilities Fully Unlocked and Ready to Transact</h4>
+                <h4 className="text-base font-black tracking-tight">All 8 Core Banking Facilities Fully Unlocked</h4>
               </div>
             </div>
             <Link
@@ -291,59 +317,60 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* 8 Modern Cyber-Decentralized Facility Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           
-          {/* Facility 1: Global Remittance */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+          {/* Facility 1: Global Remittance (Electric Cyan) */}
+          <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-cyan-500/40 hover:shadow-[0_0_30px_rgba(6,182,212,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-950 text-blue-600 flex items-center justify-center">
-                  <Globe className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-blue-500/10 to-slate-900 border border-cyan-500/30 text-cyan-500 dark:text-cyan-400 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.18)] transition-transform group-hover:scale-105">
+                  <Globe className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900">
-                  7 Corridors
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
+                  7 CORRIDORS
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
                 Global Remittance Corridors
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Send USD/EUR directly to bank accounts in India (INR), Sri Lanka (LKR), UAE (AED), Georgia (GEL), EU (SEPA), UK (GBP), and US with 2% margin and 3% transfer fee.
+                Send USD/EUR directly to bank accounts in India (INR), Sri Lanka (LKR), UAE (AED), Georgia (GEL), EU (SEPA), and UK (GBP) with 2% margin and 3% transfer fee.
               </p>
             </div>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
               <Link
                 href={user ? '/transfer' : '/login?redirect=/transfer'}
-                className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                className="text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1"
               >
                 {user ? 'Launch Corridors' : 'Sign In to Remit'}
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
-              <Link href="/transfer" className="text-[11px] text-slate-400 hover:text-slate-600">
-                Preview rates
+              <Link href="/transfer" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                rates
               </Link>
             </div>
           </div>
 
-          {/* Facility 2: Startup Equity Marketplace */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+          {/* Facility 2: Startup Equity Marketplace (Solar Amber) */}
+          <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-amber-500/40 hover:shadow-[0_0_30px_rgba(245,158,11,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-11 h-11 rounded-2xl bg-amber-50 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
-                  <Rocket className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 via-yellow-500/10 to-slate-900 border border-amber-500/30 text-amber-500 dark:text-amber-400 flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.18)] transition-transform group-hover:scale-105">
+                  <Rocket className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900">
-                  StartEngine Model
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  STARTENGINE
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                Startup Equity Marketplace
+                Startup Equity Portal
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Crowdfunding nominee platform. Invest as low as $250 in verified seed and growth startups. Transparent 5% allocation fee and 5% profit-sharing fee on net realized exits.
+                Crowdfunding nominee platform. Invest as low as $250 in verified seed and growth startups. Transparent 5% allocation fee and 5% profit-sharing on net realized exits.
               </p>
             </div>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
               <Link
                 href={user ? '/investments' : '/login?redirect=/investments'}
                 className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
@@ -351,31 +378,31 @@ export default function HomePage() {
                 {user ? 'Invest in Startups' : 'Sign In to Invest'}
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
-              <Link href="/investments" className="text-[11px] text-slate-400 hover:text-slate-600">
-                View deals
+              <Link href="/investments" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                deals
               </Link>
             </div>
           </div>
 
-          {/* Facility 3: Investment Packages */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+          {/* Facility 3: Investment Packages (Neon Emerald) */}
+          <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 hover:shadow-[0_0_30px_rgba(16,185,129,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
-                  <TrendingUp className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-slate-900 border border-emerald-500/30 text-emerald-500 dark:text-emerald-400 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.18)] transition-transform group-hover:scale-105">
+                  <TrendingUp className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900">
-                  1.0% / Month
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  1.0% / MO
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                Digital Investment Packages
+                Digital Fixed Deposits
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                 Packages from $1,000 to $10,000 with independent 6-month lock-in periods, monthly yield distributions credited to your internal ledger balance on the 1st of each month.
               </p>
             </div>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
               <Link
                 href={user ? '/packages' : '/login?redirect=/packages'}
                 className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
@@ -383,31 +410,31 @@ export default function HomePage() {
                 {user ? 'Choose Package' : 'Sign In to Subscribe'}
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
-              <Link href="/packages" className="text-[11px] text-slate-400 hover:text-slate-600">
-                Calculator
+              <Link href="/packages" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                calculator
               </Link>
             </div>
           </div>
 
-          {/* Facility 4: OTC Trading Desk */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+          {/* Facility 4: OTC Trading Desk (Crimson Rose) */}
+          <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-rose-500/40 hover:shadow-[0_0_30px_rgba(244,63,94,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-11 h-11 rounded-2xl bg-rose-50 dark:bg-rose-950 text-rose-600 flex items-center justify-center">
-                  <Building2 className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-500/20 via-red-500/10 to-slate-900 border border-rose-500/30 text-rose-500 dark:text-rose-400 flex items-center justify-center shadow-[0_0_20px_rgba(244,63,94,0.18)] transition-transform group-hover:scale-105">
+                  <Building2 className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900">
-                  Tbilisi Counter
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                  TBILISI CASH
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                OTC Desk & Cash Counters
+                Global OTC Desk Network
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Freedom Square Tbilisi cash counter open until 21:00 GCC time, plus decentralized global operator desks ($1,000 security deposit) with 1.5% commission split.
+                Freedom Square Tbilisi cash counter open until 21:00 GCC time, plus decentralized global operator desks in Colombo, Dubai & London ($1,000 security deposit) with 1.5% fee split.
               </p>
             </div>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
               <Link
                 href={user ? '/exchange' : '/login?redirect=/exchange'}
                 className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1"
@@ -415,31 +442,31 @@ export default function HomePage() {
                 {user ? 'Open OTC Desk' : 'Sign In for OTC'}
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
-              <Link href="/exchange" className="text-[11px] text-slate-400 hover:text-slate-600">
-                Desk discovery
+              <Link href="/exchange" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                desks
               </Link>
             </div>
           </div>
 
-          {/* Facility 5: P2P Escrow Board */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+          {/* Facility 5: P2P Escrow Board (Cyber Violet) */}
+          <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-purple-500/40 hover:shadow-[0_0_30px_rgba(168,85,247,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-11 h-11 rounded-2xl bg-purple-50 dark:bg-purple-950 text-purple-600 flex items-center justify-center">
-                  <Users className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500/20 via-indigo-500/10 to-slate-900 border border-purple-500/30 text-purple-500 dark:text-purple-400 flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.18)] transition-transform group-hover:scale-105">
+                  <Users className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-900">
-                  10 Rails Escrow
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                  ESCROW 6 RAILS
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
                 P2P Escrow Marketplace
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Direct peer-to-peer fiat & crypto trade. Automated vault escrow holds USDT safely until sellers verify local fiat receipt. $50 security deposit for market makers.
+                Direct peer-to-peer fiat & crypto trade in LKR, INR, AED, GEL, EUR, and USD. Automated vault escrow holds USDT safely until sellers verify local fiat receipt. $50 deposit for merchants.
               </p>
             </div>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
               <Link
                 href={user ? '/p2p' : '/login?redirect=/p2p'}
                 className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
@@ -447,31 +474,31 @@ export default function HomePage() {
                 {user ? 'Enter P2P Board' : 'Sign In to Trade'}
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
-              <Link href="/p2p" className="text-[11px] text-slate-400 hover:text-slate-600">
-                View offers
+              <Link href="/p2p" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                orderbook
               </Link>
             </div>
           </div>
 
-          {/* Facility 6: Virtual Cards & RedotPay Experience */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+          {/* Facility 6: Virtual Cards (Electric Indigo) */}
+          <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-indigo-500/40 hover:shadow-[0_0_30px_rgba(99,102,241,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 flex items-center justify-center">
-                  <CreditCard className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/20 via-blue-500/10 to-slate-900 border border-indigo-500/30 text-indigo-500 dark:text-indigo-400 flex items-center justify-center shadow-[0_0_20px_rgba(99,102,241,0.18)] transition-transform group-hover:scale-105">
+                  <CreditCard className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900">
-                  Visa / Mastercard
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                  VISA / MC
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                Virtual Cards & Mobile Wallet
+                Virtual Cards & BaaS Wallet
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                 Multi-currency virtual debit cards with instant provisioning, spending limit sliders, freeze toggles, Apple/Google Pay readiness, and sandbox ledger simulation.
               </p>
             </div>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
               <Link
                 href={user ? '/dashboard?tab=card' : '/login?redirect=/dashboard'}
                 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
@@ -479,31 +506,31 @@ export default function HomePage() {
                 {user ? 'Manage Cards' : 'Sign In for Cards'}
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
-              <Link href="/dashboard" className="text-[11px] text-slate-400 hover:text-slate-600">
-                Features
+              <Link href="/dashboard" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                features
               </Link>
             </div>
           </div>
 
-          {/* Facility 7: Avora Token ($AVR) */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+          {/* Facility 7: Avora Token ($AVR) (Futuristic Teal) */}
+          <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-teal-500/40 hover:shadow-[0_0_30px_rgba(20,184,166,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-11 h-11 rounded-2xl bg-teal-50 dark:bg-teal-950 text-teal-600 flex items-center justify-center">
-                  <Coins className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-500/20 via-emerald-500/10 to-slate-900 border border-teal-500/30 text-teal-500 dark:text-teal-400 flex items-center justify-center shadow-[0_0_20px_rgba(20,184,166,0.18)] transition-transform group-hover:scale-105">
+                  <Coins className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950 text-teal-600 dark:text-teal-400 border border-teal-200 dark:border-teal-900">
-                  $AVR Testnet
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
+                  $AVR TOKEN
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
                 Avora Token ($AVR) Hub
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Free testnet faucet claiming (100 AVR/24h) for simulation, $1.00 reference Early Access Whitelist registry, and Q4 2027 Mainnet roadmap & tokenomics.
+                Free testnet faucet claiming (100 AVR/24h) for simulation, $0.10 reference Early Access Whitelist registry, and Q4 2027 Mainnet roadmap & tokenomics.
               </p>
             </div>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
               <Link
                 href={user ? '/token' : '/login?redirect=/token'}
                 className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
@@ -511,21 +538,21 @@ export default function HomePage() {
                 {user ? 'Claim Faucet' : 'Sign In for Faucet'}
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
-              <Link href="/token" className="text-[11px] text-slate-400 hover:text-slate-600">
-                Roadmap
+              <Link href="/token" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                roadmap
               </Link>
             </div>
           </div>
 
-          {/* Facility 8: Immutable Double-Entry Ledger */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition-all">
+          {/* Facility 8: Immutable Double-Entry Ledger (Cyber Shield) */}
+          <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 hover:shadow-[0_0_30px_rgba(16,185,129,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 flex items-center justify-center">
-                  <ShieldCheck className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-700/30 via-emerald-500/15 to-slate-900 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.18)] transition-transform group-hover:scale-105">
+                  <ShieldCheck className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                  Zero Trust
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                  ZERO TRUST
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
@@ -535,16 +562,16 @@ export default function HomePage() {
                 API-independent cryptographic double-entry ledger where every journal balance is strictly reconciled. Debits equal credits with zero reliance on 3rd-party banking APIs.
               </p>
             </div>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
               <Link
                 href="/security"
                 className="text-xs font-bold text-slate-800 dark:text-slate-200 hover:underline flex items-center gap-1"
               >
-                Audit Architecture
+                <span>Audit Architecture</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
-              <Link href="/strategy" className="text-[11px] text-slate-400 hover:text-slate-600">
-                Disclosures
+              <Link href="/strategy" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                strategy
               </Link>
             </div>
           </div>

@@ -406,7 +406,7 @@ class LedgerService {
     /**
      * Release principal when package has matured (past lock-in end date)
      */
-    async releaseMaturedPrincipal(packageId, adminUserId = 'SYSTEM') {
+    async releaseMaturedPrincipal(packageId, adminUserId = 'SYSTEM', force = false) {
         return await prisma_1.prisma.$transaction(async (tx) => {
             const pkg = await tx.investmentPackage.findUnique({
                 where: { id: packageId },
@@ -417,7 +417,7 @@ class LedgerService {
                 throw new Error(`Package status is ${pkg.status}, cannot release principal`);
             }
             const now = new Date();
-            if (pkg.lockInEnd && now < pkg.lockInEnd) {
+            if (!force && pkg.lockInEnd && now < pkg.lockInEnd) {
                 throw new Error(`Package lock-in period has not ended yet. Ends at: ${pkg.lockInEnd.toISOString()}`);
             }
             const amountDec = new decimal_js_1.default(pkg.amount.toString());

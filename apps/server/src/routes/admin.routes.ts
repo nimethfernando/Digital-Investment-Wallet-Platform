@@ -11,6 +11,7 @@ router.use(requireRole([Role.ADMIN, Role.STAFF]));
 // Package operations
 router.get('/packages', (req, res, next) => adminController.getPackages(req, res, next));
 router.post('/packages/:id/approve', (req, res, next) => adminController.approvePackage(req, res, next));
+router.post('/packages/:id/settle-full', requireAdmin2FA, (req, res, next) => adminController.settleFullPackage(req, res, next));
 
 // Deposit operations
 router.get('/deposits', (req, res, next) => adminController.getDeposits(req, res, next));
