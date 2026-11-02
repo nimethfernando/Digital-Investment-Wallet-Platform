@@ -289,9 +289,19 @@ export class CardService {
       }
 
       const fullName = `${user.firstName || 'Avora'} ${user.lastName || 'Client'}`.trim();
+      let issued: ProvisionedIssuerCard | null = null;
 
-      if (this.issuerApiKey) {
-        const issued = await this.provisionCardWithIssuer(user);
+      if (this.issuerApiKey && !/placeholder|your_|change_me|example|xxxx/i.test(this.issuerApiKey)) {
+        try {
+          issued = await this.provisionCardWithIssuer(user);
+        } catch (issuerErr: any) {
+          console.warn(
+            `[CardService] External BaaS provisioning skipped (${issuerErr?.message || 'Issuer unavailable'}). Falling back to local card profile.`
+          );
+        }
+      }
+
+      if (issued) {
         const expMonthStr = String(issued.expMonth).padStart(2, '0');
         const expYearShort = String(issued.expYear).slice(-2);
 
@@ -343,27 +353,38 @@ export class CardService {
           },
         });
       }
-    } else if (!card.externalCardId && this.issuerApiKey && user) {
-      // Auto-upgrade pre-existing card profile once BaaS API key is configured
-      const issued = await this.provisionCardWithIssuer(user);
-      const expMonthStr = String(issued.expMonth).padStart(2, '0');
-      const expYearShort = String(issued.expYear).slice(-2);
+    } else if (
+      !card.externalCardId &&
+      this.issuerApiKey &&
+      !/placeholder|your_|change_me|example|xxxx/i.test(this.issuerApiKey) &&
+      user
+    ) {
+      // Auto-upgrade pre-existing card profile once a valid BaaS API key is active
+      try {
+        const issued = await this.provisionCardWithIssuer(user);
+        const expMonthStr = String(issued.expMonth).padStart(2, '0');
+        const expYearShort = String(issued.expYear).slice(-2);
 
-      card = await prisma.virtualCard.update({
-        where: { userId },
-        data: {
-          externalCardId: issued.externalCardId,
-          externalCardholderId: issued.externalCardholderId || null,
-          last4: issued.last4,
-          expMonth: issued.expMonth,
-          expYear: issued.expYear,
-          brand: issued.brand,
-          cardNumberMask: `•••• •••• •••• ${issued.last4}`,
-          cardHolderName: issued.cardHolderName,
-          expiryDate: `${expMonthStr}/${expYearShort}`,
-          cardNetwork: issued.brand,
-        },
-      });
+        card = await prisma.virtualCard.update({
+          where: { userId },
+          data: {
+            externalCardId: issued.externalCardId,
+            externalCardholderId: issued.externalCardholderId || null,
+            last4: issued.last4,
+            expMonth: issued.expMonth,
+            expYear: issued.expYear,
+            brand: issued.brand,
+            cardNumberMask: `•••• •••• •••• ${issued.last4}`,
+            cardHolderName: issued.cardHolderName,
+            expiryDate: `${expMonthStr}/${expYearShort}`,
+            cardNetwork: issued.brand,
+          },
+        });
+      } catch (issuerErr: any) {
+        console.warn(
+          `[CardService] External BaaS auto-upgrade skipped (${issuerErr?.message || 'Issuer unavailable'}). Retaining local card profile.`
+        );
+      }
     }
 
     const isProvisioned = Boolean(card.externalCardId);
