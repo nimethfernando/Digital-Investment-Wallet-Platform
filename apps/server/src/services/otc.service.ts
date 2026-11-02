@@ -184,8 +184,6 @@ export class OtcService {
     currency?: string;
     isOnline?: boolean;
   }) {
-    await this.ensureDefaultDesks();
-
     const where: any = { status: 'ACTIVE' };
     if (filters.countryCode) where.countryCode = filters.countryCode.toUpperCase();
     if (filters.city) where.city = { contains: filters.city };
@@ -506,8 +504,6 @@ export class OtcService {
       fiatCurrency: string;
     }
   ) {
-    await this.ensureDefaultDesks();
-
     const desk = await prisma.otcDesk.findFirst({
       where: {
         OR: [{ id: params.deskId }, { deskCode: params.deskId }],

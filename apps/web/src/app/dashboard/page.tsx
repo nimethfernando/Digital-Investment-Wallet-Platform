@@ -63,11 +63,15 @@ interface PackageItem {
   packageCode: string;
   amount: string;
   currency: string;
-  monthlyReturnPct: string;
-  startDate: string;
-  lockInEnd: string;
-  withdrawalEligibilityDate: string;
-  totalReturnsPaid: string;
+  monthlyReturnPct?: string;
+  returnRatePercent?: string;
+  returnRateSnapshot?: string;
+  lockInMonths?: number;
+  startDate?: string;
+  lockInEnd?: string;
+  withdrawalEligibilityDate?: string;
+  totalReturnsPaid?: string;
+  totalEarned?: string;
   status: string;
 }
 

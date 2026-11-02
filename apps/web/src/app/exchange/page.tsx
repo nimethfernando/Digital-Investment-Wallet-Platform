@@ -126,8 +126,8 @@ export default function ExchangeDeskPage() {
   // Filter States
   const [selectedCountry, setSelectedCountry] = useState<string>('ALL');
   const [searchCity, setSearchCity] = useState<string>('');
-  const [desks, setDesks] = useState<OtcDeskItem[]>(DEFAULT_DESKS);
-  const [loadingDesks, setLoadingDesks] = useState<boolean>(false);
+  const [desks, setDesks] = useState<OtcDeskItem[]>([]);
+  const [loadingDesks, setLoadingDesks] = useState<boolean>(true);
 
   // Live Quote Calculator State
   const [calcDirection, setCalcDirection] = useState<'BUY' | 'SELL'>('BUY');
@@ -243,18 +243,18 @@ export default function ExchangeDeskPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch Desks from API with fallback
+  // Fetch Desks from live backend API
   const fetchDesks = async () => {
     setLoadingDesks(true);
     try {
       const res = await api.get('/otc/desks');
-      if (res.data.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
+      if (res.data?.success && Array.isArray(res.data.data)) {
         setDesks(res.data.data);
       } else {
-        setDesks(DEFAULT_DESKS);
+        setDesks([]);
       }
-    } catch (e) {
-      setDesks(DEFAULT_DESKS);
+    } catch {
+      setDesks([]);
     } finally {
       setLoadingDesks(false);
     }

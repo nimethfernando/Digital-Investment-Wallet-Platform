@@ -76,7 +76,6 @@ class P2PService {
      * 4. Supports Account Number (AVR-XXXX-XXXX), Wallet Address (0xAvora...), QR URI, or registered email
      */
     async lookupRecipient(senderUserId, identifier) {
-        await this.ensureInstitutionalPayees();
         let cleanId = (identifier || '').trim();
         if (!cleanId) {
             throw new Error('Recipient Account Number, Wallet Address, or email is required');
@@ -530,7 +529,6 @@ class P2PService {
      * List available P2P trade offers
      */
     async getOffers(side, fiatCurrency) {
-        await this.ensureDefaultOffers();
         const where = { status: client_1.P2POfferStatus.OPEN };
         if (side)
             where.side = side;

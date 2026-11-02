@@ -7,6 +7,7 @@ exports.ledgerService = exports.LedgerService = void 0;
 const client_1 = require("@prisma/client");
 const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
+const rate_service_1 = require("./rate.service");
 // Configure Decimal.js precision for financial accuracy
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class LedgerService {
@@ -649,19 +650,13 @@ class LedgerService {
             }
         }
         else {
-            // Default benchmark fallback rates
-            const rates = {
-                USD: 1.0,
-                USDT: 1.0,
-                EUR: 1.08,
-                GEL: 0.36,
-                INR: 0.012,
-            };
-            const fromUsd = rates[params.fromCurrency] || 1.0;
-            const toUsd = rates[params.toCurrency] || 1.0;
-            const spotRate = fromUsd / toUsd;
+            // Live market spot rates via RateService (units per 1 USD)
+            const live = await rate_service_1.rateService.getLiveRates();
+            const fromPerUsd = live.rates[params.fromCurrency.toUpperCase()] || 1.0;
+            const toPerUsd = live.rates[params.toCurrency.toUpperCase()] || 1.0;
+            const spotRate = new decimal_js_1.default(toPerUsd).dividedBy(new decimal_js_1.default(fromPerUsd));
             // 1.0% platform spread
-            effectiveRate = new decimal_js_1.default((spotRate * 0.99).toFixed(6));
+            effectiveRate = new decimal_js_1.default(spotRate.times('0.99').toFixed(6));
         }
         const toAmountDec = fromAmountDec.times(effectiveRate);
         const idempotencyKey = `SWAP-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;

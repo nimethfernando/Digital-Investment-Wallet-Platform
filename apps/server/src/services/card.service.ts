@@ -33,7 +33,21 @@ export interface WebhookAuthorizationPayload {
   };
 }
 
+export type CardIssuerProvider = 'INTERLACE' | 'STRIPE' | 'STRIGA' | 'WALLESTER' | 'RAIN' | 'GENERIC_REST';
+
 export class CardService {
+  private get providerName(): CardIssuerProvider {
+    const raw = (process.env.CARD_ISSUER_PROVIDER || '').toUpperCase().trim();
+    if (raw === 'STRIPE' || this.issuerApiKey.startsWith('sk_') || this.issuerSecret.startsWith('sk_')) {
+      return 'STRIPE';
+    }
+    if (raw === 'STRIGA') return 'STRIGA';
+    if (raw === 'WALLESTER') return 'WALLESTER';
+    if (raw === 'RAIN') return 'RAIN';
+    if (raw === 'GENERIC_REST') return 'GENERIC_REST';
+    return 'INTERLACE';
+  }
+
   private get issuerApiKey(): string {
     return process.env.CARD_ISSUER_API_KEY || process.env.STRIPE_SECRET_KEY || '';
   }
@@ -43,20 +57,27 @@ export class CardService {
   }
 
   private get issuerBaseUrl(): string {
-    return (process.env.CARD_ISSUER_BASE_URL || 'https://api.interlace.money/open-api').replace(/\/+$/, '');
+    if (process.env.CARD_ISSUER_BASE_URL) {
+      return process.env.CARD_ISSUER_BASE_URL.replace(/\/+$/, '');
+    }
+    switch (this.providerName) {
+      case 'STRIGA':
+        return 'https://api.striga.com/api/v1';
+      case 'WALLESTER':
+        return 'https://api-public.wallester.eu/v1';
+      case 'RAIN':
+        return 'https://api.raincards.xyz/v1';
+      default:
+        return 'https://api.interlace.money/open-api';
+    }
   }
 
   private get isStripeProvider(): boolean {
-    const provider = (process.env.CARD_ISSUER_PROVIDER || '').toUpperCase();
-    return (
-      provider === 'STRIPE' ||
-      this.issuerApiKey.startsWith('sk_') ||
-      this.issuerSecret.startsWith('sk_')
-    );
+    return this.providerName === 'STRIPE';
   }
 
   /**
-   * Calls the live Card Issuing BaaS API (Stripe Issuing or Interlace / BaaS Provider)
+   * Calls the live Card Issuing BaaS API (Stripe Issuing, Interlace, Striga, Wallester, Rain, or Generic REST)
    * to provision a virtual Visa/Mastercard.
    * Never returns or stores plaintext 16-digit PANs or CVVs in the database.
    */
@@ -145,7 +166,51 @@ export class CardService {
       };
     }
 
-    // 2. Interlace / BaaS Provider: POST /v1/cards
+    // 2. Striga Crypto-Card API Provider: POST /card/create
+    if (this.providerName === 'STRIGA') {
+      const timestamp = Date.now().toString();
+      const requestBody = JSON.stringify({
+        userId: user.id,
+        nameOnCard: fullName.slice(0, 21).toUpperCase(),
+        type: 'VIRTUAL',
+      });
+      const hmac = crypto.createHmac('sha256', this.issuerSecret || this.issuerApiKey);
+      hmac.update(timestamp);
+      hmac.update('POST');
+      hmac.update('/card/create');
+      const contentHash = crypto.createHash('md5').update(requestBody).digest('hex');
+      hmac.update(contentHash);
+      const authSig = `HMAC ${timestamp}:${hmac.digest('hex')}`;
+
+      const response = await fetch(`${this.issuerBaseUrl}/card/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': this.issuerApiKey,
+          Authorization: authSig,
+        },
+        body: requestBody,
+      });
+
+      const cardData: any = await response.json().catch(() => ({}));
+      if (!response.ok || !cardData?.id) {
+        throw new Error(cardData?.message || `Striga Card API error (HTTP ${response.status})`);
+      }
+
+      const masked = String(cardData.maskedCardNumber || '0000');
+      return {
+        externalCardId: String(cardData.id),
+        externalCardholderId: String(cardData.parentWalletId || user.id),
+        last4: masked.slice(-4),
+        expMonth: Number(cardData.expiryData?.slice(5, 7) || 8),
+        expYear: Number(cardData.expiryData?.slice(0, 4) || 2029),
+        brand: 'visa',
+        cardHolderName: fullName,
+      };
+    }
+
+    // 3. Interlace / Wallester / Rain / Standard REST BaaS Provider
+    const endpointPath = this.providerName === 'WALLESTER' || this.providerName === 'RAIN' ? '/cards' : '/v1/cards';
     const timestamp = Date.now().toString();
     const requestBody = JSON.stringify({
       type: 'VIRTUAL',
@@ -165,7 +230,7 @@ export class CardService {
       ? crypto.createHmac('sha256', this.issuerSecret).update(`${timestamp}.${requestBody}`).digest('hex')
       : '';
 
-    const response = await fetch(`${this.issuerBaseUrl}/v1/cards`, {
+    const response = await fetch(`${this.issuerBaseUrl}${endpointPath}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -177,7 +242,7 @@ export class CardService {
     });
 
     const payload: any = await response.json().catch(() => ({}));
-    const cardData = payload?.data || payload;
+    const cardData = payload?.data || payload?.card || payload;
 
     if (!response.ok || !(cardData?.external_card_id || cardData?.cardId || cardData?.id)) {
       throw new Error(
@@ -188,7 +253,7 @@ export class CardService {
     return {
       externalCardId: String(cardData.external_card_id || cardData.cardId || cardData.id),
       externalCardholderId: cardData.cardholderId || cardData.cardholder_id || undefined,
-      last4: String(cardData.last4 || cardData.panLast4 || '0000').slice(-4),
+      last4: String(cardData.last4 || cardData.panLast4 || cardData.masked_card_number || '0000').slice(-4),
       expMonth: Number(cardData.expMonth || cardData.exp_month || 8),
       expYear: Number(cardData.expYear || cardData.exp_year || 2029),
       brand: String(cardData.brand || 'visa').toLowerCase() === 'mastercard' ? 'mastercard' : 'visa',
@@ -197,8 +262,13 @@ export class CardService {
   }
 
   /**
-   * Retrieves an existing VirtualCard from MariaDB (`diw_virtual_cards`), or provisions
-   * a new live card via the Card Issuer BaaS API if the user does not have one yet.
+   * Retrieves an existing VirtualCard from MariaDB (`diw_virtual_cards`), or creates/provisions
+   * a card profile for the user.
+   * - If `CARD_ISSUER_API_KEY` is configured, provisions a live virtual card with the BaaS issuer
+   *   (and automatically upgrades any pre-existing unprovisioned card record).
+   * - If `CARD_ISSUER_API_KEY` is not yet configured, creates a local `VirtualCard` profile
+   *   (`externalCardId: null`) so Freeze, Spending Limits, Security Controls, and Card Themes
+   *   persist cleanly in MariaDB without throwing 500 errors.
    * Never stores raw 16-digit PANs or CVVs in MariaDB.
    */
   async getOrCreateCard(userId: string) {
@@ -206,23 +276,82 @@ export class CardService {
       where: { userId },
     });
 
-    if (!card) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, email: true, firstName: true, lastName: true, phone: true },
-      });
+    const user = !card || (!card.externalCardId && Boolean(this.issuerApiKey))
+      ? await prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, email: true, firstName: true, lastName: true, phone: true },
+        })
+      : null;
 
+    if (!card) {
       if (!user) {
         throw new Error('User not found');
       }
 
+      const fullName = `${user.firstName || 'Avora'} ${user.lastName || 'Client'}`.trim();
+
+      if (this.issuerApiKey) {
+        const issued = await this.provisionCardWithIssuer(user);
+        const expMonthStr = String(issued.expMonth).padStart(2, '0');
+        const expYearShort = String(issued.expYear).slice(-2);
+
+        card = await prisma.virtualCard.create({
+          data: {
+            userId,
+            externalCardId: issued.externalCardId,
+            externalCardholderId: issued.externalCardholderId || null,
+            last4: issued.last4,
+            expMonth: issued.expMonth,
+            expYear: issued.expYear,
+            brand: issued.brand,
+            cardNumberMask: `•••• •••• •••• ${issued.last4}`,
+            cardHolderName: issued.cardHolderName,
+            expiryDate: `${expMonthStr}/${expYearShort}`,
+            cvvEncrypted: null,
+            cardTheme: 'obsidian',
+            cardNetwork: issued.brand,
+            isFrozen: false,
+            dailyLimit: new Decimal('10000.00'),
+            monthlyLimit: new Decimal('50000.00'),
+            onlineEnabled: true,
+            intlEnabled: true,
+            atmEnabled: true,
+          },
+        });
+      } else {
+        card = await prisma.virtualCard.create({
+          data: {
+            userId,
+            externalCardId: null,
+            externalCardholderId: null,
+            last4: '••••',
+            expMonth: 8,
+            expYear: 2029,
+            brand: 'visa',
+            cardNumberMask: '•••• •••• •••• ••••',
+            cardHolderName: fullName,
+            expiryDate: '--/--',
+            cvvEncrypted: null,
+            cardTheme: 'obsidian',
+            cardNetwork: 'visa',
+            isFrozen: false,
+            dailyLimit: new Decimal('10000.00'),
+            monthlyLimit: new Decimal('50000.00'),
+            onlineEnabled: true,
+            intlEnabled: true,
+            atmEnabled: true,
+          },
+        });
+      }
+    } else if (!card.externalCardId && this.issuerApiKey && user) {
+      // Auto-upgrade pre-existing card profile once BaaS API key is configured
       const issued = await this.provisionCardWithIssuer(user);
       const expMonthStr = String(issued.expMonth).padStart(2, '0');
       const expYearShort = String(issued.expYear).slice(-2);
 
-      card = await prisma.virtualCard.create({
+      card = await prisma.virtualCard.update({
+        where: { userId },
         data: {
-          userId,
           externalCardId: issued.externalCardId,
           externalCardholderId: issued.externalCardholderId || null,
           last4: issued.last4,
@@ -232,30 +361,27 @@ export class CardService {
           cardNumberMask: `•••• •••• •••• ${issued.last4}`,
           cardHolderName: issued.cardHolderName,
           expiryDate: `${expMonthStr}/${expYearShort}`,
-          cvvEncrypted: null, // PCI-DSS: Never store raw PAN or CVV in database
-          cardTheme: 'redot',
           cardNetwork: issued.brand,
-          isFrozen: false,
-          dailyLimit: new Decimal('10000.00'),
-          monthlyLimit: new Decimal('50000.00'),
-          onlineEnabled: true,
-          intlEnabled: true,
-          atmEnabled: true,
         },
       });
     }
+
+    const isProvisioned = Boolean(card.externalCardId);
+    const maskSuffix = isProvisioned ? card.last4 : '••••';
 
     return {
       id: card.id,
       userId: card.userId,
       externalCardId: card.externalCardId,
+      issuerProvider: this.providerName,
+      issuerStatus: isProvisioned ? 'PROVISIONED' : 'PENDING_ISSUER_CONFIG',
       last4: card.last4,
       expMonth: card.expMonth,
       expYear: card.expYear,
       brand: card.brand,
-      cardNumberMask: `•••• •••• •••• ${card.last4 || card.cardNumberMask.slice(-4)}`,
+      cardNumberMask: `•••• •••• •••• ${maskSuffix}`,
       cardHolderName: card.cardHolderName,
-      expiryDate: card.expiryDate,
+      expiryDate: isProvisioned ? card.expiryDate : '--/--',
       cardTheme: card.cardTheme,
       cardNetwork: card.brand || card.cardNetwork,
       isFrozen: card.isFrozen,
@@ -337,7 +463,11 @@ export class CardService {
    * Toggle Freeze status in MariaDB and sync with the BaaS Issuer API if configured
    */
   async toggleFreeze(userId: string) {
-    const card = await prisma.virtualCard.findUnique({ where: { userId } });
+    let card = await prisma.virtualCard.findUnique({ where: { userId } });
+    if (!card) {
+      await this.getOrCreateCard(userId);
+      card = await prisma.virtualCard.findUnique({ where: { userId } });
+    }
     if (!card) {
       throw new Error('Virtual card not found for user');
     }
@@ -373,7 +503,11 @@ export class CardService {
    * Update Spending Limits
    */
   async updateLimits(userId: string, dailyLimit: number, monthlyLimit: number) {
-    const card = await prisma.virtualCard.findUnique({ where: { userId } });
+    let card = await prisma.virtualCard.findUnique({ where: { userId } });
+    if (!card) {
+      await this.getOrCreateCard(userId);
+      card = await prisma.virtualCard.findUnique({ where: { userId } });
+    }
     if (!card) {
       throw new Error('Virtual card not found for user');
     }
@@ -405,7 +539,11 @@ export class CardService {
       cardTheme?: string;
     }
   ) {
-    const card = await prisma.virtualCard.findUnique({ where: { userId } });
+    let card = await prisma.virtualCard.findUnique({ where: { userId } });
+    if (!card) {
+      await this.getOrCreateCard(userId);
+      card = await prisma.virtualCard.findUnique({ where: { userId } });
+    }
     if (!card) {
       throw new Error('Virtual card not found for user');
     }

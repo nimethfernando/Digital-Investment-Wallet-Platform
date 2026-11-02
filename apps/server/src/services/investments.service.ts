@@ -129,8 +129,6 @@ export class InvestmentsService {
     instrument?: string;
     search?: string;
   }) {
-    await this.ensureDefaultCampaigns();
-
     const where: any = { status: 'PUBLISHED' };
 
     if (filters?.industry && filters.industry !== 'ALL') {
@@ -165,8 +163,6 @@ export class InvestmentsService {
    * Get single startup campaign by slug
    */
   async getCampaignBySlug(slug: string, userId?: string) {
-    await this.ensureDefaultCampaigns();
-
     const campaign = await prisma.startupListing.findUnique({
       where: { slug },
       include: {

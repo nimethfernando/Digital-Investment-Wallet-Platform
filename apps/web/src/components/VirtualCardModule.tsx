@@ -67,7 +67,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   // Card states
   const [showSensitive, setShowSensitive] = useState(false);
   const [isFrozen, setIsFrozen] = useState(false);
-  const [cardTheme, setCardTheme] = useState<string>('redot');
+  const [cardTheme, setCardTheme] = useState<string>('obsidian');
   const [cardNetwork, setCardNetwork] = useState<'visa' | 'mastercard'>('visa');
   const [dailyLimit, setDailyLimit] = useState(10000);
   const [monthlyLimit, setMonthlyLimit] = useState(50000);
@@ -77,6 +77,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   const [cardNumberMask, setCardNumberMask] = useState('•••• •••• •••• ••••');
   const [expiryDate, setExpiryDate] = useState('--/--');
   const [externalCardId, setExternalCardId] = useState<string | null>(null);
+  const [issuerStatus, setIssuerStatus] = useState<string>('PENDING_ISSUER_CONFIG');
   const [revealIframeUrl, setRevealIframeUrl] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState(cardHolderName);
 
@@ -125,6 +126,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
         if (c.expiryDate) setExpiryDate(c.expiryDate);
         if (c.cardHolderName) setDisplayName(c.cardHolderName);
         if (c.externalCardId) setExternalCardId(c.externalCardId);
+        if (c.issuerStatus) setIssuerStatus(c.issuerStatus);
       }
 
       if (txRes?.data?.data && Array.isArray(txRes.data.data)) {
@@ -231,6 +233,14 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
       return;
     }
 
+    if (!externalCardId || issuerStatus !== 'PROVISIONED') {
+      showToast(
+        'Card controls & themes are saved. Live 16-digit PAN/CVV issuance activates automatically once your Card Issuing BaaS partner is connected.',
+        'error'
+      );
+      return;
+    }
+
     setActionLoading(true);
     try {
       const res = await api.post('/wallet/card/reveal-session', {});
@@ -244,7 +254,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
     } catch (err: any) {
       showToast(
         err.response?.data?.message ||
-          'Configure CARD_ISSUER_API_KEY in .env to initialize PCI-compliant PAN/CVV reveal.',
+          'Card Issuing BaaS partner connection required for live PAN/CVV reveal.',
         'error'
       );
     } finally {
@@ -285,11 +295,11 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           </div>
           <div>
             <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              Avora × RedotPay Crypto Visa Card
+              Avora Global Crypto Visa Card
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
                 isFrozen ? 'bg-cyan-500/20 text-cyan-300' : 'bg-emerald-500/20 text-emerald-300'
               }`}>
-                {isFrozen ? 'FROZEN' : 'ACTIVE'}
+                {isFrozen ? 'FROZEN' : externalCardId ? 'ACTIVE' : 'PROFILE READY'}
               </span>
               {cardTheme.startsWith('fifa-') && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/30">

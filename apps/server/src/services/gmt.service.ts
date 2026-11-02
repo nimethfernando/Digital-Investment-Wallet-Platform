@@ -1,21 +1,10 @@
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
+import { rateService } from './rate.service';
 import { TransactionType, TransactionStatus } from '@prisma/client';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
-
-// Default Reference Exchange Rates (USD base)
-const BASE_REFERENCE_RATES: Record<string, number> = {
-  INR: 86.50,
-  LKR: 304.50,
-  AED: 3.6725,
-  GEL: 2.7800,
-  EUR: 0.9200,
-  GBP: 0.7750,
-  USD: 1.0000,
-  USDT: 1.0000,
-};
 
 // Supported Destination Countries and Currency Mapping
 export const DESTINATION_COUNTRIES = [
@@ -30,23 +19,28 @@ export const DESTINATION_COUNTRIES = [
 
 export class GlobalMoneyTransferService {
   /**
-   * Calculate binding transfer quote
-   * 7.3 Exchange Rate Management: Reference rate with 2% margin adjustment
+   * Calculate binding transfer quote from live market rates
+   * 7.3 Exchange Rate Management: Live market reference rate with 2% margin adjustment
    * 7.4 Transfer Fee: 3% fee on transfer amount
    */
-  calculateQuote(params: {
+  async calculateQuote(params: {
     sendingCurrency: string;
     sendingAmount: number;
     destinationCountryCode: string;
     recipientCurrency: string;
   }) {
     const { sendingAmount, recipientCurrency } = params;
-    if (!sendingAmount || sendingAmount <= 0) {
+    if (!sendingAmount || sendingAmount <= 0 || Number.isNaN(sendingAmount)) {
       throw new Error('Please enter a valid sending amount.');
     }
 
-    const refRateNum = BASE_REFERENCE_RATES[recipientCurrency.toUpperCase()] || 1.0;
-    const refRate = new Decimal(refRateNum);
+    const fromCur = (params.sendingCurrency || 'USD').toUpperCase();
+    const toCur = (recipientCurrency || 'INR').toUpperCase();
+
+    const live = await rateService.getLiveRates();
+    const fromPerUsd = live.rates[fromCur] || 1.0;
+    const toPerUsd = live.rates[toCur] || 1.0;
+    const refRate = new Decimal(toPerUsd).dividedBy(new Decimal(fromPerUsd));
 
     // 2.0% Admin Exchange Rate Adjustment (reduction to recipient currency rate)
     const rateAdjustmentPct = new Decimal('2.00'); // 2%
@@ -67,9 +61,9 @@ export class GlobalMoneyTransferService {
 
     return {
       sendingAmount: sendAmtDec.toFixed(2),
-      sendingCurrency: params.sendingCurrency.toUpperCase(),
-      destinationCountryCode: params.destinationCountryCode.toUpperCase(),
-      recipientCurrency: recipientCurrency.toUpperCase(),
+      sendingCurrency: fromCur,
+      destinationCountryCode: (params.destinationCountryCode || 'IN').toUpperCase(),
+      recipientCurrency: toCur,
       recipientAmount: recipientAmount.toFixed(2),
       referenceRate: refRate.toFixed(4),
       rateAdjustmentPct: rateAdjustmentPct.toFixed(2),
@@ -77,6 +71,8 @@ export class GlobalMoneyTransferService {
       transferFeePct: transferFeePct.toFixed(2),
       transferFeeAmount: transferFeeAmount.toFixed(2),
       totalPaidAmount: totalPaidAmount.toFixed(2),
+      rateSource: live.source,
+      rateLastUpdated: live.lastUpdated,
       estimatedDeliveryWindow: 'Up to 2 business days',
       estimatedDeliveryDate: deliveryDate.toISOString(),
       quoteValidSeconds: 120,
@@ -117,7 +113,7 @@ export class GlobalMoneyTransferService {
       throw new Error('Recipient name, bank account number/IBAN, and bank name are required.');
     }
 
-    const quote = this.calculateQuote({
+    const quote = await this.calculateQuote({
       sendingCurrency: data.sendingCurrency,
       sendingAmount: data.sendingAmount,
       destinationCountryCode: data.destinationCountryCode,

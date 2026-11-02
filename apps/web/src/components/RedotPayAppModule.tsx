@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { api } from '../lib/api';
 import {
@@ -88,16 +88,38 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const [swapError, setSwapError] = useState<string | null>(null);
   const [swapReceipt, setSwapReceipt] = useState<any | null>(null);
 
-  // Dynamic Rates Calculation
-  const ratesInUsd: Record<string, number> = {
+  // Live Market Exchange Rates (units per 1 USD, fetched from /otc/rates)
+  const [livePerUsdRates, setLivePerUsdRates] = useState<Record<string, number>>({
     USD: 1.0,
     USDT: 1.0,
-    EUR: 1.08,
-    GEL: 0.36,
-    INR: 0.0116,
-  };
+    EUR: 0.896,
+    GEL: 2.595,
+    INR: 95.08,
+  });
 
-  const spotRate = (ratesInUsd[sendFromCurrency] || 1.0) / (ratesInUsd[sendToCurrency] || 1.0);
+  useEffect(() => {
+    let active = true;
+    api
+      .get('/otc/rates')
+      .then((res) => {
+        if (active && res.data?.success && res.data?.rates) {
+          setLivePerUsdRates((prev) => ({
+            ...prev,
+            ...res.data.rates,
+            USD: 1.0,
+            USDT: 1.0,
+          }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const fromPerUsd = livePerUsdRates[sendFromCurrency] || 1.0;
+  const toPerUsd = livePerUsdRates[sendToCurrency] || 1.0;
+  const spotRate = toPerUsd / fromPerUsd;
   const exchangeRate = Number((spotRate * 0.99).toFixed(4)); // 1% spread matching backend ledger
   const convertedAmount = (parseFloat(sendAmount || '0') * exchangeRate).toFixed(2);
 
@@ -118,12 +140,16 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
 
   const currentFromBalance = balanceMap[sendFromCurrency] || '0.00';
 
+  const eurInUsd = parseFloat(eurBal) / (livePerUsdRates.EUR || 0.896);
+  const gelInUsd = parseFloat(gelBal) / (livePerUsdRates.GEL || 2.595);
+  const inrInUsd = parseFloat(inrBal) / (livePerUsdRates.INR || 95.08);
+
   const totalEstimatedUsd = (
     parseFloat(usdBal) +
     parseFloat(usdtBal) +
-    parseFloat(eurBal) * 1.08 +
-    parseFloat(gelBal) * 0.36 +
-    parseFloat(inrBal) * 0.0116
+    eurInUsd +
+    gelInUsd +
+    inrInUsd
   ).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // Real Swap Execution against Double-Entry Ledger API
@@ -726,9 +752,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             <div className="space-y-3">
               {[
                 { name: 'USD', sub: 'US Dollar', bal: `$${parseFloat(usdBal).toLocaleString()}`, val: `${parseFloat(usdBal).toFixed(2)} USD` },
-                { name: 'EUR', sub: 'Euro (SEPA Clearing)', bal: `€${parseFloat(eurBal).toLocaleString()}`, val: `${(parseFloat(eurBal) * 1.08).toFixed(2)} USD` },
-                { name: 'GEL', sub: 'Georgian Lari (Tbilisi Counter)', bal: `₾${parseFloat(gelBal).toLocaleString()}`, val: `${(parseFloat(gelBal) * 0.36).toFixed(2)} USD` },
-                { name: 'INR', sub: 'Indian Rupee (UPI / IMPS)', bal: `₹${parseFloat(inrBal).toLocaleString()}`, val: `${(parseFloat(inrBal) * 0.0116).toFixed(2)} USD` },
+                { name: 'EUR', sub: 'Euro (SEPA Clearing)', bal: `€${parseFloat(eurBal).toLocaleString()}`, val: `${eurInUsd.toFixed(2)} USD` },
+                { name: 'GEL', sub: 'Georgian Lari (Tbilisi Counter)', bal: `₾${parseFloat(gelBal).toLocaleString()}`, val: `${gelInUsd.toFixed(2)} USD` },
+                { name: 'INR', sub: 'Indian Rupee (UPI / IMPS)', bal: `₹${parseFloat(inrBal).toLocaleString()}`, val: `${inrInUsd.toFixed(2)} USD` },
               ].map((fiat) => (
                 <div
                   key={fiat.name}

@@ -14,10 +14,10 @@ export class GlobalMoneyTransferController {
    * POST /api/v1/gmt/quote
    * Calculate binding exchange rate quote with 2% adjustment & 3% fee
    */
-  calculateQuote(req: Request, res: Response, next: NextFunction) {
+  async calculateQuote(req: Request, res: Response, next: NextFunction) {
     try {
       const { sendingCurrency, sendingAmount, destinationCountryCode, recipientCurrency } = req.body;
-      const quote = globalMoneyTransferService.calculateQuote({
+      const quote = await globalMoneyTransferService.calculateQuote({
         sendingCurrency: sendingCurrency || 'USD',
         sendingAmount: parseFloat(sendingAmount),
         destinationCountryCode: destinationCountryCode || 'IN',
