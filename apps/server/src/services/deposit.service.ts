@@ -8,6 +8,86 @@ Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 export class DepositService {
   /**
+   * Get deposit receiving addresses, networks, and instructions
+   */
+  async getDepositInstructions() {
+    const trc20Setting = await prisma.cmsSetting.findUnique({ where: { key: 'usdt_trc20_address' } }).catch(() => null);
+    const erc20Setting = await prisma.cmsSetting.findUnique({ where: { key: 'usdt_erc20_address' } }).catch(() => null);
+    const bep20Setting = await prisma.cmsSetting.findUnique({ where: { key: 'usdt_bep20_address' } }).catch(() => null);
+
+    const trc20Address = trc20Setting?.value || process.env.USDT_TRC20_WALLET_ADDRESS || 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y';
+    const erc20Address = erc20Setting?.value || process.env.USDT_ERC20_WALLET_ADDRESS || '0x4B3A8B10c710467554900C0959A1D81816e25B6F';
+    const bep20Address = bep20Setting?.value || process.env.USDT_BEP20_WALLET_ADDRESS || '0x4B3A8B10c710467554900C0959A1D81816e25B6F';
+
+    return {
+      usdt: {
+        TRC20: {
+          id: 'USDT_TRC20',
+          network: 'TRC-20 (TRON)',
+          chain: 'TRON',
+          currency: 'USDT',
+          address: trc20Address,
+          minDeposit: 50,
+          confirmationBlocks: 1,
+          tagline: 'Recommended • Lowest Network Fees (< $1.50)',
+          explorerUrl: `https://tronscan.org/#/address/${trc20Address}`,
+          instructions: [
+            'Send only USDT (Tether) via the TRC-20 (TRON) network to this address.',
+            'Sending any other coin or token to this address will result in permanent loss.',
+            'Minimum deposit: 50 USDT. Deposits below the minimum cannot be recovered.',
+            'Your ledger balance will be credited upon 1 network confirmation and review.',
+          ],
+        },
+        BEP20: {
+          id: 'USDT_BEP20',
+          network: 'BEP-20 (BNB Smart Chain)',
+          chain: 'BNB Smart Chain',
+          currency: 'USDT',
+          address: bep20Address,
+          minDeposit: 50,
+          confirmationBlocks: 15,
+          tagline: 'Fast Confirmation • Low Gas Fee',
+          explorerUrl: `https://bscscan.com/address/${bep20Address}`,
+          instructions: [
+            'Send only USDT via BEP-20 (BNB Smart Chain) network to this address.',
+            'Ensure the selected network in your sending wallet is BSC / BEP-20.',
+            'Minimum deposit: 50 USDT.',
+          ],
+        },
+        ERC20: {
+          id: 'USDT_ERC20',
+          network: 'ERC-20 (Ethereum)',
+          chain: 'Ethereum',
+          currency: 'USDT',
+          address: erc20Address,
+          minDeposit: 100,
+          confirmationBlocks: 12,
+          tagline: 'Ethereum Mainnet (Higher Gas Fees)',
+          explorerUrl: `https://etherscan.io/address/${erc20Address}`,
+          instructions: [
+            'Send only USDT via Ethereum (ERC-20) network to this address.',
+            'Higher Ethereum gas fees apply on the sender side.',
+            'Minimum deposit: 100 USDT.',
+          ],
+        },
+      },
+      bankWire: {
+        id: 'BANK_WIRE',
+        currency: 'USD',
+        bankName: 'Bank of Georgia / TBC Bank',
+        beneficiary: 'Avora Bank Platform Custody',
+        iban: 'GE29NB0000000123456789',
+        swift: 'BAGAGE22',
+        instructions: [
+          'Send bank wire or SEPA/SWIFT transfer to the specified IBAN.',
+          'Always include your Avora Account Number or Deposit Code in the payment reference.',
+          'Upload your payment confirmation receipt after dispatching.',
+        ],
+      },
+    };
+  }
+
+  /**
    * Submit a deposit request with payment proof
    */
   async createDeposit(
@@ -15,7 +95,7 @@ export class DepositService {
     data: {
       amount: number | string;
       currency?: string;
-      depositMethod: 'BANK_WIRE' | 'USDT_TRC20' | 'TBILISI_COUNTER';
+      depositMethod: 'BANK_WIRE' | 'USDT_TRC20' | 'USDT_BEP20' | 'USDT_ERC20' | 'TBILISI_COUNTER' | string;
       proofUrl?: string;
       txHashOrRef?: string;
     }
@@ -29,7 +109,7 @@ export class DepositService {
     if (!user) throw new Error('User not found');
 
     const depositCode = `DEP-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
-    const currency = data.currency || 'USD';
+    const currency = data.currency || (data.depositMethod?.startsWith('USDT') ? 'USDT' : 'USD');
 
     const deposit = await prisma.depositRequest.create({
       data: {
@@ -44,35 +124,38 @@ export class DepositService {
       },
     });
 
-    // Auto-verify and credit the double-entry ledger immediately so client funds are usable right away
-    let finalDeposit = deposit;
-    try {
-      const approval = await ledgerService.processDepositApproval({
-        depositId: deposit.id,
-        depositCode: deposit.depositCode,
-        userId: deposit.userId,
-        amount: deposit.amount.toString(),
-        currency: deposit.currency,
-        reviewedBy: 'AUTOMATED_TREASURY_DESK',
-        notes: `Verified and credited (${data.depositMethod} - ${data.txHashOrRef || depositCode})`,
-      });
-      finalDeposit = approval.deposit;
-    } catch (err) {
-      console.warn('[DepositService] Auto-approval notice:', err);
+    // Optional: Auto-verify only if explicitly enabled via environment variable
+    if (process.env.AUTO_APPROVE_DEPOSITS === 'true') {
+      try {
+        const approval = await ledgerService.processDepositApproval({
+          depositId: deposit.id,
+          depositCode: deposit.depositCode,
+          userId: deposit.userId,
+          amount: deposit.amount.toString(),
+          currency: deposit.currency,
+          reviewedBy: 'AUTOMATED_TREASURY_DESK',
+          notes: `Auto-verified (${data.depositMethod} - ${data.txHashOrRef || depositCode})`,
+        });
+        return approval.deposit;
+      } catch (err) {
+        console.warn('[DepositService] Auto-approval notice:', err);
+      }
     }
 
     // Notify user & admin
     await notificationService.sendEmail({
       to: user.email,
-      subject: `Deposit Credited to Your Wallet - ${depositCode}`,
+      subject: `Deposit Request Received - ${depositCode}`,
       html: `
-        <h3>Deposit Approved & Credited</h3>
-        <p>Your deposit of <strong>${amountNum.toLocaleString()} ${currency}</strong> via <strong>${data.depositMethod}</strong> has been verified and credited to your Avora Bank wallet.</p>
-        <p>Reference: <strong>${depositCode}</strong></p>
+        <h3>Deposit Submitted</h3>
+        <p>Your deposit of <strong>${amountNum.toLocaleString()} ${currency}</strong> via <strong>${data.depositMethod}</strong> has been received.</p>
+        <p>Reference Code: <strong>${depositCode}</strong></p>
+        <p>Transaction Hash: <code>${data.txHashOrRef || 'N/A'}</code></p>
+        <p>Status: <strong>PENDING REVIEW</strong>. Funds will be credited once confirmed on-chain / bank statement.</p>
       `,
     }).catch(() => {});
 
-    return finalDeposit;
+    return deposit;
   }
 
   /**

@@ -112,6 +112,18 @@ export class WalletController {
   }
 
   /**
+   * Get deposit receiving addresses, networks, and instructions
+   */
+  async getDepositInstructions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const instructions = await depositService.getDepositInstructions();
+      res.json({ success: true, data: instructions });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Submit a deposit request
    */
   async submitDeposit(req: Request, res: Response, next: NextFunction) {
