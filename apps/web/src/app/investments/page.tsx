@@ -141,9 +141,9 @@ export default function InvestmentsMarketplacePage() {
     if (user) loadInvestorDashboard();
   }, [user]);
 
-  // Calculate 5% Allocation Fee
+  // Calculate 5% Allocation Fee Added On Top
   const allocationFee = investAmount * 0.05;
-  const netInvested = investAmount - allocationFee;
+  const totalRequired = investAmount + allocationFee;
 
   // Handle Invest Submit
   const handleExecuteInvest = async (e: React.FormEvent) => {
@@ -273,7 +273,7 @@ export default function InvestmentsMarketplacePage() {
             <Percent className="w-3.5 h-3.5 text-emerald-500" />
             Fee Structure:
           </span>
-          <span>• 5% Investment Allocation Fee (On committed capital)</span>
+          <span>• 5% Platform Allocation Fee (Added to investment)</span>
           <span>• 5% Profit-Sharing Fee (On realized net profit only)</span>
           <span className="text-emerald-600 font-bold">• 0% Fee on Unrealized Valuation</span>
         </div>
@@ -512,7 +512,7 @@ export default function InvestmentsMarketplacePage() {
             <form onSubmit={handleExecuteInvest} className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Gross Investment Amount (USD)
+                  Target Investment in Startup (USD)
                 </label>
                 <div className="relative mt-1">
                   <span className="absolute left-4 top-3 text-lg font-bold text-slate-400">$</span>
@@ -528,19 +528,19 @@ export default function InvestmentsMarketplacePage() {
                 </div>
               </div>
 
-              {/* 1. Investment Allocation Fee (5%) Breakdown */}
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+              {/* 1. Investment Allocation Fee (5% Added On Top) Breakdown */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
                 <div className="flex justify-between font-bold text-slate-900 dark:text-white">
-                  <span>Gross Contribution:</span>
-                  <span className="font-mono">${investAmount.toFixed(2)} USD</span>
+                  <span>Investment Allocated to Startup:</span>
+                  <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">${investAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
                 </div>
-                <div className="flex justify-between text-amber-600 dark:text-amber-400 font-semibold">
-                  <span>5% Investment Allocation Fee:</span>
-                  <span className="font-mono">-${allocationFee.toFixed(2)} USD</span>
+                <div className="flex justify-between text-slate-600 dark:text-slate-400 font-medium">
+                  <span>+ 5% Platform Allocation Fee:</span>
+                  <span className="font-mono text-amber-600 dark:text-amber-400 font-semibold">+${allocationFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
                 </div>
-                <div className="flex justify-between font-black text-emerald-600 dark:text-emerald-400 border-t border-slate-200 dark:border-slate-800 pt-2 text-sm">
-                  <span>Net Amount Allocated to Startup:</span>
-                  <span className="font-mono">${netInvested.toFixed(2)} USD</span>
+                <div className="flex justify-between font-black text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2.5 text-sm">
+                  <span>Total Payable from Wallet:</span>
+                  <span className="font-mono text-emerald-600 dark:text-emerald-400">${totalRequired.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
                 </div>
               </div>
 
@@ -558,7 +558,7 @@ export default function InvestmentsMarketplacePage() {
                 className="w-full py-4 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
               >
                 <Check className="w-4 h-4" />
-                <span>{investLoading ? 'Securing Allocation...' : `Confirm & Commit $${investAmount.toFixed(2)} USD`}</span>
+                <span>{investLoading ? 'Securing Allocation...' : `Confirm & Commit $${totalRequired.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`}</span>
               </button>
             </form>
           </div>

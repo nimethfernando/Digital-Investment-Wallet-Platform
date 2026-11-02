@@ -67,7 +67,7 @@ export class InvestmentsController {
       });
       res.status(201).json({
         success: true,
-        message: `Successfully invested $${commitment.grossAmount} USD (including 5% allocation fee)!`,
+        message: `Successfully allocated $${commitment.netInvestedAmount} USD to startup (Total debited: $${commitment.grossAmount} USD including 5% platform fee)!`,
         data: commitment,
       });
     } catch (err) {

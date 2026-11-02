@@ -222,30 +222,32 @@ export class InvestmentsService {
   }
 
   /**
-   * Calculate 5% Investment Allocation Fee
+   * Calculate 5% Investment Allocation Fee (Added On Top)
    */
-  calculateInvestmentFee(grossAmount: number) {
-    if (!grossAmount || grossAmount <= 0) {
+  calculateInvestmentFee(targetInvestment: number) {
+    if (!targetInvestment || targetInvestment <= 0) {
       throw new Error('Please enter a valid investment amount.');
     }
-    const grossDec = new Decimal(grossAmount);
+    const netDec = new Decimal(targetInvestment);
     const ALLOCATION_FEE_PCT = new Decimal('5.00'); // 5%
-    const allocationFeeAmount = grossDec.times(ALLOCATION_FEE_PCT.dividedBy(100));
-    const netInvestedAmount = grossDec.minus(allocationFeeAmount);
+    const allocationFeeAmount = netDec.times(ALLOCATION_FEE_PCT.dividedBy(100));
+    const totalRequired = netDec.plus(allocationFeeAmount);
 
     return {
-      grossContribution: grossDec.toFixed(2),
+      investmentAmount: netDec.toFixed(2),
       allocationFeePct: ALLOCATION_FEE_PCT.toFixed(2),
       allocationFeeAmount: allocationFeeAmount.toFixed(2),
-      netAmountAllocated: netInvestedAmount.toFixed(2),
-      feeDescription: '5% Investment Allocation Fee deducted upon capital deployment',
+      totalRequired: totalRequired.toFixed(2),
+      grossContribution: totalRequired.toFixed(2),
+      netAmountAllocated: netDec.toFixed(2),
+      feeDescription: '5% Platform Allocation Fee added to startup investment',
     };
   }
 
   /**
    * Invest in Startup Campaign
    * Enforces:
-   *  - 5% Allocation Fee
+   *  - 5% Allocation Fee Added On Top
    *  - Wallet balance deduction
    *  - Campaign funds raised & investor count increment
    *  - Double-entry ledger recording
@@ -277,14 +279,14 @@ export class InvestmentsService {
     }
 
     const minInv = new Decimal(campaign.minInvestment.toString());
-    const grossDec = new Decimal(data.grossAmount);
+    const netDec = new Decimal(data.grossAmount); // Target amount allocated to startup
 
-    if (grossDec.lessThan(minInv)) {
+    if (netDec.lessThan(minInv)) {
       throw new Error(`Minimum investment for this campaign is $${minInv.toFixed(2)} USD.`);
     }
 
     const feeCalc = this.calculateInvestmentFee(data.grossAmount);
-    const totalToDebit = grossDec;
+    const totalToDebit = new Decimal(feeCalc.totalRequired); // Target investment + 5% fee
 
     // Check wallet balance
     const wallet = await ledgerService.ensureWallet(userId);
@@ -312,7 +314,7 @@ export class InvestmentsService {
       currentBal = usdtAvail;
     } else {
       throw new Error(
-        `Insufficient funds. Investment requires $${grossDec.toFixed(2)} (including 5% allocation fee of $${feeCalc.allocationFeeAmount}). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
+        `Insufficient funds. Investment requires $${totalToDebit.toFixed(2)} ($${netDec.toFixed(2)} allocated to startup + $${feeCalc.allocationFeeAmount} 5% fee). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
       );
     }
 
@@ -330,7 +332,7 @@ export class InvestmentsService {
       await tx.startupListing.update({
         where: { id: campaign.id },
         data: {
-          verifiedFundsRaised: { increment: grossDec.toFixed(2) },
+          verifiedFundsRaised: { increment: netDec.toFixed(2) },
           investorCount: { increment: 1 },
         },
       });
@@ -341,10 +343,10 @@ export class InvestmentsService {
           investmentCode,
           listingId: campaign.id,
           investorUserId: userId,
-          grossAmount: grossDec,
+          grossAmount: totalToDebit,
           allocationFeePct: new Decimal(feeCalc.allocationFeePct),
           allocationFeeAmount: new Decimal(feeCalc.allocationFeeAmount),
-          netInvestedAmount: new Decimal(feeCalc.netAmountAllocated),
+          netInvestedAmount: netDec,
           instrument: data.instrument || campaign.instrument,
           status: 'CLEARED_FUNDS',
           currentValuation: campaign.valuation,
@@ -371,7 +373,7 @@ export class InvestmentsService {
           status: TransactionStatus.COMPLETED,
           balanceBefore: currentBal.toFixed(8),
           balanceAfter: newBal.toFixed(8),
-          notes: `Investment in ${campaign.companyName} (Gross: $${grossDec.toFixed(2)}, 5% Fee: $${feeCalc.allocationFeeAmount}, Net Allocated: $${feeCalc.netAmountAllocated})`,
+          notes: `Investment in ${campaign.companyName} (Startup Allocation: $${netDec.toFixed(2)}, 5% Fee: $${feeCalc.allocationFeeAmount}, Total Debited: $${totalToDebit.toFixed(2)})`,
           settlementReference: investmentCode,
         },
       });
