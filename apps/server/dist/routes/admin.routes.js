@@ -27,4 +27,5 @@ router.post('/kyc/:id/reject', auth_1.requireAdmin2FA, (req, res, next) => admin
 router.post('/returns/run', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.triggerMonthlyReturns(req, res, next));
 router.get('/ledger/reconcile', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.getLedgerReconciliation(req, res, next));
 router.get('/ledger/journals', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.getLedgerJournals(req, res, next));
+router.post('/system/purge-demo', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.purgeDemoData(req, res, next));
 exports.default = router;

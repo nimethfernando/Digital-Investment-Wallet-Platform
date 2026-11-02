@@ -425,7 +425,6 @@ class PackageService {
      * Admin: List all investment packages with filters
      */
     async getAllPackages(filters) {
-        await this.ensureDefaultPackages();
         const page = filters.page || 1;
         const limit = filters.limit || 20;
         const skip = (page - 1) * limit;

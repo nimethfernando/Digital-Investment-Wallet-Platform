@@ -450,6 +450,57 @@ export class AdminController {
       next(err);
     }
   }
+
+  /**
+   * Purge demo/test data for pristine production launch
+   */
+  async purgeDemoData(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+
+      await prisma.packageReturn.deleteMany({});
+      await prisma.investmentPackage.deleteMany({});
+      await prisma.withdrawalRequest.deleteMany({});
+      await prisma.depositRequest.deleteMany({});
+      await prisma.p2PMessage.deleteMany({});
+      await prisma.p2POrder.deleteMany({});
+      await prisma.otcMessage.deleteMany({});
+      await prisma.otcQuote.deleteMany({});
+      await prisma.supportTicket.deleteMany({});
+
+      // Reset client balances to 0
+      await prisma.walletBalance.updateMany({
+        where: {
+          wallet: {
+            userId: { not: adminUserId },
+          },
+        },
+        data: {
+          availableBalance: '0.00000000',
+          lockedPrincipal: '0.00000000',
+          pendingSettlement: '0.00000000',
+        },
+      });
+
+      // Audit Log
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'PURGE_DEMO_DATA',
+          entity: 'SystemDatabase',
+          entityId: 'ALL',
+          details: 'Purged all demo investment packages, test returns, and test trades for clean production launch.',
+        },
+      });
+
+      res.json({
+        success: true,
+        message: 'All demo and test records have been successfully purged. Platform is now at clean production state.',
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const adminController = new AdminController();

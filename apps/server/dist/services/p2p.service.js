@@ -611,18 +611,7 @@ class P2PService {
             const sellerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
             let sellerAvail = new decimal_js_1.default(sellerBal.availableBalance.toString());
             if (sellerAvail.lessThan(cryptoAmountDec)) {
-                const sellerUser = await tx.user.findUnique({ where: { id: sellerId } });
-                if (sellerUser?.role === 'ADMIN' || offer.userId === sellerId) {
-                    const seededBal = new decimal_js_1.default('1000000.00');
-                    await tx.walletBalance.update({
-                        where: { id: sellerBal.id },
-                        data: { availableBalance: seededBal.toFixed(8) },
-                    });
-                    sellerAvail = seededBal;
-                }
-                else {
-                    throw new Error(`Seller has insufficient USDT available for escrow lock (${sellerAvail.toFixed(2)} USDT available, ${cryptoAmountDec.toFixed(2)} required)`);
-                }
+                throw new Error(`Seller has insufficient USDT available for escrow lock (${sellerAvail.toFixed(2)} USDT available, ${cryptoAmountDec.toFixed(2)} required)`);
             }
             // Move USDT from availableBalance to lockedPrincipal (Escrow holding)
             const newAvail = sellerAvail.minus(cryptoAmountDec);

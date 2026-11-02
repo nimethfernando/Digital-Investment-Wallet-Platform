@@ -416,6 +416,53 @@ class AdminController {
             next(err);
         }
     }
+    /**
+     * Purge demo/test data for pristine production launch
+     */
+    async purgeDemoData(req, res, next) {
+        try {
+            const adminUserId = req.user.id;
+            await prisma_1.prisma.packageReturn.deleteMany({});
+            await prisma_1.prisma.investmentPackage.deleteMany({});
+            await prisma_1.prisma.withdrawalRequest.deleteMany({});
+            await prisma_1.prisma.depositRequest.deleteMany({});
+            await prisma_1.prisma.p2PMessage.deleteMany({});
+            await prisma_1.prisma.p2POrder.deleteMany({});
+            await prisma_1.prisma.otcMessage.deleteMany({});
+            await prisma_1.prisma.otcQuote.deleteMany({});
+            await prisma_1.prisma.supportTicket.deleteMany({});
+            // Reset client balances to 0
+            await prisma_1.prisma.walletBalance.updateMany({
+                where: {
+                    wallet: {
+                        userId: { not: adminUserId },
+                    },
+                },
+                data: {
+                    availableBalance: '0.00000000',
+                    lockedPrincipal: '0.00000000',
+                    pendingSettlement: '0.00000000',
+                },
+            });
+            // Audit Log
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'PURGE_DEMO_DATA',
+                    entity: 'SystemDatabase',
+                    entityId: 'ALL',
+                    details: 'Purged all demo investment packages, test returns, and test trades for clean production launch.',
+                },
+            });
+            res.json({
+                success: true,
+                message: 'All demo and test records have been successfully purged. Platform is now at clean production state.',
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
 }
 exports.AdminController = AdminController;
 exports.adminController = new AdminController();

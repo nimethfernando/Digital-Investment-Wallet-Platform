@@ -28,6 +28,7 @@ import {
   MessageSquare,
   Ticket,
   Send,
+  Trash2,
   Zap,
   Package,
 } from 'lucide-react';
@@ -302,6 +303,26 @@ export default function AdminPortalPage() {
     }
   };
 
+  const [purgingDemo, setPurgingDemo] = useState(false);
+
+  const handlePurgeDemoData = async () => {
+    const confirmed = window.confirm(
+      '⚠️ WARNING: Are you sure you want to purge all demo data?\n\nThis will permanently delete all test packages, returns, deposit/withdrawal requests, test trades, and tickets, resetting the database to a 100% clean production state.\n\nMaster Admin and Chart of Accounts will be preserved.'
+    );
+    if (!confirmed) return;
+
+    setPurgingDemo(true);
+    try {
+      const res = await api.post('/admin/system/purge-demo', {});
+      showToast(res.data?.message || 'Demo data successfully purged. Platform is now in clean production state.', 'success');
+      loadData();
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to purge demo data.', 'error');
+    } finally {
+      setPurgingDemo(false);
+    }
+  };
+
   if (isLoading || !isAdmin) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
@@ -334,6 +355,14 @@ export default function AdminPortalPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={handlePurgeDemoData}
+              disabled={purgingDemo}
+              className="text-xs font-bold text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-xl border border-amber-500/30 hover:bg-amber-500/10 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{purgingDemo ? 'Purging Demo...' : 'Purge Demo Data'}</span>
+            </button>
             <Link
               href="/dashboard"
               className="text-xs font-bold text-slate-400 hover:text-white px-3 py-1.5 rounded-xl border border-slate-800 hover:bg-slate-800 transition-colors"

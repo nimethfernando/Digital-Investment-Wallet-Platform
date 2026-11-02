@@ -482,8 +482,6 @@ export class PackageService {
     page?: number;
     limit?: number;
   }) {
-    await this.ensureDefaultPackages();
-
     const page = filters.page || 1;
     const limit = filters.limit || 20;
     const skip = (page - 1) * limit;

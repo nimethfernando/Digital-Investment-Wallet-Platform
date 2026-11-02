@@ -11,6 +11,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:clean-demo": "tsx scripts/cleanup-demo-data.ts",
     "test:ledger": "tsx tests/ledger.test.ts"
   },
   "dependencies": {
