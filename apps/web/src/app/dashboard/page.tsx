@@ -1324,8 +1324,8 @@ function DashboardContent() {
       {/* MODAL: P2P TRANSFER (WITH SAFEGUARDS & ACCOUNT NUMBER) */}
       {/* ========================================================================= */}
       {p2pModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-3xl p-5 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 relative my-auto">
             <button
               onClick={() => {
                 setP2PModalOpen(false);
@@ -1333,7 +1333,7 @@ function DashboardContent() {
                 setP2PError(null);
                 setP2PSuccess(null);
               }}
-              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white"
+              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1502,11 +1502,11 @@ function DashboardContent() {
       {/* MODAL: SUPPORT TICKET */}
       {/* ========================================================================= */}
       {ticketModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md max-h-[92vh] overflow-y-auto rounded-3xl p-5 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 relative my-auto">
             <button
               onClick={() => setTicketModalOpen(false)}
-              className="absolute right-5 top-5 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+              className="absolute right-5 top-5 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1589,15 +1589,15 @@ function DashboardContent() {
       {/* MODAL: WITHDRAWAL */}
       {/* ========================================================================= */}
       {withdrawModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md max-h-[92vh] overflow-y-auto rounded-3xl p-5 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 relative my-auto">
             <button
               onClick={() => {
                 setWithdrawModalOpen(false);
                 setWthError(null);
                 setWthSuccess(null);
               }}
-              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white"
+              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1708,8 +1708,8 @@ function DashboardContent() {
       {/* MODAL: 2FA SETUP */}
       {/* ========================================================================= */}
       {twoFactorModalOpen && qrCodeData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md max-h-[92vh] overflow-y-auto rounded-3xl p-5 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 relative my-auto">
             <button
               onClick={() => {
                 setTwoFactorModalOpen(false);
@@ -1717,7 +1717,7 @@ function DashboardContent() {
                 setTwoFactorError(null);
                 setTwoFactorSuccess(null);
               }}
-              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white"
+              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>

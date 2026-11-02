@@ -176,20 +176,21 @@ export function QrTransferModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-3xl p-5 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-5 my-auto">
         
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
+          className="absolute right-5 top-5 p-1.5 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white bg-slate-100 dark:bg-slate-800 transition-colors cursor-pointer"
+          aria-label="Close"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20 shadow-sm">
+        <div className="flex items-center gap-3 pr-8">
+          <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20 shadow-sm shrink-0">
             <QrCode className="w-6 h-6" />
           </div>
           <div>
@@ -210,7 +211,7 @@ export function QrTransferModal({
               setErrorMsg(null);
               setSuccessMsg(null);
             }}
-            className={`py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+            className={`py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
               tab === 'RECEIVE'
                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
                 : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -226,7 +227,7 @@ export function QrTransferModal({
               setErrorMsg(null);
               setSuccessMsg(null);
             }}
-            className={`py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+            className={`py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
               tab === 'SEND'
                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
                 : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -239,18 +240,18 @@ export function QrTransferModal({
 
         {/* TAB 1: RECEIVE VIA QR */}
         {tab === 'RECEIVE' && (
-          <div className="space-y-5">
+          <div className="space-y-4 pb-1">
             {/* QR Visual Card */}
-            <div className="p-6 rounded-3xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-col items-center text-center space-y-4">
-              <div className="p-3 bg-white rounded-2xl shadow-md border border-slate-200 dark:border-slate-700 inline-block">
+            <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-col items-center text-center space-y-3.5">
+              <div className="p-2.5 bg-white rounded-2xl shadow-md border border-slate-200 dark:border-slate-700 inline-block">
                 {qrDataUrl ? (
                   <img
                     src={qrDataUrl}
                     alt="Avora Pay QR Code"
-                    className="w-48 h-48 sm:w-56 sm:h-56 rounded-xl"
+                    className="w-40 h-40 sm:w-48 sm:h-48 rounded-xl object-contain"
                   />
                 ) : (
-                  <div className="w-48 h-48 sm:w-56 sm:h-56 flex items-center justify-center text-xs text-slate-400">
+                  <div className="w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center text-xs text-slate-400">
                     Generating QR...
                   </div>
                 )}
@@ -313,7 +314,7 @@ export function QrTransferModal({
             {/* Download Button */}
             <button
               onClick={handleDownloadQr}
-              className="w-full py-3 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white flex items-center justify-center gap-2 transition-colors shadow-sm"
+              className="w-full py-3 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
             >
               <Download className="w-4 h-4" />
               Download QR Image (PNG)
