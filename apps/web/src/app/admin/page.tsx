@@ -401,7 +401,7 @@ export default function AdminPortalPage() {
             { id: 'treasury', label: 'Treasury & Ledger', icon: Landmark },
             { id: 'packages', label: `Packages & Yields (${adminPackages.length})`, icon: Package },
             { id: 'deposits', label: `Deposits (${deposits.filter((d) => d.status === 'PENDING').length})`, icon: Coins },
-            { id: 'withdrawals', label: `Settlements (${withdrawals.filter((w) => w.status === 'QUEUED_FOR_SETTLEMENT').length})`, icon: Clock },
+            { id: 'withdrawals', label: `Settlements (${withdrawals.filter((w) => ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w.status)).length})`, icon: Clock },
             { id: 'kyc', label: `KYC Compliance (${kycDocs.length})`, icon: UserCheck },
             { id: 'disputes', label: `Tickets (${tickets.length})`, icon: MessageSquare },
           ].map((t) => {
@@ -441,17 +441,21 @@ export default function AdminPortalPage() {
               <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-2">
                 <div className="text-xs text-slate-400 font-semibold">Total Journal Postings</div>
                 <div className="text-2xl font-black text-white font-mono">
-                  ${ledgerReconciliation?.totalDebits || '284,450.00'} USD
+                  ${Number(ledgerReconciliation?.totalDebit ?? ledgerReconciliation?.totalDebits ?? 0).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}{' '}
+                  USD
                 </div>
                 <div className="text-[11px] text-slate-500">
-                  Total Debits equals Total Credits
+                  {ledgerReconciliation?.journalCount ?? 0} journals • Total Debits equals Total Credits
                 </div>
               </div>
 
               <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-2">
                 <div className="text-xs text-slate-400 font-semibold">Reconciliation Delta</div>
                 <div className="text-2xl font-black text-white font-mono">
-                  ${ledgerReconciliation?.difference || '0.00'}
+                  ${Number(ledgerReconciliation?.difference ?? 0).toFixed(2)} USD
                 </div>
                 <div className="text-[11px] text-emerald-400 font-semibold">
                   Zero ledger discrepancy
@@ -886,7 +890,7 @@ export default function AdminPortalPage() {
                       </div>
                     </div>
 
-                    {w.status === 'PENDING_SETTLEMENT' && (
+                    {['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w.status) && (
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
@@ -1070,14 +1074,13 @@ export default function AdminPortalPage() {
             </div>
 
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Admin 2FA Code</label>
+              <label className="text-xs text-slate-400 block mb-1">Admin 2FA Code (Optional if not enabled)</label>
               <input
                 type="password"
                 value={admin2FaCode}
                 onChange={(e) => setAdmin2FaCode(e.target.value)}
-                placeholder="6-digit TOTP"
+                placeholder="6-digit TOTP (Optional)"
                 maxLength={6}
-                required
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white outline-none font-mono text-center"
               />
             </div>

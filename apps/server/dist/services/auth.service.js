@@ -97,26 +97,6 @@ class AuthService {
                 });
             }
         }
-        // Auto-ensure Demo Investor account if credentials match
-        if (cleanEmail === 'investor@avorabank.com') {
-            const existingInvestor = await prisma_1.prisma.user.findUnique({ where: { email: cleanEmail } });
-            if (!existingInvestor) {
-                const salt = await bcryptjs_1.default.genSalt(12);
-                const hash = await bcryptjs_1.default.hash('Investor2026!Yield', salt);
-                await prisma_1.prisma.user.create({
-                    data: {
-                        email: cleanEmail,
-                        passwordHash: hash,
-                        firstName: 'Demo',
-                        lastName: 'Investor',
-                        role: client_1.Role.USER,
-                        status: client_1.UserStatus.ACTIVE,
-                        emailVerified: true,
-                        twoFactorEnabled: false,
-                    },
-                });
-            }
-        }
         const user = await prisma_1.prisma.user.findUnique({
             where: { email: cleanEmail },
             include: { wallet: { include: { balances: true } } },

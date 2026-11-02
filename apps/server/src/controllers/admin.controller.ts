@@ -458,27 +458,54 @@ export class AdminController {
     try {
       const adminUserId = (req as any).user.id;
 
+      // 1. Purge double-entry ledger entries, journals & user transactions so Total Journal Postings = $0.00
+      await prisma.ledgerEntry.deleteMany({});
+      await prisma.ledgerJournal.deleteMany({});
+      await prisma.transaction.deleteMany({});
+
+      // 2. Purge packages, returns, deposits, withdrawals, cards & KYC test submissions
       await prisma.packageReturn.deleteMany({});
       await prisma.investmentPackage.deleteMany({});
       await prisma.withdrawalRequest.deleteMany({});
       await prisma.depositRequest.deleteMany({});
+      await prisma.exchangeOrder.deleteMany({});
+      await prisma.virtualCard.deleteMany({});
+      await prisma.kycDocument.deleteMany({});
+
+      // 3. Purge P2P, OTC, Global Transfers, Startup Commitments, Token Early Access & Tickets
       await prisma.p2PMessage.deleteMany({});
       await prisma.p2POrder.deleteMany({});
       await prisma.otcMessage.deleteMany({});
+      await prisma.otcTrade.deleteMany({});
       await prisma.otcQuote.deleteMany({});
+      await prisma.globalTransfer.deleteMany({});
+      await prisma.tokenEarlyAccess.deleteMany({});
+      await prisma.investmentCommitment.deleteMany({});
+      await prisma.investmentWatchlist.deleteMany({});
+      await prisma.investmentInquiry.deleteMany({});
+      await prisma.ticketReply.deleteMany({});
       await prisma.supportTicket.deleteMany({});
+      await prisma.inquiry.deleteMany({});
 
-      // Reset client balances to 0
+      // 4. Reset all wallet balances to 0.00
       await prisma.walletBalance.updateMany({
-        where: {
-          wallet: {
-            userId: { not: adminUserId },
-          },
-        },
         data: {
           availableBalance: '0.00000000',
           lockedPrincipal: '0.00000000',
           pendingSettlement: '0.00000000',
+        },
+      });
+
+      // 5. Remove synthetic test/demo user accounts while preserving Admin & Corporate OTC desks
+      await prisma.user.deleteMany({
+        where: {
+          id: { not: adminUserId },
+          OR: [
+            { email: 'investor@avorabank.com' },
+            { email: { startsWith: 'e2e_' } },
+            { email: { startsWith: 'fintech_tester_' } },
+            { email: { startsWith: 'test_' } },
+          ],
         },
       });
 
@@ -489,13 +516,13 @@ export class AdminController {
           action: 'PURGE_DEMO_DATA',
           entity: 'SystemDatabase',
           entityId: 'ALL',
-          details: 'Purged all demo investment packages, test returns, and test trades for clean production launch.',
+          details: 'Purged all ledger journals, demo packages, test returns, transactions, and test trades for clean $0.00 production state.',
         },
       });
 
       res.json({
         success: true,
-        message: 'All demo and test records have been successfully purged. Platform is now at clean production state.',
+        message: 'All demo data and ledger journal postings have been reset to $0.00. Platform is now in a clean production state.',
       });
     } catch (err) {
       next(err);
