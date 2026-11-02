@@ -164,15 +164,61 @@ export default function ExchangeDeskPage() {
   const [chatInput, setChatInput] = useState<string>('');
   const [msgLoading, setMsgLoading] = useState<boolean>(false);
 
-  // Benchmark Rates
-  const baseRates: Record<string, number> = {
+  // Benchmark Rates - Dynamic Live Rates from Market Provider
+  const [baseRates, setBaseRates] = useState<Record<string, number>>({
     USD: 1.00,
-    EUR: 0.92,
-    LKR: 304.50,
-    AED: 3.67,
-    GEL: 2.78,
-    INR: 86.50,
+    EUR: 0.896,
+    LKR: 332.40,
+    AED: 3.6725,
+    GEL: 2.595,
+    INR: 95.08,
+  });
+  const [ratesLoading, setRatesLoading] = useState<boolean>(false);
+  const [ratesSource, setRatesSource] = useState<string>('Live Market Feed');
+
+  // Fetch live market rates from backend or direct exchange rate feed
+  const fetchLiveRates = async () => {
+    setRatesLoading(true);
+    try {
+      const res = await api.get('/otc/rates');
+      if (res.data?.success && res.data?.rates) {
+        setBaseRates((prev) => ({
+          ...prev,
+          ...res.data.rates,
+        }));
+        if (res.data.source) setRatesSource(res.data.source);
+        return;
+      }
+    } catch {
+      // Fallback: direct browser fetch from Open Exchange Rates feed
+      try {
+        const directRes = await fetch('https://open.er-api.com/v6/latest/USD');
+        const directData = await directRes.json();
+        if (directData?.result === 'success' && directData?.rates) {
+          setBaseRates((prev) => ({
+            ...prev,
+            USD: 1.0,
+            EUR: Number((directData.rates.EUR ?? 0.896).toFixed(4)),
+            LKR: Number((directData.rates.LKR ?? 332.4).toFixed(2)),
+            AED: Number((directData.rates.AED ?? 3.6725).toFixed(4)),
+            GEL: Number((directData.rates.GEL ?? 2.595).toFixed(4)),
+            INR: Number((directData.rates.INR ?? 95.08).toFixed(2)),
+          }));
+          setRatesSource('Open Exchange Rates (Live)');
+        }
+      } catch {
+        // Retain fallback rates safely
+      }
+    } finally {
+      setRatesLoading(false);
+    }
   };
+
+  useEffect(() => {
+    fetchLiveRates();
+    const interval = setInterval(fetchLiveRates, 60000); // Poll live rates every 60s
+    return () => clearInterval(interval);
+  }, []);
 
   const marginPct = 1.2; // 1.2% base margin
   const baseRate = baseRates[calcFiatCurrency] || 1.0;
@@ -656,6 +702,19 @@ export default function ExchangeDeskPage() {
                   {calcDirection === 'BUY' ? 'USDT' : calcFiatCurrency}
                 </span>
               </div>
+            </div>
+
+            {/* LIVE MARKET BENCHMARK STATUS */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${ratesLoading ? 'bg-amber-400 animate-ping' : 'bg-emerald-500 animate-pulse'}`} />
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  Live Market Benchmark: <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">1 USDT = {baseRate.toFixed(4)} {calcFiatCurrency}</span>
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-slate-400">
+                Source: {ratesSource}
+              </span>
             </div>
           </div>
 

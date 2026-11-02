@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
+import { rateService } from './rate.service';
 import { TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -524,7 +525,7 @@ export class OtcService {
     }
 
     const fiatCur = params.fiatCurrency.toUpperCase();
-    const benchmarkRate = this.BENCHMARK_RATES[fiatCur] || 1.0;
+    const benchmarkRate = await rateService.getRate(fiatCur);
 
     // Apply operator margin
     const marginPct =

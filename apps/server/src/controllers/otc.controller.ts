@@ -1,7 +1,26 @@
 import { Request, Response, NextFunction } from 'express';
 import { otcService } from '../services/otc.service';
+import { rateService } from '../services/rate.service';
 
 export class OtcController {
+  /**
+   * GET /api/v1/otc/rates
+   * Real-time benchmark exchange rates from original live market source
+   */
+  async getRates(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await rateService.getLiveRates();
+      res.json({
+        success: true,
+        source: data.source,
+        lastUpdated: data.lastUpdated,
+        rates: data.rates,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   /**
    * GET /api/v1/otc/desks
    * Location-based OTC desk discovery
