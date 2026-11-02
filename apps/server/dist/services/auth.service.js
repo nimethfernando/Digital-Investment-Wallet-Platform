@@ -50,7 +50,8 @@ class AuthService {
                 },
             },
         });
-        await notification_provider_1.notificationService.sendEmail({
+        // Send welcome email (non-blocking)
+        notification_provider_1.notificationService.sendEmail({
             to: user.email,
             subject: 'Welcome to Avora Bank - Verify Your Account',
             html: `
@@ -60,7 +61,7 @@ class AuthService {
           <p>You can now explore our curated investment packages, check live USDT exchange rates, or fund your wallet.</p>
         </div>
       `,
-        });
+        }).catch(() => { });
         const token = this.generateToken(user.id, user.email, user.role);
         return {
             user: {
@@ -162,7 +163,8 @@ class AuthService {
                 passwordResetExpires: resetExpires,
             },
         });
-        await notification_provider_1.notificationService.sendEmail({
+        // Dispatch reset email (non-blocking)
+        notification_provider_1.notificationService.sendEmail({
             to: user.email,
             subject: 'Password Reset Request - Avora Bank',
             html: `
@@ -175,7 +177,7 @@ class AuthService {
           <p>This token is valid for 1 hour.</p>
         </div>
       `,
-        });
+        }).catch(() => { });
         return { success: true, message: 'If an account exists, a reset link has been dispatched.' };
     }
     async resetPassword(token, newPassword) {
@@ -201,7 +203,8 @@ class AuthService {
                 withdrawalLockedUntil: lockUntil,
             },
         });
-        await notification_provider_1.notificationService.sendEmail({
+        // Email alert (non-blocking)
+        notification_provider_1.notificationService.sendEmail({
             to: user.email,
             subject: 'Security Alert: Password Reset - 24-Hour Withdrawal Lock Engaged',
             html: `
@@ -232,7 +235,8 @@ class AuthService {
                 withdrawalLockedUntil: lockUntil,
             },
         });
-        await notification_provider_1.notificationService.sendEmail({
+        // Email alert (non-blocking)
+        notification_provider_1.notificationService.sendEmail({
             to: user.email,
             subject: 'Security Alert: Password Changed - 24-Hour Withdrawal Lock Engaged',
             html: `

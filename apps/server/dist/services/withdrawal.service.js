@@ -141,8 +141,8 @@ class WithdrawalService {
             });
             return { withdrawal, balanceAfter: newAvail.toFixed(2) };
         }, { timeout: 30000, maxWait: 10000 });
-        // Email notification
-        await notification_provider_1.notificationService.sendEmail({
+        // Email notification (non-blocking)
+        notification_provider_1.notificationService.sendEmail({
             to: user.email,
             subject: `Withdrawal Request Received - ${requestCode}`,
             html: `
@@ -236,8 +236,8 @@ class WithdrawalService {
             });
             return updatedWth;
         }, { timeout: 30000, maxWait: 10000 });
-        // Email alert
-        await notification_provider_1.notificationService.sendEmail({
+        // Email alert (non-blocking)
+        notification_provider_1.notificationService.sendEmail({
             to: wth.user.email,
             subject: `Withdrawal Settled - ${wth.requestCode}`,
             html: `
@@ -333,8 +333,8 @@ class WithdrawalService {
             });
             return updatedWth;
         }, { timeout: 30000, maxWait: 10000 });
-        // Email alert
-        await notification_provider_1.notificationService.sendEmail({
+        // Email alert (non-blocking)
+        notification_provider_1.notificationService.sendEmail({
             to: wth.user.email,
             subject: `Withdrawal Request Update - ${wth.requestCode}`,
             html: `

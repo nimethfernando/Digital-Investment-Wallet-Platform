@@ -22,6 +22,9 @@ class SmtpNotificationProvider {
                     user,
                     pass,
                 },
+                connectionTimeout: 4000, // 4s max connect timeout
+                greetingTimeout: 4000, // 4s max greeting timeout
+                socketTimeout: 5000, // 5s max socket timeout
             });
         }
         else {
@@ -31,22 +34,27 @@ class SmtpNotificationProvider {
     async sendEmail(options) {
         const fromAddress = process.env.EMAIL_FROM || process.env.EMAIL_USER || 'no-reply@avorabank.com';
         if (process.env.NODE_ENV === 'test' || !this.transporter) {
+            console.log(`[NotificationProvider] (Console Log): Email to ${options.to} - ${options.subject}`);
             return true;
         }
-        try {
-            await this.transporter.sendMail({
-                from: fromAddress,
-                to: options.to,
-                subject: options.subject,
-                html: options.html,
-                text: options.text,
-            });
-            return true;
-        }
-        catch (error) {
-            console.error('[NotificationProvider] Failed to send email:', error);
-            return false;
-        }
+        // Dispatch asynchronously in background so caller HTTP endpoints NEVER block or hang
+        setImmediate(async () => {
+            try {
+                const emailPromise = this.transporter.sendMail({
+                    from: fromAddress,
+                    to: options.to,
+                    subject: options.subject,
+                    html: options.html,
+                    text: options.text,
+                });
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP connection timed out')), 4000));
+                await Promise.race([emailPromise, timeoutPromise]);
+            }
+            catch (error) {
+                console.warn('[NotificationProvider] Failed to dispatch background email:', error?.message || error);
+            }
+        });
+        return true;
     }
     async sendAdminAlert(subject, message, meta) {
         const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.EMAIL_USER;

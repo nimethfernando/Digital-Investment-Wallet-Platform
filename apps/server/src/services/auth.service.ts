@@ -54,7 +54,8 @@ export class AuthService {
       },
     });
 
-    await notificationService.sendEmail({
+    // Send welcome email (non-blocking)
+    notificationService.sendEmail({
       to: user.email,
       subject: 'Welcome to Avora Bank - Verify Your Account',
       html: `
@@ -64,7 +65,7 @@ export class AuthService {
           <p>You can now explore our curated investment packages, check live USDT exchange rates, or fund your wallet.</p>
         </div>
       `,
-    });
+    }).catch(() => {});
 
     const token = this.generateToken(user.id, user.email, user.role);
 
@@ -184,7 +185,8 @@ export class AuthService {
       },
     });
 
-    await notificationService.sendEmail({
+    // Dispatch reset email (non-blocking)
+    notificationService.sendEmail({
       to: user.email,
       subject: 'Password Reset Request - Avora Bank',
       html: `
@@ -197,7 +199,7 @@ export class AuthService {
           <p>This token is valid for 1 hour.</p>
         </div>
       `,
-    });
+    }).catch(() => {});
 
     return { success: true, message: 'If an account exists, a reset link has been dispatched.' };
   }
@@ -229,7 +231,8 @@ export class AuthService {
       },
     });
 
-    await notificationService.sendEmail({
+    // Email alert (non-blocking)
+    notificationService.sendEmail({
       to: user.email,
       subject: 'Security Alert: Password Reset - 24-Hour Withdrawal Lock Engaged',
       html: `
@@ -264,7 +267,8 @@ export class AuthService {
       },
     });
 
-    await notificationService.sendEmail({
+    // Email alert (non-blocking)
+    notificationService.sendEmail({
       to: user.email,
       subject: 'Security Alert: Password Changed - 24-Hour Withdrawal Lock Engaged',
       html: `

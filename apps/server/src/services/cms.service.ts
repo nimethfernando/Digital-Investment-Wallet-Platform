@@ -74,11 +74,11 @@ export class CmsService {
       },
     });
 
-    await notificationService.sendAdminAlert(
+    notificationService.sendAdminAlert(
       `New Website Inquiry: ${data.subject} (${data.type})`,
       `From: ${data.name} (${data.email}, ${data.phone || 'No phone'})\n\nMessage:\n${data.message}`,
       { inquiryId: inquiry.id, type: data.type }
-    );
+    ).catch(() => {});
 
     return inquiry;
   }

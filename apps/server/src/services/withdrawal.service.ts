@@ -175,8 +175,8 @@ export class WithdrawalService {
       { timeout: 30000, maxWait: 10000 }
     );
 
-    // Email notification
-    await notificationService.sendEmail({
+    // Email notification (non-blocking)
+    notificationService.sendEmail({
       to: user.email,
       subject: `Withdrawal Request Received - ${requestCode}`,
       html: `
@@ -289,8 +289,8 @@ export class WithdrawalService {
       { timeout: 30000, maxWait: 10000 }
     );
 
-    // Email alert
-    await notificationService.sendEmail({
+    // Email alert (non-blocking)
+    notificationService.sendEmail({
       to: wth.user.email,
       subject: `Withdrawal Settled - ${wth.requestCode}`,
       html: `
@@ -401,8 +401,8 @@ export class WithdrawalService {
       { timeout: 30000, maxWait: 10000 }
     );
 
-    // Email alert
-    await notificationService.sendEmail({
+    // Email alert (non-blocking)
+    notificationService.sendEmail({
       to: wth.user.email,
       subject: `Withdrawal Request Update - ${wth.requestCode}`,
       html: `

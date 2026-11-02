@@ -20,7 +20,9 @@ import {
   Loader2,
   Sparkles,
   Info,
+  QrCode,
 } from 'lucide-react';
+import { DepositModal } from '../../components/DepositModal';
 
 export default function PackagesPage() {
   const router = useRouter();
@@ -34,6 +36,8 @@ export default function PackagesPage() {
   const [purchasing, setPurchasing] = useState<boolean>(false);
   const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [isDepositModalOpen, setIsDepositModalOpen] = useState<boolean>(false);
+  const [createdPackageCode, setCreatedPackageCode] = useState<string | null>(null);
 
   const terms = [
     { months: 3, label: '3 Months', sublabel: 'Quarterly', rate: 0.008, apr: '9.6% APR' },
@@ -74,7 +78,14 @@ export default function PackagesPage() {
       });
 
       if (res.data?.success) {
-        setPurchaseSuccess(res.data.message || 'Investment package activated successfully!');
+        const pkgCode = res.data?.package?.packageCode;
+        if (pkgCode) setCreatedPackageCode(pkgCode);
+        setPurchaseSuccess(res.data.message || 'Investment package allocated successfully!');
+
+        // If paying via crypto or bank wire, automatically open the Deposit modal with the QR code
+        if (depositMethod === 'USDT_TRC20' || depositMethod === 'BANK_WIRE') {
+          setIsDepositModalOpen(true);
+        }
       } else {
         setPurchaseError(res.data?.message || 'Failed to activate package');
       }
@@ -342,9 +353,21 @@ export default function PackagesPage() {
 
         {/* FEEDBACK NOTICES */}
         {purchaseSuccess && (
-          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>{purchaseSuccess}</span>
+          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span>{purchaseSuccess}</span>
+            </div>
+            {(depositMethod === 'USDT_TRC20' || depositMethod === 'BANK_WIRE') && (
+              <button
+                type="button"
+                onClick={() => setIsDepositModalOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-2 self-start sm:self-auto cursor-pointer shadow-md transition-all shrink-0"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>View Deposit QR Code</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -394,6 +417,18 @@ export default function PackagesPage() {
         )}
       </div>
 
+      {/* POPUP DEPOSIT QR MODAL FOR CRYPTO / BANK WIRE FUNDING */}
+      <DepositModal
+        isOpen={isDepositModalOpen}
+        onClose={() => setIsDepositModalOpen(false)}
+        initialAmount={selectedAmount}
+        initialRail={depositMethod === 'BANK_WIRE' ? 'BANK_WIRE' : 'USDT'}
+        initialNetwork="TRC20"
+        intendedPackageCode={createdPackageCode || undefined}
+        onDepositSuccess={() => {
+          setPurchaseSuccess('Deposit transaction submitted! Our desk will verify payment and activate your package.');
+        }}
+      />
     </div>
   );
 }

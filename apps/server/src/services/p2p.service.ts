@@ -352,8 +352,8 @@ export class P2PService {
       { timeout: 30000, maxWait: 10000 }
     );
 
-    // 6. Asynchronous email notifications
-    await notificationService.sendEmail({
+    // 6. Asynchronous email notifications (non-blocking)
+    notificationService.sendEmail({
       to: sender.email,
       subject: `P2P Transfer Sent - ${referenceCode}`,
       html: `
@@ -365,7 +365,7 @@ export class P2PService {
       `,
     }).catch(() => {});
 
-    await notificationService.sendEmail({
+    notificationService.sendEmail({
       to: recipient.email,
       subject: `P2P Funds Received - ${referenceCode}`,
       html: `

@@ -107,6 +107,18 @@ class WalletController {
         }
     }
     /**
+     * Get deposit receiving addresses, networks, and instructions
+     */
+    async getDepositInstructions(req, res, next) {
+        try {
+            const instructions = await deposit_service_1.depositService.getDepositInstructions();
+            res.json({ success: true, data: instructions });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * Submit a deposit request
      */
     async submitDeposit(req, res, next) {

@@ -12,6 +12,7 @@ const getBaseUrl = (): string => {
 
 export const api = axios.create({
   baseURL: getBaseUrl(),
+  timeout: 25000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -19,6 +20,9 @@ export const api = axios.create({
 
 export const extractErrorMessage = (err: any, fallback = 'Operation failed'): string => {
   if (!err) return fallback;
+  if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+    return 'The server took too long to respond. Please check your connection and retry.';
+  }
   const data = err.response?.data;
   if (data) {
     if (typeof data === 'string') return data;

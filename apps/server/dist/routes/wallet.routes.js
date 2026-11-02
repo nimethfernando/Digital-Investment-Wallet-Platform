@@ -11,6 +11,7 @@ router.post('/card/webhook/authorize', (req, res) => wallet_controller_1.walletC
 router.use(auth_1.authenticateToken);
 router.get('/', (req, res, next) => wallet_controller_1.walletController.getWalletOverview(req, res, next));
 router.get('/transactions', (req, res, next) => wallet_controller_1.walletController.getTransactions(req, res, next));
+router.get('/deposit/instructions', (req, res, next) => wallet_controller_1.walletController.getDepositInstructions(req, res, next));
 router.post('/deposit', (req, res, next) => wallet_controller_1.walletController.submitDeposit(req, res, next));
 router.get('/deposits', (req, res, next) => wallet_controller_1.walletController.getDeposits(req, res, next));
 router.post('/swap', (req, res, next) => wallet_controller_1.walletController.executeSwap(req, res, next));

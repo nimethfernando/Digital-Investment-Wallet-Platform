@@ -164,8 +164,8 @@ export class PackageService {
         idempotencyKey,
       });
 
-      // Send confirmation notification
-      await notificationService.sendEmail({
+      // Send confirmation notification (non-blocking)
+      notificationService.sendEmail({
         to: user.email,
         subject: `Investment Package Activated - ${pkg.packageCode}`,
         html: `
@@ -174,7 +174,7 @@ export class PackageService {
           <p>Proposed monthly return: <strong>${(termRate * 100).toFixed(2)}% ($${(amountNum * termRate).toFixed(2)}/mo)</strong></p>
           <p>Lock-in period: <strong>${termMonths} months</strong></p>
         `,
-      });
+      }).catch((e) => console.warn('[PackageService] Email dispatch notice:', e));
 
       return {
         success: true,
@@ -219,8 +219,8 @@ export class PackageService {
       return [newPkg, newDeposit];
     }, { timeout: 30000, maxWait: 10000 });
 
-    // Notify user & platform admin
-    await notificationService.sendEmail({
+    // Notify user & platform admin (non-blocking)
+    notificationService.sendEmail({
       to: user.email,
       subject: `Investment Package Submitted - ${packageCode}`,
       html: `
@@ -229,7 +229,7 @@ export class PackageService {
         <p>Deposit Reference: <strong>${depositCode}</strong></p>
         <p>Our settlement desk will verify your payment and activate your package shortly.</p>
       `,
-    });
+    }).catch((e) => console.warn('[PackageService] Email dispatch notice:', e));
 
     return {
       success: true,
@@ -335,8 +335,8 @@ export class PackageService {
       return updatedPkg;
     }, { timeout: 30000, maxWait: 10000 });
 
-    // Send confirmation email
-    await notificationService.sendEmail({
+    // Send confirmation email (non-blocking)
+    notificationService.sendEmail({
       to: pkg.user.email,
       subject: `Investment Package Approved & Active - ${pkg.packageCode}`,
       html: `
@@ -344,7 +344,7 @@ export class PackageService {
         <p>We have verified your deposit. Package <strong>${pkg.packageCode}</strong> for <strong>$${amountDec.toFixed(2)} USD</strong> is now active.</p>
         <p>Lock-in period begins today and will mature on <strong>${lockInEnd.toLocaleDateString()}</strong>.</p>
       `,
-    });
+    }).catch((e) => console.warn('[PackageService] Email dispatch notice:', e));
 
     return updated;
   }

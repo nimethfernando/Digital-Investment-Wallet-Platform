@@ -24,6 +24,10 @@ interface DepositModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDepositSuccess?: () => void;
+  initialAmount?: number | string;
+  initialRail?: DepositRail;
+  initialNetwork?: CryptoNetwork;
+  intendedPackageCode?: string;
 }
 
 type CryptoNetwork = 'TRC20' | 'BEP20' | 'ERC20';
@@ -103,9 +107,17 @@ const DEFAULT_BANK_WIRE = {
   minDeposit: 1000,
 };
 
-export const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onDepositSuccess }) => {
-  const [selectedRail, setSelectedRail] = useState<DepositRail>('USDT');
-  const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>('TRC20');
+export const DepositModal: React.FC<DepositModalProps> = ({
+  isOpen,
+  onClose,
+  onDepositSuccess,
+  initialAmount,
+  initialRail = 'USDT',
+  initialNetwork = 'TRC20',
+  intendedPackageCode,
+}) => {
+  const [selectedRail, setSelectedRail] = useState<DepositRail>(initialRail);
+  const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>(initialNetwork);
   const [networks, setNetworks] = useState<Record<CryptoNetwork, NetworkConfig>>(DEFAULT_NETWORKS);
   const [bankWire, setBankWire] = useState(DEFAULT_BANK_WIRE);
 
@@ -115,12 +127,21 @@ export const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onD
   const [copiedIban, setCopiedIban] = useState<boolean>(false);
 
   // Form Submission State
-  const [depositAmount, setDepositAmount] = useState<string>('1000');
+  const [depositAmount, setDepositAmount] = useState<string>(initialAmount ? initialAmount.toString() : '1000');
   const [txHash, setTxHash] = useState<string>('');
   const [proofUrl, setProofUrl] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successData, setSuccessData] = useState<any | null>(null);
+
+  // Sync props when opening
+  useEffect(() => {
+    if (isOpen) {
+      if (initialAmount) setDepositAmount(initialAmount.toString());
+      if (initialRail) setSelectedRail(initialRail);
+      if (initialNetwork) setSelectedNetwork(initialNetwork);
+    }
+  }, [isOpen, initialAmount, initialRail, initialNetwork]);
 
   // Fetch live deposit instructions from backend
   useEffect(() => {
@@ -254,6 +275,16 @@ export const DepositModal: React.FC<DepositModalProps> = ({ isOpen, onClose, onD
             </p>
           </div>
         </div>
+
+        {intendedPackageCode && (
+          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-500/30 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-200">
+            <div>
+              <span className="font-bold">Allocating Package: </span>
+              <span className="font-mono font-bold">{intendedPackageCode}</span>
+            </div>
+            <span className="font-mono font-bold">${depositAmount} USD</span>
+          </div>
+        )}
 
         {/* ===================================================================== */}
         {/* SUCCESS VIEW (POST-SUBMISSION) */}

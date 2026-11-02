@@ -55,16 +55,14 @@ export class TicketService {
       },
     });
 
-    // Alert admin desk
-    try {
-      await notificationService.sendAdminAlert(
-        `🚨 New Support Ticket: [${ticket.ticketNumber}] ${ticket.subject}`,
-        `Investor: ${user.firstName} ${user.lastName} (${user.email})\nCategory: ${ticket.category}\nPriority: ${ticket.priority}\n\nMessage:\n${ticket.message}`,
-        { ticketId: ticket.id, ticketNumber: ticket.ticketNumber }
-      );
-    } catch (e) {
+    // Alert admin desk (non-blocking)
+    notificationService.sendAdminAlert(
+      `🚨 New Support Ticket: [${ticket.ticketNumber}] ${ticket.subject}`,
+      `Investor: ${user.firstName} ${user.lastName} (${user.email})\nCategory: ${ticket.category}\nPriority: ${ticket.priority}\n\nMessage:\n${ticket.message}`,
+      { ticketId: ticket.id, ticketNumber: ticket.ticketNumber }
+    ).catch((e) => {
       console.warn('Failed to dispatch admin notification:', e);
-    }
+    });
 
     return ticket;
   }

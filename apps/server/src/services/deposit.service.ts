@@ -142,8 +142,8 @@ export class DepositService {
       }
     }
 
-    // Notify user & admin
-    await notificationService.sendEmail({
+    // Notify user & admin (non-blocking)
+    notificationService.sendEmail({
       to: user.email,
       subject: `Deposit Request Received - ${depositCode}`,
       html: `
@@ -205,8 +205,8 @@ export class DepositService {
       notes: adminNotes,
     });
 
-    // Send confirmation email
-    await notificationService.sendEmail({
+    // Send confirmation email (non-blocking)
+    notificationService.sendEmail({
       to: deposit.user.email,
       subject: `Deposit Credited to Your Wallet - ${deposit.depositCode}`,
       html: `
@@ -214,7 +214,7 @@ export class DepositService {
         <p>Your deposit of <strong>${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency}</strong> has been verified and credited to your platform wallet.</p>
         <p>Your new available balance is <strong>$${result.balanceAfter} USD</strong>.</p>
       `,
-    });
+    }).catch(() => {});
 
     return result;
   }
@@ -243,8 +243,8 @@ export class DepositService {
       },
     });
 
-    // Send rejection email
-    await notificationService.sendEmail({
+    // Send rejection email (non-blocking)
+    notificationService.sendEmail({
       to: deposit.user.email,
       subject: `Deposit Issue - ${deposit.depositCode}`,
       html: `
@@ -253,7 +253,7 @@ export class DepositService {
         <p>Reason provided: <em>${reason}</em></p>
         <p>Please contact support or re-submit with clear transaction proof.</p>
       `,
-    });
+    }).catch(() => {});
 
     return updated;
   }

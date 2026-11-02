@@ -59,7 +59,7 @@ class CmsService {
                 userId: data.userId,
             },
         });
-        await notification_provider_1.notificationService.sendAdminAlert(`New Website Inquiry: ${data.subject} (${data.type})`, `From: ${data.name} (${data.email}, ${data.phone || 'No phone'})\n\nMessage:\n${data.message}`, { inquiryId: inquiry.id, type: data.type });
+        notification_provider_1.notificationService.sendAdminAlert(`New Website Inquiry: ${data.subject} (${data.type})`, `From: ${data.name} (${data.email}, ${data.phone || 'No phone'})\n\nMessage:\n${data.message}`, { inquiryId: inquiry.id, type: data.type }).catch(() => { });
         return inquiry;
     }
     async getInquiries(page = 1, limit = 20) {
