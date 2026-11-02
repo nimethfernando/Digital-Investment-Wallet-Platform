@@ -26,6 +26,15 @@ export const extractErrorMessage = (err: any, fallback = 'Operation failed'): st
   const data = err.response?.data;
   if (data) {
     if (typeof data === 'string') return data;
+
+    // Check field-level validation errors first (e.g. Zod validation)
+    if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+      const first = data.errors[0];
+      if (typeof first === 'string') return first;
+      if (first?.field && first?.message) return `${first.field}: ${first.message}`;
+      if (typeof first?.message === 'string') return first.message;
+    }
+
     if (typeof data.message === 'string') return data.message;
     if (typeof data.error === 'string') return data.error;
     if (data.message && typeof data.message === 'object') {
@@ -37,11 +46,6 @@ export const extractErrorMessage = (err: any, fallback = 'Operation failed'): st
       if (typeof data.error.message === 'string') return data.error.message;
       if (typeof data.error.code === 'string') return `${data.error.code}: ${data.error.message || 'Request failed'}`;
       try { return JSON.stringify(data.error); } catch {}
-    }
-    if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
-      const first = data.errors[0];
-      if (typeof first === 'string') return first;
-      if (typeof first?.message === 'string') return first.message;
     }
     if (typeof data.code === 'string' && data.message) {
       return typeof data.message === 'string' ? data.message : String(data.message);

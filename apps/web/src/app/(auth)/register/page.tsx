@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { extractErrorMessage } from '../../../lib/api';
 import { AvoraBankLogo } from '../../../components/AvoraBankLogo';
-import { Mail, Lock, User, Phone, AlertCircle, ArrowRight } from 'lucide-react';
+import { Mail, Lock, User, Phone, AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -28,6 +28,13 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
 
+    const emailTrimmed = formData.email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailTrimmed)) {
+      setError('Please enter a valid email address (e.g. name@gmail.com).');
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -42,10 +49,10 @@ export default function RegisterPage() {
 
     try {
       await register({
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email,
-        phone: formData.phone,
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        email: emailTrimmed,
+        phone: formData.phone.trim(),
         password: formData.password,
       });
 
@@ -74,9 +81,21 @@ export default function RegisterPage() {
         </div>
 
         {error && (
-          <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
+          <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs space-y-1.5">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+            {error.toLowerCase().includes('already exists') && (
+              <div className="pt-1">
+                <Link
+                  href={`/login?email=${encodeURIComponent(formData.email.trim())}`}
+                  className="font-bold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                >
+                  Click here to sign in with this email &rarr;
+                </Link>
+              </div>
+            )}
           </div>
         )}
 
@@ -194,8 +213,17 @@ export default function RegisterPage() {
             disabled={loading}
             className="w-full py-3.5 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/25 disabled:opacity-50 cursor-pointer"
           >
-            <span>{loading ? 'Creating Account...' : 'Open Account'}</span>
-            <ArrowRight className="w-4 h-4" />
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Creating Account...</span>
+              </>
+            ) : (
+              <>
+                <span>Open Account</span>
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
           </button>
         </form>
 
