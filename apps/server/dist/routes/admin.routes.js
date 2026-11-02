@@ -23,6 +23,9 @@ router.post('/withdrawals/:id/reject', auth_1.requireAdmin2FA, (req, res, next) 
 router.get('/kyc', (req, res, next) => admin_controller_1.adminController.getPendingKyc(req, res, next));
 router.post('/kyc/:id/approve', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.approveKyc(req, res, next));
 router.post('/kyc/:id/reject', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.rejectKyc(req, res, next));
+// Receiver Address Settings operations
+router.get('/settings/addresses', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.getReceiverAddresses(req, res, next));
+router.post('/settings/addresses', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateReceiverAddresses(req, res, next));
 // Strict Admin-only endpoints
 router.post('/returns/run', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.triggerMonthlyReturns(req, res, next));
 router.get('/ledger/reconcile', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.getLedgerReconciliation(req, res, next));

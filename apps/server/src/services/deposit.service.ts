@@ -15,9 +15,19 @@ export class DepositService {
     const erc20Setting = await prisma.cmsSetting.findUnique({ where: { key: 'usdt_erc20_address' } }).catch(() => null);
     const bep20Setting = await prisma.cmsSetting.findUnique({ where: { key: 'usdt_bep20_address' } }).catch(() => null);
 
+    const bankNameSetting = await prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_name' } }).catch(() => null);
+    const bankBeneficiarySetting = await prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_beneficiary' } }).catch(() => null);
+    const bankIbanSetting = await prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_iban' } }).catch(() => null);
+    const bankSwiftSetting = await prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_swift' } }).catch(() => null);
+
     const trc20Address = trc20Setting?.value || process.env.USDT_TRC20_WALLET_ADDRESS || 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y';
-    const erc20Address = erc20Setting?.value || process.env.USDT_ERC20_WALLET_ADDRESS || '0x4B3A8B10c710467554900C0959A1D81816e25B6F';
-    const bep20Address = bep20Setting?.value || process.env.USDT_BEP20_WALLET_ADDRESS || '0x4B3A8B10c710467554900C0959A1D81816e25B6F';
+    const erc20Address = erc20Setting?.value || process.env.USDT_ERC20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
+    const bep20Address = bep20Setting?.value || process.env.USDT_BEP20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
+
+    const bankName = bankNameSetting?.value || 'Bank of Georgia / TBC Bank';
+    const bankBeneficiary = bankBeneficiarySetting?.value || 'Avora Bank Platform Custody';
+    const bankIban = bankIbanSetting?.value || 'GE29NB0000000123456789';
+    const bankSwift = bankSwiftSetting?.value || 'BAGAGE22';
 
     return {
       usdt: {
@@ -46,10 +56,11 @@ export class DepositService {
           address: bep20Address,
           minDeposit: 50,
           confirmationBlocks: 15,
-          tagline: 'Fast Confirmation • Low Gas Fee',
+          tagline: 'Fast Confirmation • Low Gas Fee • Trust Wallet Compatible',
           explorerUrl: `https://bscscan.com/address/${bep20Address}`,
           instructions: [
             'Send only USDT via BEP-20 (BNB Smart Chain) network to this address.',
+            'Compatible with Trust Wallet, Binance, MetaMask, and SafePal.',
             'Ensure the selected network in your sending wallet is BSC / BEP-20.',
             'Minimum deposit: 50 USDT.',
           ],
@@ -62,10 +73,11 @@ export class DepositService {
           address: erc20Address,
           minDeposit: 100,
           confirmationBlocks: 12,
-          tagline: 'Ethereum Mainnet (Higher Gas Fees)',
+          tagline: 'Ethereum Mainnet • Trust Wallet Compatible',
           explorerUrl: `https://etherscan.io/address/${erc20Address}`,
           instructions: [
             'Send only USDT via Ethereum (ERC-20) network to this address.',
+            'Compatible with Trust Wallet, MetaMask, Coinbase Wallet, and Kraken.',
             'Higher Ethereum gas fees apply on the sender side.',
             'Minimum deposit: 100 USDT.',
           ],
@@ -74,10 +86,10 @@ export class DepositService {
       bankWire: {
         id: 'BANK_WIRE',
         currency: 'USD',
-        bankName: 'Bank of Georgia / TBC Bank',
-        beneficiary: 'Avora Bank Platform Custody',
-        iban: 'GE29NB0000000123456789',
-        swift: 'BAGAGE22',
+        bankName,
+        beneficiary: bankBeneficiary,
+        iban: bankIban,
+        swift: bankSwift,
         instructions: [
           'Send bank wire or SEPA/SWIFT transfer to the specified IBAN.',
           'Always include your Avora Account Number or Deposit Code in the payment reference.',
@@ -314,6 +326,162 @@ export class DepositService {
       page,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  /**
+   * Get all receiver addresses and bank wire settings for Admin management
+   */
+  async getReceiverSettings() {
+    const keys = [
+      'usdt_bep20_address',
+      'usdt_erc20_address',
+      'usdt_trc20_address',
+      'bank_wire_name',
+      'bank_wire_beneficiary',
+      'bank_wire_iban',
+      'bank_wire_swift',
+    ];
+
+    const settings = await prisma.cmsSetting.findMany({
+      where: { key: { in: keys } },
+    }).catch(() => []);
+
+    const map = new Map<string, string>();
+    settings.forEach((s) => map.set(s.key, s.value));
+
+    return {
+      usdt_bep20_address: map.get('usdt_bep20_address') || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
+      usdt_erc20_address: map.get('usdt_erc20_address') || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
+      usdt_trc20_address: map.get('usdt_trc20_address') || 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y',
+      bank_wire_name: map.get('bank_wire_name') || 'Bank of Georgia / TBC Bank',
+      bank_wire_beneficiary: map.get('bank_wire_beneficiary') || 'Avora Bank Platform Custody',
+      bank_wire_iban: map.get('bank_wire_iban') || 'GE29NB0000000123456789',
+      bank_wire_swift: map.get('bank_wire_swift') || 'BAGAGE22',
+      updatedAt: settings.length > 0 ? settings.reduce((latest, s) => s.updatedAt > latest ? s.updatedAt : latest, settings[0].updatedAt) : new Date(),
+    };
+  }
+
+  /**
+   * Update receiver addresses and bank wire settings (Admin only)
+   */
+  async updateReceiverSettings(
+    adminUserId: string,
+    data: {
+      usdt_bep20_address?: string;
+      usdt_erc20_address?: string;
+      usdt_trc20_address?: string;
+      bank_wire_name?: string;
+      bank_wire_beneficiary?: string;
+      bank_wire_iban?: string;
+      bank_wire_swift?: string;
+    }
+  ) {
+    const updates: { key: string; value: string; group: string; description: string }[] = [];
+
+    if (data.usdt_bep20_address !== undefined) {
+      const addr = data.usdt_bep20_address.trim();
+      if (addr && !/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+        throw new Error('Invalid BEP-20 (BNB Chain) address. Must be a 42-character 0x-prefixed hex string.');
+      }
+      updates.push({
+        key: 'usdt_bep20_address',
+        value: addr,
+        group: 'DEPOSIT_WALLET',
+        description: 'USDT BEP-20 Receiver Address for Client Deposits',
+      });
+    }
+
+    if (data.usdt_erc20_address !== undefined) {
+      const addr = data.usdt_erc20_address.trim();
+      if (addr && !/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+        throw new Error('Invalid ERC-20 (Ethereum) address. Must be a 42-character 0x-prefixed hex string.');
+      }
+      updates.push({
+        key: 'usdt_erc20_address',
+        value: addr,
+        group: 'DEPOSIT_WALLET',
+        description: 'USDT ERC-20 Receiver Address for Client Deposits',
+      });
+    }
+
+    if (data.usdt_trc20_address !== undefined) {
+      const addr = data.usdt_trc20_address.trim();
+      if (addr && !/^T[a-zA-Z0-9]{33}$/.test(addr)) {
+        throw new Error('Invalid TRC-20 (TRON) address. Must start with T and be 34 characters long.');
+      }
+      updates.push({
+        key: 'usdt_trc20_address',
+        value: addr,
+        group: 'DEPOSIT_WALLET',
+        description: 'USDT TRC-20 Receiver Address for Client Deposits',
+      });
+    }
+
+    if (data.bank_wire_name !== undefined) {
+      updates.push({
+        key: 'bank_wire_name',
+        value: data.bank_wire_name.trim(),
+        group: 'DEPOSIT_BANK',
+        description: 'Beneficiary Bank Name for Wire Deposits',
+      });
+    }
+
+    if (data.bank_wire_beneficiary !== undefined) {
+      updates.push({
+        key: 'bank_wire_beneficiary',
+        value: data.bank_wire_beneficiary.trim(),
+        group: 'DEPOSIT_BANK',
+        description: 'Beneficiary Corporate Account Name',
+      });
+    }
+
+    if (data.bank_wire_iban !== undefined) {
+      updates.push({
+        key: 'bank_wire_iban',
+        value: data.bank_wire_iban.trim().replace(/\s+/g, ''),
+        group: 'DEPOSIT_BANK',
+        description: 'Beneficiary Bank IBAN / Account Number',
+      });
+    }
+
+    if (data.bank_wire_swift !== undefined) {
+      updates.push({
+        key: 'bank_wire_swift',
+        value: data.bank_wire_swift.trim().toUpperCase(),
+        group: 'DEPOSIT_BANK',
+        description: 'Beneficiary Bank BIC / SWIFT Code',
+      });
+    }
+
+    for (const item of updates) {
+      await prisma.cmsSetting.upsert({
+        where: { key: item.key },
+        create: {
+          key: item.key,
+          value: item.value,
+          group: item.group,
+          description: item.description,
+        },
+        update: {
+          value: item.value,
+          group: item.group,
+          description: item.description,
+        },
+      });
+    }
+
+    // Audit log
+    await prisma.adminAuditLog.create({
+      data: {
+        userId: adminUserId,
+        action: 'UPDATE_RECEIVER_ADDRESSES',
+        entity: 'CmsSetting',
+        entityId: 'DEPOSIT_WALLETS',
+        details: `Updated receiver settings: ${updates.map((u) => `${u.key}=${u.value}`).join(', ')}`,
+      },
+    });
+
+    return this.getReceiverSettings();
   }
 }
 

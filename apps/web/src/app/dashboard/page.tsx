@@ -178,6 +178,10 @@ function DashboardContent() {
   const [depositSuccess, setDepositSuccess] = useState<string | null>(null);
   const [depositError, setDepositError] = useState<string | null>(null);
 
+  // User Deposits History & Real-Time Confirmation
+  const [userDeposits, setUserDeposits] = useState<any[]>([]);
+  const [dismissedDepositAlert, setDismissedDepositAlert] = useState(false);
+
   // Withdrawal Form State
   const [wthType, setWthType] = useState<'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE'>('MONTHLY_RETURNS');
   const [wthPackageId, setWthPackageId] = useState('');
@@ -285,12 +289,13 @@ function DashboardContent() {
     if (!token) return;
     setLoadingData(true);
     try {
-      const [walletRes, pkgRes, txRes, wthRes, ticketRes] = await Promise.all([
+      const [walletRes, pkgRes, txRes, wthRes, ticketRes, depRes] = await Promise.all([
         api.get('/wallet').catch(() => ({ data: { wallet: null } })),
         api.get('/packages').catch(() => ({ data: { packages: [] } })),
         api.get('/wallet/transactions').catch(() => ({ data: { transactions: [] } })),
         api.get('/withdrawals').catch(() => ({ data: { withdrawals: [] } })),
         api.get('/tickets').catch(() => ({ data: { data: [] } })),
+        api.get('/wallet/deposits').catch(() => ({ data: { data: [] } })),
       ]);
 
       const resolvedWallet = walletRes.data?.wallet || walletRes.data?.data;
@@ -310,6 +315,10 @@ function DashboardContent() {
 
       if (ticketRes.data?.data && Array.isArray(ticketRes.data.data)) {
         setTickets(ticketRes.data.data);
+      }
+
+      if (depRes.data?.data && Array.isArray(depRes.data.data)) {
+        setUserDeposits(depRes.data.data);
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);
@@ -758,6 +767,68 @@ function DashboardContent() {
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div className="space-y-8">
+            {/* Approved Deposit Confirmation Banner */}
+            {!dismissedDepositAlert && userDeposits.find((d) => d.status === 'APPROVED') && (
+              (() => {
+                const dep = userDeposits.find((d) => d.status === 'APPROVED');
+                return (
+                  <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/5 border border-emerald-500/30 flex items-start sm:items-center justify-between gap-4 shadow-sm animate-in fade-in">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 shrink-0">
+                        <CheckCircle2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                            Payment Received &amp; Credited
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                            {dep.depositCode}
+                          </span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                            {new Date(dep.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
+                          +${Number(dep.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} {dep.currency} has been verified and added to your available ledger balance.
+                        </p>
+                        {dep.txHashOrRef && (
+                          <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-md">
+                            Tx: {dep.txHashOrRef}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setDismissedDepositAlert(true)}
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xs font-semibold p-1.5 rounded-lg cursor-pointer"
+                      title="Dismiss notification"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })()
+            )}
+
+            {/* Pending Deposits In-Review Alert */}
+            {userDeposits.filter((d) => d.status === 'PENDING').length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-xs text-amber-800 dark:text-amber-200">
+                <div className="flex items-center gap-2.5">
+                  <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+                  <span>
+                    <strong>{userDeposits.filter((d) => d.status === 'PENDING').length} deposit(s)</strong> awaiting on-chain review ({userDeposits.filter((d) => d.status === 'PENDING').map((d) => `$${Number(d.amount).toLocaleString()} ${d.currency}`).join(', ')}). Your balance will update automatically upon verification.
+                  </span>
+                </div>
+                <button
+                  onClick={() => setDepositModalOpen(true)}
+                  className="text-[11px] font-bold text-amber-700 dark:text-amber-300 underline hover:no-underline cursor-pointer shrink-0 ml-2"
+                >
+                  Deposit More
+                </button>
+              </div>
+            )}
+
             {/* Stat Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               
@@ -1799,6 +1870,10 @@ function DashboardContent() {
         user={user}
         userAccountNumber={userAccountNumber}
         onTransferSuccess={fetchDashboardData}
+        onOpenExternalDeposit={() => {
+          setQrModalOpen(false);
+          setDepositModalOpen(true);
+        }}
       />
 
     </div>

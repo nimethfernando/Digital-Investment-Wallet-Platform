@@ -28,6 +28,19 @@ router.get('/kyc', (req, res, next) => adminController.getPendingKyc(req, res, n
 router.post('/kyc/:id/approve', requireAdmin2FA, (req, res, next) => adminController.approveKyc(req, res, next));
 router.post('/kyc/:id/reject', requireAdmin2FA, (req, res, next) => adminController.rejectKyc(req, res, next));
 
+// Receiver Address Settings operations
+router.get(
+  '/settings/addresses',
+  requireRole([Role.ADMIN, Role.STAFF]),
+  (req, res, next) => adminController.getReceiverAddresses(req, res, next)
+);
+
+router.post(
+  '/settings/addresses',
+  requireRole([Role.ADMIN]),
+  (req, res, next) => adminController.updateReceiverAddresses(req, res, next)
+);
+
 // Strict Admin-only endpoints
 router.post(
   '/returns/run',

@@ -69,11 +69,11 @@ const DEFAULT_NETWORKS: Record<CryptoNetwork, NetworkConfig> = {
     network: 'BEP-20 (BNB Smart Chain)',
     chain: 'BNB Smart Chain',
     currency: 'USDT',
-    address: '0x4B3A8B10c710467554900C0959A1D81816e25B6F',
+    address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
     minDeposit: 50,
     confirmationBlocks: 15,
-    tagline: 'Fast Confirmation • Low Gas Fee',
-    explorerUrl: 'https://bscscan.com/address/0x4B3A8B10c710467554900C0959A1D81816e25B6F',
+    tagline: 'Fast Confirmation • Low Gas Fee • Trust Wallet Compatible',
+    explorerUrl: 'https://bscscan.com/address/0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
     instructions: [
       'Send only USDT via BEP-20 (BNB Smart Chain) network to this address.',
       'Ensure the selected sending network is BSC / BEP-20.',
@@ -85,11 +85,11 @@ const DEFAULT_NETWORKS: Record<CryptoNetwork, NetworkConfig> = {
     network: 'ERC-20 (Ethereum)',
     chain: 'Ethereum',
     currency: 'USDT',
-    address: '0x4B3A8B10c710467554900C0959A1D81816e25B6F',
+    address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
     minDeposit: 100,
     confirmationBlocks: 12,
-    tagline: 'Ethereum Mainnet (Higher Gas Fees)',
-    explorerUrl: 'https://etherscan.io/address/0x4B3A8B10c710467554900C0959A1D81816e25B6F',
+    tagline: 'Ethereum Mainnet • Trust Wallet Compatible',
+    explorerUrl: 'https://etherscan.io/address/0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
     instructions: [
       'Send only USDT via Ethereum (ERC-20) network to this address.',
       'Higher Ethereum network gas fees apply for the sender.',
@@ -481,6 +481,43 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {/* Trust Wallet Integration Banner */}
+                  {(selectedNetwork === 'BEP20' || selectedNetwork === 'ERC20') && (
+                    <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-500/25 text-left space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm font-bold text-xs">
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                              Paying with Trust Wallet?
+                            </span>
+                            <span className="block text-[10px] text-blue-700/80 dark:text-blue-300/80">
+                              Fast EVM settlement on {activeConfig.chain}
+                            </span>
+                          </div>
+                        </div>
+                        <a
+                          href={`https://link.trustwallet.com/send?address=${currentAddress}${
+                            selectedNetwork === 'BEP20'
+                              ? '&asset=c714_t0x55d398326f99059fF775485246999027B3197955'
+                              : '&asset=c60_t0xdac17f958d2ee523a2206206994597c13d831ec7'
+                          }`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1.5 rounded-xl font-bold text-[11px] bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+                        >
+                          <span>Open in Trust Wallet</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                      <div className="text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed bg-blue-100/60 dark:bg-blue-900/40 p-2 rounded-xl">
+                        <strong>How Trust Wallet works:</strong> Open Trust Wallet &gt; tap the <strong>[ — ]</strong> QR scanner in the top right &gt; scan this QR code. Trust Wallet will automatically populate the receiver address (<code className="font-mono text-[10px] bg-blue-200/60 dark:bg-blue-800/60 px-1 py-0.5 rounded">{currentAddress.slice(0, 8)}...{currentAddress.slice(-6)}</code>). Enter your amount, confirm transfer, and paste the generated Tx Hash below.
+                      </div>
+                    </div>
+                  )}
 
                   {/* Network Warning Pill */}
                   <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-500/20 text-left flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-200">

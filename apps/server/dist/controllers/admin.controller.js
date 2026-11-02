@@ -487,6 +487,38 @@ class AdminController {
             next(err);
         }
     }
+    /**
+     * Get current receiver deposit addresses and bank settings
+     */
+    async getReceiverAddresses(req, res, next) {
+        try {
+            const data = await deposit_service_1.depositService.getReceiverSettings();
+            res.json({
+                success: true,
+                data,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Update receiver deposit addresses and bank settings
+     */
+    async updateReceiverAddresses(req, res, next) {
+        try {
+            const adminUserId = req.user.id;
+            const updated = await deposit_service_1.depositService.updateReceiverSettings(adminUserId, req.body);
+            res.json({
+                success: true,
+                message: 'Receiver addresses and bank wire instructions successfully updated.',
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
 }
 exports.AdminController = AdminController;
 exports.adminController = new AdminController();

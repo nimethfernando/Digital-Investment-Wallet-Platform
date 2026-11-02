@@ -25,6 +25,7 @@ interface QrTransferModalProps {
   user: any;
   userAccountNumber: string;
   onTransferSuccess?: () => void;
+  onOpenExternalDeposit?: () => void;
 }
 
 export function QrTransferModal({
@@ -33,6 +34,7 @@ export function QrTransferModal({
   user,
   userAccountNumber,
   onTransferSuccess,
+  onOpenExternalDeposit,
 }: QrTransferModalProps) {
   const [tab, setTab] = useState<'RECEIVE' | 'SEND'>('RECEIVE');
 
@@ -319,6 +321,20 @@ export function QrTransferModal({
               <Download className="w-4 h-4" />
               Download QR Image (PNG)
             </button>
+
+            {/* External Crypto / Trust Wallet Deposit Shortcut */}
+            {onOpenExternalDeposit && (
+              <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={onOpenExternalDeposit}
+                  className="w-full py-3 rounded-xl font-bold text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Wallet className="w-4 h-4 text-emerald-600" />
+                  <span>Deposit USDT via Trust Wallet / External QR</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 

@@ -31,13 +31,17 @@ import {
   Trash2,
   Zap,
   Package,
+  QrCode,
+  Copy,
+  Save,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 
 export default function AdminPortalPage() {
   const router = useRouter();
   const { user, token, isAdmin, isLoading } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'treasury' | 'packages' | 'kyc' | 'deposits' | 'withdrawals' | 'disputes'>('treasury');
+  const [activeTab, setActiveTab] = useState<'treasury' | 'packages' | 'kyc' | 'deposits' | 'withdrawals' | 'disputes' | 'addresses'>('treasury');
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Treasury State
@@ -69,6 +73,42 @@ export default function AdminPortalPage() {
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [adminReplyText, setAdminReplyText] = useState('');
   const [replyLoading, setReplyLoading] = useState(false);
+
+  // Receiver Addresses State
+  const [addresses, setAddresses] = useState({
+    usdt_bep20_address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
+    usdt_erc20_address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
+    usdt_trc20_address: 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y',
+    bank_wire_name: 'Bank of Georgia / TBC Bank',
+    bank_wire_beneficiary: 'Avora Bank Platform Custody',
+    bank_wire_iban: 'GE29NB0000000123456789',
+    bank_wire_swift: 'BAGAGE22',
+  });
+  const [addressesLoading, setAddressesLoading] = useState(false);
+  const [savingAddresses, setSavingAddresses] = useState(false);
+  const [bep20Qr, setBep20Qr] = useState('');
+  const [erc20Qr, setErc20Qr] = useState('');
+  const [trc20Qr, setTrc20Qr] = useState('');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Generate QR preview data URLs
+  useEffect(() => {
+    if (addresses.usdt_bep20_address) {
+      QRCode.toDataURL(addresses.usdt_bep20_address, { width: 160, margin: 1, color: { dark: '#0f172a', light: '#ffffff' } })
+        .then(setBep20Qr)
+        .catch(() => {});
+    }
+    if (addresses.usdt_erc20_address) {
+      QRCode.toDataURL(addresses.usdt_erc20_address, { width: 160, margin: 1, color: { dark: '#0f172a', light: '#ffffff' } })
+        .then(setErc20Qr)
+        .catch(() => {});
+    }
+    if (addresses.usdt_trc20_address) {
+      QRCode.toDataURL(addresses.usdt_trc20_address, { width: 160, margin: 1, color: { dark: '#0f172a', light: '#ffffff' } })
+        .then(setTrc20Qr)
+        .catch(() => {});
+    }
+  }, [addresses.usdt_bep20_address, addresses.usdt_erc20_address, addresses.usdt_trc20_address]);
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setFeedback({ text, type });
@@ -139,6 +179,40 @@ export default function AdminPortalPage() {
       } finally {
         setTicketsLoading(false);
       }
+    } else if (activeTab === 'addresses') {
+      setAddressesLoading(true);
+      try {
+        const res = await api.get('/admin/settings/addresses');
+        if (res.data?.success && res.data?.data) {
+          setAddresses(res.data.data);
+        }
+      } catch (e) {
+        console.error('Failed to load receiver addresses:', e);
+      } finally {
+        setAddressesLoading(false);
+      }
+    }
+  };
+
+  const handleCopyKey = (val: string, key: string) => {
+    navigator.clipboard.writeText(val);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleSaveAddresses = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingAddresses(true);
+    try {
+      const res = await api.post('/admin/settings/addresses', addresses);
+      if (res.data?.success) {
+        showToast('Receiver addresses and bank wire instructions successfully updated across platform.', 'success');
+        if (res.data.data) setAddresses(res.data.data);
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || err.message || 'Failed to update receiver addresses.', 'error');
+    } finally {
+      setSavingAddresses(false);
     }
   };
 
@@ -401,6 +475,7 @@ export default function AdminPortalPage() {
             { id: 'treasury', label: 'Treasury & Ledger', icon: Landmark },
             { id: 'packages', label: `Packages & Yields (${adminPackages.length})`, icon: Package },
             { id: 'deposits', label: `Deposits (${deposits.filter((d) => d.status === 'PENDING').length})`, icon: Coins },
+            { id: 'addresses', label: 'Receiver Addresses & QR', icon: QrCode },
             { id: 'withdrawals', label: `Settlements (${withdrawals.filter((w) => ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w.status)).length})`, icon: Clock },
             { id: 'kyc', label: `KYC Compliance (${kycDocs.length})`, icon: UserCheck },
             { id: 'disputes', label: `Tickets (${tickets.length})`, icon: MessageSquare },
@@ -1038,6 +1113,353 @@ export default function AdminPortalPage() {
               )}
             </div>
           </div>
+        )}
+
+        {/* TAB 7: RECEIVER ADDRESSES & QR CONFIGURATION */}
+        {activeTab === 'addresses' && (
+          <form onSubmit={handleSaveAddresses} className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-3xl bg-slate-900 border border-slate-800">
+              <div>
+                <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
+                  <QrCode className="w-5 h-5 text-rose-500" />
+                  <span>Deposit Receiver Addresses &amp; QR Configuration</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                  Configure the custody addresses and banking rails displayed to investors when funding their Avora accounts. You can update any address at any time. All updates take effect immediately in real-time across the client portal, Fixed Deposit checkouts, and Trust Wallet QR codes with zero downtime.
+                </p>
+              </div>
+              <button
+                type="submit"
+                disabled={savingAddresses || addressesLoading}
+                className="px-5 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50 transition-all cursor-pointer shrink-0"
+              >
+                {savingAddresses ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Saving Changes...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Save All Changes</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Crypto Wallets Section */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-emerald-400" />
+                  <span>On-Chain Crypto Wallets (USDT)</span>
+                </h4>
+                <span className="text-xs text-slate-400">
+                  Direct EVM &amp; TRON receiving rails
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                {/* 1. BEP-20 (BNB Smart Chain) */}
+                <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-amber-400"></span>
+                        <span className="font-bold text-sm text-white">USDT (BEP-20)</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        BNB Chain
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Recommended for Trust Wallet &amp; Binance. Fast confirmation and ultra-low gas fee (&lt; $0.15).
+                    </p>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-400 block mb-1">
+                        Receiver Wallet Address
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={addresses.usdt_bep20_address}
+                        onChange={(e) => setAddresses({ ...addresses, usdt_bep20_address: e.target.value.trim() })}
+                        placeholder="0x..."
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-rose-500"
+                      />
+                    </div>
+
+                    {/* QR Code Preview */}
+                    <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col items-center text-center space-y-2">
+                      <div className="p-2 bg-white rounded-xl shadow-md inline-block">
+                        {bep20Qr ? (
+                          <img src={bep20Qr} alt="BEP20 QR" className="w-28 h-28 object-contain rounded" />
+                        ) : (
+                          <div className="w-28 h-28 flex items-center justify-center text-[10px] text-slate-500">
+                            Generating...
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        Live Scannable Trust Wallet QR
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[11px]">
+                    <a
+                      href={`https://bscscan.com/address/${addresses.usdt_bep20_address}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-bold"
+                    >
+                      <span>BscScan</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyKey(addresses.usdt_bep20_address, 'bep20')}
+                      className="text-slate-400 hover:text-white flex items-center gap-1 font-bold cursor-pointer"
+                    >
+                      {copiedKey === 'bep20' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedKey === 'bep20' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. ERC-20 (Ethereum) */}
+                <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-blue-400"></span>
+                        <span className="font-bold text-sm text-white">USDT (ERC-20)</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                        Ethereum Mainnet
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Compatible with Trust Wallet, MetaMask, and institutional custodians. Higher gas fees apply.
+                    </p>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-400 block mb-1">
+                        Receiver Wallet Address
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={addresses.usdt_erc20_address}
+                        onChange={(e) => setAddresses({ ...addresses, usdt_erc20_address: e.target.value.trim() })}
+                        placeholder="0x..."
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-rose-500"
+                      />
+                    </div>
+
+                    {/* QR Code Preview */}
+                    <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col items-center text-center space-y-2">
+                      <div className="p-2 bg-white rounded-xl shadow-md inline-block">
+                        {erc20Qr ? (
+                          <img src={erc20Qr} alt="ERC20 QR" className="w-28 h-28 object-contain rounded" />
+                        ) : (
+                          <div className="w-28 h-28 flex items-center justify-center text-[10px] text-slate-500">
+                            Generating...
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        Live Scannable Trust Wallet QR
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[11px]">
+                    <a
+                      href={`https://etherscan.io/address/${addresses.usdt_erc20_address}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-bold"
+                    >
+                      <span>Etherscan</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyKey(addresses.usdt_erc20_address, 'erc20')}
+                      className="text-slate-400 hover:text-white flex items-center gap-1 font-bold cursor-pointer"
+                    >
+                      {copiedKey === 'erc20' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedKey === 'erc20' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. TRC-20 (TRON) */}
+                <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-rose-400"></span>
+                        <span className="font-bold text-sm text-white">USDT (TRC-20)</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                        TRON Rail
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Popular low-fee retail transfer rail with sub-$1.50 network fees and instant 1-block finality.
+                    </p>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-400 block mb-1">
+                        Receiver Wallet Address
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={addresses.usdt_trc20_address}
+                        onChange={(e) => setAddresses({ ...addresses, usdt_trc20_address: e.target.value.trim() })}
+                        placeholder="T..."
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-rose-500"
+                      />
+                    </div>
+
+                    {/* QR Code Preview */}
+                    <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col items-center text-center space-y-2">
+                      <div className="p-2 bg-white rounded-xl shadow-md inline-block">
+                        {trc20Qr ? (
+                          <img src={trc20Qr} alt="TRC20 QR" className="w-28 h-28 object-contain rounded" />
+                        ) : (
+                          <div className="w-28 h-28 flex items-center justify-center text-[10px] text-slate-500">
+                            Generating...
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        Live Scannable TRON QR
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[11px]">
+                    <a
+                      href={`https://tronscan.org/#/address/${addresses.usdt_trc20_address}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-bold"
+                    >
+                      <span>Tronscan</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyKey(addresses.usdt_trc20_address, 'trc20')}
+                      className="text-slate-400 hover:text-white flex items-center gap-1 font-bold cursor-pointer"
+                    >
+                      {copiedKey === 'trc20' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedKey === 'trc20' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bank Wire Custody Section */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <Landmark className="w-4 h-4 text-blue-400" />
+                  <span>Institutional Bank Wire &amp; SWIFT Rails (USD / EUR)</span>
+                </h4>
+                <span className="text-xs text-slate-400">
+                  Custodial bank wires for high net worth and institutional investors
+                </span>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-400 block mb-1">
+                    Beneficiary Bank Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={addresses.bank_wire_name}
+                    onChange={(e) => setAddresses({ ...addresses, bank_wire_name: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-rose-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-400 block mb-1">
+                    Beneficiary Account Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={addresses.bank_wire_beneficiary}
+                    onChange={(e) => setAddresses({ ...addresses, bank_wire_beneficiary: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-rose-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-400 block mb-1">
+                    IBAN / Account Number
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={addresses.bank_wire_iban}
+                    onChange={(e) => setAddresses({ ...addresses, bank_wire_iban: e.target.value.replace(/\s+/g, '') })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none focus:border-rose-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-400 block mb-1">
+                    SWIFT / BIC Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={addresses.bank_wire_swift}
+                    onChange={(e) => setAddresses({ ...addresses, bank_wire_swift: e.target.value.toUpperCase() })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none focus:border-rose-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Save & Auditing Bar */}
+            <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3 text-xs text-slate-400">
+                <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                <span>
+                  All changes are cryptographically recorded in the immutable Admin Audit Log with administrator user ID and timestamp.
+                </span>
+              </div>
+              <button
+                type="submit"
+                disabled={savingAddresses || addressesLoading}
+                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50 transition-all cursor-pointer"
+              >
+                {savingAddresses ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Saving Changes...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Save All Changes</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
         )}
 
       </main>
