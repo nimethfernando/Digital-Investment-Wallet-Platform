@@ -9,11 +9,51 @@ export class RateService {
     USD: 1.0,
     USDT: 1.0,
     EUR: 0.896,
-    LKR: 332.4,
-    AED: 3.6725,
-    GEL: 2.595,
-    INR: 95.08,
     GBP: 0.747,
+    INR: 86.42,
+    AED: 3.6725,
+    GEL: 2.78,
+    LKR: 298.5,
+    CAD: 1.38,
+    AUD: 1.54,
+    JPY: 152.3,
+    CHF: 0.885,
+    SGD: 1.32,
+    HKD: 7.78,
+    NZD: 1.68,
+    CNY: 7.24,
+    SAR: 3.75,
+    QAR: 3.64,
+    KWD: 0.308,
+    BHD: 0.376,
+    OMR: 0.385,
+    TRY: 35.8,
+    ZAR: 18.2,
+    BRL: 5.75,
+    MXN: 20.3,
+    SEK: 10.6,
+    NOK: 10.9,
+    DKK: 6.95,
+    PLN: 3.98,
+    THB: 34.2,
+    MYR: 4.45,
+    IDR: 15950.0,
+    PHP: 58.2,
+    VND: 25400.0,
+    PKR: 279.0,
+    BDT: 121.5,
+    EGP: 49.8,
+    NGN: 1530.0,
+    KES: 129.5,
+    ILS: 3.62,
+    CZK: 23.4,
+    HUF: 382.0,
+    RON: 4.65,
+    BGN: 1.82,
+    CLP: 975.0,
+    COP: 4350.0,
+    PEN: 3.72,
+    MAD: 9.95,
   };
 
   private lastFetched = 0;
@@ -74,17 +114,20 @@ export class RateService {
 
       const data: any = await response.json();
       if (data && data.result === 'success' && data.rates) {
-        this.cachedRates = {
-          USD: 1.0,
-          USDT: 1.0,
-          EUR: Number((data.rates.EUR ?? this.cachedRates.EUR).toFixed(4)),
-          LKR: Number((data.rates.LKR ?? this.cachedRates.LKR).toFixed(2)),
-          AED: Number((data.rates.AED ?? this.cachedRates.AED).toFixed(4)),
-          GEL: Number((data.rates.GEL ?? this.cachedRates.GEL).toFixed(4)),
-          INR: Number((data.rates.INR ?? this.cachedRates.INR).toFixed(2)),
-          GBP: Number((data.rates.GBP ?? this.cachedRates.GBP).toFixed(4)),
+        const mergedRates: Record<string, number> = {
+          ...this.cachedRates,
         };
 
+        for (const [cur, rate] of Object.entries(data.rates)) {
+          if (typeof rate === 'number' && !Number.isNaN(rate) && rate > 0) {
+            mergedRates[cur.toUpperCase()] = rate;
+          }
+        }
+
+        mergedRates.USD = 1.0;
+        mergedRates.USDT = 1.0;
+
+        this.cachedRates = mergedRates;
         this.lastFetched = Date.now();
         this.lastUpdatedString = data.time_last_update_utc || new Date().toISOString();
       }

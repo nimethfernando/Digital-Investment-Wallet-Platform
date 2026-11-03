@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
@@ -22,27 +22,15 @@ import {
   Search,
   Check,
   ChevronRight,
+  ChevronDown,
   Send,
   Sparkles,
 } from 'lucide-react';
-
-interface CountryItem {
-  name: string;
-  code: string;
-  currency: string;
-  flag: string;
-  deliveryHours: number;
-}
-
-const COUNTRIES: CountryItem[] = [
-  { name: 'India', code: 'IN', currency: 'INR', flag: '🇮🇳', deliveryHours: 24 },
-  { name: 'Sri Lanka', code: 'LK', currency: 'LKR', flag: '🇱🇰', deliveryHours: 24 },
-  { name: 'United Arab Emirates', code: 'AE', currency: 'AED', flag: '🇦🇪', deliveryHours: 12 },
-  { name: 'Georgia', code: 'GE', currency: 'GEL', flag: '🇬🇪', deliveryHours: 12 },
-  { name: 'European Union (SEPA)', code: 'EU', currency: 'EUR', flag: '🇪🇺', deliveryHours: 24 },
-  { name: 'United Kingdom', code: 'GB', currency: 'GBP', flag: '🇬🇧', deliveryHours: 12 },
-  { name: 'United States', code: 'US', currency: 'USD', flag: '🇺🇸', deliveryHours: 24 },
-];
+import {
+  GMT_GLOBAL_COUNTRIES,
+  POPULAR_CORRIDORS,
+  GmtCountryItem as CountryItem,
+} from '../../lib/gmt-countries';
 
 export default function GlobalMoneyTransferPage() {
   const router = useRouter();
@@ -53,11 +41,39 @@ export default function GlobalMoneyTransferPage() {
 
   // Transfer Calculation State
   const [sendingCurrency, setSendingCurrency] = useState<string>('USD');
-  const [selectedCountry, setSelectedCountry] = useState<CountryItem>(COUNTRIES[0]);
+  const [selectedCountry, setSelectedCountry] = useState<CountryItem>(GMT_GLOBAL_COUNTRIES[0]);
   const [sendingAmount, setSendingAmount] = useState<number>(1000);
   const [quote, setQuote] = useState<any>(null);
   const [quoteLoading, setQuoteLoading] = useState<boolean>(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+
+  // Country Search & Dropdown State
+  const [dropdownOpen, setDropdownOpen] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Filter countries by query (name, code, or currency)
+  const filteredCountries = useMemo(() => {
+    if (!searchQuery.trim()) return GMT_GLOBAL_COUNTRIES;
+    const q = searchQuery.toLowerCase().trim();
+    return GMT_GLOBAL_COUNTRIES.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.code.toLowerCase().includes(q) ||
+        c.currency.toLowerCase().includes(q)
+    );
+  }, [searchQuery]);
 
   // Recipient Information State
   const [recipientName, setRecipientName] = useState<string>('');
@@ -223,29 +239,162 @@ export default function GlobalMoneyTransferPage() {
               Enter Transfer Details
             </h3>
 
-            {/* Destination Country Picker */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Destination Country
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {COUNTRIES.map((c) => (
-                  <button
-                    key={c.code}
-                    onClick={() => setSelectedCountry(c)}
-                    className={`p-3 rounded-2xl border text-left flex items-center gap-2.5 transition-all ${
-                      selectedCountry.code === c.code
-                        ? 'border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 shadow-sm'
-                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span className="text-xl">{c.flag}</span>
-                    <div className="space-y-0.5 truncate">
-                      <div className="text-xs font-bold text-slate-900 dark:text-white truncate">{c.name}</div>
-                      <div className="text-[10px] font-mono text-slate-500">{c.currency}</div>
+            {/* Destination Country Dropdown Selector */}
+            <div className="space-y-3" ref={dropdownRef}>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Destination Country (Global Coverage)
+                </label>
+                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>110+ Countries Supported</span>
+                </span>
+              </div>
+
+              {/* Main Searchable Dropdown Button */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setDropdownOpen((prev) => !prev)}
+                  className={`w-full p-3.5 rounded-2xl border text-left flex items-center justify-between gap-3 transition-all cursor-pointer ${
+                    dropdownOpen
+                      ? 'border-2 border-emerald-500 bg-white dark:bg-slate-900 shadow-lg ring-2 ring-emerald-500/20'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800/80 shadow-sm'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-2xl shrink-0">{selectedCountry.flag}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                          {selectedCountry.name}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
+                          {selectedCountry.currency}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                        Country Code: {selectedCountry.code} • Est. Bank Delivery: {selectedCountry.deliveryHours} Hours
+                      </div>
                     </div>
-                  </button>
-                ))}
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 text-slate-400">
+                    <span className="text-xs font-semibold hidden sm:inline text-slate-400">Change Country</span>
+                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${dropdownOpen ? 'rotate-180 text-emerald-500' : ''}`} />
+                  </div>
+                </button>
+
+                {/* Dropdown Menu Modal / Popover */}
+                {dropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-2 z-50 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl p-3 space-y-2.5 animate-in fade-in zoom-in-95">
+                    {/* Search Input */}
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        autoFocus
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search any country or currency (e.g. Canada, CAD, Japan, JPY, EUR)..."
+                        className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      />
+                      {searchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-white text-xs"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Filter count */}
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                      <span>{filteredCountries.length} countries available</span>
+                      <span className="text-[10px]">Select to apply instant live rate</span>
+                    </div>
+
+                    {/* Scrollable List */}
+                    <div className="max-h-64 overflow-y-auto space-y-1 pr-1 scrollbar-thin">
+                      {filteredCountries.length > 0 ? (
+                        filteredCountries.map((c) => {
+                          const isSelected = selectedCountry.code === c.code;
+                          return (
+                            <button
+                              key={c.code}
+                              type="button"
+                              onClick={() => {
+                                setSelectedCountry(c);
+                                setDropdownOpen(false);
+                                setSearchQuery('');
+                              }}
+                              className={`w-full p-2.5 rounded-xl text-left flex items-center justify-between gap-2.5 transition-colors cursor-pointer ${
+                                isSelected
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-500/40 text-emerald-900 dark:text-emerald-200 font-bold'
+                                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="text-xl shrink-0">{c.flag}</span>
+                                <div className="min-w-0">
+                                  <div className="text-xs truncate flex items-center gap-1.5">
+                                    <span className="truncate">{c.name}</span>
+                                    <span className="text-[10px] text-slate-400 font-mono">({c.code})</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400">
+                                    Delivery in {c.deliveryHours}h via local clearing
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                  {c.currency}
+                                </span>
+                                {isSelected && <Check className="w-4 h-4 text-emerald-500" />}
+                              </div>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="py-6 text-center text-xs text-slate-400 space-y-1">
+                          <p>No countries matching "{searchQuery}"</p>
+                          <p className="text-[11px] text-slate-500">Try searching by currency code or country name</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Popular Corridors Quick-Select Chips */}
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Popular Corridors:
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {POPULAR_CORRIDORS.map((c) => (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCountry(c);
+                        setDropdownOpen(false);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+                        selectedCountry.code === c.code
+                          ? 'bg-emerald-600 text-white font-bold shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700/60'
+                      }`}
+                    >
+                      <span>{c.flag}</span>
+                      <span>{c.name.split(' ')[0]}</span>
+                      <span className="font-mono text-[10px] opacity-75">({c.currency})</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
