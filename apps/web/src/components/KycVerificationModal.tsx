@@ -91,7 +91,7 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
     setSubmitting(true);
     setFeedback(null);
     try {
-      const res = await api.post('/auth/kyc/submit', {
+      const res = await api.post('/auth/kyc/instant-verify', {
         documentType: 'PASSPORT',
         documentUrl: 'https://secure-docs.avora.bank/instant_institutional_verification.pdf',
         idNumber: 'AVR-KYC-' + Math.floor(100000 + Math.random() * 900000),
@@ -121,6 +121,10 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
 
   const handleSubmitUpload = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!documentUrl && !selectedFileName) {
+      setFeedback({ text: 'Please select a document image or PDF file to upload.', type: 'error' });
+      return;
+    }
     const finalDocUrl = documentUrl || 'https://secure-docs.avora.bank/manual_upload_scan.pdf';
 
     setSubmitting(true);
@@ -135,9 +139,9 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
       });
 
       if (res.data?.success) {
-        setKycStatus('APPROVED');
+        setKycStatus('PENDING');
         setFeedback({
-          text: 'Document validated and identity verification approved! Your profile is now KYC Verified.',
+          text: 'Document submitted successfully! Your application has been sent to the Compliance Officer for review.',
           type: 'success',
         });
         await fetchKycStatus();
@@ -172,9 +176,9 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
               provider: 'SUMSUB',
             });
             setSumsubActive(false);
-            setKycStatus('APPROVED');
+            setKycStatus('PENDING');
             setFeedback({
-              text: 'Biometric liveness check and ID document captured via Sumsub. Account successfully verified!',
+              text: 'Biometric liveness check and ID document captured via Sumsub. Verification is pending compliance review.',
               type: 'success',
             });
             await fetchKycStatus();

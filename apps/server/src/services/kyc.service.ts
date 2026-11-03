@@ -33,6 +33,39 @@ export class KycService {
         userId,
         documentType: input.documentType,
         documentUrl: input.documentUrl,
+        status: KycStatus.PENDING,
+      },
+    });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        kycStatus: KycStatus.PENDING,
+      },
+    });
+
+    return {
+      documentId: document.id,
+      documentType: document.documentType,
+      status: KycStatus.PENDING,
+      message: 'KYC identity documents submitted successfully. Application is pending compliance officer review.',
+    };
+  }
+
+  /**
+   * Instant sandbox auto-approval for quick testing/demo mode
+   */
+  async instantVerifyKyc(userId: string, input?: Partial<KycSubmissionInput>) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new Error('User not found.');
+    }
+
+    const document = await prisma.kycDocument.create({
+      data: {
+        userId,
+        documentType: input?.documentType || 'PASSPORT',
+        documentUrl: input?.documentUrl || 'https://secure-docs.avora.bank/instant_sandbox_verification.pdf',
         status: KycStatus.APPROVED,
         verifiedAt: new Date(),
       },
@@ -48,8 +81,8 @@ export class KycService {
     return {
       documentId: document.id,
       documentType: document.documentType,
-      status: document.status,
-      message: 'KYC identity verification completed and approved.',
+      status: KycStatus.APPROVED,
+      message: 'Instant test verification approved. Account upgraded to Verified Institutional Client.',
     };
   }
 

@@ -207,4 +207,14 @@ export const resetKyc = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
+export const instantVerifyKyc = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const result = await kycService.instantVerifyKyc(req.user.userId, req.body);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+};
+
 
