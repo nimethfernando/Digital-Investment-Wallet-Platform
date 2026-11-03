@@ -78,7 +78,7 @@ export default function AdminPortalPage() {
   const [addresses, setAddresses] = useState({
     usdt_bep20_address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
     usdt_erc20_address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
-    usdt_trc20_address: 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y',
+    usdt_trc20_address: 'TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm',
     bank_wire_name: 'Avora Bank (Bank of Georgia)',
     bank_wire_beneficiary: 'Avora Bank',
     bank_wire_iban: 'GE51BG0000000613125640',

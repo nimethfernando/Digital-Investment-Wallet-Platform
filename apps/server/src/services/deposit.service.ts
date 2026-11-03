@@ -22,7 +22,7 @@ export class DepositService {
     const bankIbanEurSetting = await prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_iban_eur' } }).catch(() => null);
     const bankSwiftSetting = await prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_swift' } }).catch(() => null);
 
-    const trc20Address = trc20Setting?.value || process.env.USDT_TRC20_WALLET_ADDRESS || 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y';
+    const trc20Address = trc20Setting?.value || process.env.USDT_TRC20_WALLET_ADDRESS || 'TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm';
     const erc20Address = erc20Setting?.value || process.env.USDT_ERC20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
     const bep20Address = bep20Setting?.value || process.env.USDT_BEP20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
 
@@ -378,7 +378,7 @@ export class DepositService {
     return {
       usdt_bep20_address: map.get('usdt_bep20_address') || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
       usdt_erc20_address: map.get('usdt_erc20_address') || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
-      usdt_trc20_address: map.get('usdt_trc20_address') || 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y',
+      usdt_trc20_address: map.get('usdt_trc20_address') || 'TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm',
       bank_wire_name: map.get('bank_wire_name') || 'Avora Bank (Bank of Georgia)',
       bank_wire_beneficiary: map.get('bank_wire_beneficiary') || 'Avora Bank',
       bank_wire_iban: ibanUsd,

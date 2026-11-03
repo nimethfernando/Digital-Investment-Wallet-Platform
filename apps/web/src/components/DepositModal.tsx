@@ -47,23 +47,6 @@ interface NetworkConfig {
 }
 
 const DEFAULT_NETWORKS: Record<CryptoNetwork, NetworkConfig> = {
-  TRC20: {
-    id: 'USDT_TRC20',
-    network: 'TRC-20 (TRON)',
-    chain: 'TRON',
-    currency: 'USDT',
-    address: 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y',
-    minDeposit: 50,
-    confirmationBlocks: 1,
-    tagline: 'Recommended • Lowest Network Fees (< $1.50)',
-    explorerUrl: 'https://tronscan.org/#/address/TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y',
-    instructions: [
-      'Send only USDT (Tether) via the TRC-20 (TRON) network to this address.',
-      'Sending any other coin or token to this address will result in permanent loss.',
-      'Minimum deposit: 50 USDT. Deposits below minimum cannot be processed.',
-      'Credits after 1 network confirmation and review.',
-    ],
-  },
   BEP20: {
     id: 'USDT_BEP20',
     network: 'BEP-20 (BNB Smart Chain)',
@@ -72,12 +55,30 @@ const DEFAULT_NETWORKS: Record<CryptoNetwork, NetworkConfig> = {
     address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
     minDeposit: 50,
     confirmationBlocks: 15,
-    tagline: 'Fast Confirmation • Low Gas Fee • Trust Wallet Compatible',
+    tagline: 'Trust Wallet Recommended • Lowest Network Fees (< $0.15)',
     explorerUrl: 'https://bscscan.com/address/0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
     instructions: [
       'Send only USDT via BEP-20 (BNB Smart Chain) network to this address.',
-      'Ensure the selected sending network is BSC / BEP-20.',
+      '100% compatible with Trust Wallet, Binance, MetaMask, and SafePal.',
+      'Ensure the selected network in your sending wallet is BSC / BEP-20.',
       'Minimum deposit: 50 USDT.',
+    ],
+  },
+  TRC20: {
+    id: 'USDT_TRC20',
+    network: 'TRC-20 (TRON)',
+    chain: 'TRON',
+    currency: 'USDT',
+    address: 'TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm',
+    minDeposit: 50,
+    confirmationBlocks: 1,
+    tagline: 'Fast Confirmation • TronLink / Binance Compatible',
+    explorerUrl: 'https://tronscan.org/#/address/TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm',
+    instructions: [
+      'Send only USDT (Tether) via the TRC-20 (TRON) network to this address.',
+      'Sending any other coin or token to this address will result in permanent loss.',
+      'Minimum deposit: 50 USDT. Deposits below minimum cannot be processed.',
+      'Credits after 1 network confirmation and review.',
     ],
   },
   ERC20: {
@@ -125,11 +126,11 @@ export const DepositModal: React.FC<DepositModalProps> = ({
   onDepositSuccess,
   initialAmount,
   initialRail = 'USDT',
-  initialNetwork = 'TRC20',
+  initialNetwork = 'BEP20',
   intendedPackageCode,
 }) => {
   const [selectedRail, setSelectedRail] = useState<DepositRail>(initialRail);
-  const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>(initialNetwork);
+  const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>('BEP20');
   const [selectedBankCurrency, setSelectedBankCurrency] = useState<'USD' | 'EUR'>('USD');
   const [networks, setNetworks] = useState<Record<CryptoNetwork, NetworkConfig>>(DEFAULT_NETWORKS);
   const [bankWire, setBankWire] = useState(DEFAULT_BANK_WIRE);
@@ -413,20 +414,27 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                   </div>
 
                   <div className="grid grid-cols-3 gap-2">
-                    {(['TRC20', 'BEP20', 'ERC20'] as CryptoNetwork[]).map((net) => (
+                    {(['BEP20', 'TRC20', 'ERC20'] as CryptoNetwork[]).map((net) => (
                       <button
                         key={net}
                         type="button"
                         onClick={() => setSelectedNetwork(net)}
-                        className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
+                        className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer relative ${
                           selectedNetwork === net
                             ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-100 shadow-sm'
                             : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-400 hover:border-slate-300'
                         }`}
                       >
-                        <div className="font-mono font-bold text-xs">{net}</div>
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                          {net === 'TRC20' ? 'TRON' : net === 'BEP20' ? 'BNB Chain' : 'Ethereum'}
+                        <div className="flex items-center justify-between">
+                          <div className="font-mono font-bold text-xs">{net}</div>
+                          {net === 'BEP20' && (
+                            <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400">
+                              Trust
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {net === 'BEP20' ? 'BNB Chain' : net === 'TRC20' ? 'TRON' : 'Ethereum'}
                         </div>
                       </button>
                     ))}
