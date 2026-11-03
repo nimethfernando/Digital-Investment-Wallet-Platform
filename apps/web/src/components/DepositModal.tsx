@@ -100,11 +100,23 @@ const DEFAULT_NETWORKS: Record<CryptoNetwork, NetworkConfig> = {
 
 const DEFAULT_BANK_WIRE = {
   currency: 'USD',
-  bankName: 'Bank of Georgia / TBC Bank',
-  beneficiary: 'Avora Bank Platform Custody',
-  iban: 'GE29NB0000000123456789',
+  bankName: 'Avora Bank (Bank of Georgia)',
+  beneficiary: 'Avora Bank',
+  iban: 'GE51BG0000000613125640',
   swift: 'BAGAGE22',
-  minDeposit: 1000,
+  minDeposit: 500,
+  usd: {
+    currency: 'USD',
+    currencyLabel: 'US Dollars ($)',
+    iban: 'GE51BG0000000613125640',
+    minDeposit: 500,
+  },
+  eur: {
+    currency: 'EUR',
+    currencyLabel: 'Euros (€)',
+    iban: 'GE71BG0000000613184450',
+    minDeposit: 500,
+  },
 };
 
 export const DepositModal: React.FC<DepositModalProps> = ({
@@ -118,6 +130,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
 }) => {
   const [selectedRail, setSelectedRail] = useState<DepositRail>(initialRail);
   const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>(initialNetwork);
+  const [selectedBankCurrency, setSelectedBankCurrency] = useState<'USD' | 'EUR'>('USD');
   const [networks, setNetworks] = useState<Record<CryptoNetwork, NetworkConfig>>(DEFAULT_NETWORKS);
   const [bankWire, setBankWire] = useState(DEFAULT_BANK_WIRE);
 
@@ -212,7 +225,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
 
     const minRequired = selectedRail === 'USDT' ? activeConfig.minDeposit : bankWire.minDeposit;
     if (amt < minRequired) {
-      setErrorMsg(`Minimum deposit amount for this method is ${minRequired} ${selectedRail === 'USDT' ? 'USDT' : 'USD'}.`);
+      setErrorMsg(`Minimum deposit amount for this method is ${minRequired} ${selectedRail === 'USDT' ? 'USDT' : selectedBankCurrency}.`);
       return;
     }
 
@@ -220,7 +233,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
     try {
       const res = await api.post('/wallet/deposit', {
         amount: amt,
-        currency: selectedRail === 'USDT' ? 'USDT' : 'USD',
+        currency: selectedRail === 'USDT' ? 'USDT' : selectedBankCurrency,
         depositMethod: selectedRail === 'USDT' ? activeConfig.id : 'BANK_WIRE',
         txHashOrRef: txHash.trim() || undefined,
         proofUrl: proofUrl.trim() || undefined,
@@ -610,40 +623,91 @@ export const DepositModal: React.FC<DepositModalProps> = ({
             ) : (
               /* ================= BANK WIRE TRANSFER ================= */
               <div className="space-y-4">
+                {/* Currency Selection Pill: USD vs EUR */}
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBankCurrency('USD')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      selectedBankCurrency === 'USD'
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span>USD ($) Account</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBankCurrency('EUR')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      selectedBankCurrency === 'EUR'
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span>EUR (€) Account</span>
+                  </button>
+                </div>
+
                 <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
-                  <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold pb-2 border-b border-slate-200 dark:border-slate-800">
-                    <Building2 className="w-4 h-4 text-emerald-500" />
-                    <span>Avora Bank Institutional Wire Account</span>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold">
+                      <Building2 className="w-4 h-4 text-emerald-500" />
+                      <span>Avora Bank Official Wire Account</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
+                      {selectedBankCurrency === 'USD' ? 'USD Dollars' : 'Euro (SEPA/SWIFT)'}
+                    </span>
                   </div>
 
                   <div className="space-y-2">
                     <div>
                       <span className="text-slate-400 text-[10px] block">Beneficiary Name</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">{bankWire.beneficiary}</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{bankWire.beneficiary || 'Avora Bank'}</span>
                     </div>
 
                     <div>
                       <span className="text-slate-400 text-[10px] block">Bank Name</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">{bankWire.bankName}</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{bankWire.bankName || 'Avora Bank (Bank of Georgia)'}</span>
                     </div>
 
                     <div>
-                      <span className="text-slate-400 text-[10px] block">IBAN Account Number</span>
+                      <span className="text-slate-400 text-[10px] block">Account Number / IBAN</span>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="font-mono font-bold text-slate-900 dark:text-white select-all">{bankWire.iban}</span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-white select-all">
+                          {selectedBankCurrency === 'EUR'
+                            ? (bankWire as any).eur?.iban || 'GE71BG0000000613184450'
+                            : (bankWire as any).usd?.iban || bankWire.iban || 'GE51BG0000000613125640'}
+                        </span>
                         <button
                           type="button"
-                          onClick={() => handleCopy(bankWire.iban, 'iban')}
-                          className="p-1 text-slate-400 hover:text-emerald-600"
+                          onClick={() =>
+                            handleCopy(
+                              selectedBankCurrency === 'EUR'
+                                ? (bankWire as any).eur?.iban || 'GE71BG0000000613184450'
+                                : (bankWire as any).usd?.iban || bankWire.iban || 'GE51BG0000000613125640',
+                              'iban'
+                            )
+                          }
+                          className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer"
+                          title="Copy IBAN"
                         >
                           {copiedIban ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
 
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">SWIFT / BIC Code</span>
-                      <span className="font-mono font-bold text-slate-900 dark:text-white">{bankWire.swift}</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">Currency</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                          {selectedBankCurrency === 'USD' ? 'USD (Dollars)' : 'EUR (Euro)'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">SWIFT / BIC Code</span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">{bankWire.swift || 'BAGAGE22'}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -651,7 +715,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                 <form onSubmit={handleSubmit} className="space-y-3.5">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Wire Amount (USD)
+                      Wire Amount ({selectedBankCurrency})
                     </label>
                     <input
                       type="number"

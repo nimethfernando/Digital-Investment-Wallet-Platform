@@ -79,9 +79,11 @@ export default function AdminPortalPage() {
     usdt_bep20_address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
     usdt_erc20_address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
     usdt_trc20_address: 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y',
-    bank_wire_name: 'Bank of Georgia / TBC Bank',
-    bank_wire_beneficiary: 'Avora Bank Platform Custody',
-    bank_wire_iban: 'GE29NB0000000123456789',
+    bank_wire_name: 'Avora Bank (Bank of Georgia)',
+    bank_wire_beneficiary: 'Avora Bank',
+    bank_wire_iban: 'GE51BG0000000613125640',
+    bank_wire_iban_usd: 'GE51BG0000000613125640',
+    bank_wire_iban_eur: 'GE71BG0000000613184450',
     bank_wire_swift: 'BAGAGE22',
   });
   const [addressesLoading, setAddressesLoading] = useState(false);
@@ -1407,20 +1409,41 @@ export default function AdminPortalPage() {
 
                 <div>
                   <label className="text-xs font-bold text-slate-400 block mb-1">
-                    IBAN / Account Number
+                    USD Account Number / IBAN (Dollars)
                   </label>
                   <input
                     type="text"
                     required
-                    value={addresses.bank_wire_iban}
-                    onChange={(e) => setAddresses({ ...addresses, bank_wire_iban: e.target.value.replace(/\s+/g, '') })}
+                    value={(addresses as any).bank_wire_iban_usd || addresses.bank_wire_iban}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/\s+/g, '');
+                      setAddresses({ ...addresses, bank_wire_iban_usd: clean, bank_wire_iban: clean });
+                    }}
+                    placeholder="e.g. GE51BG0000000613125640"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none focus:border-rose-500"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-slate-400 block mb-1">
-                    SWIFT / BIC Code
+                    EUR Account Number / IBAN (Euro)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={(addresses as any).bank_wire_iban_eur || ''}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/\s+/g, '');
+                      setAddresses({ ...addresses, bank_wire_iban_eur: clean });
+                    }}
+                    placeholder="e.g. GE71BG0000000613184450"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none focus:border-rose-500"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="text-xs font-bold text-slate-400 block mb-1">
+                    SWIFT / BIC Code (Shared for Bank of Georgia rails)
                   </label>
                   <input
                     type="text"
