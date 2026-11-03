@@ -180,47 +180,59 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* HERO RIGHT: LIVE OTC QUOTE BOX (High-Tech Terminal Card) */}
-            <div className="lg:col-span-5">
-              <div className="rounded-3xl p-6 sm:p-8 bg-white/80 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-5 backdrop-blur-xl">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+            {/* HERO RIGHT: LIVE OTC QUOTE BOX (High-Tech Floating 3D Terminal Card) */}
+            <div className="lg:col-span-5 relative">
+              {/* Ambient Backlight Aura */}
+              <div className="absolute -inset-2 bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-indigo-500/20 rounded-3xl blur-2xl opacity-75 animate-pulse-glow pointer-events-none" />
+
+              <div className="relative animate-float rounded-3xl p-6 sm:p-8 corum-glass border border-slate-200/80 dark:border-slate-700/80 shadow-2xl space-y-5">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-200/80 dark:border-slate-700/60">
                   <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                    </span>
                     <span className="text-xs font-mono font-bold tracking-wider text-slate-900 dark:text-white uppercase">
                       OTC_DESK // LIVE_QUOTE
                     </span>
                   </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-bold">
+                  <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold">
                     1.5% FEE SPLIT
                   </span>
                 </div>
 
                 <div className="space-y-3.5">
-                  <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+                  <div className="p-4 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between backdrop-blur-md hover:border-emerald-500/40 transition-colors">
                     <div>
-                      <p className="text-[11px] font-mono text-slate-400">Benchmark Pair</p>
-                      <p className="font-bold text-base text-slate-900 dark:text-white font-mono">USDT / USD (Tether)</p>
+                      <p className="text-[10px] font-mono uppercase text-slate-400">Benchmark Pair</p>
+                      <p className="font-bold text-base text-slate-900 dark:text-white font-mono flex items-center gap-1.5">
+                        USDT / USD <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20">PARITY</span>
+                      </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[11px] font-mono text-slate-400">Quoted Rate</p>
-                      <p className="font-mono font-black text-base text-emerald-500 dark:text-emerald-400">1.0000 USD</p>
+                      <p className="text-[10px] font-mono uppercase text-slate-400">Quoted Rate</p>
+                      <p className="font-mono font-black text-base text-emerald-600 dark:text-emerald-400">1.0000 USD</p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800">
+                    <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-cyan-500/40 transition-colors">
                       <span className="text-[10px] font-mono text-slate-400">LKR / USDT (Colombo)</span>
                       <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">302.50 LKR</p>
-                      <span className="text-[10px] font-mono text-emerald-500 font-bold">WTC West Tower Desk</span>
+                      <span className="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 font-bold flex items-center gap-1 mt-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> WTC Tower 18
+                      </span>
                     </div>
-                    <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800">
+                    <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-rose-500/40 transition-colors">
                       <span className="text-[10px] font-mono text-slate-400">GEL / USDT (Tbilisi)</span>
                       <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">2.7600 GEL</p>
-                      <span className="text-[10px] font-mono text-emerald-500 font-bold">Freedom Square Counter</span>
+                      <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1 mt-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Freedom Sq Desk
+                      </span>
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-cyan-500/10 border border-emerald-500/25 text-xs">
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-cyan-500/10 border border-emerald-500/25 text-xs">
                     <p className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5 font-mono text-[11px]">
                       <Building2 className="w-4 h-4 text-emerald-500" />
                       PHYSICAL_DESK // TBILISI & COLOMBO
@@ -232,7 +244,7 @@ export default function HomePage() {
 
                   <Link
                     href="/exchange"
-                    className="w-full py-3.5 rounded-2xl font-black text-xs text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15"
+                    className="w-full py-3.5 rounded-2xl font-black text-xs text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15 hover:scale-[1.02]"
                   >
                     <span>Open OTC Exchange Desks</span>
                     <ArrowUpRight className="w-4 h-4 text-emerald-300" />
@@ -241,6 +253,42 @@ export default function HomePage() {
               </div>
             </div>
 
+          </div>
+        </div>
+      </section>
+
+      {/* CORUM8-STYLE INFINITE TRUST & INFRASTRUCTURE MARQUEE */}
+      <section className="relative overflow-hidden py-4 sm:py-5 border-y border-slate-200/80 dark:border-slate-800/80 bg-slate-900/5 dark:bg-slate-950/60 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-2.5 text-center">
+          <p className="text-[10px] font-mono tracking-widest text-slate-500 dark:text-slate-400 uppercase font-bold">
+            Institutional Custody • Global Banking Rails • Cryptographic Ledger Integrity
+          </p>
+        </div>
+        
+        <div className="relative w-full overflow-hidden flex">
+          {/* Gradient Fade Edges */}
+          <div className="absolute left-0 top-0 bottom-0 w-20 sm:w-28 z-10 bg-gradient-to-r from-slate-50 dark:from-slate-950 to-transparent pointer-events-none" />
+          <div className="absolute right-0 top-0 bottom-0 w-20 sm:w-28 z-10 bg-gradient-to-l from-slate-50 dark:from-slate-950 to-transparent pointer-events-none" />
+
+          <div className="animate-marquee flex items-center gap-10 text-slate-600 dark:text-slate-300 font-mono text-xs uppercase tracking-wider whitespace-nowrap">
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> TBILISI OTC DESK (UTC+4 21:00)</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> WALLESTER BaaS VIRTUAL CARDS</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-400" /> STARTENGINE-GRADE VENTURE EQUITY</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-400" /> COLOMBO WTC CASH COUNTER</div>
+
+            {/* Seamless duplicate loop */}
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> TBILISI OTC DESK (UTC+4 21:00)</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> WALLESTER BaaS VIRTUAL CARDS</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-400" /> STARTENGINE-GRADE VENTURE EQUITY</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-400" /> COLOMBO WTC CASH COUNTER</div>
           </div>
         </div>
       </section>
@@ -589,6 +637,87 @@ export default function HomePage() {
             <p className="text-xs text-slate-500">
               Calculate projected 1% monthly return and 6-month maturity distributions for Avora Bank packages
             </p>
+          </div>
+
+          {/* INTERACTIVE 3-TIER PACKAGE SELECTOR (CORUM8 STYLE) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {/* Tier 1: Core */}
+            <div 
+              onClick={() => setCalcAmount(2500)}
+              className={`cursor-pointer p-6 rounded-3xl transition-all duration-300 relative border ${
+                calcAmount >= 1000 && calcAmount <= 2500
+                  ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 shadow-[0_0_30px_rgba(16,185,129,0.2)] scale-[1.02]'
+                  : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold">
+                  TIER 01 // CORE
+                </span>
+                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">1.0% / MO</span>
+              </div>
+              <h4 className="text-xl font-black text-slate-900 dark:text-white">$1,000 – $2,500</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                Entry capital deployment with automated 1st-of-month ledger credits.
+              </p>
+              <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between text-xs font-mono">
+                <span className="text-slate-400">Term:</span>
+                <span className="text-slate-800 dark:text-slate-200 font-bold">6 Months Lock-In</span>
+              </div>
+            </div>
+
+            {/* Tier 2: Growth (Featured) */}
+            <div 
+              onClick={() => setCalcAmount(5000)}
+              className={`cursor-pointer p-6 rounded-3xl transition-all duration-300 relative border ${
+                calcAmount >= 3000 && calcAmount <= 7000
+                  ? 'border-cyan-500 bg-cyan-50/70 dark:bg-cyan-950/40 shadow-[0_0_35px_rgba(6,182,212,0.25)] scale-[1.03]'
+                  : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-700'
+              }`}
+            >
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-950 text-[10px] font-black tracking-wider uppercase shadow-md">
+                MOST POPULAR
+              </div>
+              <div className="flex items-center justify-between mb-3 mt-1">
+                <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-bold">
+                  TIER 02 // GROWTH
+                </span>
+                <span className="text-xs font-mono font-bold text-cyan-600 dark:text-cyan-400">1.0% / MO</span>
+              </div>
+              <h4 className="text-xl font-black text-slate-900 dark:text-white">$3,000 – $7,000</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                Balanced liquidity allocation with priority withdrawal settlement windows.
+              </p>
+              <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between text-xs font-mono">
+                <span className="text-slate-400">Term:</span>
+                <span className="text-slate-800 dark:text-slate-200 font-bold">6 Months Lock-In</span>
+              </div>
+            </div>
+
+            {/* Tier 3: Prime */}
+            <div 
+              onClick={() => setCalcAmount(10000)}
+              className={`cursor-pointer p-6 rounded-3xl transition-all duration-300 relative border ${
+                calcAmount >= 7500 && calcAmount <= 10000
+                  ? 'border-purple-500 bg-purple-50/70 dark:bg-purple-950/40 shadow-[0_0_30px_rgba(168,85,247,0.2)] scale-[1.02]'
+                  : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-700 dark:text-purple-300 font-bold">
+                  TIER 03 // PRIME
+                </span>
+                <span className="text-xs font-mono font-bold text-purple-600 dark:text-purple-400">1.0% / MO</span>
+              </div>
+              <h4 className="text-xl font-black text-slate-900 dark:text-white">$7,500 – $10,000</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                Maximum monthly returns with VIP Tbilisi & Colombo cash desk priority.
+              </p>
+              <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between text-xs font-mono">
+                <span className="text-slate-400">Term:</span>
+                <span className="text-slate-800 dark:text-slate-200 font-bold">6 Months Lock-In</span>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-4">
