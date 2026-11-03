@@ -55,29 +55,37 @@ export function QrTransferModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Fallback virtual wallet address for display
-  const userWalletAddress = `0xAvora${(user?.id || '00000000').replace(/-/g, '').slice(0, 34)}`;
+  // Official receiving EVM wallet address (compatible with Trust Wallet, Binance, MetaMask)
+  const [receivingAddress, setReceivingAddress] = useState<string>('0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad');
 
-  // Generate QR code data URL whenever user account or requested amount changes
+  // Load active receiving address configured by admin
+  useEffect(() => {
+    if (!isOpen) return;
+    api.get('/wallet/deposit/instructions')
+      .then((res) => {
+        const addr = res.data?.data?.usdt?.BEP20?.address || res.data?.data?.usdt?.ERC20?.address;
+        if (addr) setReceivingAddress(addr);
+      })
+      .catch(() => {});
+  }, [isOpen]);
+
+  // Generate QR code data URL - Raw EVM address for 100% Trust Wallet compatibility
   useEffect(() => {
     if (!isOpen) return;
 
-    let payload = `avora:transfer?to=${encodeURIComponent(userAccountNumber)}&address=${encodeURIComponent(userWalletAddress)}`;
-    if (requestedAmount && parseFloat(requestedAmount) > 0) {
-      payload += `&amount=${encodeURIComponent(requestedAmount)}`;
-    }
-
-    QRCode.toDataURL(payload, {
+    // Encode plain EVM address so Trust Wallet, Binance, and MetaMask parse it without "Wrong Input"
+    QRCode.toDataURL(receivingAddress, {
       width: 320,
       margin: 2,
       color: {
         dark: '#0f172a',
         light: '#ffffff',
       },
+      errorCorrectionLevel: 'M',
     })
       .then((url) => setQrDataUrl(url))
       .catch((err) => console.error('Failed to generate QR code', err));
-  }, [isOpen, userAccountNumber, userWalletAddress, requestedAmount]);
+  }, [isOpen, receivingAddress]);
 
   if (!isOpen) return null;
 
@@ -280,12 +288,12 @@ export function QrTransferModal({
               {/* Wallet Address */}
               <div className="w-full pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1 text-left">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Internal Settlement Wallet Address
+                  Official Receiving Address (Trust Wallet / EVM)
                 </span>
                 <div className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-600 dark:text-slate-300">
-                  <span className="truncate pr-2">{userWalletAddress}</span>
+                  <span className="truncate pr-2">{receivingAddress}</span>
                   <button
-                    onClick={() => handleCopy(userWalletAddress, 'link')}
+                    onClick={() => handleCopy(receivingAddress, 'link')}
                     className="shrink-0 p-1 rounded text-slate-400 hover:text-emerald-500"
                   >
                     {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}

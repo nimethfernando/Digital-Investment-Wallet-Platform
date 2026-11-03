@@ -500,11 +500,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                           </div>
                         </div>
                         <a
-                          href={`https://link.trustwallet.com/send?address=${currentAddress}${
-                            selectedNetwork === 'BEP20'
-                              ? '&asset=c714_t0x55d398326f99059fF775485246999027B3197955'
-                              : '&asset=c60_t0xdac17f958d2ee523a2206206994597c13d831ec7'
-                          }`}
+                          href={`https://link.trustwallet.com/send?address=${currentAddress}`}
                           target="_blank"
                           rel="noreferrer"
                           className="px-3 py-1.5 rounded-xl font-bold text-[11px] bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 shadow-sm transition-all cursor-pointer"
@@ -513,8 +509,13 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       </div>
-                      <div className="text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed bg-blue-100/60 dark:bg-blue-900/40 p-2 rounded-xl">
-                        <strong>How Trust Wallet works:</strong> Open Trust Wallet &gt; tap the <strong>[ — ]</strong> QR scanner in the top right &gt; scan this QR code. Trust Wallet will automatically populate the receiver address (<code className="font-mono text-[10px] bg-blue-200/60 dark:bg-blue-800/60 px-1 py-0.5 rounded">{currentAddress.slice(0, 8)}...{currentAddress.slice(-6)}</code>). Enter your amount, confirm transfer, and paste the generated Tx Hash below.
+                      <div className="text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed bg-blue-100/60 dark:bg-blue-900/40 p-2.5 rounded-xl space-y-1">
+                        <div>
+                          <strong>Important in Trust Wallet:</strong> Tap the <strong>Send (↗)</strong> button on the top-left of Trust Wallet (do <em>not</em> tap Swap ⇄).
+                        </div>
+                        <div>
+                          Select <strong>USDT</strong> &gt; tap the <strong>[ — ]</strong> QR scanner in the top right &gt; scan this QR code. Trust Wallet will automatically populate the receiver address (<code className="font-mono text-[10px] bg-blue-200/60 dark:bg-blue-800/60 px-1 py-0.5 rounded">{currentAddress.slice(0, 8)}...{currentAddress.slice(-6)}</code>). Enter your deposit amount and confirm.
+                        </div>
                       </div>
                     </div>
                   )}
