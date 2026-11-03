@@ -473,7 +473,7 @@ export default function InvestmentsMarketplacePage() {
       {/* MODAL 1: INVEST NOW (WITH TRANSPARENT 5% ALLOCATION FEE BREAKDOWN) */}
       {/* ========================================================================= */}
       {investModalOpen && selectedCampaign && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-6">
             <button
               onClick={() => setInvestModalOpen(false)}
@@ -569,7 +569,7 @@ export default function InvestmentsMarketplacePage() {
       {/* MODAL 2: APPLY FOR FUNDING (FOUNDER REGISTRATION WIZARD) */}
       {/* ========================================================================= */}
       {applyModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-6 max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setApplyModalOpen(false)}
@@ -735,7 +735,7 @@ export default function InvestmentsMarketplacePage() {
       {/* DRAWER: INVESTOR DASHBOARD & PROFIT-SHARING LEDGER */}
       {/* ========================================================================= */}
       {dashboardOpen && investorData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-end bg-slate-950/70 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-[100] flex items-center justify-end bg-slate-950/70 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl h-full p-6 sm:p-8 border-l border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-6 overflow-y-auto">
             <button
               onClick={() => setDashboardOpen(false)}
