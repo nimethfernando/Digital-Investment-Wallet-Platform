@@ -743,7 +743,12 @@ export default function AdminPortalPage() {
                             +${(parseFloat(pkg.amount) * 0.01).toFixed(2)} / mo ({pkg.returnRateSnapshot || '1.0%'})
                           </td>
                           <td className="py-3 text-slate-300">
-                            {pkg.lockInMonths || 6} Months FD
+                            <div>{pkg.lockInMonths || 6} Months FD</div>
+                            {pkg.daysRemaining !== undefined && (
+                              <div className="text-[10px] text-emerald-400 font-mono font-bold">
+                                {pkg.daysRemaining > 0 ? `${pkg.daysRemaining}d remaining` : 'Matured'}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3 font-mono text-slate-300">
                             {pkg.returnsCount !== undefined ? `${pkg.returnsCount} months` : 'Active'}

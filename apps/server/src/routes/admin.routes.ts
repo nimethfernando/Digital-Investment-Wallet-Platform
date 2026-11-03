@@ -13,6 +13,10 @@ router.get('/packages', (req, res, next) => adminController.getPackages(req, res
 router.post('/packages/:id/approve', (req, res, next) => adminController.approvePackage(req, res, next));
 router.post('/packages/:id/settle-full', requireAdmin2FA, (req, res, next) => adminController.settleFullPackage(req, res, next));
 
+// Startup Equity & Token Allocation operations
+router.get('/investments', (req, res, next) => adminController.getInvestments(req, res, next));
+router.get('/token-allocations', (req, res, next) => adminController.getTokenAllocations(req, res, next));
+
 // Deposit operations
 router.get('/deposits', (req, res, next) => adminController.getDeposits(req, res, next));
 router.post('/deposits/:id/approve', requireAdmin2FA, (req, res, next) => adminController.approveDeposit(req, res, next));

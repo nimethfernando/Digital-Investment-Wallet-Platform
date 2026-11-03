@@ -512,23 +512,43 @@ export class PackageService {
     ]);
 
     return {
-      packages: packages.map((pkg) => ({
-        id: pkg.id,
-        packageCode: pkg.packageCode,
-        user: pkg.user,
-        amount: new Decimal(pkg.amount.toString()).toFixed(2),
-        currency: pkg.currency,
-        returnRateSnapshot: new Decimal(pkg.returnRateSnapshot.toString()).times(100).toFixed(1) + '%',
-        lockInMonths: pkg.lockInMonths,
-        status: pkg.status,
-        purchaseDate: pkg.purchaseDate,
-        lockInEnd: pkg.lockInEnd,
-        depositMethod: pkg.depositMethod,
-        depositProofUrl: pkg.depositProofUrl,
-        adminNotes: pkg.adminNotes,
-        returnsCount: pkg.returns.length,
-        createdAt: pkg.createdAt,
-      })),
+      packages: packages.map((pkg) => {
+        let daysRemaining = 0;
+        let progressPercent = 0;
+        if (pkg.lockInStart && pkg.lockInEnd) {
+          const start = pkg.lockInStart.getTime();
+          const end = pkg.lockInEnd.getTime();
+          const nowMs = Date.now();
+          const current = Math.min(Math.max(nowMs, start), end);
+          const totalDuration = end - start;
+          const elapsed = current - start;
+          progressPercent = totalDuration > 0 ? Math.min(100, Math.round((elapsed / totalDuration) * 100)) : 0;
+          const msRemaining = Math.max(0, end - nowMs);
+          daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
+        }
+
+        return {
+          id: pkg.id,
+          packageCode: pkg.packageCode,
+          user: pkg.user,
+          amount: new Decimal(pkg.amount.toString()).toFixed(2),
+          currency: pkg.currency,
+          returnRateSnapshot: new Decimal(pkg.returnRateSnapshot.toString()).times(100).toFixed(1) + '%',
+          lockInMonths: pkg.lockInMonths,
+          status: pkg.status,
+          purchaseDate: pkg.purchaseDate,
+          lockInStart: pkg.lockInStart,
+          lockInEnd: pkg.lockInEnd,
+          withdrawalEligibilityDate: pkg.withdrawalEligibilityDate,
+          daysRemaining,
+          progressPercent,
+          depositMethod: pkg.depositMethod,
+          depositProofUrl: pkg.depositProofUrl,
+          adminNotes: pkg.adminNotes,
+          returnsCount: pkg.returns.length,
+          createdAt: pkg.createdAt,
+        };
+      }),
       total,
       page,
       totalPages: Math.ceil(total / limit),

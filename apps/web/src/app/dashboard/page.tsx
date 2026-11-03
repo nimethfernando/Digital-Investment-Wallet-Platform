@@ -42,6 +42,10 @@ import {
   Smartphone,
   Globe,
   Coins,
+  Building,
+  Rocket,
+  Award,
+  ExternalLink,
 } from 'lucide-react';
 
 interface WalletSummary {
@@ -68,11 +72,56 @@ interface PackageItem {
   returnRateSnapshot?: string;
   lockInMonths?: number;
   startDate?: string;
+  purchaseDate?: string;
+  lockInStart?: string;
   lockInEnd?: string;
   withdrawalEligibilityDate?: string;
+  daysRemaining?: number;
+  progressPercent?: number;
   totalReturnsPaid?: string;
   totalEarned?: string;
   status: string;
+  returns?: Array<{
+    periodIndex: number;
+    returnAmount: string;
+    paidAt: string;
+    status: string;
+  }>;
+}
+
+interface StartupInvestmentItem {
+  id: string;
+  investmentCode: string;
+  grossAmount: string;
+  allocationFeeAmount: string;
+  netInvestedAmount: string;
+  instrument: string;
+  ownershipPct?: string | null;
+  status: string;
+  createdAt: string;
+  realizedProceeds?: string;
+  netDistributedProfit?: string;
+  listing: {
+    id: string;
+    slug: string;
+    companyName: string;
+    logoUrl?: string;
+    industry: string;
+    country: string;
+    stage: string;
+  };
+}
+
+interface TokenStatusItem {
+  earlyAccess?: {
+    registeredInterest: boolean;
+    requestedAllocationUsd: string;
+    status: string;
+    walletAddress?: string;
+    notes?: string;
+    createdAt?: string;
+  } | null;
+  testnetBalance?: number;
 }
 
 interface TransactionItem {
@@ -155,6 +204,10 @@ function DashboardContent() {
   const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'support' | 'security' | 'redotpay'>('overview');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [packages, setPackages] = useState<PackageItem[]>([]);
+  const [startupInvestments, setStartupInvestments] = useState<StartupInvestmentItem[]>([]);
+  const [startupSummary, setStartupSummary] = useState<any>(null);
+  const [tokenStatus, setTokenStatus] = useState<TokenStatusItem | null>(null);
+  const [portfolioSubTab, setPortfolioSubTab] = useState<'ALL' | 'FD' | 'STARTUP' | 'TOKEN'>('ALL');
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -245,7 +298,7 @@ function DashboardContent() {
     if (tab === 'p2p') {
       setActiveTab('p2p');
       setP2PModalOpen(true);
-    } else if (tab === 'packages') {
+    } else if (tab === 'packages' || tab === 'investments' || tab === 'portfolio') {
       setActiveTab('packages');
     } else if (tab === 'withdraw') {
       setWithdrawModalOpen(true);
@@ -289,13 +342,15 @@ function DashboardContent() {
     if (!token) return;
     setLoadingData(true);
     try {
-      const [walletRes, pkgRes, txRes, wthRes, ticketRes, depRes] = await Promise.all([
+      const [walletRes, pkgRes, txRes, wthRes, ticketRes, depRes, investRes, tokenRes] = await Promise.all([
         api.get('/wallet').catch(() => ({ data: { wallet: null } })),
         api.get('/packages').catch(() => ({ data: { packages: [] } })),
         api.get('/wallet/transactions').catch(() => ({ data: { transactions: [] } })),
         api.get('/withdrawals').catch(() => ({ data: { withdrawals: [] } })),
         api.get('/tickets').catch(() => ({ data: { data: [] } })),
         api.get('/wallet/deposits').catch(() => ({ data: { data: [] } })),
+        api.get('/investments/dashboard').catch(() => ({ data: { commitments: [], summary: null } })),
+        api.get('/token/my-status').catch(() => ({ data: { earlyAccess: null, testnetBalance: 0 } })),
       ]);
 
       const resolvedWallet = walletRes.data?.wallet || walletRes.data?.data;
@@ -319,6 +374,16 @@ function DashboardContent() {
 
       if (depRes.data?.data && Array.isArray(depRes.data.data)) {
         setUserDeposits(depRes.data.data);
+      }
+
+      if (investRes.data?.commitments && Array.isArray(investRes.data.commitments)) {
+        setStartupInvestments(investRes.data.commitments);
+      }
+      if (investRes.data?.summary) {
+        setStartupSummary(investRes.data.summary);
+      }
+      if (tokenRes.data) {
+        setTokenStatus(tokenRes.data);
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);
@@ -718,7 +783,7 @@ function DashboardContent() {
               { key: 'redotpay', label: 'Avora Pay & Swap', icon: Smartphone },
               { key: 'p2p', label: 'Account Transfers', icon: Send },
               { key: 'card', label: 'Virtual Cards', icon: CreditCard },
-              { key: 'packages', label: `Fixed Deposits (${packages.length})`, icon: Package },
+              { key: 'packages', label: `My Investments (${packages.length + startupInvestments.length + (tokenStatus?.earlyAccess?.registeredInterest ? 1 : 0)})`, icon: Package },
               { key: 'withdrawals', label: `Withdrawals (${withdrawals.length})`, icon: ArrowUpRight },
               { key: 'transactions', label: 'Ledger Audit', icon: Clock },
               { key: 'security', label: 'Security & 2FA', icon: ShieldCheck },
@@ -888,6 +953,183 @@ function DashboardContent() {
                 </div>
               </div>
 
+            </div>
+
+            {/* CONSOLIDATED INVESTOR PORTFOLIO & TENURE STRIP */}
+            <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 mb-1">
+                    <Award className="w-3 h-3 text-emerald-500" />
+                    <span>Consolidated Asset Portfolio</span>
+                  </div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">Active Investments & Tenure Overview</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Live capital deployment across Fixed Deposits, Venture Crowdfunding & Avora Tokens
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setActiveTab('packages')}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 transition-all self-start sm:self-auto cursor-pointer"
+                >
+                  <span>Full Portfolio & Tenures</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Asset Allocation Breakdown Mini-Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 space-y-1">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                      <Package className="w-3.5 h-3.5 text-emerald-500" /> Fixed Deposits (1% Mo)
+                    </span>
+                    <span className="font-mono text-[11px] font-bold text-emerald-600">{packages.length} Active</span>
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
+                    ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {packages.length > 0
+                      ? `Next maturity: ${packages[0].lockInEnd ? new Date(packages[0].lockInEnd).toLocaleDateString() : 'Active lock'}`
+                      : 'Zero locked capital deployed'}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 space-y-1">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                      <Building className="w-3.5 h-3.5 text-amber-500" /> Startup Venture Equity
+                    </span>
+                    <span className="font-mono text-[11px] font-bold text-amber-600">{startupInvestments.length} Companies</span>
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
+                    ${parseFloat(startupSummary?.totalNetInvested || startupInvestments.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0).toFixed(2)).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {startupInvestments.length > 0 ? '5% Profit-Share model active' : 'Zero venture commitments'}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 space-y-1">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                      <Coins className="w-3.5 h-3.5 text-purple-500" /> Avora Token ($AVR)
+                    </span>
+                    <span className="font-mono text-[11px] font-bold text-purple-600">
+                      {tokenStatus?.earlyAccess?.status || 'Open'}
+                    </span>
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
+                    ${parseFloat(tokenStatus?.earlyAccess?.requestedAllocationUsd || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {tokenStatus?.earlyAccess?.registeredInterest
+                      ? `Whitelisted (~ ${parseFloat(tokenStatus.earlyAccess.requestedAllocationUsd).toLocaleString()} AVR)`
+                      : 'Q4 2027 Mainnet Whitelist open'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Active Holdings Preview Cards */}
+              {packages.length === 0 && startupInvestments.length === 0 && !tokenStatus?.earlyAccess?.registeredInterest ? (
+                <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-300 dark:border-slate-800 text-center space-y-4">
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    You currently have no capital deployed. Deploy funds into guaranteed monthly fixed deposits, venture equity, or token allocations:
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2.5">
+                    <Link
+                      href="/packages"
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm flex items-center gap-1.5"
+                    >
+                      <Package className="w-3.5 h-3.5" /> Deploy 1% Monthly FD
+                    </Link>
+                    <Link
+                      href="/investments"
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-950 hover:bg-black transition-all shadow-sm flex items-center gap-1.5"
+                    >
+                      <Building className="w-3.5 h-3.5" /> Browse Startups ($250+)
+                    </Link>
+                    <Link
+                      href="/token"
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600 text-white hover:bg-purple-700 transition-all shadow-sm flex items-center gap-1.5"
+                    >
+                      <Coins className="w-3.5 h-3.5" /> Join Token Whitelist
+                    </Link>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Active Allocations & Tenure Countdown</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* FD Cards with Tenure Countdown */}
+                    {packages.slice(0, 2).map((pkg) => (
+                      <div key={pkg.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-bold text-emerald-600">{pkg.packageCode}</span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                              {pkg.status}
+                            </span>
+                          </div>
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">
+                            ${parseFloat(pkg.amount).toLocaleString()} USD
+                          </span>
+                        </div>
+
+                        {/* Tenure Progress Bar */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-slate-500 font-medium">Remaining Tenure:</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              {pkg.daysRemaining !== undefined && pkg.daysRemaining > 0
+                                ? `${pkg.daysRemaining} Days Left`
+                                : 'Matured (Eligible for Release)'}
+                            </span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                              style={{ width: `${pkg.progressPercent !== undefined ? pkg.progressPercent : 35}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[10px] text-slate-400">
+                            <span>Started: {pkg.lockInStart ? new Date(pkg.lockInStart).toLocaleDateString() : 'Recent'}</span>
+                            <span>Maturity: {pkg.lockInEnd ? new Date(pkg.lockInEnd).toLocaleDateString() : '6 Months'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Startup Commitments Preview */}
+                    {startupInvestments.slice(0, 2).map((inv) => (
+                      <div key={inv.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <span className="font-bold text-xs text-slate-900 dark:text-white block">
+                              {inv.listing?.companyName || 'Venture Startup'}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {inv.listing?.industry} • {inv.instrument}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono text-xs font-black text-amber-600 dark:text-amber-400 block">
+                              ${parseFloat(inv.grossAmount).toLocaleString()} USD
+                            </span>
+                            <span className="text-[10px] text-slate-400">5% Fee: ${parseFloat(inv.allocationFeeAmount).toFixed(2)}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-200 dark:border-slate-850 text-slate-500">
+                          <span className="font-mono text-[10px]">{inv.investmentCode}</span>
+                          <span className="text-emerald-600 font-bold">5% Realized Profit-Share</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Institutional Banking & Liquidity Suite Hub */}
@@ -1060,71 +1302,333 @@ function DashboardContent() {
           </div>
         )}
 
-        {/* PACKAGES TAB */}
+        {/* INVESTOR PORTFOLIO & TENURE TRACKING TAB */}
         {activeTab === 'packages' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
+          <div className="space-y-8 animate-in fade-in duration-200">
+            {/* Header & Quick Action CTAs */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div>
-                <h3 className="text-xl font-bold">Digital Investment Packages</h3>
-                <p className="text-xs text-slate-500">Fixed-term capital deployment with 1% monthly yields and 6-month lock-in</p>
-              </div>
-              <Link
-                href="/packages"
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-md transition-all flex items-center gap-1.5"
-              >
-                <PlusCircle className="w-4 h-4" />
-                Purchase New Package
-              </Link>
-            </div>
-
-            {packages.length === 0 ? (
-              <div className="p-12 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-4">
-                <Package className="w-12 h-12 text-slate-300 mx-auto" />
-                <h4 className="text-sm font-bold">No Active Investment Packages</h4>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Purchase an investment package ($1,000 to $10,000) to begin earning 1% monthly distributions credited directly to your Avora ledger.
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold mb-2">
+                  <Award className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Institutional Investor Portfolio</span>
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Active Investments & Tenure Tracking</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl mt-1">
+                  Manage your fixed-term capital deployments with remaining tenure countdowns, venture startup equity commitments, and AVR token allocations in one place.
                 </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
                 <Link
                   href="/packages"
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white inline-block shadow-md"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-all flex items-center gap-1.5"
                 >
-                  Explore Packages
+                  <PlusCircle className="w-4 h-4" />
+                  + Deploy 1% Monthly FD
+                </Link>
+                <Link
+                  href="/investments"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-900 dark:bg-slate-800 hover:bg-black text-white border border-slate-700 shadow-md transition-all flex items-center gap-1.5"
+                >
+                  <Building className="w-4 h-4 text-amber-400" />
+                  Browse Startups
+                </Link>
+                <Link
+                  href="/token"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md transition-all flex items-center gap-1.5"
+                >
+                  <Coins className="w-4 h-4 text-purple-200" />
+                  AVR Token Portal
                 </Link>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {packages.map((pkg) => (
-                  <div key={pkg.id} className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-bold text-emerald-600">{pkg.packageCode}</span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                        {pkg.status}
-                      </span>
-                    </div>
+            </div>
 
-                    <div className="space-y-1">
-                      <div className="text-2xl font-black">${parseFloat(pkg.amount).toLocaleString()} USD</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Yield: {pkg.returnRatePercent || `${(parseFloat(pkg.returnRateSnapshot || '0.01') * 100).toFixed(2)}%`} Monthly Return
-                      </div>
-                    </div>
+            {/* Asset Class Filter Pills */}
+            <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3 overflow-x-auto">
+              {[
+                { key: 'ALL', label: `All Portfolio (${packages.length + startupInvestments.length + (tokenStatus?.earlyAccess?.registeredInterest ? 1 : 0)})` },
+                { key: 'FD', label: `Fixed Deposits (${packages.length})` },
+                { key: 'STARTUP', label: `Startup Equity (${startupInvestments.length})` },
+                { key: 'TOKEN', label: `AVR Tokens (${tokenStatus?.earlyAccess?.registeredInterest ? 1 : 0})` },
+              ].map((filter) => (
+                <button
+                  key={filter.key}
+                  onClick={() => setPortfolioSubTab(filter.key as any)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                    portfolioSubTab === filter.key
+                      ? 'bg-slate-900 text-white dark:bg-emerald-600 dark:text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
 
-                    <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
-                      <div className="flex justify-between">
-                        <span>Lock-in Term:</span>
-                        <span className="font-bold text-slate-900 dark:text-white">{pkg.lockInMonths || 6} Months FD</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Eligibility Date:</span>
-                        <span className="font-mono text-slate-800 dark:text-slate-200">{pkg.withdrawalEligibilityDate ? new Date(pkg.withdrawalEligibilityDate).toLocaleDateString() : 'Active'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Returns Paid:</span>
-                        <span className="font-bold text-emerald-600 dark:text-emerald-400">${parseFloat(pkg.totalEarned || pkg.totalReturnsPaid || '0').toFixed(2)}</span>
-                      </div>
-                    </div>
+            {/* 1. FIXED DEPOSITS SECTION */}
+            {(portfolioSubTab === 'ALL' || portfolioSubTab === 'FD') && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Package className="w-5 h-5 text-emerald-500" />
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                      Fixed-Term Capital Deployments (1% Monthly Yield)
+                    </h3>
                   </div>
-                ))}
+                  <span className="text-xs text-slate-500 font-mono">
+                    Total Locked: ${parseFloat(lockedPrincipal).toLocaleString()} USD
+                  </span>
+                </div>
+
+                {packages.length === 0 ? (
+                  <div className="p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-3">
+                    <p className="text-xs text-slate-500">You do not have any active Fixed Deposit packages yet.</p>
+                    <Link
+                      href="/packages"
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white inline-block shadow-sm"
+                    >
+                      Purchase Fixed Deposit ($1,000 - $10,000)
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {packages.map((pkg) => (
+                      <div
+                        key={pkg.id}
+                        className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-5 relative overflow-hidden"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs font-bold text-emerald-600">{pkg.packageCode}</span>
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                            {pkg.status}
+                          </span>
+                        </div>
+
+                        <div>
+                          <div className="text-3xl font-black text-slate-900 dark:text-white font-mono">
+                            ${parseFloat(pkg.amount).toLocaleString()} USD
+                          </div>
+                          <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-1">
+                            Yield: {pkg.returnRatePercent || '1.0%'} Monthly (+${(parseFloat(pkg.amount) * 0.01).toFixed(2)}/mo)
+                          </p>
+                        </div>
+
+                        {/* REMAINING TENURE WITH COUNTDOWN & PROGRESS BAR */}
+                        <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 space-y-2.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-slate-500">Remaining Tenure:</span>
+                            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                              {pkg.daysRemaining !== undefined && pkg.daysRemaining > 0
+                                ? `${pkg.daysRemaining} Days Left`
+                                : 'Matured • Ready for Release'}
+                            </span>
+                          </div>
+
+                          <div className="w-full h-2.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                              style={{ width: `${pkg.progressPercent !== undefined ? pkg.progressPercent : 40}%` }}
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 pt-1 text-[11px] text-slate-500">
+                            <div>
+                              <span className="block text-[10px] text-slate-400">Lock-in Term:</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{pkg.lockInMonths || 6} Months FD</span>
+                            </div>
+                            <div>
+                              <span className="block text-[10px] text-slate-400">Maturity Date:</span>
+                              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                {pkg.lockInEnd ? new Date(pkg.lockInEnd).toLocaleDateString() : 'Active Lock'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="block text-[10px] text-slate-400">Start Date:</span>
+                              <span className="font-mono text-slate-700 dark:text-slate-300">
+                                {pkg.purchaseDate ? new Date(pkg.purchaseDate).toLocaleDateString() : 'N/A'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="block text-[10px] text-slate-400">Returns Accrued:</span>
+                              <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                +${parseFloat(pkg.totalEarned || pkg.totalReturnsPaid || '0').toFixed(2)} USD
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Monthly dividend payout logs if present */}
+                        {pkg.returns && pkg.returns.length > 0 && (
+                          <div className="space-y-1.5 pt-1 text-[11px]">
+                            <span className="font-bold text-slate-400 uppercase tracking-wider text-[10px] block">
+                              Payout History ({pkg.returns.length} Periods Paid)
+                            </span>
+                            <div className="space-y-1 max-h-24 overflow-y-auto">
+                              {pkg.returns.map((r: any, idx: number) => (
+                                <div key={idx} className="flex justify-between text-slate-500 font-mono text-[10px]">
+                                  <span>Period #{r.periodIndex} ({new Date(r.paidAt).toLocaleDateString()}):</span>
+                                  <span className="text-emerald-600 font-bold">+${parseFloat(r.returnAmount).toFixed(2)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 2. STARTUP VENTURE CROWDFUNDING SECTION */}
+            {(portfolioSubTab === 'ALL' || portfolioSubTab === 'STARTUP') && (
+              <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Building className="w-5 h-5 text-amber-500" />
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                      Startup Venture Equity Investments ({startupInvestments.length})
+                    </h3>
+                  </div>
+                  <Link href="/investments" className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
+                    Browse Crowdfunding Directory →
+                  </Link>
+                </div>
+
+                {startupInvestments.length === 0 ? (
+                  <div className="p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-3">
+                    <p className="text-xs text-slate-500">You have not allocated capital into any startup equity offerings yet.</p>
+                    <Link
+                      href="/investments"
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 text-white inline-block shadow-sm"
+                    >
+                      Explore Startups from $250
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {startupInvestments.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-4"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs font-bold text-amber-600">{inv.investmentCode}</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                            {inv.status === 'CLEARED_FUNDS' ? 'Active Holding' : inv.status}
+                          </span>
+                        </div>
+
+                        <div>
+                          <h4 className="text-lg font-black text-slate-900 dark:text-white">{inv.listing?.companyName}</h4>
+                          <p className="text-xs text-slate-500">
+                            {inv.listing?.industry} • {inv.listing?.stage} • {inv.instrument}
+                          </p>
+                        </div>
+
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Gross Committed:</span>
+                            <span className="font-bold text-slate-900 dark:text-white">${parseFloat(inv.grossAmount).toLocaleString()} USD</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">+ 5% Allocation Fee:</span>
+                            <span className="text-amber-600 font-mono">${parseFloat(inv.allocationFeeAmount).toFixed(2)} USD</span>
+                          </div>
+                          <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1">
+                            <span className="font-bold text-slate-700 dark:text-slate-300">Net Invested Capital:</span>
+                            <span className="font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                              ${parseFloat(inv.netInvestedAmount).toLocaleString()} USD
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200 text-[11px] leading-relaxed">
+                          <strong>Avora 5% Profit-Share:</strong> Zero fees on unrealized paper valuation; 5% fee applies strictly to realized net distributions upon liquidity exit.
+                        </div>
+
+                        <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1">
+                          <span>Committed: {new Date(inv.createdAt).toLocaleDateString()}</span>
+                          <span className="font-mono text-emerald-600 font-bold">
+                            Proceeds: ${parseFloat(inv.realizedProceeds || '0').toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 3. AVORA TOKEN ALLOCATIONS SECTION */}
+            {(portfolioSubTab === 'ALL' || portfolioSubTab === 'TOKEN') && (
+              <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Coins className="w-5 h-5 text-purple-500" />
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                      Avora Ecosystem Native Token ($AVR)
+                    </h3>
+                  </div>
+                  <Link href="/token" className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline">
+                    Token Roadmap & Faucet →
+                  </Link>
+                </div>
+
+                <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-4">
+                  {tokenStatus?.earlyAccess?.registeredInterest ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <span className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                            Early-Access Allocation Registered
+                          </span>
+                          <h4 className="text-xl font-black text-slate-900 dark:text-white">
+                            ${parseFloat(tokenStatus.earlyAccess.requestedAllocationUsd).toLocaleString()} USD Whitelist Request
+                          </h4>
+                        </div>
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                          {tokenStatus.earlyAccess.status}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+                          <span className="text-slate-400 text-[11px]">Proposed Reference Price:</span>
+                          <p className="font-bold text-slate-900 dark:text-white font-mono">$1.00 USD / AVR</p>
+                        </div>
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+                          <span className="text-slate-400 text-[11px]">Estimated Token Volume:</span>
+                          <p className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                            ~{parseFloat(tokenStatus.earlyAccess.requestedAllocationUsd).toLocaleString()} AVR
+                          </p>
+                        </div>
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+                          <span className="text-slate-400 text-[11px]">Sepolia L2 Testnet Balance:</span>
+                          <p className="font-bold text-blue-600 dark:text-blue-400 font-mono">
+                            {tokenStatus.testnetBalance || 0} AVR Test Tokens
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 text-purple-800 dark:text-purple-200 text-xs">
+                        Registered interest reserves priority allocation for the Q4 2027 Mainnet Token Generation Event (TGE).
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-6 text-center space-y-3">
+                      <p className="text-xs text-slate-500">
+                        You have not registered for early-access AVR token allocations or claimed testnet tokens.
+                      </p>
+                      <Link
+                        href="/token"
+                        className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 text-white inline-block shadow-sm"
+                      >
+                        Open Token Portal & Join Whitelist
+                      </Link>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

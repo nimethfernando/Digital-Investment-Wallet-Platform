@@ -560,6 +560,66 @@ export class AdminController {
       next(err);
     }
   }
+
+  /**
+   * List all startup crowdfunding investments across all investors
+   */
+  async getInvestments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const commitments = await prisma.investmentCommitment.findMany({
+        include: {
+          investor: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+            },
+          },
+          listing: {
+            select: {
+              id: true,
+              slug: true,
+              companyName: true,
+              industry: true,
+              stage: true,
+              country: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      res.json({ success: true, data: { commitments } });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * List all token early access and whitelist registrations
+   */
+  async getTokenAllocations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const allocations = await prisma.tokenEarlyAccess.findMany({
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      res.json({ success: true, data: { allocations } });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const adminController = new AdminController();
