@@ -197,3 +197,14 @@ export const getSumsubToken = async (req: Request, res: Response, next: NextFunc
   }
 };
 
+export const resetKyc = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const result = await kycService.resetKyc(req.user.userId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+

@@ -20,7 +20,12 @@ export class KycService {
     }
 
     if (user.kycStatus === 'APPROVED') {
-      throw new Error('Your identity verification (KYC) is already fully approved.');
+      return {
+        documentId: 'already_approved',
+        documentType: input.documentType,
+        status: KycStatus.APPROVED,
+        message: 'Your identity verification (KYC) is already fully approved.',
+      };
     }
 
     const document = await prisma.kycDocument.create({
@@ -45,6 +50,32 @@ export class KycService {
       documentType: document.documentType,
       status: document.status,
       message: 'KYC identity verification completed and approved.',
+    };
+  }
+
+  /**
+   * Reset user KYC status (for Sandbox testing / re-verification)
+   */
+  async resetKyc(userId: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new Error('User not found.');
+    }
+
+    await prisma.kycDocument.deleteMany({
+      where: { userId },
+    });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        kycStatus: KycStatus.NOT_STARTED,
+      },
+    });
+
+    return {
+      kycStatus: KycStatus.NOT_STARTED,
+      message: 'KYC status reset to UNVERIFIED for testing.',
     };
   }
 

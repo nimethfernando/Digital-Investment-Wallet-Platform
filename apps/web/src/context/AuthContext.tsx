@@ -51,6 +51,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     setIsLoading(false);
+
+    // Synchronize latest profile data (KYC status, balance flags, roles) from server
+    if (savedToken) {
+      api.get('/auth/me')
+        .then((res) => {
+          if (res.data?.user) {
+            setUser((prev) => {
+              const updated = { ...(prev || {}), ...res.data.user };
+              localStorage.setItem('avora_user', JSON.stringify(updated));
+              return updated;
+            });
+          }
+        })
+        .catch(() => {});
+    }
   }, []);
 
   // Session Management: Auto-logout after 15 minutes of user inactivity
@@ -123,9 +138,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshUser = async () => {
     try {
       const res = await api.get('/auth/me');
-      if (res.data.user) {
-        setUser((prev) => ({ ...prev, ...res.data.user }));
-        localStorage.setItem('avora_user', JSON.stringify({ ...user, ...res.data.user }));
+      if (res.data?.user) {
+        setUser((prev) => {
+          const updated = { ...(prev || {}), ...res.data.user };
+          localStorage.setItem('avora_user', JSON.stringify(updated));
+          return updated;
+        });
       }
     } catch (e) {
       // Ignore

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   QrCode,
   Lock,
+  ChevronLeft,
   ChevronRight,
   X,
   CreditCard,
@@ -284,6 +285,33 @@ function DashboardContent() {
   // Copy Account Number
   const [accountCopied, setAccountCopied] = useState(false);
 
+  // Responsive Horizontal Tabs Navigation
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkTabScroll = () => {
+    const el = tabsContainerRef.current;
+    if (el) {
+      setCanScrollLeft(el.scrollLeft > 10);
+      setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 10);
+    }
+  };
+
+  useEffect(() => {
+    checkTabScroll();
+    window.addEventListener('resize', checkTabScroll);
+    return () => window.removeEventListener('resize', checkTabScroll);
+  }, []);
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    const el = tabsContainerRef.current;
+    if (el) {
+      const scrollAmount = direction === 'left' ? -220 : 220;
+      el.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
   // KYC Modal State
   const [kycModalOpen, setKycModalOpen] = useState(false);
 
@@ -385,6 +413,9 @@ function DashboardContent() {
       if (tokenRes.data) {
         setTokenStatus(tokenRes.data);
       }
+
+      // Synchronize latest user state (KYC approval, roles)
+      refreshUser().catch(() => {});
     } catch (err) {
       console.error('Error loading dashboard data:', err);
     } finally {
@@ -702,17 +733,28 @@ function DashboardContent() {
 
                 {/* KYC Identity Verification Badge */}
                 {user?.kycStatus === 'APPROVED' ? (
-                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+                  <button
+                    type="button"
+                    onClick={() => setKycModalOpen(true)}
+                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-colors cursor-pointer"
+                    title="Click to view KYC Certificate"
+                  >
                     <ShieldCheck className="w-3.5 h-3.5" />
                     KYC Verified
-                  </span>
+                  </button>
                 ) : user?.kycStatus === 'PENDING' ? (
-                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400">
+                  <button
+                    type="button"
+                    onClick={() => setKycModalOpen(true)}
+                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 hover:bg-amber-200 transition-colors cursor-pointer"
+                    title="Verification undergoing compliance review"
+                  >
                     <Clock className="w-3.5 h-3.5" />
                     KYC Pending Review
-                  </span>
+                  </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={() => setKycModalOpen(true)}
                     className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 hover:bg-rose-200 transition-colors cursor-pointer"
                   >
@@ -776,36 +818,64 @@ function DashboardContent() {
             </div>
           </div>
 
-          {/* Navigation Tabs */}
-          <div className="flex items-center gap-1.5 mt-7 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px">
-            {[
-              { key: 'overview', label: 'Overview', icon: Wallet },
-              { key: 'redotpay', label: 'Avora Pay & Swap', icon: Smartphone },
-              { key: 'p2p', label: 'Account Transfers', icon: Send },
-              { key: 'card', label: 'Virtual Cards', icon: CreditCard },
-              { key: 'packages', label: `My Investments (${packages.length + startupInvestments.length + (tokenStatus?.earlyAccess?.registeredInterest ? 1 : 0)})`, icon: Package },
-              { key: 'withdrawals', label: `Withdrawals (${withdrawals.length})`, icon: ArrowUpRight },
-              { key: 'transactions', label: 'Ledger Audit', icon: Clock },
-              { key: 'security', label: 'Security & 2FA', icon: ShieldCheck },
-              { key: 'support', label: `Concierge (${tickets.length})`, icon: Headphones },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const active = activeTab === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key as any)}
-                  className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
-                    active
-                      ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400'
-                      : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {tab.label}
-                </button>
-              );
-            })}
+          {/* Navigation Tabs with Smooth Horizontal Scroll & Indicator Arrows */}
+          <div className="relative mt-7">
+            {canScrollLeft && (
+              <button
+                type="button"
+                onClick={() => scrollTabs('left')}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1.5 rounded-full bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-700 shadow-md text-slate-700 dark:text-slate-200 hover:scale-105 transition-all cursor-pointer"
+                title="Scroll left"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            )}
+
+            <div
+              ref={tabsContainerRef}
+              onScroll={checkTabScroll}
+              className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px scrollbar-none scroll-smooth"
+            >
+              {[
+                { key: 'overview', label: 'Overview', icon: Wallet },
+                { key: 'redotpay', label: 'Pay & Swap', icon: Smartphone },
+                { key: 'p2p', label: 'Transfers', icon: Send },
+                { key: 'card', label: 'Virtual Cards', icon: CreditCard },
+                { key: 'packages', label: `Investments (${packages.length + startupInvestments.length + (tokenStatus?.earlyAccess?.registeredInterest ? 1 : 0)})`, icon: Package },
+                { key: 'withdrawals', label: `Withdrawals (${withdrawals.length})`, icon: ArrowUpRight },
+                { key: 'transactions', label: 'Ledger Audit', icon: Clock },
+                { key: 'security', label: 'Security', icon: ShieldCheck },
+                { key: 'support', label: `Support (${tickets.length})`, icon: Headphones },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key as any)}
+                    className={`flex items-center gap-2 px-3.5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap shrink-0 ${
+                      active
+                        ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400'
+                        : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {canScrollRight && (
+              <button
+                type="button"
+                onClick={() => scrollTabs('right')}
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 p-1.5 rounded-full bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-700 shadow-md text-slate-700 dark:text-slate-200 hover:scale-105 transition-all cursor-pointer"
+                title="Scroll right"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -2363,8 +2433,14 @@ function DashboardContent() {
       {/* KYC Identity Verification Modal */}
       <KycVerificationModal
         isOpen={kycModalOpen}
-        onClose={() => setKycModalOpen(false)}
-        onVerified={fetchDashboardData}
+        onClose={() => {
+          setKycModalOpen(false);
+          refreshUser().catch(() => {});
+        }}
+        onVerified={() => {
+          fetchDashboardData();
+          refreshUser().catch(() => {});
+        }}
       />
 
       {/* QR Send / Receive Modal */}

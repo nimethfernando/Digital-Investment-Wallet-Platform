@@ -12,6 +12,7 @@ import {
   submitKyc,
   getKycStatus,
   getSumsubToken,
+  resetKyc,
 } from '../controllers/auth.controller';
 import { authenticateToken } from '../middleware/auth';
 import { authRateLimiter } from '../middleware/rate-limiter';
@@ -32,6 +33,7 @@ router.post('/change-password', authenticateToken, authRateLimiter, changePasswo
 router.post('/kyc/submit', authenticateToken, submitKyc);
 router.get('/kyc/status', authenticateToken, getKycStatus);
 router.post('/kyc/sumsub-token', authenticateToken, getSumsubToken);
+router.post('/kyc/reset', authenticateToken, resetKyc);
 
 // Two-Factor Authentication routes
 router.post('/2fa/setup', authenticateToken, authRateLimiter, setup2fa);
