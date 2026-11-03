@@ -156,9 +156,9 @@ export const Header: React.FC = () => {
         },
         {
           href: '/contact',
-          label: 'Tbilisi Cash Counter',
-          description: 'Physical USD/GEL/USDT desk at Freedom Square',
-          icon: Building2,
+          label: 'Institutional Support Desk',
+          description: '24/7 private client assistance & trade support',
+          icon: PhoneCall,
         },
       ],
     },

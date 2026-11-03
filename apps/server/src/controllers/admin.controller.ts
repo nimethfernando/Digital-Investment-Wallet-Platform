@@ -620,6 +620,339 @@ export class AdminController {
       next(err);
     }
   }
+
+  /**
+   * Update investment package FD lock-in tenure & maturity date
+   */
+  async updatePackageTenure(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const packageId = req.params.id as string;
+      const { lockInMonths, newEndDate, returnRateSnapshot, adminNotes } = req.body;
+
+      const pkg = await prisma.investmentPackage.findUnique({
+        where: { id: packageId },
+        include: { user: true },
+      });
+
+      if (!pkg) {
+        return res.status(404).json({ success: false, message: 'Investment package not found' });
+      }
+
+      const updateData: any = {};
+      let calculatedEndDate: Date | null = null;
+
+      if (lockInMonths !== undefined && lockInMonths !== null && lockInMonths !== '') {
+        const months = parseInt(lockInMonths, 10);
+        if (isNaN(months) || months < 1 || months > 60) {
+          return res.status(400).json({ success: false, message: 'lockInMonths must be an integer between 1 and 60' });
+        }
+        updateData.lockInMonths = months;
+
+        const startDate = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt || new Date();
+        calculatedEndDate = new Date(startDate);
+        calculatedEndDate.setMonth(calculatedEndDate.getMonth() + months);
+        updateData.lockInEnd = calculatedEndDate;
+        updateData.withdrawalEligibilityDate = calculatedEndDate;
+      }
+
+      if (newEndDate) {
+        const customDate = new Date(newEndDate);
+        if (isNaN(customDate.getTime())) {
+          return res.status(400).json({ success: false, message: 'Invalid custom end date' });
+        }
+        updateData.lockInEnd = customDate;
+        updateData.withdrawalEligibilityDate = customDate;
+      }
+
+      if (returnRateSnapshot !== undefined && returnRateSnapshot !== null && returnRateSnapshot !== '') {
+        updateData.returnRateSnapshot = new Decimal(returnRateSnapshot);
+      }
+
+      if (adminNotes) {
+        updateData.adminNotes = pkg.adminNotes 
+          ? `${pkg.adminNotes}\n[${new Date().toISOString()}] ${adminNotes}`
+          : adminNotes;
+      }
+
+      const updated = await prisma.investmentPackage.update({
+        where: { id: packageId },
+        data: updateData,
+        include: { user: true, returns: true },
+      });
+
+      // Audit Log
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'UPDATE_PACKAGE_TENURE',
+          entity: 'InvestmentPackage',
+          entityId: packageId,
+          details: `Updated package ${pkg.packageCode} tenure to ${updateData.lockInMonths || pkg.lockInMonths} months. Lock end: ${updated.lockInEnd?.toISOString()}. Notes: ${adminNotes || 'None'}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Package ${pkg.packageCode} FD lock tenure updated to ${updated.lockInMonths} months (Maturity: ${updated.lockInEnd ? new Date(updated.lockInEnd).toLocaleDateString() : 'Active'}).`,
+        data: {
+          ...updated,
+          amount: new Decimal(updated.amount.toString()).toFixed(2),
+          returnRateSnapshot: new Decimal(updated.returnRateSnapshot.toString()).toFixed(4),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update startup campaign valuation and mark-to-market performance
+   */
+  async updateStartupValuation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const listingId = req.params.id as string;
+      const { valuation, stage, growthNotes } = req.body;
+
+      if (!valuation || isNaN(parseFloat(valuation))) {
+        return res.status(400).json({ success: false, message: 'Valid valuation number is required' });
+      }
+
+      const listing = await prisma.startupListing.findUnique({
+        where: { id: listingId },
+        include: { investments: true },
+      });
+
+      if (!listing) {
+        return res.status(404).json({ success: false, message: 'Startup listing not found' });
+      }
+
+      const oldValuation = new Decimal(listing.valuation.toString());
+      const newValuation = new Decimal(valuation);
+      const valuationMultiplier = newValuation.dividedBy(oldValuation);
+      const gainPct = valuationMultiplier.minus(1).times(100);
+
+      // Update Listing
+      const updatedListing = await prisma.startupListing.update({
+        where: { id: listingId },
+        data: {
+          valuation: newValuation,
+          stage: stage || listing.stage,
+          financialHighlights: growthNotes 
+            ? `${listing.financialHighlights || ''}\n[${new Date().toISOString()}] ${growthNotes}`
+            : listing.financialHighlights,
+        },
+      });
+
+      // Update all investor commitments for this startup
+      for (const commitment of listing.investments) {
+        const netInvested = new Decimal(commitment.netInvestedAmount.toString());
+        const updatedHoldingValue = netInvested.times(valuationMultiplier);
+        const commitmentGainPct = updatedHoldingValue.minus(netInvested).dividedBy(netInvested).times(100);
+
+        await prisma.investmentCommitment.update({
+          where: { id: commitment.id },
+          data: {
+            currentValuation: updatedHoldingValue,
+            unrealizedReturnPct: commitmentGainPct,
+            notes: growthNotes 
+              ? `${commitment.notes || ''}\n[${new Date().toISOString()}] Valuation updated to $${newValuation.toLocaleString()} (+${gainPct.toFixed(1)}%)`
+              : commitment.notes,
+          },
+        });
+      }
+
+      // Audit Log
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'UPDATE_STARTUP_VALUATION',
+          entity: 'StartupListing',
+          entityId: listingId,
+          details: `Updated ${listing.companyName} valuation from $${oldValuation.toLocaleString()} to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(2)}%). Updated ${listing.investments.length} investor positions.`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Successfully updated ${listing.companyName} valuation to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(1)}%). Recalculated ${listing.investments.length} investor holdings.`,
+        data: {
+          listing: updatedListing,
+          gainPct: gainPct.toFixed(2),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Distribute cash dividends or exit proceeds to startup investors
+   */
+  async distributeStartupExit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const listingId = req.params.id as string;
+      const { distributionType, totalProceeds, exitMultiplier, notes } = req.body;
+
+      const listing = await prisma.startupListing.findUnique({
+        where: { id: listingId },
+        include: {
+          investments: {
+            where: { status: { in: ['CLEARED_FUNDS', 'ACTIVE', 'DOCUMENT_SIGNED'] } },
+            include: { investor: true },
+          },
+        },
+      });
+
+      if (!listing) {
+        return res.status(404).json({ success: false, message: 'Startup listing not found' });
+      }
+
+      if (listing.investments.length === 0) {
+        return res.status(400).json({ success: false, message: 'No active investor commitments found for this listing' });
+      }
+
+      const totalRaised = listing.investments.reduce(
+        (sum, inv) => sum.plus(new Decimal(inv.netInvestedAmount.toString())),
+        new Decimal(0)
+      );
+
+      if (totalRaised.isZero()) {
+        return res.status(400).json({ success: false, message: 'Total net invested capital is zero' });
+      }
+
+      // Calculate total payout pool
+      let totalPool = new Decimal(0);
+      if (totalProceeds && !isNaN(parseFloat(totalProceeds))) {
+        totalPool = new Decimal(totalProceeds);
+      } else if (exitMultiplier && !isNaN(parseFloat(exitMultiplier))) {
+        totalPool = totalRaised.times(new Decimal(exitMultiplier));
+      } else {
+        return res.status(400).json({ success: false, message: 'Please provide either totalProceeds or exitMultiplier' });
+      }
+
+      const distributedRecords = [];
+      let totalDistributedGross = new Decimal(0);
+      let totalPlatformFees = new Decimal(0);
+      let totalNetCredited = new Decimal(0);
+
+      // Distribute pro-rata to each investor
+      for (const inv of listing.investments) {
+        const netInvested = new Decimal(inv.netInvestedAmount.toString());
+        const investorShareFraction = netInvested.dividedBy(totalRaised);
+        const grossInvestorProceeds = totalPool.times(investorShareFraction);
+
+        // Principal returned 100% fee-free
+        const capitalReturn = Decimal.min(grossInvestorProceeds, netInvested);
+        const eligibleProfit = Decimal.max(grossInvestorProceeds.minus(netInvested), new Decimal(0));
+
+        // 5% profit-share fee strictly on net profit
+        const profitFeePct = new Decimal(5.00);
+        const platformFeeAmount = eligibleProfit.times(profitFeePct.dividedBy(100));
+        const netCashPayout = capitalReturn.plus(eligibleProfit.minus(platformFeeAmount));
+
+        // 1. Ensure user has a wallet
+        await ledgerService.ensureWallet(inv.investorUserId);
+
+        const currentUsdBal = await prisma.walletBalance.findFirst({
+          where: { wallet: { userId: inv.investorUserId }, currency: 'USD' },
+        });
+        const balBefore = currentUsdBal ? new Decimal(currentUsdBal.availableBalance.toString()) : new Decimal(0);
+        const balAfter = balBefore.plus(netCashPayout);
+
+        // 2. Credit investor available balance in USD
+        await prisma.walletBalance.updateMany({
+          where: {
+            wallet: { userId: inv.investorUserId },
+            currency: 'USD',
+          },
+          data: {
+            availableBalance: { increment: netCashPayout.toNumber() },
+          },
+        });
+
+        // 3. Create Transaction Ledger entry for user
+        const txCode = `DIST-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+        await prisma.transaction.create({
+          data: {
+            userId: inv.investorUserId,
+            transactionCode: txCode,
+            type: 'PRINCIPAL_RELEASE',
+            amount: netCashPayout,
+            currency: 'USD',
+            status: 'COMPLETED',
+            balanceBefore: balBefore,
+            balanceAfter: balAfter,
+            settlementReference: txCode,
+            notes: `${distributionType === 'DIVIDEND' ? 'Startup Dividend Distribution' : 'Startup Exit Payout'}: ${listing.companyName} (Principal: $${capitalReturn.toFixed(2)}, Net Gain: $${eligibleProfit.minus(platformFeeAmount).toFixed(2)})`,
+          },
+        });
+
+        // 4. Update InvestmentCommitment status and financials
+        await prisma.investmentCommitment.update({
+          where: { id: inv.id },
+          data: {
+            realizedProceeds: { increment: grossInvestorProceeds },
+            returnOfCapital: { increment: capitalReturn },
+            eligibleNetProfit: { increment: eligibleProfit },
+            profitShareFeeAmount: { increment: platformFeeAmount },
+            netDistributedProfit: { increment: eligibleProfit.minus(platformFeeAmount) },
+            status: distributionType === 'DIVIDEND' ? 'ACTIVE' : 'EXITED',
+            settlementReference: txCode,
+            notes: notes ? `${inv.notes || ''}\n[${new Date().toISOString()}] ${notes}` : inv.notes,
+          },
+        });
+
+        totalDistributedGross = totalDistributedGross.plus(grossInvestorProceeds);
+        totalPlatformFees = totalPlatformFees.plus(platformFeeAmount);
+        totalNetCredited = totalNetCredited.plus(netCashPayout);
+
+        distributedRecords.push({
+          investorEmail: inv.investor?.email,
+          netInvested: netInvested.toFixed(2),
+          grossPayout: grossInvestorProceeds.toFixed(2),
+          platformFee: platformFeeAmount.toFixed(2),
+          netCredited: netCashPayout.toFixed(2),
+        });
+      }
+
+      // If full exit, mark listing as CLOSED
+      if (distributionType !== 'DIVIDEND') {
+        await prisma.startupListing.update({
+          where: { id: listingId },
+          data: { status: 'CLOSED' },
+        });
+      }
+
+      // Audit Log
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'STARTUP_EXIT_DISTRIBUTION',
+          entity: 'StartupListing',
+          entityId: listingId,
+          details: `Distributed ${distributionType} for ${listing.companyName}. Gross Pool: $${totalPool.toFixed(2)}, Net Credited: $${totalNetCredited.toFixed(2)}, 5% Profit Share Fee: $${totalPlatformFees.toFixed(2)} across ${distributedRecords.length} investors.`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Successfully distributed $${totalNetCredited.toFixed(2)} USD to ${distributedRecords.length} investors for ${listing.companyName}. 5% platform fee: $${totalPlatformFees.toFixed(2)} USD.`,
+        data: {
+          listingName: listing.companyName,
+          totalGrossDistributed: totalDistributedGross.toFixed(2),
+          totalPlatformFees: totalPlatformFees.toFixed(2),
+          totalNetCredited: totalNetCredited.toFixed(2),
+          investorCount: distributedRecords.length,
+          distributions: distributedRecords,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const adminController = new AdminController();

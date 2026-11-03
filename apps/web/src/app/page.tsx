@@ -28,6 +28,7 @@ import {
   CreditCard,
   Users,
   Scale,
+  Zap,
   Landmark,
   Globe,
   Rocket,
@@ -68,11 +69,11 @@ export default function HomePage() {
     },
     {
       q: 'How does the two-stage withdrawal settlement work?',
-      a: 'Withdrawal requests for monthly yields or matured principal can be submitted on the 1st of each calendar month, entering a 15-day administrative settlement queue for bank wire (SWIFT/SEPA), USDT wallet, or cash counter pickup.',
+      a: 'Withdrawal requests for monthly yields or matured principal can be submitted on the 1st of each calendar month, entering a 15-day administrative settlement queue for bank wire (SWIFT/SEPA) or direct USDT wallet settlement.',
     },
     {
-      q: 'What are the operating hours of physical cash counters?',
-      a: 'Our physical counters operate daily until 21:00 (9:00 PM) GCC time (UTC+4). Users can dispense and receive USD, EUR, or local currency upon presenting their verified order reference.',
+      q: 'How does digital OTC settlement work?',
+      a: 'Avora Bank provides 24/7 institutional digital OTC settlement for large volume transactions. Trades settle directly to your verified bank wire (SEPA/SWIFT) or TRC-20/ERC-20 USDT wallet with tight benchmark spreads and cryptographic ledger security.',
     },
     {
       q: 'How does the Virtual Visa / Mastercard module work?',
@@ -147,7 +148,7 @@ export default function HomePage() {
                   className="px-6 py-3.5 rounded-2xl font-bold text-sm text-slate-800 dark:text-white border border-slate-300 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors flex items-center gap-2"
                 >
                   <ArrowRightLeft className="w-4 h-4 text-emerald-500" />
-                  <span>OTC Desk & Cash Counter</span>
+                  <span>Digital OTC Desk</span>
                 </Link>
               </div>
 
@@ -172,10 +173,10 @@ export default function HomePage() {
                 <div className="p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
                   <div className="flex items-center gap-1.5 text-[10px] font-mono text-rose-500 font-bold uppercase">
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                    OTC Counter
+                    Settlement
                   </div>
-                  <p className="text-2xl font-black text-rose-500 dark:text-rose-400 font-mono mt-0.5">21:00</p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">GCC Cash Pickup Desk</p>
+                  <p className="text-2xl font-black text-rose-500 dark:text-rose-400 font-mono mt-0.5">Instant</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">SEPA, Wire &amp; TRC-20</p>
                 </div>
               </div>
             </div>
@@ -234,11 +235,11 @@ export default function HomePage() {
 
                   <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-cyan-500/10 border border-emerald-500/25 text-xs">
                     <p className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5 font-mono text-[11px]">
-                      <Building2 className="w-4 h-4 text-emerald-500" />
-                      PHYSICAL_DESK // GLOBAL_NETWORK
+                      <Zap className="w-4 h-4 text-emerald-500" />
+                      INSTANT_SETTLEMENT // 24/7_RAILS
                     </p>
                     <p className="text-emerald-800 dark:text-emerald-400 mt-1 leading-relaxed text-[11px]">
-                      Collect local cash in Colombo (WTC Level 18), Dubai & London with escrow lock and bank-standard verification.
+                      Instant digital OTC settlement directly to your verified bank wire (SEPA/SWIFT) or TRC-20 private wallet with cryptographic ledger verification.
                     </p>
                   </div>
 
@@ -273,22 +274,22 @@ export default function HomePage() {
           <div className="animate-marquee flex items-center gap-10 text-slate-600 dark:text-slate-300 font-mono text-xs uppercase tracking-wider whitespace-nowrap">
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> GLOBAL OTC CASH DESKS (UTC+4 21:00)</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> INSTANT OTC LIQUIDITY DESKS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> WALLESTER BaaS VIRTUAL CARDS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-400" /> STARTENGINE-GRADE VENTURE EQUITY</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-400" /> COLOMBO WTC CASH COUNTER</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-400" /> 24/7 DIGITAL SETTLEMENT RAILS</div>
 
             {/* Seamless duplicate loop */}
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> GLOBAL OTC CASH DESKS (UTC+4 21:00)</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> INSTANT OTC LIQUIDITY DESKS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> WALLESTER BaaS VIRTUAL CARDS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-400" /> STARTENGINE-GRADE VENTURE EQUITY</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-400" /> COLOMBO WTC CASH COUNTER</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-400" /> 24/7 DIGITAL SETTLEMENT RAILS</div>
           </div>
         </div>
       </section>
@@ -472,14 +473,14 @@ export default function HomePage() {
                   <Building2 className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                  OTC CASH
+                  DIGITAL OTC
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                Global OTC Desk Network
+                Global Digital OTC Desk
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Physical cash settlement counters open until 21:00 GCC time, plus decentralized global operator desks in Colombo, Dubai & London ($1,000 security deposit) with 1.5% fee split.
+                Institutional-grade digital over-the-counter settlement for high-volume transactions with tight benchmark spreads, zero slippage, and direct bank wire or USDT wallet settlement.
               </p>
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
@@ -711,7 +712,7 @@ export default function HomePage() {
               </div>
               <h4 className="text-xl font-black text-slate-900 dark:text-white">$7,500 – $10,000</h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                Maximum monthly returns with VIP global cash desk priority.
+                Maximum monthly returns with VIP OTC settlement priority.
               </p>
               <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between text-xs font-mono">
                 <span className="text-slate-400">Term:</span>

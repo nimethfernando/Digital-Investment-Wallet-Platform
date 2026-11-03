@@ -99,6 +99,8 @@ interface StartupInvestmentItem {
   netInvestedAmount: string;
   instrument: string;
   ownershipPct?: string | null;
+  currentValuation?: string | number | null;
+  unrealizedReturnPct?: string | number | null;
   status: string;
   createdAt: string;
   realizedProceeds?: string;
@@ -242,7 +244,7 @@ function DashboardContent() {
   const [wthPackageId, setWthPackageId] = useState('');
   const [wthAmount, setWthAmount] = useState('');
   const [wthCurrency, setWthCurrency] = useState('USD');
-  const [wthMethod, setWthMethod] = useState<'USDT_WALLET' | 'BANK_TRANSFER' | 'CASH_PICKUP_TBILISI'>('USDT_WALLET');
+  const [wthMethod, setWthMethod] = useState<'USDT_WALLET' | 'BANK_TRANSFER'>('USDT_WALLET');
   const [wthWalletAddress, setWthWalletAddress] = useState('');
   const [wthBankName, setWthBankName] = useState('');
   const [wthIban, setWthIban] = useState('');
@@ -590,8 +592,6 @@ function DashboardContent() {
       payoutDetails = { address: wthWalletAddress, network: 'TRC-20' };
     } else if (wthMethod === 'BANK_TRANSFER') {
       payoutDetails = { bankName: wthBankName, iban: wthIban, swift: wthSwift };
-    } else if (wthMethod === 'CASH_PICKUP_TBILISI') {
-      payoutDetails = { office: 'Avora Freedom Square Desk, Tbilisi (Operating until 21:00 GCC time)', phone: user?.email };
     }
 
     try {
@@ -1553,18 +1553,67 @@ function DashboardContent() {
 
             {/* 2. STARTUP VENTURE CROWDFUNDING SECTION */}
             {(portfolioSubTab === 'ALL' || portfolioSubTab === 'STARTUP') && (
-              <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
-                <div className="flex items-center justify-between">
+              <div className="space-y-6 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Building className="w-5 h-5 text-amber-500" />
-                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                      Startup Venture Equity Investments ({startupInvestments.length})
-                    </h3>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                        Startup Venture Equity Investments ({startupInvestments.length})
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Track live mark-to-market valuation growth, quarterly disclosures, and realized exit distributions.
+                      </p>
+                    </div>
                   </div>
                   <Link href="/investments" className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
                     Browse Crowdfunding Directory →
                   </Link>
                 </div>
+
+                {/* Startup Money-Growing Valuation Metrics Bar */}
+                {startupInvestments.length > 0 && (() => {
+                  const totalCapital = startupInvestments.reduce((sum, inv) => sum + parseFloat(inv.netInvestedAmount || '0'), 0);
+                  const totalValuation = startupInvestments.reduce((sum, inv) => sum + parseFloat(String(inv.currentValuation || inv.netInvestedAmount || '0')), 0);
+                  const totalGain = totalValuation - totalCapital;
+                  const totalGainPct = totalCapital > 0 ? (totalGain / totalCapital) * 100 : 0;
+                  const totalProceeds = startupInvestments.reduce((sum, inv) => sum + parseFloat(inv.realizedProceeds || '0'), 0);
+
+                  return (
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Capital Deployed</span>
+                        <p className="text-lg font-black text-slate-900 dark:text-white font-mono mt-1">
+                          ${totalCapital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </p>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Portfolio Holding Value</span>
+                        <p className="text-lg font-black text-slate-900 dark:text-white font-mono mt-1">
+                          ${totalValuation.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </p>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 shadow-sm">
+                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Money Growing (Unrealized)</span>
+                        <p className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono mt-1 flex items-center gap-1.5">
+                          <span>+{totalGain >= 0 ? '' : '-'}${Math.abs(totalGain).toFixed(2)} USD</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 font-bold">
+                            +{totalGainPct.toFixed(1)}%
+                          </span>
+                        </p>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Realized Cash Distributions</span>
+                        <p className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono mt-1">
+                          ${totalProceeds.toFixed(2)} USD
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {startupInvestments.length === 0 ? (
                   <div className="p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-3">
@@ -1578,56 +1627,155 @@ function DashboardContent() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {startupInvestments.map((inv) => (
-                      <div
-                        key={inv.id}
-                        className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-4"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs font-bold text-amber-600">{inv.investmentCode}</span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                            {inv.status === 'CLEARED_FUNDS' ? 'Active Holding' : inv.status}
-                          </span>
-                        </div>
-
-                        <div>
-                          <h4 className="text-lg font-black text-slate-900 dark:text-white">{inv.listing?.companyName}</h4>
-                          <p className="text-xs text-slate-500">
-                            {inv.listing?.industry} • {inv.listing?.stage} • {inv.instrument}
-                          </p>
-                        </div>
-
-                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
-                          <div className="flex justify-between">
-                            <span className="text-slate-500">Gross Committed:</span>
-                            <span className="font-bold text-slate-900 dark:text-white">${parseFloat(inv.grossAmount).toLocaleString()} USD</span>
+                    {startupInvestments.map((inv) => {
+                      const netInvested = parseFloat(inv.netInvestedAmount || '0');
+                      const currentVal = parseFloat(String(inv.currentValuation || inv.netInvestedAmount || '0'));
+                      const unrealizedGrowth = currentVal - netInvested;
+                      const growthPct = netInvested > 0 ? (unrealizedGrowth / netInvested) * 100 : 0;
+                      return (
+                        <div
+                          key={inv.id}
+                          className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-4 relative overflow-hidden"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono text-xs font-bold text-amber-600">{inv.investmentCode}</span>
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
+                              {inv.status === 'CLEARED_FUNDS' ? 'Active Holding' : inv.status}
+                            </span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-500">+ 5% Allocation Fee:</span>
-                            <span className="text-amber-600 font-mono">${parseFloat(inv.allocationFeeAmount).toFixed(2)} USD</span>
+
+                          <div>
+                            <h4 className="text-lg font-black text-slate-900 dark:text-white">{inv.listing?.companyName}</h4>
+                            <p className="text-xs text-slate-500">
+                              {inv.listing?.industry} • {inv.listing?.stage} • {inv.instrument}
+                            </p>
                           </div>
-                          <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1">
-                            <span className="font-bold text-slate-700 dark:text-slate-300">Net Invested Capital:</span>
-                            <span className="font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                              ${parseFloat(inv.netInvestedAmount).toLocaleString()} USD
+
+                          {/* Live Holding Valuation & Money Growing Tracker */}
+                          <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/10 via-emerald-500/10 to-transparent border border-emerald-500/30 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
+                                Current Holding Valuation
+                              </span>
+                              <span className="text-[10px] font-mono font-black text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/20">
+                                {growthPct >= 0 ? '+' : ''}{growthPct.toFixed(1)}% Growth
+                              </span>
+                            </div>
+                            <div className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+                              ${currentVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+                              <span>Invested: ${netInvested.toLocaleString()} USD</span>
+                              <span className="text-emerald-600 font-bold">Unrealized: +${unrealizedGrowth.toFixed(2)} USD</span>
+                            </div>
+                          </div>
+
+                          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">Gross Committed:</span>
+                              <span className="font-bold text-slate-900 dark:text-white">${parseFloat(inv.grossAmount).toLocaleString()} USD</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">5% Allocation Fee:</span>
+                              <span className="text-amber-600 font-mono">${parseFloat(inv.allocationFeeAmount).toFixed(2)} USD</span>
+                            </div>
+                            <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1">
+                              <span className="font-bold text-slate-700 dark:text-slate-300">Net Principal Capital:</span>
+                              <span className="font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                                ${netInvested.toLocaleString()} USD
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* How Returns Work for this Startup */}
+                          <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-[11px] text-amber-800 dark:text-amber-200 space-y-1">
+                            <strong className="block font-bold">Return &amp; Exit Payout Terms:</strong>
+                            <p className="leading-relaxed">
+                              Upon an acquisition, dividend distribution, or IPO, your full principal is returned 100% fee-free. Avora Bank applies a 5% profit-share fee strictly to net profits generated above your principal. Proceeds land directly in your internal USD balance.
+                            </p>
+                          </div>
+
+                          <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+                            <span>Committed: {new Date(inv.createdAt).toLocaleDateString()}</span>
+                            <span className="font-mono text-emerald-600 font-bold">
+                              Paid Out: ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
                             </span>
                           </div>
                         </div>
-
-                        <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200 text-[11px] leading-relaxed">
-                          <strong>Avora 5% Profit-Share:</strong> Zero fees on unrealized paper valuation; 5% fee applies strictly to realized net distributions upon liquidity exit.
-                        </div>
-
-                        <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1">
-                          <span>Committed: {new Date(inv.createdAt).toLocaleDateString()}</span>
-                          <span className="font-mono text-emerald-600 font-bold">
-                            Proceeds: ${parseFloat(inv.realizedProceeds || '0').toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
+
+                {/* HOW RETURNS & EXITS WORK TRANSPARENCY SECTION */}
+                <div className="p-6 sm:p-8 rounded-3xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-6">
+                  <div className="max-w-2xl space-y-2">
+                    <span className="text-xs font-mono font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
+                      Transparency &amp; Liquidity Mechanics
+                    </span>
+                    <h4 className="text-xl font-black text-slate-900 dark:text-white">
+                      How Startup Investment Returns Are Paid to You
+                    </h4>
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                      Avora Bank operates under a nominee structure. Here is the exact end-to-end procedure for how your capital is protected and how payouts are credited to your account:
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div className="p-5 rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold">1</div>
+                      <h5 className="font-bold text-slate-900 dark:text-white text-sm">Valuation Tracking &amp; Growth</h5>
+                      <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
+                        As startups achieve revenue milestones, release products, or complete subsequent funding rounds (Seed &rarr; Series A/B), their mark-to-market valuations update dynamically in your portal so you can watch your capital appreciation in real time.
+                      </p>
+                    </div>
+
+                    <div className="p-5 rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold">2</div>
+                      <h5 className="font-bold text-slate-900 dark:text-white text-sm">Dividends &amp; Exit Buyouts</h5>
+                      <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
+                        When a startup distributes revenue dividends or completes an exit (M&amp;A corporate acquisition, secondary institutional buyback, or IPO), the proceeds are wired directly to the Avora Nominee Account and allocated pro-rata to investors.
+                      </p>
+                    </div>
+
+                    <div className="p-5 rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center font-bold">3</div>
+                      <h5 className="font-bold text-slate-900 dark:text-white text-sm">Instant Ledger Credit &amp; Withdrawal</h5>
+                      <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
+                        Your initial principal capital is returned 100% fee-free. The 5% Avora profit-sharing fee applies only to net profits. The entire net payout lands directly in your Available Wallet Balance, ready for instant Bank Wire (SEPA/SWIFT) or USDT withdrawal.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Interactive Exit Return Simulation Matrix */}
+                  <div className="p-5 rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                      Sample Return Matrix for $1,000 USD Invested Capital:
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] text-slate-400 block font-sans">2x Exit ($2,000 gross)</span>
+                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">$1,950.00 Net</span>
+                        <span className="text-[10px] text-slate-500 block font-sans">(5% fee on $1,000 gain)</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] text-slate-400 block font-sans">3x Exit ($3,000 gross)</span>
+                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">$2,900.00 Net</span>
+                        <span className="text-[10px] text-slate-500 block font-sans">(5% fee on $2,000 gain)</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] text-slate-400 block font-sans">5x Exit ($5,000 gross)</span>
+                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">$4,800.00 Net</span>
+                        <span className="text-[10px] text-slate-500 block font-sans">(5% fee on $4,000 gain)</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] text-slate-400 block font-sans">10x Exit ($10,000 gross)</span>
+                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">$9,550.00 Net</span>
+                        <span className="text-[10px] text-slate-500 block font-sans">(5% fee on $9,000 gain)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -2329,7 +2477,6 @@ function DashboardContent() {
                 >
                   <option value="USDT_WALLET" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">USDT Wallet (TRC-20)</option>
                   <option value="BANK_TRANSFER" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Bank Wire (SWIFT / SEPA)</option>
-                  <option value="CASH_PICKUP_TBILISI" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Tbilisi Cash Pickup (Freedom Square - Open until 21:00 GCC)</option>
                 </select>
               </div>
 

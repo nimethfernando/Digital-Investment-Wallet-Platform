@@ -12,9 +12,12 @@ router.use(requireRole([Role.ADMIN, Role.STAFF]));
 router.get('/packages', (req, res, next) => adminController.getPackages(req, res, next));
 router.post('/packages/:id/approve', (req, res, next) => adminController.approvePackage(req, res, next));
 router.post('/packages/:id/settle-full', requireAdmin2FA, (req, res, next) => adminController.settleFullPackage(req, res, next));
+router.patch('/packages/:id/tenure', requireAdmin2FA, (req, res, next) => adminController.updatePackageTenure(req, res, next));
 
 // Startup Equity & Token Allocation operations
 router.get('/investments', (req, res, next) => adminController.getInvestments(req, res, next));
+router.patch('/investments/listings/:id/valuation', requireAdmin2FA, (req, res, next) => adminController.updateStartupValuation(req, res, next));
+router.post('/investments/listings/:id/distribute-exit', requireAdmin2FA, (req, res, next) => adminController.distributeStartupExit(req, res, next));
 router.get('/token-allocations', (req, res, next) => adminController.getTokenAllocations(req, res, next));
 
 // Deposit operations

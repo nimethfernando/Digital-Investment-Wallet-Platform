@@ -38,8 +38,8 @@ export const Footer: React.FC = () => {
               <div className="flex items-start gap-2.5">
                 <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">Tbilisi Cash Counter: </span>
-                  <span>Open daily until 21:00 (9:00 PM) GCC time (UTC+4 / GET)</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">Global Settlement Desk: </span>
+                  <span>24/7 Digital OTC, SEPA Wire &amp; USDT Liquidity Rails</span>
                 </div>
               </div>
             </div>
@@ -67,7 +67,7 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <Link href="/exchange" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
-                  OTC Desk & Tbilisi Counter
+                  Global OTC Liquidity Desk
                 </Link>
               </li>
               <li>
@@ -110,7 +110,7 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <Link href="/contact" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
-                  Tbilisi Counter & Contact
+                  Global Desks &amp; Contact
                 </Link>
               </li>
             </ul>
@@ -151,13 +151,13 @@ export const Footer: React.FC = () => {
             <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
             <div>
               <span className="font-bold">Important Risk Disclosure & Lock-in Notice: </span>
-              Digital investment packages carry market risk. Target performance yields (1% monthly return) are calculated on invested principal and credited into your Avora internal ledger account. All investment packages are subject to a mandatory 6-month lock-in period with withdrawal windows opening on the 1st of each calendar month (15-day settlement). Physical cash pickup in Tbilisi is subject to prior booking and operating until 21:00 GCC time.
+              Digital investment packages carry market risk. Target performance yields (1% monthly return) are calculated on invested principal and credited into your Avora internal ledger account. All investment packages are subject to a mandatory 6-month lock-in period with withdrawal windows opening on the 1st of each calendar month (15-day settlement). Digital settlements are executed via verified SEPA/SWIFT wire or USDT wallet transfer.
             </div>
           </div>
 
           <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
             <p>© {new Date().getFullYear()} Avora Bank Platform. All rights reserved.</p>
-            <p>Institutional Operations • Tbilisi OTC Liquidity Counter • Freedom Square</p>
+            <p>Institutional Operations • Global Digital OTC Liquidity Rails</p>
           </div>
         </div>
 
