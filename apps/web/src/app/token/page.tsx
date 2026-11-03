@@ -182,7 +182,7 @@ export default function AvoraTokenPage() {
           <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5">
             <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-blue-500" />
-              1. Testnet Token Faucet
+              Testnet Token Faucet
             </div>
             <p className="text-slate-500 text-[11px] leading-relaxed">
               Used strictly for testing ledger settlement and dapp features. Testnet tokens have $0 monetary value and cannot be redeemed for fiat.
@@ -192,7 +192,7 @@ export default function AvoraTokenPage() {
           <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5">
             <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              2. Early-Access Whitelist
+              Early-Access Whitelist
             </div>
             <p className="text-slate-500 text-[11px] leading-relaxed">
               Register interest for prospective token allocations under the proposed $1.00 early-access terms, subject to separate subscription agreements.
@@ -202,7 +202,7 @@ export default function AvoraTokenPage() {
           <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5">
             <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-purple-500" />
-              3. Q4 2027 Mainnet TGE
+              Q4 2027 Mainnet TGE
             </div>
             <p className="text-slate-500 text-[11px] leading-relaxed">
               The official mainnet launch is targeted for Q4 2027. The proposed $1.00 price is not a guaranteed listing price or promise of return.

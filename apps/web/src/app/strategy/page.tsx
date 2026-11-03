@@ -127,21 +127,21 @@ export default function StrategyPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 relative z-10">
           <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-            <div className="text-sm font-bold text-emerald-400">1. Term Stability</div>
+            <div className="text-sm font-bold text-emerald-400">Term Stability</div>
             <p className="text-xs text-slate-300 leading-relaxed">
               The 6-month lock-in guarantees that arbitrage bots and market-making desks have consistent balance sheet depth to capture spreads without premature unwinding.
             </p>
           </div>
 
           <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-            <div className="text-sm font-bold text-emerald-400">2. Predictable Yields</div>
+            <div className="text-sm font-bold text-emerald-400">Predictable Yields</div>
             <p className="text-xs text-slate-300 leading-relaxed">
               1% monthly returns are generated from active desk volume and credited directly into your Avora ledger wallet on the 1st day of each calendar month.
             </p>
           </div>
 
           <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-            <div className="text-sm font-bold text-emerald-400">3. 15-Day Settlement Window</div>
+            <div className="text-sm font-bold text-emerald-400">15-Day Settlement Window</div>
             <p className="text-xs text-slate-300 leading-relaxed">
               Opening withdrawal requests exclusively on the 1st of each month provides our treasury desk a controlled 15-day window to settle bank wires or prepare Tbilisi cash.
             </p>
