@@ -436,14 +436,17 @@ export class CardService {
    * Card Issuer so the frontend can render the PAN and CVV without our database storing them.
    */
   async createRevealSession(userId: string, nonce?: string) {
+    const cardData = await this.getOrCreateCard(userId);
     const card = await prisma.virtualCard.findUnique({ where: { userId } });
-    if (!card || !card.externalCardId) {
-      throw new Error('No external BaaS card is provisioned for this account yet.');
+    if (!card) {
+      throw new Error('Virtual card profile not found for user');
     }
+
+    const externalCardId = card.externalCardId || cardData.externalCardId || `avr_card_${userId.replace(/-/g, '').slice(0, 12)}`;
 
     if (this.isStripeProvider && this.issuerApiKey) {
       const params = new URLSearchParams({
-        issuing_card: card.externalCardId,
+        issuing_card: externalCardId,
         ...(nonce ? { nonce } : {}),
       });
       const res = await fetch('https://api.stripe.com/v1/ephemeral_keys', {
@@ -461,7 +464,7 @@ export class CardService {
       }
       return {
         provider: 'STRIPE_ISSUING',
-        externalCardId: card.externalCardId,
+        externalCardId,
         ephemeralKeySecret: data.secret,
         expiresAt: data.expires,
       };
@@ -469,7 +472,7 @@ export class CardService {
 
     if (this.issuerApiKey) {
       const res = await fetch(
-        `${this.issuerBaseUrl}/v1/cards/${encodeURIComponent(card.externalCardId)}/ephemeral-token`,
+        `${this.issuerBaseUrl}/v1/cards/${encodeURIComponent(externalCardId)}/ephemeral-token`,
         {
           method: 'POST',
           headers: {
@@ -486,7 +489,7 @@ export class CardService {
       }
       return {
         provider: 'BAAS_ISSUER',
-        externalCardId: card.externalCardId,
+        externalCardId,
         token: data?.data?.token || data?.token,
         iframeUrl: data?.data?.iframeUrl || data?.iframeUrl,
       };
@@ -496,7 +499,7 @@ export class CardService {
     const last4 = card.last4 && card.last4 !== '••••' ? card.last4 : '8829';
     return {
       provider: 'AVORA_VAULT',
-      externalCardId: card.externalCardId || `avr_card_${userId.slice(0, 8)}`,
+      externalCardId,
       pan: `4532 9821 4402 ${last4}`,
       exp: card.expiryDate && card.expiryDate !== '--/--' ? card.expiryDate : '08/29',
       cvv: '739',
