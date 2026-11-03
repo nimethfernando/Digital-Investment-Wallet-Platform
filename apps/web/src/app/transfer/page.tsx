@@ -220,7 +220,7 @@ export default function GlobalMoneyTransferPage() {
           {/* Left Form: Inputs */}
           <div className="lg:col-span-7 p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
             <h3 className="text-lg font-black text-slate-900 dark:text-white">
-              7.1 Enter Transfer Details
+              Enter Transfer Details
             </h3>
 
             {/* Destination Country Picker */}
@@ -291,13 +291,13 @@ export default function GlobalMoneyTransferPage() {
             </button>
           </div>
 
-          {/* Right Summary: Transparent 7.3 & 7.4 Pricing Card */}
+          {/* Right Summary: Transparent Pricing Card */}
           <div className="lg:col-span-5 p-6 sm:p-8 rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-xl space-y-6">
             <div className="space-y-1">
               <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
                 Transparent Fee Breakdown
               </span>
-              <h4 className="text-lg font-black">7.3 & 7.4 Quote Summary</h4>
+              <h4 className="text-lg font-black">Transfer Quote Summary</h4>
             </div>
 
             {quote && (
@@ -335,7 +335,7 @@ export default function GlobalMoneyTransferPage() {
                 <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-1 text-[11px] text-slate-300 mt-2">
                   <div className="flex items-center gap-1.5 font-bold text-white">
                     <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>7.2 Processing Time: Up to 2 Business Days</span>
+                    <span>Processing Time: Up to 2 Business Days</span>
                   </div>
                   <p className="text-slate-400">
                     Estimated local credit by {new Date(quote.estimatedDeliveryDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}.
@@ -354,7 +354,7 @@ export default function GlobalMoneyTransferPage() {
           <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
             <div>
               <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                7.1 (2) Provide Recipient Information
+                Provide Recipient Information
               </h3>
               <p className="text-xs text-slate-500">
                 Destination: {selectedCountry.flag} {selectedCountry.name} ({selectedCountry.currency})
@@ -521,10 +521,10 @@ export default function GlobalMoneyTransferPage() {
             </div>
           </div>
 
-          {/* 7.1 (6) Live Tracking Timeline */}
+          {/* Live Tracking Timeline */}
           <div className="space-y-3 pt-2">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              7.1 (6) Real-Time Transfer Milestone Tracking
+              Real-Time Transfer Milestone Tracking
             </h4>
             <div className="space-y-3">
               {activeTransfer.trackingTimeline?.map((t: any, idx: number) => (

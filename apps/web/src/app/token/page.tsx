@@ -173,7 +173,7 @@ export default function AvoraTokenPage() {
       <div className="p-6 sm:p-8 rounded-3xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 max-w-5xl mx-auto space-y-4">
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
           <Info className="w-4 h-4 text-emerald-500" />
-          <span>8.2 Regulatory Disclosure: Three Distinct Participation Pathways</span>
+          <span>Regulatory Disclosure: Three Distinct Participation Pathways</span>
         </div>
         <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
           Avora Bank strictly distinguishes between testnet exploration, allocation registration, and future mainnet token delivery:
@@ -214,7 +214,7 @@ export default function AvoraTokenPage() {
       {/* Interactive Modules: Testnet Wallet & Early-Access Whitelist */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-5xl mx-auto items-start">
         
-        {/* Module A: 8.3 Testnet Wallet & Faucet */}
+        {/* Module A: Testnet Wallet & Faucet */}
         <div className="lg:col-span-6 p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
@@ -281,7 +281,7 @@ export default function AvoraTokenPage() {
           </button>
         </div>
 
-        {/* Module B: 8.2 Early-Access Whitelist Registration */}
+        {/* Module B: Early-Access Whitelist Registration */}
         <form onSubmit={handleRegisterEarlyAccess} className="lg:col-span-6 p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
@@ -371,7 +371,7 @@ export default function AvoraTokenPage() {
       <div className="max-w-5xl mx-auto space-y-8">
         <div className="text-center space-y-2">
           <h2 className="text-2xl font-black text-slate-900 dark:text-white">
-            8.4 Tokenomics & Q4 2027 Mainnet Roadmap
+            Tokenomics & Q4 2027 Mainnet Roadmap
           </h2>
           <p className="text-xs text-slate-500">
             Total Fixed Supply: 1,000,000,000 AVR • Transparent Ecosystem Allocation
