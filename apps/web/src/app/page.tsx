@@ -68,11 +68,11 @@ export default function HomePage() {
     },
     {
       q: 'How does the two-stage withdrawal settlement work?',
-      a: 'Withdrawal requests for monthly yields or matured principal can be submitted on the 1st of each calendar month, entering a 15-day administrative settlement queue for bank wire (SWIFT/SEPA), USDT wallet, or Tbilisi cash pickup.',
+      a: 'Withdrawal requests for monthly yields or matured principal can be submitted on the 1st of each calendar month, entering a 15-day administrative settlement queue for bank wire (SWIFT/SEPA), USDT wallet, or cash counter pickup.',
     },
     {
-      q: 'What are the operating hours of the Tbilisi cash counter?',
-      a: 'Our physical counter at Freedom Square / Chavchavadze Ave in Tbilisi operates daily until 21:00 (9:00 PM) GCC time (UTC+4). Users can dispense and receive USD, EUR, or GEL upon presenting their verified order reference.',
+      q: 'What are the operating hours of physical cash counters?',
+      a: 'Our physical counters operate daily until 21:00 (9:00 PM) GCC time (UTC+4). Users can dispense and receive USD, EUR, or local currency upon presenting their verified order reference.',
     },
     {
       q: 'How does the Virtual Visa / Mastercard module work?',
@@ -122,7 +122,7 @@ export default function HomePage() {
               </h1>
 
               <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
-                Fixed-term digital investment packages ($1,000–$10,000) with 1% target monthly return, 6-month lock-in, virtual cards, and GeCrypto-style OTC settlement in Tbilisi operating daily until 21:00 GCC time.
+                Fixed-term digital investment packages ($1,000–$10,000) with 1% target monthly return, 6-month lock-in, virtual cards, and institutional OTC settlement operating daily until 21:00 GCC time.
               </p>
 
               <div className="flex flex-wrap items-center gap-3 pt-2">
@@ -172,7 +172,7 @@ export default function HomePage() {
                 <div className="p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
                   <div className="flex items-center gap-1.5 text-[10px] font-mono text-rose-500 font-bold uppercase">
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                    Tbilisi Counter
+                    OTC Counter
                   </div>
                   <p className="text-2xl font-black text-rose-500 dark:text-rose-400 font-mono mt-0.5">21:00</p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">GCC Cash Pickup Desk</p>
@@ -224,10 +224,10 @@ export default function HomePage() {
                       </span>
                     </div>
                     <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-rose-500/40 transition-colors">
-                      <span className="text-[10px] font-mono text-slate-400">GEL / USDT (Tbilisi)</span>
-                      <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">2.7600 GEL</p>
+                      <span className="text-[10px] font-mono text-slate-400">AED / USDT (Dubai)</span>
+                      <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">3.6725 AED</p>
                       <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1 mt-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Freedom Sq Desk
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> DIFC Desk
                       </span>
                     </div>
                   </div>
@@ -235,10 +235,10 @@ export default function HomePage() {
                   <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-cyan-500/10 border border-emerald-500/25 text-xs">
                     <p className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5 font-mono text-[11px]">
                       <Building2 className="w-4 h-4 text-emerald-500" />
-                      PHYSICAL_DESK // TBILISI & COLOMBO
+                      PHYSICAL_DESK // GLOBAL_NETWORK
                     </p>
                     <p className="text-emerald-800 dark:text-emerald-400 mt-1 leading-relaxed text-[11px]">
-                      Collect local cash in Tbilisi (Freedom Sq) or Colombo (WTC Level 18) with escrow lock and bank-standard verification.
+                      Collect local cash in Colombo (WTC Level 18), Dubai & London with escrow lock and bank-standard verification.
                     </p>
                   </div>
 
@@ -273,7 +273,7 @@ export default function HomePage() {
           <div className="animate-marquee flex items-center gap-10 text-slate-600 dark:text-slate-300 font-mono text-xs uppercase tracking-wider whitespace-nowrap">
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> TBILISI OTC DESK (UTC+4 21:00)</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> GLOBAL OTC CASH DESKS (UTC+4 21:00)</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> WALLESTER BaaS VIRTUAL CARDS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
@@ -283,7 +283,7 @@ export default function HomePage() {
             {/* Seamless duplicate loop */}
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> TBILISI OTC DESK (UTC+4 21:00)</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> GLOBAL OTC CASH DESKS (UTC+4 21:00)</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> WALLESTER BaaS VIRTUAL CARDS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
@@ -472,14 +472,14 @@ export default function HomePage() {
                   <Building2 className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                  TBILISI CASH
+                  OTC CASH
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
                 Global OTC Desk Network
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Freedom Square Tbilisi cash counter open until 21:00 GCC time, plus decentralized global operator desks in Colombo, Dubai & London ($1,000 security deposit) with 1.5% fee split.
+                Physical cash settlement counters open until 21:00 GCC time, plus decentralized global operator desks in Colombo, Dubai & London ($1,000 security deposit) with 1.5% fee split.
               </p>
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
@@ -711,7 +711,7 @@ export default function HomePage() {
               </div>
               <h4 className="text-xl font-black text-slate-900 dark:text-white">$7,500 – $10,000</h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                Maximum monthly returns with VIP Tbilisi & Colombo cash desk priority.
+                Maximum monthly returns with VIP global cash desk priority.
               </p>
               <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between text-xs font-mono">
                 <span className="text-slate-400">Term:</span>
@@ -929,7 +929,7 @@ export default function HomePage() {
                 href="/contact"
                 className="px-8 py-3.5 rounded-2xl font-bold text-xs text-white border border-slate-700 hover:bg-white/10 transition-colors"
               >
-                Contact Tbilisi Desk
+                Contact OTC Desk
               </Link>
             </div>
           </div>
