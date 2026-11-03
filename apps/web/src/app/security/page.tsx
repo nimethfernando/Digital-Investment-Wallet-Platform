@@ -17,14 +17,17 @@ export default function SecurityPage() {
       <div className="text-center max-w-3xl mx-auto space-y-4">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-900 text-blue-700 dark:text-blue-300 text-xs font-semibold">
           <ShieldCheck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-          <span>Institutional Architecture</span>
+          <span>Platform &amp; Custodial Cybersecurity</span>
         </div>
         <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-          Ledger & Custodial Security
+          Ledger &amp; Custodial Security Architecture
         </h1>
         <p className="text-slate-600 dark:text-slate-400 text-base leading-relaxed">
-          How our double-entry ledger, concurrency controls, and provider-agnostic interfaces safeguard investor capital and transactional integrity.
+          How our mathematical double-entry ledger, concurrency controls, cryptographic authentication, and cold custodial vaults safeguard client funds and transactional integrity.
         </p>
+        <div className="p-3 rounded-2xl bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 max-w-xl mx-auto">
+          Institutional Safety Architecture: This documentation outlines our technical cybersecurity, append-only accounting invariants, and custodial safekeeping protocols.
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">

@@ -29,7 +29,15 @@ export const Footer: React.FC = () => {
               </div>
               <div className="flex items-center gap-2.5">
                 <Phone className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span>Desk: +995 32 200 4880 | Direct: +995 599 123 456</span>
+                <a href="tel:+995555433091" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors font-medium">
+                  +995 555433091
+                </a>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <Send className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <a href="https://t.me/avorallc" target="_blank" rel="noopener noreferrer" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors font-medium">
+                  Telegram: @avorallc
+                </a>
               </div>
               <div className="flex items-center gap-2.5">
                 <Mail className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />

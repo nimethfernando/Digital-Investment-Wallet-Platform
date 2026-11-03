@@ -56,13 +56,13 @@ export default function ContactPage() {
       <div className="text-center max-w-3xl mx-auto space-y-4">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-900 text-blue-700 dark:text-blue-300 text-xs font-semibold">
           <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-          <span>Tbilisi Counter & Global Desk</span>
+          <span>Global Settlement Desk &amp; Concierge</span>
         </div>
         <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
           Contact Our Operations Team
         </h1>
         <p className="text-slate-600 dark:text-slate-400 text-base leading-relaxed">
-          Submit an inquiry for digital packages, corporate liquidity exchange, or schedule an in-person appointment at our Tbilisi office.
+          Submit an inquiry for digital investment packages, institutional liquidity rails, or connect directly with our settlement desk via Telegram or direct phone.
         </p>
       </div>
 
@@ -70,24 +70,39 @@ export default function ContactPage() {
         <div className="lg:col-span-5 space-y-8">
           <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
             <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-              Tbilisi Operations Desk
+              Global Operations Desk
             </h3>
 
             <div className="space-y-4 text-sm text-slate-600 dark:text-slate-300">
               <div className="flex items-start gap-3">
                 <MapPin className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">Office Address</p>
+                  <p className="font-semibold text-slate-900 dark:text-white">Registered Address</p>
                   <p className="text-xs text-slate-500 mt-0.5">Chavchavadze Ave 37M, Tbilisi 0162, Georgia</p>
                 </div>
               </div>
 
               <div className="flex items-start gap-3">
-                <Phone className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <Phone className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">Direct Phone Numbers</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Desk: +995 32 200 4880</p>
-                  <p className="text-xs text-slate-500">Mobile / WhatsApp: +995 599 123 456</p>
+                  <p className="font-semibold text-slate-900 dark:text-white">Direct Phone Number</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    <a href="tel:+995555433091" className="hover:text-emerald-600 dark:hover:text-emerald-400 font-semibold transition-colors">
+                      +995 555433091
+                    </a>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <Send className="w-5 h-5 text-sky-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-slate-900 dark:text-white">Official Telegram Concierge</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    <a href="https://t.me/avorallc" target="_blank" rel="noopener noreferrer" className="hover:text-sky-500 font-semibold transition-colors">
+                      @avorallc (https://t.me/avorallc)
+                    </a>
+                  </p>
                 </div>
               </div>
 
@@ -102,8 +117,8 @@ export default function ContactPage() {
               <div className="flex items-start gap-3">
                 <Clock className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">Tbilisi Counter Working Hours</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Open daily until 21:00 (9:00 PM) GCC time (GET / UTC+4)</p>
+                  <p className="font-semibold text-slate-900 dark:text-white">Global Settlement Desk Hours</p>
+                  <p className="text-xs text-slate-500 mt-0.5">24/7 Digital OTC, SEPA Wire &amp; USDT Liquidity Rails</p>
                 </div>
               </div>
             </div>
@@ -185,7 +200,7 @@ export default function ContactPage() {
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="+995 ..."
+                  placeholder="+995 555433091"
                   className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-base outline-none focus:border-blue-600"
                 />
               </div>

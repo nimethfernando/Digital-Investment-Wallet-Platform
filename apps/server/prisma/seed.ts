@@ -241,9 +241,9 @@ async function main() {
     // Contact & Physical Counter
     { group: 'CONTACT', key: 'contact_email', value: 'contact@avorabank.com', description: 'General customer relations desk' },
     { group: 'CONTACT', key: 'tbilisi_address', value: 'Chavchavadze Ave 37M, Vake District, Tbilisi 0162, Georgia', description: 'Physical OTC and cash counter address' },
-    { group: 'CONTACT', key: 'tbilisi_phone_primary', value: '+995 32 200 4880', description: 'Direct treasury hotline' },
-    { group: 'CONTACT', key: 'tbilisi_phone_secondary', value: '+995 599 123 456', description: 'VIP client Telegram / WhatsApp concierge' },
-    { group: 'CONTACT', key: 'counter_hours', value: 'Mon-Fri 10:00 - 18:00 (GET / UTC+4) | Desk Open until 21:00 GCC Time', description: 'Operating counter hours' },
+    { group: 'CONTACT', key: 'tbilisi_phone_primary', value: '+995 555433091', description: 'Direct treasury & OTC hotline' },
+    { group: 'CONTACT', key: 'tbilisi_phone_secondary', value: '@avorallc', description: 'VIP client Telegram concierge (https://t.me/avorallc)' },
+    { group: 'CONTACT', key: 'counter_hours', value: '24/7 Digital OTC, SEPA Wire & USDT Liquidity Rails', description: 'Operating settlement hours' },
   ];
 
   for (const s of cmsSettings) {
@@ -276,7 +276,7 @@ async function main() {
       role: Role.ADMIN,
       firstName: 'Chief',
       lastName: 'Administrator',
-      phone: '+995 32 200 4880',
+      phone: '+995 555433091',
       status: UserStatus.ACTIVE,
       emailVerified: true,
       twoFactorEnabled: false,

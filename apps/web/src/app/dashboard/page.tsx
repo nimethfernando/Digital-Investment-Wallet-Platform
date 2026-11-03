@@ -835,7 +835,7 @@ function DashboardContent() {
             <div
               ref={tabsContainerRef}
               onScroll={checkTabScroll}
-              className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px scrollbar-none scroll-smooth"
+              className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-px scrollbar-none scroll-smooth pr-14 sm:pr-16"
             >
               {[
                 { key: 'overview', label: 'Overview', icon: Wallet },

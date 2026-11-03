@@ -816,20 +816,25 @@ export default function ExchangeDeskPage() {
             </button>
           </div>
 
-          {/* Card 2: Tbilisi Freedom Square Cash Pickup Counter */}
+          {/* Card 2: Global OTC Liquidity Desk & Concierge */}
           <div className="p-6 rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-xl space-y-4">
             <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold">
               <Building2 className="w-4 h-4" />
-              <span>Avora Central Counter • Tbilisi</span>
+              <span>Avora Global Liquidity Concierge</span>
             </div>
             <h4 className="text-base font-black">
-              Tbilisi Cash Collection Counter
+              Institutional Digital OTC &amp; Wire Desk
             </h4>
             <p className="text-xs text-slate-300">
-              Freedom Square, Old Tbilisi. Open daily until 21:00 GCC time (UTC+4). Dispensing and receiving physical USD, EUR, and GEL.
+              Institutional block settlement rails open 24/7. Dispensing and executing high-volume USDT, EUR, and USD settlement via SEPA/SWIFT bank wire and digital escrow.
             </p>
-            <div className="text-xs text-slate-400">
-              Direct Counter Line: <span className="font-mono text-white">+995 32 200 4880</span>
+            <div className="flex flex-col gap-1.5 text-xs text-slate-400">
+              <div>
+                Direct Desk Line: <a href="tel:+995555433091" className="font-mono text-emerald-400 font-bold hover:underline">+995 555433091</a>
+              </div>
+              <div>
+                Telegram Concierge: <a href="https://t.me/avorallc" target="_blank" rel="noopener noreferrer" className="font-mono text-sky-400 font-bold hover:underline">@avorallc</a>
+              </div>
             </div>
           </div>
 

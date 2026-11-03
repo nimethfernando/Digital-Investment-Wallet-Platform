@@ -47,7 +47,7 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
   const [selectedFileName, setSelectedFileName] = useState('');
   const [idNumber, setIdNumber] = useState('');
   const [country, setCountry] = useState('United States');
-  const [method, setMethod] = useState<'upload' | 'sumsub'>('sumsub');
+  const [method, setMethod] = useState<'upload' | 'sumsub'>('upload');
   const [sumsubActive, setSumsubActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -368,48 +368,96 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
                 <Clock className="w-6 h-6 animate-spin" />
               </div>
               <div>
-                <h4 className="font-bold text-sm text-white">Verification in Progress</h4>
+                <h4 className="font-bold text-sm text-white">Verification Under Compliance Review</h4>
                 <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                  Your submitted documents are undergoing AML screening and compliance verification.
+                  Your submitted identification documents are undergoing AML screening and compliance verification by our risk officer.
                 </p>
               </div>
+
+              {documents.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-amber-500/20 text-left text-xs space-y-1.5">
+                  <div className="text-slate-400 text-[11px] font-semibold">SUBMITTED APPLICATION:</div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Document Type:</span>
+                    <span className="font-mono text-amber-400 font-bold">{documents[0].documentType || 'PASSPORT'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Document Number:</span>
+                    <span className="font-mono text-white">{documents[0].idNumber || 'Recorded'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Issuing Country:</span>
+                    <span className="text-slate-300">{documents[0].country || 'Standard'}</span>
+                  </div>
+                  {documents[0].createdAt && (
+                    <div className="flex items-center justify-between text-slate-300">
+                      <span>Submitted On:</span>
+                      <span className="text-slate-400">{new Date(documents[0].createdAt).toLocaleString()}</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Instant auto-approve in test mode */}
-            <button
-              onClick={handleInstantVerify}
-              disabled={submitting}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              <span>Instant Auto-Approve (Sandbox Mode)</span>
-            </button>
+            <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-1">
+              <div className="font-bold text-white flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Compliance Queue SLA</span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Applications are reviewed directly by the Avora Compliance Officer in the Admin Portal. Standard review SLA is 15–30 minutes during banking hours. Once approved, your account will immediately unlock all features.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleResetKyc}
+                disabled={submitting}
+                className="text-[11px] text-slate-500 hover:text-slate-300 underline flex items-center gap-1 cursor-pointer transition-colors"
+                title="Reset application to try again"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Reset KYC Application</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  refreshUser();
+                }}
+                className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all"
+              >
+                Close
+              </button>
+            </div>
           </div>
         )}
 
         {/* When Unverified or Rejected */}
         {(kycStatus === 'NOT_STARTED' || kycStatus === 'REJECTED') && (
           <div className="space-y-4">
-            {/* Quick 1-Click Verification Banner */}
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-transparent border border-emerald-500/30 flex items-center justify-between gap-3">
-              <div className="space-y-0.5">
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Sandbox Instant Approval</span>
+            {/* KYC Procedure Info Banner */}
+            <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Verification Procedure &amp; Requirements</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                <div className="flex items-start gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center shrink-0">1</span>
+                  <span>Select document type &amp; country</span>
                 </div>
-                <div className="text-[11px] text-slate-400">
-                  Instantly verify with 1-click test credentials
+                <div className="flex items-start gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center shrink-0">2</span>
+                  <span>Upload ID photo or PDF scan</span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center shrink-0">3</span>
+                  <span>Admin review &amp; activation</span>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleInstantVerify}
-                disabled={submitting}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md shrink-0 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all"
-              >
-                {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                <span>Instant Verify</span>
-              </button>
             </div>
 
             {/* Method Tabs */}

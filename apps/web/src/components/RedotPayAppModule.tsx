@@ -354,15 +354,17 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </button>
 
               {/* Support 2: Community */}
-              <button
-                onClick={() => alert('Avora Bank VIP Community: Telegram Concierge channel open 24/7.')}
+              <a
+                href="https://t.me/avorallc"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-800 transition-colors group cursor-pointer"
               >
                 <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-300 group-hover:text-white group-hover:border-rose-500 transition-all">
                   <Users className="w-5 h-5 text-indigo-400" />
                 </div>
                 <span className="text-[11px] font-bold text-slate-300 group-hover:text-white">Community</span>
-              </button>
+              </a>
 
               {/* Support 3: Learn */}
               <Link
@@ -960,15 +962,17 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   <span className="text-[10px] font-semibold text-slate-300">Help</span>
                 </button>
 
-                <button
-                  onClick={() => alert('Telegram VIP Community: @AvoraBankDesk official.')}
+                <a
+                  href="https://t.me/avorallc"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
                 >
                   <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-indigo-400">
                     <Users className="w-5 h-5" />
                   </div>
                   <span className="text-[10px] font-semibold text-slate-300">Community</span>
-                </button>
+                </a>
 
                 <Link
                   href="/how-it-works"
