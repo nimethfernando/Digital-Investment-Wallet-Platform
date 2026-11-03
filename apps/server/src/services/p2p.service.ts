@@ -630,6 +630,91 @@ export class P2PService {
   }
 
   /**
+   * Create a new P2P Trade Offer (Requires P2P Merchant status)
+   */
+  async createOffer(userId: string, input: {
+    side: 'BUY' | 'SELL';
+    cryptoCurrency?: string;
+    fiatCurrency: string;
+    price: number | string;
+    totalAmount: number | string;
+    minLimit?: number | string;
+    maxLimit?: number | string;
+    paymentMethods: string[];
+    paymentTerms?: string;
+  }) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, isP2pMerchant: true, p2pDepositLocked: true, kycStatus: true, email: true },
+    });
+
+    if (!user) {
+      throw new Error('User not found.');
+    }
+
+    if (!user.isP2pMerchant) {
+      throw new Error('You must become an authorized P2P Member (Merchant) before posting trade advertisements. Please activate your $50 refundable security deposit.');
+    }
+
+    const priceNum = new Decimal(input.price.toString());
+    const amountNum = new Decimal(input.totalAmount.toString());
+    if (priceNum.isZero() || priceNum.isNegative()) {
+      throw new Error('Offer price must be greater than zero.');
+    }
+    if (amountNum.isZero() || amountNum.isNegative()) {
+      throw new Error('Total amount must be greater than zero.');
+    }
+
+    const minLimitNum = input.minLimit ? new Decimal(input.minLimit.toString()) : new Decimal(10);
+    const maxLimitNum = input.maxLimit ? new Decimal(input.maxLimit.toString()) : amountNum.times(priceNum);
+    const offerCode = `OFF-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const newOffer = await prisma.p2POffer.create({
+      data: {
+        offerCode,
+        userId,
+        side: input.side === 'BUY' ? P2PSide.BUY : P2PSide.SELL,
+        cryptoCurrency: input.cryptoCurrency || 'USDT',
+        fiatCurrency: input.fiatCurrency.toUpperCase(),
+        price: priceNum.toString(),
+        totalAmount: amountNum.toString(),
+        availableAmount: amountNum.toString(),
+        minLimit: minLimitNum.toString(),
+        maxLimit: maxLimitNum.toString(),
+        paymentMethods: JSON.stringify(input.paymentMethods || ['Bank Transfer']),
+        paymentTerms: input.paymentTerms || 'Payment via domestic instant transfer. Fast escrow release.',
+        status: P2POfferStatus.OPEN,
+      },
+    });
+
+    return {
+      success: true,
+      offerCode: newOffer.offerCode,
+      message: 'P2P advertisement published to marketplace successfully.',
+      offer: newOffer,
+    };
+  }
+
+  /**
+   * Cancel/Close an active P2P Offer
+   */
+  async cancelOffer(userId: string, offerId: string) {
+    const offer = await prisma.p2POffer.findUnique({ where: { id: offerId } });
+    if (!offer) throw new Error('Offer not found.');
+    if (offer.userId !== userId) throw new Error('Unauthorized to cancel this offer.');
+
+    await prisma.p2POffer.update({
+      where: { id: offerId },
+      data: { status: P2POfferStatus.CANCELLED },
+    });
+
+    return {
+      success: true,
+      message: 'Offer closed successfully.',
+    };
+  }
+
+  /**
    * Create a P2P Order and lock seller crypto into Escrow
    */
   async createP2POrder(

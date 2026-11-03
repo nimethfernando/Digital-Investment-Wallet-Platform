@@ -13,6 +13,7 @@ import { QrTransferModal } from '../../components/QrTransferModal';
 import { DepositModal } from '../../components/DepositModal';
 import {
   Wallet,
+  Users,
   TrendingUp,
   ArrowDownLeft,
   ArrowUpRight,
@@ -1847,16 +1848,49 @@ function DashboardContent() {
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-xl font-bold">Internal P2P Transfers & Saved Payees</h3>
+                <h3 className="text-xl font-bold">Internal Transfers &amp; Saved Payees</h3>
                 <p className="text-xs text-slate-500">Send available balance instantly using Avora Account Number or registered email</p>
               </div>
-              <button
-                onClick={() => setP2PModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center gap-2"
+              <div className="flex items-center gap-2.5">
+                <Link
+                  href="/p2p"
+                  className="px-4 py-2.5 rounded-xl font-bold text-xs bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 flex items-center gap-1.5 transition-all"
+                >
+                  <Users className="w-4 h-4" />
+                  <span>P2P Escrow Market</span>
+                </Link>
+                <button
+                  onClick={() => setP2PModalOpen(true)}
+                  className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  New Transfer
+                </button>
+              </div>
+            </div>
+
+            {/* P2P Escrow Exchange Banner */}
+            <div className="p-5 rounded-3xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Avora P2P Escrow Exchange &amp; Member Program
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Buy and sell USDT with domestic banks (LKR, INR, AED, GEL, EUR, USD) or lock a $50 bond to become a P2P Member &amp; post your own ads.
+                  </p>
+                </div>
+              </div>
+              <Link
+                href="/p2p"
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5"
               >
-                <Send className="w-4 h-4" />
-                New Transfer
-              </button>
+                <span>Open P2P Exchange</span>
+                <ChevronRight className="w-4 h-4" />
+              </Link>
             </div>
 
             {/* Saved Payees Card */}

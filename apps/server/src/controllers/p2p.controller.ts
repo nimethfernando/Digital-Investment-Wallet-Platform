@@ -77,6 +77,34 @@ export class P2PController {
     }
   }
 
+
+  /**
+   * Create a new P2P Offer / Ad (Merchants only)
+   */
+  async createOffer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const result = await p2pService.createOffer(userId, req.body);
+      res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Cancel P2P Offer
+   */
+  async cancelOffer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const offerId = req.params.offerId as string;
+      const result = await p2pService.cancelOffer(userId, offerId);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   /**
    * Create P2P Order (Locks seller crypto in Escrow)
    */
