@@ -409,6 +409,34 @@ export default function ExchangeDeskPage() {
     }
   };
 
+  const [releasing, setReleasing] = useState<boolean>(false);
+
+  // Manual Escrow Release: Operator confirms cash/wire receipt and releases crypto
+  const handleReleaseEscrow = async () => {
+    if (!activeTrade) return;
+    if (!confirm('Are you sure you want to release the escrow? Ensure fiat payment has been confirmed in full.')) return;
+    setReleasing(true);
+    try {
+      const res = await api.post(`/otc/trades/${activeTrade.id}/release`);
+      if (res.data?.success) {
+        setActiveTrade((prev: any) => ({ ...prev, status: 'COMPLETED' }));
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `sys-${Date.now()}`,
+            senderName: 'Avora Security Escrow',
+            message: 'Escrow released! Trade marked COMPLETED. Net crypto delivered to buyer and 1.0% operator commission distributed.',
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
+    } catch (err: any) {
+      alert(extractErrorMessage(err, 'Failed to release escrow. Ensure you are authorized.'));
+    } finally {
+      setReleasing(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-16">
       
@@ -1065,14 +1093,31 @@ export default function ExchangeDeskPage() {
             ) : (
               /* Step 2: Live Chat Room & Escrow Management */
               <div className="space-y-4">
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex justify-between items-center text-xs">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                   <div>
                     <span className="font-bold">Trade #{activeTrade.tradeCode}</span>
                     <span className="text-slate-400 ml-2">Escrow Protected</span>
                   </div>
-                  <span className="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
-                    ESCROW_LOCKED
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] ${
+                      activeTrade.status === 'COMPLETED'
+                        ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                    }`}>
+                      {activeTrade.status === 'COMPLETED' ? 'COMPLETED' : 'ESCROW_LOCKED (PENDING FIAT)'}
+                    </span>
+                    {activeTrade.status !== 'COMPLETED' && (
+                      <button
+                        type="button"
+                        onClick={handleReleaseEscrow}
+                        disabled={releasing}
+                        className="px-3 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all disabled:opacity-50 cursor-pointer shadow-sm"
+                        title="Release crypto to buyer once cash/wire is confirmed"
+                      >
+                        {releasing ? 'Releasing...' : 'Release Escrow'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Message Log */}
