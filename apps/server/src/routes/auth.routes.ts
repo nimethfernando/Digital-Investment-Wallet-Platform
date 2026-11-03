@@ -14,6 +14,7 @@ import {
   getSumsubToken,
   resetKyc,
   instantVerifyKyc,
+  detectLocation,
 } from '../controllers/auth.controller';
 import { authenticateToken } from '../middleware/auth';
 import { authRateLimiter } from '../middleware/rate-limiter';
@@ -21,6 +22,7 @@ import { authRateLimiter } from '../middleware/rate-limiter';
 const router = Router();
 
 // Public auth routes with strict anti-brute force rate limiting (10 attempts / 15 min)
+router.get('/detect-location', detectLocation);
 router.post('/register', authRateLimiter, register);
 router.post('/login', authRateLimiter, login);
 router.post('/forgot-password', authRateLimiter, forgotPassword);

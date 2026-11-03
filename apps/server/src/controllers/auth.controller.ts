@@ -9,7 +9,10 @@ const registerSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
-  phone: z.string().optional(),
+  phone: z.string().max(25, 'Phone number must not exceed 25 characters').optional(),
+  country: z.string().max(100).optional(),
+  countryCode: z.string().max(10).optional(),
+  signupLocation: z.string().max(191).optional(),
 });
 
 const loginSchema = z.object({
@@ -35,11 +38,27 @@ const changePasswordSchema = z.object({
 export const register = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = registerSchema.parse(req.body);
-    const result = await authService.register(data);
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || null;
+    const result = await authService.register({
+      ...data,
+      signupIp: clientIp || undefined,
+    });
     res.status(201).json({ success: true, ...result });
   } catch (err) {
     next(err);
   }
+};
+
+export const detectLocation = async (req: Request, res: Response) => {
+  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || '';
+  const cfCountry = (req.headers['cf-ipcountry'] as string) || null;
+  res.json({
+    success: true,
+    data: {
+      ip: clientIp,
+      countryCode: cfCountry,
+    },
+  });
 };
 
 export const login = async (req: Request, res: Response, next: NextFunction) => {
@@ -130,6 +149,8 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
         firstName: true,
         lastName: true,
         phone: true,
+        country: true,
+        signupLocation: true,
         role: true,
         kycStatus: true,
         twoFactorEnabled: true,

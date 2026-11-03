@@ -16,6 +16,9 @@ export class AuthService {
     firstName?: string;
     lastName?: string;
     phone?: string;
+    country?: string;
+    signupLocation?: string;
+    signupIp?: string;
   }) {
     const existing = await prisma.user.findUnique({ where: { email: data.email.toLowerCase().trim() } });
     if (existing) {
@@ -32,6 +35,9 @@ export class AuthService {
         firstName: data.firstName,
         lastName: data.lastName,
         phone: data.phone,
+        country: data.country,
+        signupLocation: data.signupLocation,
+        signupIp: data.signupIp,
         emailVerificationToken,
         wallet: {
           create: {
@@ -75,6 +81,9 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        phone: user.phone,
+        country: user.country,
+        signupLocation: user.signupLocation,
         role: user.role,
         kycStatus: user.kycStatus,
         twoFactorEnabled: user.twoFactorEnabled,
@@ -158,6 +167,9 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        phone: user.phone,
+        country: user.country,
+        signupLocation: user.signupLocation,
         role: user.role,
         kycStatus: user.kycStatus,
         twoFactorEnabled: user.twoFactorEnabled,

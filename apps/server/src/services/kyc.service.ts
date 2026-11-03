@@ -182,6 +182,8 @@ export class KycService {
             firstName: true,
             lastName: true,
             phone: true,
+            country: true,
+            signupLocation: true,
             status: true,
             createdAt: true,
           },

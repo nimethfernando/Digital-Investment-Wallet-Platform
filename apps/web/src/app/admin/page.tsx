@@ -841,6 +841,11 @@ export default function AdminPortalPage() {
                       </div>
                       <div className="text-slate-400">{doc.user?.email}</div>
                       <div className="text-slate-500">Phone: {doc.user?.phone || 'N/A'}</div>
+                      {(doc.user?.signupLocation || doc.user?.country) && (
+                        <div className="text-emerald-400 text-[11px] font-semibold">
+                          📍 Location: {doc.user?.signupLocation || doc.user?.country}
+                        </div>
+                      )}
                     </div>
 
                     <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 text-[11px] font-mono break-all text-slate-300">

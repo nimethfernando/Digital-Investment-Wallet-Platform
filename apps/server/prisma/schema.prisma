@@ -196,6 +196,9 @@ model User {
   firstName              String?
   lastName               String?
   phone                  String?
+  country                String?    @db.VarChar(100)
+  signupLocation         String?    @db.VarChar(191)
+  signupIp               String?    @db.VarChar(64)
   kycStatus              KycStatus  @default(NOT_STARTED)
   twoFactorEnabled       Boolean    @default(false)
   twoFactorSecret        String?
