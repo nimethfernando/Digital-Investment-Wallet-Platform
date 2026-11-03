@@ -1564,7 +1564,7 @@ function DashboardContent() {
                 href="/p2p"
                 className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center justify-center gap-1"
               >
-                Go to RedotPay-Style P2P Escrow & OTC Trading Board
+                Go to Avora P2P Escrow &amp; OTC Trading Board
                 <ChevronRight className="w-3.5 h-3.5" />
               </Link>
             </div>
