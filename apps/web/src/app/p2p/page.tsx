@@ -1327,7 +1327,7 @@ export default function P2PPage() {
       {/* TRADE CONFIRMATION MODAL (Buyer opens escrow order) */}
       {/* -------------------------------------------------------------------- */}
       {selectedOfferForTrade && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-5 text-white shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
@@ -1398,7 +1398,7 @@ export default function P2PPage() {
 
       {/* DISPUTE MODAL */}
       {disputeModalOrder && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white">
             <h3 className="font-bold text-base flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-500" />
@@ -1439,7 +1439,7 @@ export default function P2PPage() {
 
       {/* RELEASE CONFIRM MODAL */}
       {releaseConfirmOrder && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white text-center">
             <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
               <ShieldCheck className="w-6 h-6" />

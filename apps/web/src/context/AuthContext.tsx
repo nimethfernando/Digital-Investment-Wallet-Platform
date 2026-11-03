@@ -24,7 +24,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (data: { email: string; password: string; twoFactorCode?: string }) => Promise<any>;
   register: (data: any) => Promise<any>;
-  logout: () => void;
+  logout: (redirectTo?: string | any) => void;
   refreshUser: () => Promise<void>;
 }
 
@@ -125,14 +125,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res.data;
   };
 
-  const logout = () => {
+  const logout = (redirectTo?: string | any) => {
     setUser(null);
     setToken(null);
     localStorage.removeItem('avora_token');
     localStorage.removeItem('avora_user');
     localStorage.removeItem('nexis_token');
     localStorage.removeItem('nexis_user');
-    window.location.href = '/login';
+    const destination = typeof redirectTo === 'string' ? redirectTo : '/login';
+    window.location.href = destination;
   };
 
   const refreshUser = async () => {

@@ -418,7 +418,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
       {/* MODAL 1: CREATE NEW TICKET */}
       {/* ---------------------------------------------------------------------- */}
       {createModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 sm:p-7 space-y-6 shadow-2xl relative animate-in zoom-in-95">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -545,7 +545,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
       {/* MODAL 2: TICKET THREAD & REPLIES CONVERSATION DRAWER */}
       {/* ---------------------------------------------------------------------- */}
       {selectedTicket && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-xl w-full h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
             
             {/* Thread Header */}

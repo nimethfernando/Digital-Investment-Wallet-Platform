@@ -1494,7 +1494,7 @@ export default function AdminPortalPage() {
 
       {/* SETTLE WITHDRAWAL MODAL */}
       {settleModalOpen && selectedWithdrawal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <form
             onSubmit={handleSettleWithdrawal}
             className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-white"

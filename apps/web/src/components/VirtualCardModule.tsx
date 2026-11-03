@@ -639,7 +639,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
 
       {/* LIMIT MODAL */}
       {limitModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full space-y-6 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
@@ -706,7 +706,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
 
       {/* SETTINGS MODAL */}
       {settingsModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full space-y-5 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
@@ -801,7 +801,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
 
       {/* CHOOSE CARD MODAL (Direct RedotPay Match - Screenshots 2, 3, 5) */}
       {chooseCardModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-black text-white rounded-3xl border border-slate-800 p-6 max-w-sm w-full space-y-5 shadow-2xl relative my-auto animate-in zoom-in-95">
             {/* Top Bar: Back/Close & Title */}
             <div className="flex items-center justify-between pb-1">
@@ -1080,7 +1080,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
 
       {/* CARD DETAILS & SCHEME OVERVIEW MODAL */}
       {cardInfoModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 text-white shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
