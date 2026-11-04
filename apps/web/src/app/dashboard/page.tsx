@@ -971,14 +971,15 @@ function DashboardContent() {
               {/* Card 1: Available Balance */}
               <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                  <span>Available Balance</span>
+                  <span>Available Fiat (USD)</span>
                   <Wallet className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black tracking-tight">
                   ${parseFloat(usdBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  USDT: <span className="font-semibold text-slate-700 dark:text-slate-300">{parseFloat(usdtBalance).toFixed(2)} USDT</span>
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80">
+                  <span>Separate Crypto Vault:</span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{parseFloat(usdtBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })} USDT</span>
                 </div>
               </div>
 
