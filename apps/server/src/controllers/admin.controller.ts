@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { PackageStatus, DepositStatus, WithdrawalStatus, Role, KycStatus } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import { PackageStatus, DepositStatus, WithdrawalStatus, Role, KycStatus, UserStatus, P2POrderStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { packageService } from '../services/package.service';
@@ -1321,6 +1322,637 @@ export class AdminController {
         success: true,
         message: `Successfully updated ${updatedKeys.length} platform parameters`,
         updatedKeys,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+  /**
+   * Reset user password (admin bypass)
+   */
+  async resetUserPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { newPassword } = req.body;
+
+      const passwordToSet = newPassword && newPassword.trim().length >= 6
+        ? newPassword.trim()
+        : 'AvoraPass_' + Math.random().toString(36).substring(2, 8) + '!';
+
+      const passwordHash = await bcrypt.hash(passwordToSet, 12);
+      const user = await prisma.user.update({
+        where: { id },
+        data: { passwordHash },
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'ADMIN_RESET_PASSWORD',
+          entity: 'User',
+          entityId: id,
+          details: `Admin reset password for user ${user.email}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Password updated successfully for ${user.email}`,
+        temporaryPassword: passwordToSet,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Disable user 2FA (admin lockout relief)
+   */
+  async disableUser2FA(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+
+      const user = await prisma.user.update({
+        where: { id },
+        data: {
+          twoFactorEnabled: false,
+          twoFactorSecret: null,
+        },
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'ADMIN_DISABLE_2FA',
+          entity: 'User',
+          entityId: id,
+          details: `Admin cleared 2FA security for user ${user.email}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Two-factor authentication disabled for ${user.email}`,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update user status (ACTIVE, SUSPENDED, LOCKED)
+   */
+  async updateUserStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { status } = req.body;
+
+      if (!['ACTIVE', 'SUSPENDED', 'LOCKED'].includes(status)) {
+        return res.status(400).json({ success: false, message: 'Invalid status. Must be ACTIVE, SUSPENDED, or LOCKED' });
+      }
+
+      const user = await prisma.user.update({
+        where: { id },
+        data: { status: status as UserStatus },
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'ADMIN_UPDATE_USER_STATUS',
+          entity: 'User',
+          entityId: id,
+          details: `Admin set status of user ${user.email} to ${status}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Account status updated to ${status} for ${user.email}`,
+        status: user.status,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * List global remittance transfers
+   */
+  async getRemittanceTransfers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { search, status, page, limit } = req.query;
+      const pageNum = page ? parseInt(page as string, 10) : 1;
+      const limitNum = limit ? parseInt(limit as string, 10) : 30;
+      const skip = (pageNum - 1) * limitNum;
+
+      const where: any = {};
+      if (status && typeof status === 'string' && status !== 'ALL') {
+        where.status = status;
+      }
+      if (search && typeof search === 'string' && search.trim()) {
+        const query = search.trim();
+        where.OR = [
+          { transferCode: { contains: query } },
+          { senderEmail: { contains: query } },
+          { senderName: { contains: query } },
+          { recipientName: { contains: query } },
+          { recipientAccount: { contains: query } },
+          { destinationCountry: { contains: query } },
+        ];
+      }
+
+      const [transfers, total] = await Promise.all([
+        prisma.globalTransfer.findMany({
+          where,
+          include: {
+            user: {
+              select: { id: true, email: true, firstName: true, lastName: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limitNum,
+        }),
+        prisma.globalTransfer.count({ where }),
+      ]);
+
+      res.json({
+        success: true,
+        data: transfers,
+        meta: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(total / limitNum),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update remittance transfer status & compliance notes
+   */
+  async updateRemittanceTransfer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { status, complianceNotes, rejectionReason } = req.body;
+
+      const existing = await prisma.globalTransfer.findUnique({ where: { id } });
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Transfer not found' });
+      }
+
+      const updateData: any = {};
+      if (status) updateData.status = status;
+      if (complianceNotes !== undefined) updateData.complianceNotes = complianceNotes;
+      if (rejectionReason !== undefined) updateData.rejectionReason = rejectionReason;
+      if (status === 'COMPLETED') updateData.completedAt = new Date();
+
+      const updated = await prisma.globalTransfer.update({
+        where: { id },
+        data: updateData,
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'REMITTANCE_TRANSFER_UPDATE',
+          entity: 'GlobalTransfer',
+          entityId: id,
+          details: `Updated transfer ${updated.transferCode} status to ${status}. Compliance: ${complianceNotes || 'N/A'}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Transfer ${updated.transferCode} status updated to ${updated.status}`,
+        data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Create a new startup crowdfunding campaign
+   */
+  async createStartupListing(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const {
+        companyName,
+        tagline,
+        country = 'United States',
+        countryCode = 'US',
+        city = 'San Francisco',
+        industry = 'Fintech',
+        stage = 'SEED',
+        instrument = 'SAFE',
+        valuation,
+        fundingTarget,
+        minInvestment = 250,
+        pitchOverview,
+        deadline,
+        logoUrl,
+        coverImageUrl,
+        pitchDeckUrl,
+      } = req.body;
+
+      if (!companyName || !tagline || !valuation || !fundingTarget || !pitchOverview) {
+        return res.status(400).json({ success: false, message: 'Required fields: companyName, tagline, valuation, fundingTarget, pitchOverview' });
+      }
+
+      const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).substring(2, 6);
+      const listing = await prisma.startupListing.create({
+        data: {
+          slug,
+          companyName,
+          tagline,
+          country,
+          countryCode,
+          city,
+          industry,
+          stage,
+          instrument,
+          valuation: new Decimal(valuation.toString()),
+          fundingTarget: new Decimal(fundingTarget.toString()),
+          minInvestment: new Decimal(minInvestment.toString()),
+          pitchOverview,
+          deadline: deadline ? new Date(deadline) : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+          logoUrl: logoUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80',
+          coverImageUrl: coverImageUrl || 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&auto=format&fit=crop&q=80',
+          pitchDeckUrl,
+          status: 'PUBLISHED',
+          dueDiligenceStatus: 'VERIFIED',
+        },
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'CREATE_STARTUP_LISTING',
+          entity: 'StartupListing',
+          entityId: listing.id,
+          details: `Created new startup listing: ${listing.companyName} (${valuation} valuation)`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Startup listing ${listing.companyName} created successfully!`,
+        data: listing,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update an existing startup campaign
+   */
+  async updateStartupListing(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { status, valuation, dueDiligenceStatus, dueDiligenceSummary, pitchOverview, tagline } = req.body;
+
+      const updateData: any = {};
+      if (status) updateData.status = status;
+      if (valuation) updateData.valuation = new Decimal(valuation.toString());
+      if (dueDiligenceStatus) updateData.dueDiligenceStatus = dueDiligenceStatus;
+      if (dueDiligenceSummary !== undefined) updateData.dueDiligenceSummary = dueDiligenceSummary;
+      if (pitchOverview) updateData.pitchOverview = pitchOverview;
+      if (tagline) updateData.tagline = tagline;
+
+      const updated = await prisma.startupListing.update({
+        where: { id },
+        data: updateData,
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'UPDATE_STARTUP_LISTING',
+          entity: 'StartupListing',
+          entityId: id,
+          details: `Updated startup listing ${updated.companyName}: ${JSON.stringify(updateData)}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Startup listing ${updated.companyName} updated successfully`,
+        data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Suspend / delete startup campaign
+   */
+  async deleteStartupListing(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+
+      const listing = await prisma.startupListing.update({
+        where: { id },
+        data: { status: 'SUSPENDED' },
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'SUSPEND_STARTUP_LISTING',
+          entity: 'StartupListing',
+          entityId: id,
+          details: `Suspended startup listing ${listing.companyName}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Startup listing ${listing.companyName} suspended successfully`,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * List P2P orders with search & status filters
+   */
+  async getP2POrders(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { status, page, limit } = req.query;
+      const pageNum = page ? parseInt(page as string, 10) : 1;
+      const limitNum = limit ? parseInt(limit as string, 10) : 30;
+      const skip = (pageNum - 1) * limitNum;
+
+      const where: any = {};
+      if (status && status !== 'ALL' && Object.values(P2POrderStatus).includes(status as any)) {
+        where.status = status as P2POrderStatus;
+      }
+
+      const [orders, total] = await Promise.all([
+        prisma.p2POrder.findMany({
+          where,
+          include: {
+            buyer: { select: { id: true, email: true, firstName: true, lastName: true } },
+            seller: { select: { id: true, email: true, firstName: true, lastName: true } },
+            offer: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limitNum,
+        }),
+        prisma.p2POrder.count({ where }),
+      ]);
+
+      res.json({
+        success: true,
+        data: orders,
+        meta: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(total / limitNum),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Resolve P2P Escrow Dispute
+   */
+  async resolveP2PDispute(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { resolution, reason } = req.body;
+
+      if (!['RELEASE_TO_BUYER', 'REFUND_TO_SELLER'].includes(resolution)) {
+        return res.status(400).json({ success: false, message: 'Resolution must be RELEASE_TO_BUYER or REFUND_TO_SELLER' });
+      }
+
+      const order = await prisma.p2POrder.findUnique({
+        where: { id },
+        include: { buyer: true, seller: true, offer: true },
+      });
+
+      if (!order) {
+        return res.status(404).json({ success: false, message: 'P2P Order not found' });
+      }
+
+      const nextStatus = resolution === 'RELEASE_TO_BUYER' ? P2POrderStatus.COMPLETED : P2POrderStatus.CANCELLED;
+
+      await prisma.p2POrder.update({
+        where: { id },
+        data: {
+          status: nextStatus,
+          disputeResolvedBy: adminUserId,
+          disputeReason: reason ? `[Admin ${resolution}]: ${reason}` : `Resolved by admin via ${resolution}`,
+        },
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'RESOLVE_P2P_DISPUTE',
+          entity: 'P2POrder',
+          entityId: id,
+          details: `Admin resolved P2P dispute on order ${order.orderCode} via ${resolution}. Reason: ${reason || 'N/A'}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Order ${order.orderCode} dispute resolved with status ${nextStatus}`,
+        resolution,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get immutable admin audit logs
+   */
+  async getAdminAuditLogs(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { action, entity, page, limit } = req.query;
+      const pageNum = page ? parseInt(page as string, 10) : 1;
+      const limitNum = limit ? parseInt(limit as string, 10) : 50;
+      const skip = (pageNum - 1) * limitNum;
+
+      const where: any = {};
+      if (action && typeof action === 'string' && action !== 'ALL') where.action = action;
+      if (entity && typeof entity === 'string' && entity !== 'ALL') where.entity = entity;
+
+      const [logs, total] = await Promise.all([
+        prisma.adminAuditLog.findMany({
+          where,
+          include: {
+            user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limitNum,
+        }),
+        prisma.adminAuditLog.count({ where }),
+      ]);
+
+      res.json({
+        success: true,
+        data: logs,
+        meta: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(total / limitNum),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get platform system status & broadcast announcement
+   */
+  async getSystemStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const settings = await prisma.cmsSetting.findMany({
+        where: { group: 'SYSTEM' },
+      });
+      const map: Record<string, string> = {};
+      settings.forEach((s) => (map[s.key] = s.value));
+
+      res.json({
+        success: true,
+        data: {
+          maintenanceMode: map['system_maintenance_mode'] === 'true',
+          maintenanceMessage: map['system_maintenance_message'] || 'Avora Bank systems are undergoing scheduled maintenance. Services will resume shortly.',
+          announcementEnabled: map['system_announcement_enabled'] === 'true',
+          announcementTitle: map['system_announcement_title'] || 'System Notice',
+          announcementMessage: map['system_announcement_message'] || '',
+          announcementType: map['system_announcement_type'] || 'info',
+          registrationsEnabled: map['system_registrations_enabled'] !== 'false',
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update platform system status & broadcast announcement
+   */
+  async updateSystemStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const {
+        maintenanceMode,
+        maintenanceMessage,
+        announcementEnabled,
+        announcementTitle,
+        announcementMessage,
+        announcementType,
+        registrationsEnabled,
+      } = req.body;
+
+      const pairs: Record<string, string> = {};
+      if (maintenanceMode !== undefined) pairs['system_maintenance_mode'] = String(maintenanceMode);
+      if (maintenanceMessage !== undefined) pairs['system_maintenance_message'] = String(maintenanceMessage);
+      if (announcementEnabled !== undefined) pairs['system_announcement_enabled'] = String(announcementEnabled);
+      if (announcementTitle !== undefined) pairs['system_announcement_title'] = String(announcementTitle);
+      if (announcementMessage !== undefined) pairs['system_announcement_message'] = String(announcementMessage);
+      if (announcementType !== undefined) pairs['system_announcement_type'] = String(announcementType);
+      if (registrationsEnabled !== undefined) pairs['system_registrations_enabled'] = String(registrationsEnabled);
+
+      for (const [key, value] of Object.entries(pairs)) {
+        await prisma.cmsSetting.upsert({
+          where: { key },
+          update: { value },
+          create: { group: 'SYSTEM', key, value, description: 'System control parameter' },
+        });
+      }
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'UPDATE_SYSTEM_STATUS',
+          entity: 'CmsSetting',
+          details: `Updated platform system parameters: ${JSON.stringify(pairs)}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: 'Platform system controls updated successfully',
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Institutional Analytics & KPI Overview
+   */
+  async getPlatformOverviewAnalytics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const [
+        totalUsers,
+        totalPackages,
+        activePackages,
+        pendingDeposits,
+        pendingWithdrawals,
+        pendingKyc,
+        totalStartups,
+        totalTransfers,
+        totalTickets,
+      ] = await Promise.all([
+        prisma.user.count(),
+        prisma.investmentPackage.count(),
+        prisma.investmentPackage.findMany({
+          where: { status: PackageStatus.ACTIVE },
+          select: { amount: true },
+        }),
+        prisma.depositRequest.count({ where: { status: DepositStatus.PENDING } }),
+        prisma.withdrawalRequest.count({ where: { status: { in: [WithdrawalStatus.REQUESTED, WithdrawalStatus.UNDER_REVIEW] } } }),
+        prisma.kycDocument.count({ where: { status: KycStatus.PENDING } }),
+        prisma.startupListing.count({ where: { status: 'PUBLISHED' } }),
+        prisma.globalTransfer.count(),
+        prisma.supportTicket.count({ where: { status: 'OPEN' } }),
+      ]);
+
+      const activeCapital = activePackages.reduce((acc, p) => acc + parseFloat(p.amount.toString()), 0);
+
+      res.json({
+        success: true,
+        data: {
+          totalUsers,
+          totalPackages,
+          activeCapital: activeCapital.toFixed(2),
+          activePackagesCount: activePackages.length,
+          pendingDeposits,
+          pendingWithdrawals,
+          pendingKyc,
+          totalStartups,
+          totalTransfers,
+          totalTickets,
+        },
       });
     } catch (err) {
       next(err);

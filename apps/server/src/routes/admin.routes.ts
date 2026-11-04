@@ -85,4 +85,33 @@ router.post(
   (req, res, next) => adminController.purgeDemoData(req, res, next)
 );
 
+
+// User Security & Account Controls
+router.post('/users/:id/reset-password', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resetUserPassword(req, res, next));
+router.post('/users/:id/disable-2fa', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.disableUser2FA(req, res, next));
+router.post('/users/:id/status', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUserStatus(req, res, next));
+
+// Global Money Transfer / Remittance Corridors
+router.get('/remittance/transfers', (req, res, next) => adminController.getRemittanceTransfers(req, res, next));
+router.patch('/remittance/transfers/:id', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.updateRemittanceTransfer(req, res, next));
+
+// Startups & Venture Equity Management
+router.post('/investments/listings', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.createStartupListing(req, res, next));
+router.put('/investments/listings/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateStartupListing(req, res, next));
+router.delete('/investments/listings/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.deleteStartupListing(req, res, next));
+
+// P2P Escrow & Dispute Resolution
+router.get('/p2p/orders', (req, res, next) => adminController.getP2POrders(req, res, next));
+router.post('/p2p/orders/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resolveP2PDispute(req, res, next));
+
+// Institutional Audit Logs
+router.get('/audit-logs', requireRole([Role.ADMIN]), (req, res, next) => adminController.getAdminAuditLogs(req, res, next));
+
+// System Controls & Announcement Broadcast
+router.get('/system/status', (req, res, next) => adminController.getSystemStatus(req, res, next));
+router.post('/system/settings', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateSystemStatus(req, res, next));
+
+// Platform Analytics Overview
+router.get('/analytics/overview', (req, res, next) => adminController.getPlatformOverviewAnalytics(req, res, next));
+
 export default router;
