@@ -654,7 +654,7 @@ export default function HomePage() {
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-cyan-500/40 hover:shadow-[0_0_30px_rgba(6,182,212,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-blue-500/10 to-slate-900 border border-cyan-500/30 text-cyan-500 dark:text-cyan-400 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.18)] transition-transform group-hover:scale-105">
+                <div className="w-12 h-12 rounded-2xl bg-cyan-50 dark:bg-slate-900 border border-cyan-200 dark:border-cyan-500/30 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shadow-md shadow-cyan-500/10 dark:shadow-[0_0_20px_rgba(6,182,212,0.18)] transition-transform group-hover:scale-105">
                   <Globe className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
@@ -686,7 +686,7 @@ export default function HomePage() {
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-amber-500/40 hover:shadow-[0_0_30px_rgba(245,158,11,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 via-yellow-500/10 to-slate-900 border border-amber-500/30 text-amber-500 dark:text-amber-400 flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.18)] transition-transform group-hover:scale-105">
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-slate-900 border border-amber-200 dark:border-amber-500/30 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-md shadow-amber-500/10 dark:shadow-[0_0_20px_rgba(245,158,11,0.18)] transition-transform group-hover:scale-105">
                   <Rocket className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
@@ -718,7 +718,7 @@ export default function HomePage() {
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 hover:shadow-[0_0_30px_rgba(16,185,129,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-slate-900 border border-emerald-500/30 text-emerald-500 dark:text-emerald-400 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.18)] transition-transform group-hover:scale-105">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-slate-900 border border-emerald-200 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-md shadow-emerald-500/10 dark:shadow-[0_0_20px_rgba(16,185,129,0.18)] transition-transform group-hover:scale-105">
                   <TrendingUp className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -750,7 +750,7 @@ export default function HomePage() {
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-rose-500/40 hover:shadow-[0_0_30px_rgba(244,63,94,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-500/20 via-red-500/10 to-slate-900 border border-rose-500/30 text-rose-500 dark:text-rose-400 flex items-center justify-center shadow-[0_0_20px_rgba(244,63,94,0.18)] transition-transform group-hover:scale-105">
+                <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-slate-900 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 flex items-center justify-center shadow-md shadow-rose-500/10 dark:shadow-[0_0_20px_rgba(244,63,94,0.18)] transition-transform group-hover:scale-105">
                   <Building2 className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
@@ -782,7 +782,7 @@ export default function HomePage() {
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-purple-500/40 hover:shadow-[0_0_30px_rgba(168,85,247,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500/20 via-indigo-500/10 to-slate-900 border border-purple-500/30 text-purple-500 dark:text-purple-400 flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.18)] transition-transform group-hover:scale-105">
+                <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-slate-900 border border-purple-200 dark:border-purple-500/30 text-purple-600 dark:text-purple-400 flex items-center justify-center shadow-md shadow-purple-500/10 dark:shadow-[0_0_20px_rgba(168,85,247,0.18)] transition-transform group-hover:scale-105">
                   <Users className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
@@ -814,7 +814,7 @@ export default function HomePage() {
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-indigo-500/40 hover:shadow-[0_0_30px_rgba(99,102,241,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/20 via-blue-500/10 to-slate-900 border border-indigo-500/30 text-indigo-500 dark:text-indigo-400 flex items-center justify-center shadow-[0_0_20px_rgba(99,102,241,0.18)] transition-transform group-hover:scale-105">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-500/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-md shadow-indigo-500/10 dark:shadow-[0_0_20px_rgba(99,102,241,0.18)] transition-transform group-hover:scale-105">
                   <CreditCard className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
@@ -846,7 +846,7 @@ export default function HomePage() {
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-teal-500/40 hover:shadow-[0_0_30px_rgba(20,184,166,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-500/20 via-emerald-500/10 to-slate-900 border border-teal-500/30 text-teal-500 dark:text-teal-400 flex items-center justify-center shadow-[0_0_20px_rgba(20,184,166,0.18)] transition-transform group-hover:scale-105">
+                <div className="w-12 h-12 rounded-2xl bg-teal-50 dark:bg-slate-900 border border-teal-200 dark:border-teal-500/30 text-teal-600 dark:text-teal-400 flex items-center justify-center shadow-md shadow-teal-500/10 dark:shadow-[0_0_20px_rgba(20,184,166,0.18)] transition-transform group-hover:scale-105">
                   <Coins className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
@@ -878,7 +878,7 @@ export default function HomePage() {
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-emerald-500/40 hover:shadow-[0_0_30px_rgba(16,185,129,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-700/30 via-emerald-500/15 to-slate-900 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.18)] transition-transform group-hover:scale-105">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-slate-900 border border-emerald-200 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-md shadow-emerald-500/10 dark:shadow-[0_0_20px_rgba(16,185,129,0.18)] transition-transform group-hover:scale-105">
                   <ShieldCheck className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
