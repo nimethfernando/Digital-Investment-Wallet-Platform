@@ -30,7 +30,7 @@ import {
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register } = useAuth();
+  const { register, user, isLoading } = useAuth();
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -39,6 +39,13 @@ export default function RegisterPage() {
     password: '',
     confirmPassword: '',
   });
+
+  // If user is already authenticated, redirect them away immediately so browser Back button does not show register form
+  useEffect(() => {
+    if (!isLoading && user) {
+      router.replace('/dashboard');
+    }
+  }, [user, isLoading, router]);
 
   // Country & Location state
   const [selectedCountry, setSelectedCountry] = useState<CountryItem>(DEFAULT_COUNTRY);
@@ -179,13 +186,21 @@ export default function RegisterPage() {
         password: formData.password,
       });
 
-      router.push('/dashboard');
+      router.replace('/dashboard');
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Registration failed.'));
     } finally {
       setLoading(false);
     }
   };
+
+  if (isLoading || user) {
+    return (
+      <div className="min-h-[85vh] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center px-4 py-12">

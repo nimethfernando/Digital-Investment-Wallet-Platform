@@ -148,7 +148,7 @@ export default function AdminPortalPage() {
   // Auth Guard
   useEffect(() => {
     if (!isLoading && (!token || !isAdmin)) {
-      router.push('/login?redirect=/admin');
+      router.replace('/login?redirect=/admin');
     }
   }, [isLoading, token, isAdmin, router]);
 

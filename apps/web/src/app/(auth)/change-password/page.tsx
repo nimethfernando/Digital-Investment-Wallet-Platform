@@ -42,9 +42,9 @@ export default function ChangePasswordPage() {
       setSuccess(true);
       setTimeout(() => {
         if (user?.role === 'ADMIN') {
-          router.push('/admin');
+          router.replace('/admin');
         } else {
-          router.push('/dashboard');
+          router.replace('/dashboard');
         }
       }, 1500);
     } catch (err: any) {

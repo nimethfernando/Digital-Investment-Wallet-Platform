@@ -345,7 +345,7 @@ function DashboardContent() {
   // Auth gate
   useEffect(() => {
     if (!authLoading && !token) {
-      router.push('/login');
+      router.replace('/login');
     }
   }, [authLoading, token, router]);
 

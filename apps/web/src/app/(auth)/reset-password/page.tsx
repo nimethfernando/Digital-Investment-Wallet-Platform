@@ -55,7 +55,7 @@ function ResetPasswordForm() {
 
       setSuccess(true);
       setTimeout(() => {
-        router.push('/login?reset=success');
+        router.replace('/login?reset=success');
       }, 3000);
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Failed to reset password. The link or token may be invalid or expired.'));

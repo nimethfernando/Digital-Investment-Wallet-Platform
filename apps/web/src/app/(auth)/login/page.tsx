@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
@@ -11,7 +11,7 @@ import { Lock, Mail, KeyRound, AlertCircle, ArrowRight, ShieldCheck } from 'luci
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, user, isLoading } = useAuth();
   const { t } = useLanguage();
 
   const [email, setEmail] = useState('');
@@ -20,6 +20,24 @@ export default function LoginPage() {
   const [requires2FA, setRequires2FA] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // If user is already authenticated, redirect them away immediately so clicking browser Back button does not show login form
+  useEffect(() => {
+    if (!isLoading && user) {
+      const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const redirectUrl = searchParams?.get('redirect');
+
+      if (user.mustChangePassword) {
+        router.replace('/change-password');
+      } else if (user.role === 'ADMIN') {
+        router.replace('/admin');
+      } else if (redirectUrl && redirectUrl.startsWith('/')) {
+        router.replace(redirectUrl);
+      } else {
+        router.replace('/dashboard');
+      }
+    }
+  }, [user, isLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,14 +55,16 @@ export default function LoginPage() {
       const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
       const redirectUrl = searchParams?.get('redirect');
 
+      // Use router.replace so /login is removed from browser history stack.
+      // This prevents the browser Back button from returning the user to the login page.
       if (res.user?.mustChangePassword) {
-        router.push('/change-password');
+        router.replace('/change-password');
       } else if (res.user?.role === 'ADMIN') {
-        router.push('/admin');
+        router.replace('/admin');
       } else if (redirectUrl && redirectUrl.startsWith('/')) {
-        router.push(redirectUrl);
+        router.replace(redirectUrl);
       } else {
-        router.push('/dashboard');
+        router.replace('/dashboard');
       }
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Login failed. Please check credentials.'));
@@ -52,6 +72,14 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  if (isLoading || user) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-4 py-12">
