@@ -6,6 +6,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { api, extractErrorMessage } from '../lib/api';
 import { BLOG_POSTS_DATA, formatBlogDate } from '../lib/blog-data';
+import { PersonaIndustryCarousel } from '../components/PersonaIndustryCarousel';
 import {
   TrendingUp,
   ShieldCheck,
@@ -574,6 +575,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* WHO IT'S FOR: WALLESTER-STYLE PERSONA & INDUSTRY CAROUSEL */}
+      <PersonaIndustryCarousel />
 
       {/* AVORA BANK FACILITIES & MEMBER PORTAL (CYRENE / NETSEPIO STYLE) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
