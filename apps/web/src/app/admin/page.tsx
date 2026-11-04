@@ -197,9 +197,11 @@ export default function AdminPortalPage() {
       setDepositsLoading(true);
       try {
         const res = await api.get('/admin/deposits');
-        if (res.data?.success) setDeposits(res.data.data || []);
+        const rawDeposits = res.data?.data?.deposits || res.data?.deposits || res.data?.data;
+        setDeposits(Array.isArray(rawDeposits) ? rawDeposits : []);
       } catch (e) {
         console.error('Failed to load deposits:', e);
+        setDeposits([]);
       } finally {
         setDepositsLoading(false);
       }
@@ -660,9 +662,9 @@ export default function AdminPortalPage() {
             { id: 'treasury', label: 'Treasury & Ledger', icon: Landmark },
             { id: 'packages', label: `Packages & Yields (${adminPackages.length})`, icon: Package },
             { id: 'investments', label: `Startup Portfolios & Exits (${adminInvestments.length})`, icon: Building },
-            { id: 'deposits', label: `Deposits (${deposits.filter((d) => d.status === 'PENDING').length})`, icon: Coins },
+            { id: 'deposits', label: `Deposits (${(Array.isArray(deposits) ? deposits : []).filter((d) => d?.status === 'PENDING').length})`, icon: Coins },
             { id: 'addresses', label: 'Receiver Addresses & QR', icon: QrCode },
-            { id: 'withdrawals', label: `Settlements (${withdrawals.filter((w) => ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w.status)).length})`, icon: Clock },
+            { id: 'withdrawals', label: `Settlements (${(Array.isArray(withdrawals) ? withdrawals : []).filter((w) => ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w?.status)).length})`, icon: Clock },
             { id: 'kyc', label: `KYC Compliance (${kycDocs.length})`, icon: UserCheck },
             { id: 'disputes', label: `Tickets (${tickets.length})`, icon: MessageSquare },
           ].map((t) => {
@@ -1255,8 +1257,8 @@ export default function AdminPortalPage() {
         {activeTab === 'deposits' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-extrabold text-base text-white">Deposit Requests ({deposits.length})</h3>
-              <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1">
+              <h3 className="font-extrabold text-base text-white">Deposit Requests ({Array.isArray(deposits) ? deposits.length : 0})</h3>
+              <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1 cursor-pointer">
                 <RefreshCw className="w-3.5 h-3.5" /> Refresh
               </button>
             </div>
@@ -1265,20 +1267,20 @@ export default function AdminPortalPage() {
               <div className="p-12 text-center text-slate-500">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500" />
               </div>
-            ) : deposits.length === 0 ? (
+            ) : (!Array.isArray(deposits) || deposits.length === 0) ? (
               <div className="p-12 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
                 No deposit requests awaiting clearance.
               </div>
             ) : (
               <div className="space-y-3">
-                {deposits.map((dep) => (
+                {(Array.isArray(deposits) ? deposits : []).map((dep) => (
                   <div
                     key={dep.id}
                     className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3"
                   >
                     <div className="space-y-1 text-xs">
                       <div className="font-bold text-white text-sm flex items-center gap-2">
-                        <span>{parseFloat(dep.amount).toFixed(2)} {dep.currency}</span>
+                        <span>{parseFloat(dep.amount || '0').toFixed(2)} {dep.currency || 'USDT'}</span>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           dep.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'
                         }`}>
@@ -1291,6 +1293,19 @@ export default function AdminPortalPage() {
                       <div className="text-slate-500 font-mono text-[11px]">
                         Ref/Hash: {dep.txHashOrRef || 'None'}
                       </div>
+                      {dep.proofUrl && (
+                        <div className="pt-1">
+                          <a
+                            href={dep.proofUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-emerald-400 hover:underline flex items-center gap-1"
+                          >
+                            <span>View Deposit Proof</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      )}
                     </div>
 
                     {dep.status === 'PENDING' && (

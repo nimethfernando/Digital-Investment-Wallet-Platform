@@ -74,7 +74,16 @@ export class AdminController {
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
       });
-      res.json({ success: true, data: result });
+      res.json({
+        success: true,
+        data: result.deposits,
+        deposits: result.deposits,
+        meta: {
+          total: result.total,
+          page: result.page,
+          totalPages: result.totalPages,
+        },
+      });
     } catch (err) {
       next(err);
     }
