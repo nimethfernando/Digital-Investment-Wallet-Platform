@@ -141,3 +141,4 @@ export const POPULAR_CORRIDORS: GmtCountryItem[] = [
   GMT_GLOBAL_COUNTRIES[8], // Australia
   GMT_GLOBAL_COUNTRIES[9], // Singapore
 ];
+

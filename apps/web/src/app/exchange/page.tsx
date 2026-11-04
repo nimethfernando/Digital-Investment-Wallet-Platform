@@ -30,6 +30,7 @@ import {
   Check,
   Lock,
 } from 'lucide-react';
+import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 
 interface OtcDeskItem {
   id: string;
@@ -515,11 +516,18 @@ export default function ExchangeDeskPage() {
 
           {/* Location Filters */}
           <div className="flex flex-wrap items-center gap-2">
+            <SearchableCountrySelect
+              showAllOption
+              allOptionLabel="All Desks (Global)"
+              value={selectedCountry}
+              onChange={(c) => setSelectedCountry(c.code)}
+              size="sm"
+            />
             {[
               { code: 'ALL', label: 'All Desks' },
-              { code: 'LK', label: '🇱🇰 Sri Lanka (Colombo)' },
-              { code: 'AE', label: '🇦🇪 UAE (Dubai)' },
-              { code: 'GE', label: '🇬🇪 Georgia (Tbilisi)' },
+              { code: 'LK', label: '🇱🇰 Sri Lanka' },
+              { code: 'AE', label: '🇦🇪 UAE' },
+              { code: 'GE', label: '🇬🇪 Georgia' },
             ].map((country) => (
               <button
                 key={country.code}
@@ -909,13 +917,14 @@ export default function ExchangeDeskPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Country</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Sri Lanka"
-                    value={applyCountry}
-                    onChange={(e) => setApplyCountry(e.target.value)}
-                    className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                  <SearchableCountrySelect
+                    value={applyCountryCode || applyCountry}
+                    onChange={(c) => {
+                      setApplyCountry(c.name);
+                      setApplyCountryCode(c.code);
+                    }}
+                    size="sm"
+                    className="mt-1 w-full"
                   />
                 </div>
                 <div>

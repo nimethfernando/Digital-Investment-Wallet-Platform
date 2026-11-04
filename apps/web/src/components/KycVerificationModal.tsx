@@ -20,6 +20,7 @@ import {
   RefreshCw,
   FileCheck,
 } from 'lucide-react';
+import { SearchableCountrySelect } from './SearchableCountrySelect';
 
 interface KycVerificationModalProps {
   isOpen: boolean;
@@ -519,12 +520,12 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
 
                 <div>
                   <label className="text-slate-400 block mb-1">Issuing Country</label>
-                  <input
-                    type="text"
+                  <SearchableCountrySelect
                     value={country}
-                    onChange={(e) => setCountry(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
-                    placeholder="United States, United Kingdom, etc."
+                    onChange={(c) => setCountry(c.name)}
+                    size="sm"
+                    placeholder="Select Issuing Country..."
+                    className="w-full"
                   />
                 </div>
 

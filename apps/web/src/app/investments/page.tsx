@@ -29,6 +29,7 @@ import {
   Check,
   Award,
 } from 'lucide-react';
+import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 
 interface StartupItem {
   id: string;
@@ -327,17 +328,13 @@ export default function InvestmentsMarketplacePage() {
 
         {/* Country & Instrument Selectors */}
         <div className="flex flex-wrap items-center gap-2">
-          <select
+          <SearchableCountrySelect
+            showAllOption
+            allOptionLabel="All Countries"
             value={countryFilter}
-            onChange={(e) => setCountryFilter(e.target.value)}
-            className="px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
-          >
-            <option value="ALL">All Countries</option>
-            <option value="US">🇺🇸 United States</option>
-            <option value="DE">🇩🇪 Germany (EU)</option>
-            <option value="LK">🇱🇰 Sri Lanka</option>
-            <option value="AE">🇦🇪 UAE (Dubai)</option>
-          </select>
+            onChange={(c) => setCountryFilter(c.code)}
+            size="sm"
+          />
 
           <select
             value={instrumentFilter}
@@ -633,13 +630,14 @@ export default function InvestmentsMarketplacePage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Country</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="United States"
-                    value={founderCountry}
-                    onChange={(e) => setFounderCountry(e.target.value)}
-                    className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                  <SearchableCountrySelect
+                    value={founderCountryCode || founderCountry}
+                    onChange={(c) => {
+                      setFounderCountry(c.name);
+                      setFounderCountryCode(c.code);
+                    }}
+                    size="sm"
+                    className="mt-1 w-full"
                   />
                 </div>
                 <div>

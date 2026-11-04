@@ -37,6 +37,7 @@ import {
   HelpCircle,
   Award,
 } from 'lucide-react';
+import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 
 interface CountryRail {
   id: string;
@@ -1229,19 +1230,13 @@ export default function P2PPage() {
 
               {/* Fiat Currency */}
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Target Currency</label>
-                <select
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Target Currency (Global)</label>
+                <SearchableCountrySelect
                   value={newAdCurrency}
-                  onChange={(e) => setNewAdCurrency(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold outline-none"
-                >
-                  <option value="LKR">🇱🇰 Sri Lankan Rupee (LKR)</option>
-                  <option value="INR">🇮🇳 Indian Rupee (INR)</option>
-                  <option value="AED">🇦🇪 UAE Dirham (AED)</option>
-                  <option value="GEL">🇬🇪 Georgian Lari (GEL)</option>
-                  <option value="EUR">🇪🇺 Euro (EUR)</option>
-                  <option value="USD">🇺🇸 US Dollar (USD)</option>
-                </select>
+                  onChange={(c) => setNewAdCurrency(c.currency)}
+                  size="sm"
+                  className="w-full"
+                />
               </div>
 
               {/* Unit Price */}
