@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { api, extractErrorMessage } from '../../lib/api';
 import {
   Users,
   FileText,
@@ -519,7 +519,7 @@ export default function P2PPage() {
         }, 1200);
       }
     } catch (err: any) {
-      setNewAdError(err.response?.data?.message || 'Failed to publish advertisement.');
+      setNewAdError(extractErrorMessage(err, 'Failed to publish advertisement.'));
     } finally {
       setNewAdLoading(false);
     }

@@ -643,6 +643,10 @@ export class P2PService {
     paymentMethods: string[];
     paymentTerms?: string;
   }) {
+    if (!userId) {
+      throw new Error('Authentication required. Please sign in before creating a P2P advertisement.');
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, isP2pMerchant: true, p2pDepositLocked: true, kycStatus: true, email: true },
@@ -1222,6 +1226,16 @@ export class P2PService {
    * Get current user's P2P merchant status and deposit info ($50 security deposit model)
    */
   async getP2pMerchantStatus(userId: string) {
+    if (!userId) {
+      return {
+        isP2pMerchant: false,
+        p2pDepositLocked: 0,
+        depositRequired: 50.0,
+        isKycApproved: false,
+        kycStatus: 'NOT_STARTED',
+      };
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -1248,6 +1262,10 @@ export class P2PService {
    * Apply for P2P Merchant status by locking $50 security deposit
    */
   async applyP2pMerchant(userId: string) {
+    if (!userId) {
+      throw new Error('Authentication required. Please sign in to apply for P2P Merchant.');
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, kycStatus: true, isP2pMerchant: true, p2pDepositLocked: true, status: true },
@@ -1348,6 +1366,10 @@ export class P2PService {
    * Request refund of $50 P2P merchant deposit and revoke merchant status
    */
   async refundP2pMerchant(userId: string) {
+    if (!userId) {
+      throw new Error('Authentication required. Please sign in.');
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, isP2pMerchant: true, p2pDepositLocked: true },

@@ -84,6 +84,9 @@ export class P2PController {
   async createOffer(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).user?.id || (req as any).user?.userId;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Authentication required. Please sign in to create an advertisement.' });
+      }
       const result = await p2pService.createOffer(userId, req.body);
       res.status(201).json(result);
     } catch (err) {
@@ -97,6 +100,9 @@ export class P2PController {
   async cancelOffer(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).user?.id || (req as any).user?.userId;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Authentication required. Please sign in.' });
+      }
       const offerId = req.params.offerId as string;
       const result = await p2pService.cancelOffer(userId, offerId);
       res.json(result);
@@ -293,6 +299,9 @@ export class P2PController {
   async applyMerchant(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).user?.id || (req as any).user?.userId;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Authentication required. Please sign in.' });
+      }
       const result = await p2pService.applyP2pMerchant(userId);
       res.status(201).json(result);
     } catch (err) {
@@ -306,6 +315,9 @@ export class P2PController {
   async refundMerchant(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).user?.id || (req as any).user?.userId;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Authentication required. Please sign in.' });
+      }
       const result = await p2pService.refundP2pMerchant(userId);
       res.json(result);
     } catch (err) {
