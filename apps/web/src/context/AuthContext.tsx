@@ -66,6 +66,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .catch(() => {});
     }
+    // Cross-tab Session Sync: Keep user & token reactive across multiple open tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'avora_token' || e.key === 'avora_user') {
+        const currentToken = localStorage.getItem('avora_token');
+        const currentUser = localStorage.getItem('avora_user');
+        if (currentToken && currentUser) {
+          try {
+            setToken(currentToken);
+            setUser(JSON.parse(currentUser));
+          } catch {
+            setToken(null);
+            setUser(null);
+          }
+        } else {
+          setToken(null);
+          setUser(null);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   // Session Management: Auto-logout after 15 minutes of user inactivity
