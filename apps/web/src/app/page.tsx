@@ -195,18 +195,18 @@ export default function HomePage() {
             
             <div className="lg:col-span-7 space-y-6">
               {/* Telemetry Node Pill */}
-              <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 text-xs font-mono tracking-tight shadow-[0_0_20px_rgba(16,185,129,0.15)]">
-                <span className="relative flex h-2 w-2">
+              <div className="inline-flex max-w-full items-center gap-2 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 text-[11px] sm:text-xs font-mono tracking-tight shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+                <span className="relative flex h-2 w-2 shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                 </span>
-                <span className="font-bold">AVORA_CORE // AUTONOMOUS_FINANCIAL_NODE</span>
-                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 border-l border-emerald-500/30 pl-2">
-                  LEDGER_v2.6
+                <span className="font-bold truncate">AVORA_CORE // AUTONOMOUS_NODE</span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 border-l border-emerald-500/30 pl-2 shrink-0">
+                  v2.6
                 </span>
               </div>
 
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.1]">
+              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.1]">
                 Predictable Growth with{' '}
                 <span className="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 bg-clip-text text-transparent drop-shadow-[0_0_25px_rgba(16,185,129,0.25)]">
                   Double-Entry Ledger
@@ -214,14 +214,14 @@ export default function HomePage() {
                 Integrity.
               </h1>
 
-              <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
+              <p className="text-sm sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
                 Fixed-term digital investment packages ($1,000–$10,000) with 1% target monthly return, 6-month lock-in, virtual cards, and institutional OTC settlement operating daily until 21:00 GCC time.
               </p>
 
-              <div className="flex flex-wrap items-center gap-3 pt-2">
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 pt-2">
                 <Link
                   href="/packages"
-                  className="px-6 py-3.5 rounded-2xl font-black text-sm text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 shadow-xl shadow-emerald-500/20 transition-all flex items-center gap-2 hover:scale-[1.02]"
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-2xl font-black text-sm text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 shadow-xl shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 hover:scale-[1.02]"
                 >
                   <span>Explore Packages</span>
                   <ChevronRight className="w-4 h-4 text-emerald-300" />
@@ -229,46 +229,46 @@ export default function HomePage() {
 
                 <Link
                   href="/transfer"
-                  className="px-6 py-3.5 rounded-2xl font-bold text-sm text-cyan-800 dark:text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all flex items-center gap-2"
+                  className="flex-1 sm:flex-none px-4 sm:px-6 py-3.5 rounded-2xl font-bold text-xs sm:text-sm text-cyan-800 dark:text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all flex items-center justify-center gap-2"
                 >
                   <Globe className="w-4 h-4 text-cyan-500" />
-                  <span>Global Money Transfer</span>
+                  <span>Global Transfer</span>
                 </Link>
 
                 <Link
                   href="/exchange"
-                  className="px-6 py-3.5 rounded-2xl font-bold text-sm text-slate-800 dark:text-white border border-slate-300 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors flex items-center gap-2"
+                  className="flex-1 sm:flex-none px-4 sm:px-6 py-3.5 rounded-2xl font-bold text-xs sm:text-sm text-slate-800 dark:text-white border border-slate-300 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors flex items-center justify-center gap-2"
                 >
                   <ArrowRightLeft className="w-4 h-4 text-emerald-500" />
-                  <span>Digital OTC Desk</span>
+                  <span>OTC Desk</span>
                 </Link>
               </div>
 
               {/* High-Tech Telemetry Stats Grid */}
-              <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-200 dark:border-slate-800/80">
-                <div className="p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
-                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-500 font-bold uppercase">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <div className="grid grid-cols-3 gap-2 sm:gap-4 pt-6 border-t border-slate-200 dark:border-slate-800/80">
+                <div className="p-2 sm:p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
+                  <div className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] font-mono text-emerald-500 font-bold uppercase truncate">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
                     Target Return
                   </div>
-                  <p className="text-2xl font-black text-slate-900 dark:text-white font-mono mt-0.5">1.0%</p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Monthly Yield Credit</p>
+                  <p className="text-lg sm:text-2xl font-black text-slate-900 dark:text-white font-mono mt-0.5">1.0%</p>
+                  <p className="text-[9px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Monthly Yield</p>
                 </div>
-                <div className="p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
-                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-cyan-500 font-bold uppercase">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                    Lock-In Term
+                <div className="p-2 sm:p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
+                  <div className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] font-mono text-cyan-500 font-bold uppercase truncate">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                    Lock-In
                   </div>
-                  <p className="text-2xl font-black text-slate-900 dark:text-white font-mono mt-0.5">6 Months</p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Independent FD Vault</p>
+                  <p className="text-lg sm:text-2xl font-black text-slate-900 dark:text-white font-mono mt-0.5">6 Mos</p>
+                  <p className="text-[9px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-tight">FD Vault</p>
                 </div>
-                <div className="p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
-                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-rose-500 font-bold uppercase">
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                <div className="p-2 sm:p-3.5 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 backdrop-blur-sm">
+                  <div className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] font-mono text-rose-500 font-bold uppercase truncate">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
                     Settlement
                   </div>
-                  <p className="text-2xl font-black text-rose-500 dark:text-rose-400 font-mono mt-0.5">Instant</p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">SEPA, Wire &amp; TRC-20</p>
+                  <p className="text-lg sm:text-2xl font-black text-rose-500 dark:text-rose-400 font-mono mt-0.5">Instant</p>
+                  <p className="text-[9px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-tight">SEPA &amp; USDT</p>
                 </div>
               </div>
             </div>
@@ -319,7 +319,7 @@ export default function HomePage() {
                   <div className="space-y-4 animate-in fade-in zoom-in-95 duration-300">
                     <div className="relative pt-3 pb-3">
                       {/* Floating Micro-Badge Top Right: Live Monthly Yield */}
-                      <div className="absolute -top-1 -right-2 sm:-right-3 z-20 animate-bounce duration-1000 p-2 sm:p-2.5 rounded-2xl bg-slate-900/95 border border-emerald-500/50 text-white shadow-xl backdrop-blur-md flex items-center gap-2">
+                      <div className="absolute -top-2 right-1 sm:-right-3 z-20 animate-bounce duration-1000 p-2 sm:p-2.5 rounded-2xl bg-slate-900/95 border border-emerald-500/50 text-white shadow-xl backdrop-blur-md flex items-center gap-2">
                         <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
                           <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
                         </div>
@@ -331,7 +331,7 @@ export default function HomePage() {
 
                       {/* 3D Isometric Card Presentation */}
                       <div
-                        className="relative mx-auto w-full max-w-[370px] h-[215px] sm:h-[225px] rounded-3xl p-5 sm:p-6 text-white shadow-2xl transition-all duration-500 group hover:scale-[1.02] cursor-pointer overflow-hidden border border-emerald-500/40"
+                        className="relative mx-auto w-full max-w-[370px] h-[200px] sm:h-[225px] rounded-3xl p-4 sm:p-6 text-white shadow-2xl transition-all duration-500 group hover:scale-[1.02] cursor-pointer overflow-hidden border border-emerald-500/40"
                         style={{
                           background: 'linear-gradient(135deg, #070a12 0%, #0d1e1f 45%, #064e3b 85%, #0f766e 100%)',
                           boxShadow: '0 25px 50px -12px rgba(16, 185, 129, 0.4), 0 0 0 1px rgba(16, 185, 129, 0.25)',
@@ -422,7 +422,7 @@ export default function HomePage() {
                       </div>
 
                       {/* Floating Micro-Badge Bottom Left: Apple / Google Pay */}
-                      <div className="absolute -bottom-2 -left-2 sm:-left-3 z-20 p-2 sm:p-2.5 rounded-2xl bg-slate-900/95 border border-slate-700/80 text-white shadow-xl backdrop-blur-md flex items-center gap-2">
+                      <div className="absolute -bottom-2 left-1 sm:-left-3 z-20 p-2 sm:p-2.5 rounded-2xl bg-slate-900/95 border border-slate-700/80 text-white shadow-xl backdrop-blur-md flex items-center gap-2">
                         <div className="w-6 h-6 rounded-lg bg-slate-800 text-slate-200 flex items-center justify-center shrink-0 border border-slate-700">
                           <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
                         </div>

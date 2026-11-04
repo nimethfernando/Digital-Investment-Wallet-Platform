@@ -20,9 +20,9 @@ export const AvoraBankLogo: React.FC<AvoraBankLogoProps> = ({
   symbolOnly = false,
 }) => {
   const sizeClasses = {
-    sm: 'h-8 sm:h-9',
-    md: 'h-10 xl:h-11 2xl:h-12',
-    lg: 'h-11 sm:h-12 xl:h-14',
+    sm: 'h-6 sm:h-8',
+    md: 'h-8 sm:h-10 xl:h-11 2xl:h-12',
+    lg: 'h-10 sm:h-12 xl:h-14',
   }[size];
 
   if (symbolOnly) {
