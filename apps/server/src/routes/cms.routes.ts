@@ -6,6 +6,7 @@ import {
   getAllSections,
   updateSection,
   submitInquiry,
+  subscribeNewsletter,
   getMyInquiries,
   getInquiries,
   updateInquiryStatus,
@@ -22,6 +23,7 @@ router.get('/sections/:page', getPageSections);
 router.get('/blogs', getBlogPosts);
 router.get('/blogs/:slug', getBlogPost);
 router.post('/inquiry', submitInquiry);
+router.post('/newsletter', subscribeNewsletter);
 router.get('/my-tickets', authenticateToken, getMyInquiries);
 
 // Admin-only CMS routes

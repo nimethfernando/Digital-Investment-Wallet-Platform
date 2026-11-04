@@ -12,6 +12,20 @@ const inquirySchema = z.object({
   message: z.string().min(10, 'Message must be at least 10 characters'),
 });
 
+const newsletterSchema = z.object({
+  email: z.string().email('Please enter a valid email address'),
+});
+
+export const subscribeNewsletter = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email } = newsletterSchema.parse(req.body);
+    const result = await cmsService.subscribeNewsletter(email);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getSettings = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const settings = await cmsService.getPublicSettings();

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
-import { api } from '../lib/api';
+import { api, extractErrorMessage } from '../lib/api';
 import { BLOG_POSTS_DATA, formatBlogDate } from '../lib/blog-data';
 import {
   TrendingUp,
@@ -36,6 +36,11 @@ import {
   LockKeyhole,
   Check,
   ArrowRight,
+  Mail,
+  Phone,
+  Send,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 export default function HomePage() {
@@ -48,7 +53,38 @@ export default function HomePage() {
   const totalMaturity = calcAmount + sixMonthReturn;
 
   const [settings, setSettings] = useState<Record<string, string>>({});
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
+  
+  // Hero Interactive Visual State
+  const [heroVisualTab, setHeroVisualTab] = useState<'card' | 'otc'>('card');
+  const [cardRevealed, setCardRevealed] = useState(false);
+
+  // Split FAQ State
+  const [faqCategory, setFaqCategory] = useState<'all' | 'yield' | 'cards' | 'otc' | 'security'>('all');
+  const [openFaq, setOpenFaq] = useState<string | null>('01');
+
+  // Newsletter subscription state
+  const [homeNewsletterEmail, setHomeNewsletterEmail] = useState('');
+  const [homeNewsletterLoading, setHomeNewsletterLoading] = useState(false);
+  const [homeNewsletterSuccess, setHomeNewsletterSuccess] = useState(false);
+  const [homeNewsletterMsg, setHomeNewsletterMsg] = useState<string | null>(null);
+
+  const handleHomeNewsletter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!homeNewsletterEmail.trim()) return;
+    setHomeNewsletterLoading(true);
+    setHomeNewsletterMsg(null);
+    try {
+      const res = await api.post('/cms/newsletter', { email: homeNewsletterEmail.trim() });
+      setHomeNewsletterSuccess(true);
+      setHomeNewsletterMsg(res.data.message || 'Subscription confirmed! A welcome briefing has been dispatched to your inbox.');
+      setHomeNewsletterEmail('');
+    } catch (err: any) {
+      setHomeNewsletterSuccess(false);
+      setHomeNewsletterMsg(extractErrorMessage(err, 'Failed to subscribe. Please try again.'));
+    } finally {
+      setHomeNewsletterLoading(false);
+    }
+  };
 
   useEffect(() => {
     api.get('/cms/settings')
@@ -60,34 +96,90 @@ export default function HomePage() {
 
   const faqs = [
     {
+      id: '01',
+      category: 'yield' as const,
+      badge: 'Fixed Yield Packages',
       q: 'What is the package investment structure at Avora Bank?',
-      a: 'Investment packages range from USD 1,000 to USD 10,000 per package. Every package generates a unique Package ID to track its purchase date, 6-month lock-in status, and target 1% monthly return independently.',
+      a: 'Investment packages range from USD 1,000 to USD 10,000 per package. Every package generates a unique immutable Package ID in our ledger, allowing you to track purchase dates, 6-month lock-in status, and target 1% monthly return independently.',
+      highlights: ['Multi-package portfolio capability', 'Independent 6-month vault lock-in', '1% monthly return credited on 1st of month'],
     },
     {
+      id: '02',
+      category: 'yield' as const,
+      badge: 'Monthly Returns',
       q: 'How are monthly returns credited and calculated?',
-      a: 'A target yield of 1.0% per month is calculated on active packages and credited automatically into your Avora internal wallet balance on the 1st of each calendar month via our immutable double-entry ledger.',
+      a: 'A target yield of 1.0% per month is calculated on active packages and credited automatically into your Avora internal wallet balance on the 1st of each calendar month via our atomic double-entry ledger. All distributions are immediately compounding or withdrawable.',
+      highlights: ['Automated 1st-of-month ledger crediting', 'Audited before-and-after balance logs', 'Zero manual claim actions required'],
     },
     {
+      id: '03',
+      category: 'yield' as const,
+      badge: 'Settlement Windows',
       q: 'How does the two-stage withdrawal settlement work?',
-      a: 'Withdrawal requests for monthly yields or matured principal can be submitted on the 1st of each calendar month, entering a 15-day administrative settlement queue for bank wire (SWIFT/SEPA) or direct USDT wallet settlement.',
+      a: 'Withdrawal requests for monthly yields or matured principal open exclusively on the 1st of each calendar month. Requests enter a 15-day administrative settlement queue where compliance checks are conducted, after which disbursements are executed via SWIFT/SEPA wire or direct USDT wallet transfer.',
+      highlights: ['Orderly treasury liquidity management', 'Settlement via verified bank wire or USDT', 'Automatic anti-fraud & compliance clearance'],
     },
     {
-      q: 'How does digital OTC settlement work?',
-      a: 'Avora Bank provides 24/7 institutional digital OTC settlement for large volume transactions. Trades settle directly to your verified bank wire (SEPA/SWIFT) or TRC-20/ERC-20 USDT wallet with tight benchmark spreads and cryptographic ledger security.',
-    },
-    {
+      id: '04',
+      category: 'cards' as const,
+      badge: 'Virtual Visa & BaaS',
       q: 'How does the Virtual Visa / Mastercard module work?',
-      a: 'Every Avora Bank account features an integrated Virtual Card interface from day one. It is built to seamlessly connect to licensed BaaS providers (Wallester / Marqeta) with spending limits, freeze toggles, and Apple/Google Pay tokenization.',
+      a: 'Every Avora Bank account includes an integrated Virtual Card module from day one. Designed with enterprise Banking-as-a-Service (BaaS) architecture compatible with Wallester and Marqeta, you can set granular spending limits, freeze or unfreeze instantly, and spend across millions of merchants globally.',
+      highlights: ['Instant card generation & activation', 'Real-time multi-currency settlement (USD/EUR)', 'Freeze/unfreeze switch & spend limits'],
     },
     {
+      id: '05',
+      category: 'cards' as const,
+      badge: 'Mobile Wallets',
+      q: 'Can I connect my Avora virtual card to Apple Pay & Google Wallet?',
+      a: 'Yes. The cards support standard EMV tokenization protocols for frictionless 1-tap addition to Apple Pay and Google Wallet, enabling tap-to-pay at POS terminals, contactless transit systems, and online checkout with biometric Face ID authentication.',
+      highlights: ['Instant tokenization via Apple Wallet & Google Pay', 'Contactless NFC POS compatibility worldwide', 'Biometric protection & token masking'],
+    },
+    {
+      id: '06',
+      category: 'otc' as const,
+      badge: 'OTC Liquidity Rails',
+      q: 'How does digital OTC settlement operate globally?',
+      a: 'Avora Bank provides 24/7 institutional digital OTC settlement for large volume transactions. Trades settle directly to your verified bank wire (SEPA/SWIFT) or TRC-20/ERC-20 USDT wallet with tight benchmark spreads, zero slippage, and cryptographic double-entry ledger security.',
+      highlights: ['Direct SEPA, SWIFT & USDT settlement rails', 'Tight institutional spreads (1.0% – 1.5%)', 'Dedicated partner desks in Dubai & Colombo'],
+    },
+    {
+      id: '07',
+      category: 'otc' as const,
+      badge: 'Global Remittance',
+      q: 'What are the fees and delivery times for cross-border remittance?',
+      a: 'Our global remittance service connects to 110+ destination countries. Transfers feature guaranteed exchange rates with transparent margin adjustments and a 3.0% flat transfer fee. Most corridors settle within 1 to 2 business days directly into the recipient\'s local bank account.',
+      highlights: ['110+ searchable countries worldwide', 'Real-time transparent fee & quote breakdown', 'Fast delivery directly to local recipient accounts'],
+    },
+    {
+      id: '08',
+      category: 'otc' as const,
+      badge: 'P2P Escrow',
       q: 'How does the P2P Escrow Trading Board protect buyers and sellers?',
-      a: 'Our P2P marketplace features automated ledger escrow. When a trade starts, the seller\'s USDT is locked in the Avora Vault until the seller confirms fiat payment receipt across 10 dynamic country rails (India UPI, UAE Bank, Bahrain BenefitPay, etc.).',
+      a: 'Our P2P marketplace features automated ledger escrow locking. When a trade is initiated, the seller\'s USDT is securely locked inside the Avora Vault until the seller verifies fiat payment receipt across regional payment rails (such as UPI, UAE Bank Transfer, BenefitPay, etc.). Disputes are mediated 24/7 by compliance officers.',
+      highlights: ['Vault escrow lock on trade creation', 'Zero counterparty risk for buyers', '10+ regional payment rails supported'],
     },
     {
+      id: '09',
+      category: 'security' as const,
+      badge: 'Double-Entry Ledger',
       q: 'What makes your double-entry ledger secure and API-independent?',
-      a: 'Our self-hosted double-entry ledger records every single financial transaction with Transaction ID, User ID, Package ID, before/after balances, and cryptographic idempotency. Debits always equal credits with zero dependence on 3rd-party banking APIs.',
+      a: 'Our self-hosted double-entry ledger records every single financial transaction with unique Transaction ID, User ID, Package ID, before/after balances, and cryptographic idempotency. Total debits always equal total credits with zero reliance on 3rd-party banking APIs or external custodial dependencies.',
+      highlights: ['Mathematically verifiable balance integrity', 'Zero 3rd-party banking API dependencies', 'Immutable audit trails & transaction hashes'],
+    },
+    {
+      id: '10',
+      category: 'security' as const,
+      badge: 'Capital Protection',
+      q: 'How does Avora Bank guarantee principal safety during market volatility?',
+      a: 'Avora Bank isolates investment package principals from speculative trading activities. Capital is backed by structured OTC spread revenue (1.0%–1.5% fee splits), high capital velocity liquidity pools, and conservative treasury reserves, ensuring your principal remains insulated from crypto market volatility.',
+      highlights: ['Isolated package vaults with 6-month terms', 'Non-speculative revenue from high-turnover OTC spreads', 'Full reserve backing with multi-sig protection'],
     },
   ];
+
+  const filteredFaqs = faqCategory === 'all' 
+    ? faqs 
+    : faqs.filter((f) => f.category === faqCategory);
 
   return (
     <div className="flex flex-col gap-20 pb-20">
@@ -181,76 +273,265 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* HERO RIGHT: LIVE OTC QUOTE BOX (High-Tech Floating 3D Terminal Card) */}
+            {/* HERO RIGHT: WALLESTER-STYLE 3D VIRTUAL VISA CARD & LIVE OTC INTERACTIVE TERMINAL */}
             <div className="lg:col-span-5 relative">
               {/* Ambient Backlight Aura */}
-              <div className="absolute -inset-2 bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-indigo-500/20 rounded-3xl blur-2xl opacity-75 animate-pulse-glow pointer-events-none" />
+              <div className="absolute -inset-2 bg-gradient-to-r from-emerald-500/25 via-cyan-500/20 to-indigo-500/25 rounded-3xl blur-2xl opacity-75 animate-pulse-glow pointer-events-none" />
 
-              <div className="relative animate-float rounded-3xl p-6 sm:p-8 corum-glass border border-slate-200/80 dark:border-slate-700/80 shadow-2xl space-y-5">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-200/80 dark:border-slate-700/60">
-                  <div className="flex items-center gap-2">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+              <div className="relative rounded-3xl p-5 sm:p-7 corum-glass border border-slate-200/80 dark:border-slate-700/80 shadow-2xl space-y-4">
+                
+                {/* Visual Mode Switcher (Wallester 3D Card vs Live OTC Quotes) */}
+                <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-inner">
+                  <button
+                    type="button"
+                    onClick={() => setHeroVisualTab('card')}
+                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      heroVisualTab === 'card'
+                        ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>3D Virtual Visa Card</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-950/20 text-slate-950 uppercase font-mono font-black">
+                      BaaS
                     </span>
-                    <span className="text-xs font-mono font-bold tracking-wider text-slate-900 dark:text-white uppercase">
-                      OTC_DESK // LIVE_QUOTE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHeroVisualTab('otc')}
+                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      heroVisualTab === 'otc'
+                        ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                    <span>OTC Quotes</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 uppercase font-mono font-bold">
+                      Live
                     </span>
-                  </div>
-                  <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold">
-                    1.5% FEE SPLIT
-                  </span>
+                  </button>
                 </div>
 
-                <div className="space-y-3.5">
-                  <div className="p-4 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between backdrop-blur-md hover:border-emerald-500/40 transition-colors">
-                    <div>
-                      <p className="text-[10px] font-mono uppercase text-slate-400">Benchmark Pair</p>
-                      <p className="font-bold text-base text-slate-900 dark:text-white font-mono flex items-center gap-1.5">
-                        USDT / USD <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20">PARITY</span>
+                {heroVisualTab === 'card' ? (
+                  /* WALLESTER 3D VIRTUAL VISA CARD PRESENTATION */
+                  <div className="space-y-4 animate-in fade-in zoom-in-95 duration-300">
+                    <div className="relative pt-3 pb-3">
+                      {/* Floating Micro-Badge Top Right: Live Monthly Yield */}
+                      <div className="absolute -top-1 -right-2 sm:-right-3 z-20 animate-bounce duration-1000 p-2 sm:p-2.5 rounded-2xl bg-slate-900/95 border border-emerald-500/50 text-white shadow-xl backdrop-blur-md flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                          <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-slate-400 font-mono uppercase tracking-wider">Yield Credited</p>
+                          <p className="text-xs font-mono font-black text-emerald-400">+$50.00 USD <span className="text-[9px] text-slate-400 font-normal">/ mo</span></p>
+                        </div>
+                      </div>
+
+                      {/* 3D Isometric Card Presentation */}
+                      <div
+                        className="relative mx-auto w-full max-w-[370px] h-[215px] sm:h-[225px] rounded-3xl p-5 sm:p-6 text-white shadow-2xl transition-all duration-500 group hover:scale-[1.02] cursor-pointer overflow-hidden border border-emerald-500/40"
+                        style={{
+                          background: 'linear-gradient(135deg, #070a12 0%, #0d1e1f 45%, #064e3b 85%, #0f766e 100%)',
+                          boxShadow: '0 25px 50px -12px rgba(16, 185, 129, 0.4), 0 0 0 1px rgba(16, 185, 129, 0.25)',
+                          perspective: '1000px',
+                          transform: 'rotateY(-5deg) rotateX(5deg)',
+                        }}
+                      >
+                        {/* Metallic Foil Reflection Glare */}
+                        <div className="absolute -inset-full bg-gradient-to-r from-transparent via-white/10 to-transparent -rotate-45 translate-x-[-100%] group-hover:translate-x-[200%] transition-transform duration-1000 pointer-events-none" />
+
+                        {/* Subtle Cyber Grid Texture */}
+                        <div className="absolute inset-0 bg-[radial-gradient(#10b98118_1px,transparent_1px)] [background-size:12px_12px] opacity-40 pointer-events-none" />
+
+                        <div className="relative z-10 h-full flex flex-col justify-between">
+                          {/* Card Header: Brand + Chip + Contactless */}
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-black text-sm tracking-widest text-emerald-400 font-mono">AVORA</span>
+                                <span className="text-[10px] tracking-widest text-slate-300 font-mono font-bold">BANK</span>
+                              </div>
+                              <p className="text-[8px] font-mono tracking-widest text-emerald-300/80 uppercase mt-0.5">
+                                Institutional Wealth &amp; BaaS
+                              </p>
+                            </div>
+
+                            {/* Contactless Waves */}
+                            <div className="flex items-center gap-2">
+                              <svg className="w-5 h-5 text-emerald-400/80 rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+                                <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+                                <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                                <line x1="12" y1="20" x2="12.01" y2="20" strokeWidth="3" />
+                              </svg>
+                            </div>
+                          </div>
+
+                          {/* Chip + Card Number */}
+                          <div className="space-y-2.5">
+                            {/* EMV Microchip */}
+                            <div className="w-10 h-7 rounded-md bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 p-0.5 border border-amber-300/80 shadow-md relative overflow-hidden">
+                              <div className="absolute inset-0 border border-amber-800/40 rounded-sm" />
+                              <div className="h-full w-full grid grid-cols-2 gap-0.5 opacity-70">
+                                <div className="border-r border-b border-amber-900/40" />
+                                <div className="border-b border-amber-900/40" />
+                                <div className="border-r border-amber-900/40" />
+                                <div />
+                              </div>
+                            </div>
+
+                            {/* Card Number */}
+                            <div className="flex items-center justify-between font-mono text-sm sm:text-base tracking-[0.18em] font-extrabold text-slate-100 drop-shadow">
+                              <span>{cardRevealed ? '4532 9982 7102 8842' : '4532  ••••  ••••  8842'}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setCardRevealed(!cardRevealed); }}
+                                className="text-slate-400 hover:text-white transition-colors p-1"
+                                title="Toggle card visibility"
+                              >
+                                {cardRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Card Footer: Holder + Expiry + Visa */}
+                          <div className="flex items-end justify-between pt-1">
+                            <div>
+                              <p className="text-[8px] font-mono uppercase tracking-widest text-slate-400">Cardholder</p>
+                              <p className="text-xs font-mono font-bold tracking-wider text-slate-100 uppercase">
+                                {user ? `${user.firstName} ${user.lastName}` : 'AVORA PRIVATE CLIENT'}
+                              </p>
+                            </div>
+
+                            <div className="text-center">
+                              <p className="text-[8px] font-mono uppercase tracking-widest text-slate-400">Valid Thru</p>
+                              <p className="text-xs font-mono font-bold text-slate-200">12/29</p>
+                            </div>
+
+                            {/* Visa Emblem */}
+                            <div className="text-right">
+                              <span className="font-black italic text-lg sm:text-xl tracking-tighter text-white drop-shadow">
+                                VISA
+                              </span>
+                              <p className="text-[7px] font-mono tracking-widest text-emerald-400 font-bold uppercase">Infinite</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Floating Micro-Badge Bottom Left: Apple / Google Pay */}
+                      <div className="absolute -bottom-2 -left-2 sm:-left-3 z-20 p-2 sm:p-2.5 rounded-2xl bg-slate-900/95 border border-slate-700/80 text-white shadow-xl backdrop-blur-md flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-slate-800 text-slate-200 flex items-center justify-center shrink-0 border border-slate-700">
+                          <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-slate-400 font-mono uppercase tracking-wider">Mobile Wallets</p>
+                          <p className="text-xs font-bold text-slate-200 flex items-center gap-1">
+                            Apple &amp; Google Pay <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Virtual Card Specs & Actions Under Card */}
+                    <div className="space-y-3 pt-2">
+                      <div className="grid grid-cols-2 gap-2.5 text-xs">
+                        <div className="p-3 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60">
+                          <span className="text-[9px] font-mono text-slate-400 uppercase">BaaS Infrastructure</span>
+                          <p className="font-mono font-bold text-xs text-slate-900 dark:text-white mt-0.5">Wallester &amp; Marqeta</p>
+                          <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1 mt-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Ready to Issue
+                          </span>
+                        </div>
+                        <div className="p-3 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60">
+                          <span className="text-[9px] font-mono text-slate-400 uppercase">Daily Spend Limit</span>
+                          <p className="font-mono font-bold text-xs text-slate-900 dark:text-white mt-0.5">$100,000 USD</p>
+                          <span className="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 font-bold flex items-center gap-1 mt-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> Multi-Currency
+                          </span>
+                        </div>
+                      </div>
+
+                      <Link
+                        href={user ? '/dashboard' : '/register'}
+                        className="w-full py-3.5 rounded-2xl font-black text-xs text-slate-950 bg-emerald-400 hover:bg-emerald-300 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 hover:scale-[1.02] cursor-pointer"
+                      >
+                        <CreditCard className="w-4 h-4 text-slate-950" />
+                        <span>Issue Virtual Visa Card</span>
+                        <ArrowRight className="w-4 h-4 text-slate-950" />
+                      </Link>
+                    </div>
+                  </div>
+                ) : (
+                  /* LIVE OTC QUOTE BOX */
+                  <div className="space-y-3.5 animate-in fade-in zoom-in-95 duration-300">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/60">
+                      <div className="flex items-center gap-2">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                        </span>
+                        <span className="text-xs font-mono font-bold tracking-wider text-slate-900 dark:text-white uppercase">
+                          OTC_DESK // LIVE_QUOTE
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold">
+                        1.5% FEE SPLIT
+                      </span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between backdrop-blur-md hover:border-emerald-500/40 transition-colors">
+                      <div>
+                        <p className="text-[10px] font-mono uppercase text-slate-400">Benchmark Pair</p>
+                        <p className="font-bold text-base text-slate-900 dark:text-white font-mono flex items-center gap-1.5">
+                          USDT / USD <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20">PARITY</span>
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-mono uppercase text-slate-400">Quoted Rate</p>
+                        <p className="font-mono font-black text-base text-emerald-600 dark:text-emerald-400">1.0000 USD</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-cyan-500/40 transition-colors">
+                        <span className="text-[10px] font-mono text-slate-400">LKR / USDT (Colombo)</span>
+                        <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">302.50 LKR</p>
+                        <span className="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 font-bold flex items-center gap-1 mt-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> WTC Tower 18
+                        </span>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-rose-500/40 transition-colors">
+                        <span className="text-[10px] font-mono text-slate-400">AED / USDT (Dubai)</span>
+                        <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">3.6725 AED</p>
+                        <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1 mt-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> DIFC Desk
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-cyan-500/10 border border-emerald-500/25 text-xs">
+                      <p className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5 font-mono text-[11px]">
+                        <Zap className="w-4 h-4 text-emerald-500" />
+                        INSTANT_SETTLEMENT // 24/7_RAILS
+                      </p>
+                      <p className="text-emerald-800 dark:text-emerald-400 mt-1 leading-relaxed text-[11px]">
+                        Instant digital OTC settlement directly to your verified bank wire (SEPA/SWIFT) or TRC-20 private wallet with cryptographic ledger verification.
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] font-mono uppercase text-slate-400">Quoted Rate</p>
-                      <p className="font-mono font-black text-base text-emerald-600 dark:text-emerald-400">1.0000 USD</p>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-cyan-500/40 transition-colors">
-                      <span className="text-[10px] font-mono text-slate-400">LKR / USDT (Colombo)</span>
-                      <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">302.50 LKR</p>
-                      <span className="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 font-bold flex items-center gap-1 mt-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> WTC Tower 18
-                      </span>
-                    </div>
-                    <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-rose-500/40 transition-colors">
-                      <span className="text-[10px] font-mono text-slate-400">AED / USDT (Dubai)</span>
-                      <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">3.6725 AED</p>
-                      <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1 mt-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> DIFC Desk
-                      </span>
-                    </div>
+                    <Link
+                      href="/exchange"
+                      className="w-full py-3.5 rounded-2xl font-black text-xs text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15 hover:scale-[1.02]"
+                    >
+                      <span>Open OTC Exchange Desks</span>
+                      <ArrowUpRight className="w-4 h-4 text-emerald-300" />
+                    </Link>
                   </div>
+                )}
 
-                  <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-cyan-500/10 border border-emerald-500/25 text-xs">
-                    <p className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5 font-mono text-[11px]">
-                      <Zap className="w-4 h-4 text-emerald-500" />
-                      INSTANT_SETTLEMENT // 24/7_RAILS
-                    </p>
-                    <p className="text-emerald-800 dark:text-emerald-400 mt-1 leading-relaxed text-[11px]">
-                      Instant digital OTC settlement directly to your verified bank wire (SEPA/SWIFT) or TRC-20 private wallet with cryptographic ledger verification.
-                    </p>
-                  </div>
-
-                  <Link
-                    href="/exchange"
-                    className="w-full py-3.5 rounded-2xl font-black text-xs text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15 hover:scale-[1.02]"
-                  >
-                    <span>Open OTC Exchange Desks</span>
-                    <ArrowUpRight className="w-4 h-4 text-emerald-300" />
-                  </Link>
-                </div>
               </div>
             </div>
 
@@ -870,42 +1151,236 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* FAQ SECTION */}
-      <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-10 space-y-2">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
-            Frequently Asked Questions
-          </h2>
-          <h3 className="text-3xl font-black text-slate-900 dark:text-white">
-            Avora Bank Banking & Liquidity FAQ
-          </h3>
-        </div>
+      {/* WALLESTER-STYLE SPLIT 2-COLUMN FAQ ARCHITECTURE */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+          
+          {/* LEFT COLUMN: STICKY PRIVATE CONCIERGE & CATEGORY SELECTOR */}
+          <div className="lg:col-span-5 lg:sticky lg:top-24 space-y-6">
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-mono font-bold tracking-wider uppercase">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                24/7 Concierge &amp; FAQ
+              </div>
 
-        <div className="space-y-3">
-          {faqs.map((faq, idx) => (
-            <div
-              key={idx}
-              className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden"
-            >
-              <button
-                onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                className="w-full text-left p-5 flex items-center justify-between font-bold text-sm text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-              >
-                <span>{faq.q}</span>
-                <ChevronDown
-                  className={`w-4 h-4 text-slate-400 transition-transform ${
-                    openFaq === idx ? 'rotate-180 text-emerald-500' : ''
-                  }`}
-                />
-              </button>
+              <h2 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
+                Any Questions? <br />
+                <span className="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 bg-clip-text text-transparent">
+                  We're Always Awake.
+                </span>
+              </h2>
 
-              {openFaq === idx && (
-                <div className="px-5 pb-5 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-800/60 pt-3">
-                  {faq.a}
-                </div>
-              )}
+              <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                Explore our core infrastructure, yield mechanics, and virtual card specs. Need immediate assistance? Talk directly with our global treasury desk.
+              </p>
             </div>
-          ))}
+
+            {/* Private Concierge Quick Connect Card */}
+            <div className="p-5 rounded-3xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 shadow-xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-900 dark:text-white">Private Concierge Desk</p>
+                    <p className="text-[10px] text-slate-500">Average response: &lt; 3 minutes</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold">
+                  ONLINE
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <a
+                  href="https://t.me/avorallc"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-3 rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/40 transition-all flex items-center gap-2.5 text-xs font-bold text-slate-800 dark:text-slate-200 hover:text-emerald-500 shadow-sm"
+                >
+                  <Send className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>Telegram @avorallc</span>
+                </a>
+
+                <a
+                  href="tel:+995555433091"
+                  className="p-3 rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/40 transition-all flex items-center gap-2.5 text-xs font-bold text-slate-800 dark:text-slate-200 hover:text-emerald-500 shadow-sm"
+                >
+                  <Phone className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>+995 555433091</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Category Filter Pills (Wallester Style) */}
+            <div className="space-y-2 pt-1">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Filter by Category
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: 'all', label: 'All Questions', count: faqs.length },
+                  { key: 'yield', label: 'Yield & FD Packages', count: faqs.filter(f => f.category === 'yield').length },
+                  { key: 'cards', label: 'Virtual Visa Cards', count: faqs.filter(f => f.category === 'cards').length },
+                  { key: 'otc', label: 'OTC & Remittance', count: faqs.filter(f => f.category === 'otc').length },
+                  { key: 'security', label: 'Ledger Security', count: faqs.filter(f => f.category === 'security').length },
+                ].map((cat) => (
+                  <button
+                    key={cat.key}
+                    type="button"
+                    onClick={() => {
+                      setFaqCategory(cat.key as any);
+                      const matching = cat.key === 'all' ? faqs[0] : faqs.find(f => f.category === cat.key);
+                      if (matching) setOpenFaq(matching.id);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      faqCategory === cat.key
+                        ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                        : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-400'
+                    }`}
+                  >
+                    <span>{cat.label}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      faqCategory === cat.key ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                    }`}>
+                      {cat.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+          </div>
+
+          {/* RIGHT COLUMN: ELEVATED INTERACTIVE ACCORDION CARDS */}
+          <div className="lg:col-span-7 space-y-3.5">
+            {filteredFaqs.map((faq) => {
+              const isOpen = openFaq === faq.id;
+              return (
+                <div
+                  key={faq.id}
+                  className={`rounded-3xl border transition-all duration-300 overflow-hidden ${
+                    isOpen
+                      ? 'border-emerald-500/50 bg-white dark:bg-slate-900/95 shadow-xl shadow-emerald-500/5 ring-1 ring-emerald-500/20'
+                      : 'border-slate-200 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenFaq(isOpen ? null : faq.id)}
+                    className="w-full text-left p-5 sm:p-6 flex items-start justify-between gap-4 cursor-pointer"
+                  >
+                    <div className="flex items-start gap-3.5">
+                      <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded-lg shrink-0 mt-0.5 ${
+                        isOpen
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                      }`}>
+                        {faq.id}
+                      </span>
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-mono tracking-wider uppercase font-bold text-emerald-600 dark:text-emerald-400">
+                          {faq.badge}
+                        </span>
+                        <h4 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white leading-snug">
+                          {faq.q}
+                        </h4>
+                      </div>
+                    </div>
+
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-300 ${
+                      isOpen
+                        ? 'bg-emerald-500/10 text-emerald-500 rotate-180'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+                    }`}>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="px-5 sm:px-6 pb-6 pt-1 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed border-t border-slate-100 dark:border-slate-800/80 space-y-4 animate-in fade-in duration-200">
+                      <p className="pt-2">{faq.a}</p>
+
+                      {faq.highlights && faq.highlights.length > 0 && (
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800/80 space-y-2">
+                          <p className="text-[11px] font-mono uppercase font-bold text-slate-400 tracking-wider">
+                            Key Specifications:
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            {faq.highlights.map((h, i) => (
+                              <div key={i} className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                <span>{h}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+        </div>
+      </section>
+
+      {/* AVORA FINANCIAL INTELLIGENCE BRIEFING (HOMEPAGE NEWSLETTER CARD) */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="rounded-3xl p-8 sm:p-12 bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white shadow-2xl relative overflow-hidden border border-emerald-500/30">
+          <div className="absolute right-0 top-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="relative z-10 max-w-3xl mx-auto text-center space-y-5">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-mono font-bold tracking-wider uppercase">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              Institutional Publication
+            </div>
+
+            <h3 className="text-3xl sm:text-4xl font-black tracking-tight text-white leading-tight">
+              Avora Financial Intelligence Briefing
+            </h3>
+
+            <p className="text-slate-300 text-sm leading-relaxed max-w-xl mx-auto">
+              Get weekly updates on fixed package yields, multi-currency virtual card limits, OTC liquidity spreads, and verified startup allocations directly in your inbox.
+            </p>
+
+            <form onSubmit={handleHomeNewsletter} className="max-w-lg mx-auto flex flex-col sm:flex-row gap-3 pt-2">
+              <div className="relative flex-1">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-4 top-3.5" />
+                <input
+                  type="email"
+                  required
+                  value={homeNewsletterEmail}
+                  onChange={(e) => setHomeNewsletterEmail(e.target.value)}
+                  placeholder="Enter your email for weekly briefings"
+                  className="w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-950/90 border border-slate-700 text-white placeholder-slate-400 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 shadow-inner"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={homeNewsletterLoading}
+                className="px-7 py-3 rounded-2xl font-black text-xs text-slate-950 bg-emerald-400 hover:bg-emerald-300 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 disabled:opacity-50 cursor-pointer shrink-0"
+              >
+                {homeNewsletterLoading ? 'Subscribing...' : 'Subscribe Free'}
+              </button>
+            </form>
+
+            {homeNewsletterMsg && (
+              <div className={`inline-flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-xl border ${
+                homeNewsletterSuccess
+                  ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
+                  : 'bg-rose-950/50 border-rose-500/40 text-rose-300'
+              }`}>
+                {homeNewsletterSuccess && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />}
+                <span>{homeNewsletterMsg}</span>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 

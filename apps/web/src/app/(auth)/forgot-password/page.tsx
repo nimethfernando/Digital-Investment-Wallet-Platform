@@ -48,7 +48,7 @@ export default function ForgotPasswordPage() {
         </div>
 
         {submitted ? (
-          <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs space-y-2">
+          <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs space-y-3">
             <div className="flex items-center gap-2 font-bold">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>Reset Email Dispatched</span>
@@ -56,6 +56,14 @@ export default function ForgotPasswordPage() {
             <p className="leading-relaxed">
               If an account is associated with <strong>{email}</strong>, check your inbox for instructions to reset your access credentials.
             </p>
+            <div className="pt-1">
+              <Link
+                href="/reset-password"
+                className="inline-flex items-center gap-1.5 font-bold text-emerald-700 dark:text-emerald-400 hover:underline"
+              >
+                <span>Have a reset token? Enter it here &rarr;</span>
+              </Link>
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">

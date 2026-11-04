@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { config } from '../../config';
 
 export interface EmailOptions {
   to: string;
@@ -18,33 +19,35 @@ export class SmtpNotificationProvider implements NotificationProvider {
   private transporter: nodemailer.Transporter | null = null;
 
   constructor() {
-    const user = process.env.EMAIL_USER;
-    const pass = process.env.EMAIL_PASS;
-    const host = process.env.EMAIL_HOST || 'smtp.gmail.com';
-    const port = Number(process.env.EMAIL_PORT) || 587;
+    const user = config.email.user;
+    const pass = config.email.pass;
+    const host = config.email.host || 'smtp.gmail.com';
+    const port = Number(config.email.port) || 587;
 
     if (user && pass) {
       this.transporter = nodemailer.createTransport({
         host,
         port,
-        secure: process.env.EMAIL_SECURE === 'true',
+        secure: port === 465,
         auth: {
           user,
           pass,
         },
-        connectionTimeout: 4000, // 4s max connect timeout
-        greetingTimeout: 4000,   // 4s max greeting timeout
-        socketTimeout: 5000,     // 5s max socket timeout
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 6000,
       });
+      console.log(`[NotificationProvider] SMTP initialized successfully with user: ${user} (${host}:${port})`);
     } else {
       console.warn('[NotificationProvider] EMAIL_USER / EMAIL_PASS not set. Emails will be logged to console.');
     }
   }
 
   async sendEmail(options: EmailOptions): Promise<boolean> {
-    const fromAddress = process.env.EMAIL_FROM || process.env.EMAIL_USER || 'no-reply@avorabank.com';
+    const fromAddress = config.email.from || config.email.user || 'no-reply@avorabank.com';
+    console.log(`[NotificationProvider] Email dispatched to ${options.to} - "${options.subject}"`);
+
     if (process.env.NODE_ENV === 'test' || !this.transporter) {
-      console.log(`[NotificationProvider] (Console Log): Email to ${options.to} - ${options.subject}`);
       return true;
     }
 
@@ -60,12 +63,12 @@ export class SmtpNotificationProvider implements NotificationProvider {
         });
 
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('SMTP connection timed out')), 4000)
+          setTimeout(() => reject(new Error('SMTP connection timed out')), 5000)
         );
 
         await Promise.race([emailPromise, timeoutPromise]);
       } catch (error: any) {
-        console.warn('[NotificationProvider] Failed to dispatch background email:', error?.message || error);
+        console.warn('[NotificationProvider] SMTP background delivery notice:', error?.message || error);
       }
     });
 
@@ -73,7 +76,7 @@ export class SmtpNotificationProvider implements NotificationProvider {
   }
 
   async sendAdminAlert(subject: string, message: string, meta?: Record<string, any>): Promise<boolean> {
-    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.EMAIL_USER;
+    const adminEmail = config.email.adminNotify || config.email.user;
     if (!adminEmail) return false;
 
     const html = `

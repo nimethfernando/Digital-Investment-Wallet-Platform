@@ -197,21 +197,49 @@ export class AuthService {
       },
     });
 
-    // Dispatch reset email (non-blocking)
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const resetUrl = `${clientUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(user.email)}`;
+
+    // Dispatch branded reset email
     notificationService.sendEmail({
       to: user.email,
-      subject: 'Password Reset Request - Avora Bank',
+      subject: 'Reset Your Avora Bank Password',
       html: `
-        <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
-          <h2>Password Reset Request</h2>
-          <p>We received a request to reset your password. Use the token below to set a new password:</p>
-          <div style="background: #f1f5f9; padding: 12px; font-family: monospace; font-size: 16px; border-radius: 6px; margin: 16px 0;">
-            ${resetToken}
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 580px; margin: 0 auto; background: #090d16; color: #f8fafc; padding: 36px; border-radius: 20px; border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 20px 40px rgba(0,0,0,0.6);">
+          <div style="border-bottom: 1px solid #1e293b; padding-bottom: 18px; margin-bottom: 24px;">
+            <h1 style="color: #10b981; margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">AVORA BANK</h1>
+            <p style="color: #94a3b8; font-size: 11px; margin: 4px 0 0 0; text-transform: uppercase; letter-spacing: 1px;">Security & Access Control</p>
           </div>
-          <p>This token is valid for 1 hour.</p>
+          
+          <h2 style="color: #ffffff; font-size: 20px; font-weight: 800; margin-top: 0;">Password Reset Request</h2>
+          <p style="color: #cbd5e1; font-size: 14px; line-height: 1.6;">
+            We received a request to reset the password for your Avora Bank account. Click the secure button below to set a new password:
+          </p>
+
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${resetUrl}" style="display: inline-block; background: #10b981; color: #090d16; font-size: 14px; font-weight: 800; text-decoration: none; padding: 14px 28px; border-radius: 12px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+              Set New Password &rarr;
+            </a>
+          </div>
+
+          <p style="color: #94a3b8; font-size: 12px; margin-bottom: 8px;">Or copy and paste this direct link into your browser:</p>
+          <div style="background: #0e1726; border: 1px solid #1e293b; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 11px; color: #38bdf8; word-break: break-all;">
+            ${resetUrl}
+          </div>
+
+          <div style="margin-top: 20px; padding: 12px; background: #111827; border-radius: 8px; border: 1px solid #1f2937;">
+            <span style="font-size: 11px; color: #94a3b8; text-transform: uppercase; display: block; margin-bottom: 4px;">Manual Security Token:</span>
+            <span style="font-family: monospace; font-size: 13px; font-weight: bold; color: #ffffff; letter-spacing: 1px;">${resetToken}</span>
+          </div>
+
+          <p style="color: #64748b; font-size: 11px; line-height: 1.5; margin-top: 24px; border-top: 1px solid #1e293b; padding-top: 16px;">
+            This security link is valid for 1 hour. If you did not request a password reset, please disregard this email or notify our security team at desk@avorabank.com.
+          </p>
         </div>
       `,
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn('[AuthService] Reset email error:', err?.message || err);
+    });
 
     return { success: true, message: 'If an account exists, a reset link has been dispatched.' };
   }
