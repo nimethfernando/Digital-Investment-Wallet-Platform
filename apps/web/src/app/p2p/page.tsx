@@ -196,7 +196,8 @@ export default function P2PPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInputText, setChatInputText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
-  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+  const chatMessagesContainerRef = useRef<HTMLDivElement>(null);
+  const lastMsgCountRef = useRef<number>(0);
 
   // Trade / Order Creation Modal
   const [selectedOfferForTrade, setSelectedOfferForTrade] = useState<P2POfferItem | null>(null);
@@ -334,7 +335,15 @@ export default function P2PPage() {
     try {
       const res = await api.get(`/p2p/orders/${orderId}/messages`);
       if (res.data?.success) {
-        setChatMessages(res.data.data.messages || []);
+        const newMsgs = res.data.data.messages || [];
+        setChatMessages((prev) => {
+          if (prev.length === newMsgs.length) {
+            if (prev.length === 0 || prev[prev.length - 1].id === newMsgs[newMsgs.length - 1]?.id) {
+              return prev; // No new message -> preserve reference to avoid re-triggering effects
+            }
+          }
+          return newMsgs;
+        });
       }
     } catch (e) {
       console.warn('Error fetching order messages', e);
@@ -344,16 +353,23 @@ export default function P2PPage() {
   useEffect(() => {
     if (!activeChatOrder) return;
 
+    lastMsgCountRef.current = 0;
     fetchActiveChatMessages(activeChatOrder.id);
     const interval = setInterval(() => {
       fetchActiveChatMessages(activeChatOrder.id);
-    }, 3000);
+    }, 4000);
 
     return () => clearInterval(interval);
   }, [activeChatOrder?.id]);
 
   useEffect(() => {
-    chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Only scroll the internal chat stream box, NEVER the page window
+    if (chatMessages.length > lastMsgCountRef.current) {
+      lastMsgCountRef.current = chatMessages.length;
+      if (chatMessagesContainerRef.current) {
+        chatMessagesContainerRef.current.scrollTop = chatMessagesContainerRef.current.scrollHeight;
+      }
+    }
   }, [chatMessages]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -617,7 +633,7 @@ export default function P2PPage() {
           </div>
 
           {/* Chat Stream */}
-          <div className="flex-1 p-5 space-y-4 overflow-y-auto max-h-[420px] bg-slate-950/80">
+          <div ref={chatMessagesContainerRef} className="flex-1 p-5 space-y-4 overflow-y-auto max-h-[420px] bg-slate-950/80">
             {chatMessages.length === 0 ? (
               <div className="text-center py-12 text-slate-500 text-xs">
                 <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -639,7 +655,6 @@ export default function P2PPage() {
                 </div>
               ))
             )}
-            <div ref={chatMessagesEndRef} />
           </div>
 
           {/* Chat Input */}
