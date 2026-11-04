@@ -197,8 +197,9 @@ export class P2PController {
     try {
       const userId = (req as any).user.id;
       const orderId = req.params.orderId as string;
+      const { twoFactorCode } = req.body;
 
-      const order = await p2pService.releaseOrderEscrow(orderId, userId);
+      const order = await p2pService.releaseOrderEscrow(orderId, userId, twoFactorCode);
       res.json({
         success: true,
         message: 'Escrow released! Crypto has been credited to the buyer wallet.',

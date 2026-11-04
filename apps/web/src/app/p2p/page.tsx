@@ -212,6 +212,7 @@ export default function P2PPage() {
 
   const [releaseConfirmOrder, setReleaseConfirmOrder] = useState<P2POrderItem | null>(null);
   const [releaseSubmitting, setReleaseSubmitting] = useState(false);
+  const [release2FACode, setRelease2FACode] = useState('');
 
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
 
@@ -462,11 +463,19 @@ export default function P2PPage() {
   };
 
   const handleReleaseEscrow = async (orderId: string) => {
+    if (user?.twoFactorEnabled && (!release2FACode.trim() || release2FACode.trim().length !== 6)) {
+      alert('Please enter your 6-digit Google Authenticator (2FA) code');
+      return;
+    }
+
     setReleaseSubmitting(true);
     try {
-      const res = await api.post(`/p2p/orders/${orderId}/release`);
+      const res = await api.post(`/p2p/orders/${orderId}/release`, {
+        twoFactorCode: release2FACode.trim() || undefined,
+      });
       if (res.data?.success) {
         setReleaseConfirmOrder(null);
+        setRelease2FACode('');
         if (activeChatOrder && activeChatOrder.id === orderId) {
           setActiveChatOrder((prev) => (prev ? { ...prev, status: 'COMPLETED', statusBadge: 'Completed • Escrow Released' } : null));
         }
@@ -605,21 +614,56 @@ export default function P2PPage() {
             <strong>{releaseConfirmOrder.fiatSymbol} {releaseConfirmOrder.fiatAmount} {releaseConfirmOrder.fiatCurrency}</strong>.
             Once released, escrow cannot be reversed.
           </p>
+
+          {/* 2FA Authenticator Section */}
+          {user?.twoFactorEnabled ? (
+            <div className="space-y-1.5 text-left py-1">
+              <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                <span>Google Authenticator (2FA Code)</span>
+                <span className="text-[10px] text-emerald-400 font-mono font-bold">Required</span>
+              </label>
+              <input
+                type="text"
+                maxLength={6}
+                required
+                autoFocus
+                placeholder="000000"
+                value={release2FACode}
+                onChange={(e) => setRelease2FACode(e.target.value.replace(/\D/g, ''))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-center text-lg font-mono tracking-[0.3em] text-white focus:border-emerald-500 outline-none"
+              />
+              <p className="text-[10px] text-slate-500 text-center">
+                Enter the 6-digit verification code from your Authenticator app.
+              </p>
+            </div>
+          ) : (
+            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-400 text-left flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-slate-200">Security Recommendation: </span>
+                Enable Google Authenticator in your Dashboard to require a 6-digit OTP before releasing escrow.
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-center gap-3 pt-2">
             <button
               type="button"
-              onClick={() => setReleaseConfirmOrder(null)}
-              className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+              onClick={() => {
+                setReleaseConfirmOrder(null);
+                setRelease2FACode('');
+              }}
+              className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={() => handleReleaseEscrow(releaseConfirmOrder.id)}
-              disabled={releaseSubmitting}
-              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md"
+              disabled={releaseSubmitting || (!!user?.twoFactorEnabled && release2FACode.trim().length !== 6)}
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs shadow-md transition-all cursor-pointer"
             >
-              {releaseSubmitting ? 'Releasing...' : 'Yes, Release Crypto'}
+              {releaseSubmitting ? 'Verifying & Releasing...' : 'Yes, Release Crypto'}
             </button>
           </div>
         </div>

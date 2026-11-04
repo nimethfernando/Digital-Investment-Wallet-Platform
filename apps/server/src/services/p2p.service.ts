@@ -1002,7 +1002,7 @@ export class P2PService {
   /**
    * Seller releases escrowed crypto directly into buyer's wallet
    */
-  async releaseOrderEscrow(orderId: string, userId: string) {
+  async releaseOrderEscrow(orderId: string, userId: string, twoFactorCode?: string) {
     const order = await prisma.p2POrder.findUnique({
       where: { id: orderId },
       include: { buyer: true, seller: true, offer: true },
@@ -1015,6 +1015,9 @@ export class P2PService {
     if (order.status !== P2POrderStatus.PAYMENT_SENT && order.status !== P2POrderStatus.DISPUTED) {
       throw new Error(`Cannot release funds while order is in status: ${order.status}`);
     }
+
+    // Enforce 2FA Authenticator verification if user has 2FA enabled
+    await authService.verify2faForUser(userId, twoFactorCode);
 
     const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
 
