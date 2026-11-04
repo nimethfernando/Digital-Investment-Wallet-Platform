@@ -418,10 +418,11 @@ export default function P2PPage() {
         setSelectedOfferForTrade(null);
         setActiveNav('orders');
         fetchOrders();
+        const isTakerSeller = selectedOfferForTrade.side === 'BUY';
         setActiveChatOrder({
           id: newOrder.id,
           orderCode: newOrder.orderCode,
-          side: 'Buy',
+          side: isTakerSeller ? 'Sell' : 'Buy',
           cryptoCurrency: 'USDT',
           fiatCurrency: selectedOfferForTrade.fiatCurrency,
           fiatSymbol: selectedOfferForTrade.fiatCurrency === 'INR' ? '₹' : selectedOfferForTrade.fiatCurrency === 'EUR' ? '€' : '$',
@@ -429,8 +430,8 @@ export default function P2PPage() {
           price: selectedOfferForTrade.price,
           cryptoAmount: cryptoAmtNum.toFixed(2),
           status: 'PENDING_PAYMENT',
-          statusBadge: 'Please pay seller',
-          isSeller: false,
+          statusBadge: isTakerSeller ? 'Waiting for buyer payment' : 'Please pay seller',
+          isSeller: isTakerSeller,
           counterparty: {
             id: selectedOfferForTrade.trader.id,
             name: selectedOfferForTrade.trader.name,
@@ -456,7 +457,7 @@ export default function P2PPage() {
         fetchOrders();
       }
     } catch (e: any) {
-      alert(e.response?.data?.message || 'Failed to update payment status');
+      alert(extractErrorMessage(e) || 'Failed to update payment status');
     }
   };
 
@@ -472,7 +473,7 @@ export default function P2PPage() {
         fetchOrders();
       }
     } catch (e: any) {
-      alert(e.response?.data?.message || 'Failed to release escrow');
+      alert(extractErrorMessage(e) || 'Failed to release escrow');
     } finally {
       setReleaseSubmitting(false);
     }
@@ -545,6 +546,85 @@ export default function P2PPage() {
     navigator.clipboard.writeText(text);
     setCopiedOrderId(text);
     setTimeout(() => setCopiedOrderId(null), 2000);
+  };
+
+  const renderDisputeModal = () => {
+    if (!disputeModalOrder) return null;
+    return (
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white">
+          <h3 className="font-bold text-base flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-500" />
+            <span>Open P2P Trade Dispute</span>
+          </h3>
+          <p className="text-xs text-slate-400">
+            An Avora compliance officer will inspect chat messages, bank slips, and account logs to arbitrate.
+          </p>
+          <form onSubmit={handleDispute} className="space-y-3 text-xs">
+            <textarea
+              rows={3}
+              required
+              value={disputeReason}
+              onChange={(e) => setDisputeReason(e.target.value)}
+              placeholder="Explain the issue (e.g., Buyer clicked paid but no funds arrived in bank)..."
+              className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDisputeModalOrder(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={disputeSubmitting}
+                className="px-4 py-2 rounded-xl bg-rose-600 text-white font-bold"
+              >
+                {disputeSubmitting ? 'Submitting...' : 'Submit Dispute'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const renderReleaseConfirmModal = () => {
+    if (!releaseConfirmOrder) return null;
+    return (
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white text-center">
+          <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <h3 className="font-bold text-base">Release Crypto to Buyer?</h3>
+          <p className="text-xs text-slate-400">
+            Please verify in your bank app that you have received the exact fiat payment of{' '}
+            <strong>{releaseConfirmOrder.fiatSymbol} {releaseConfirmOrder.fiatAmount} {releaseConfirmOrder.fiatCurrency}</strong>.
+            Once released, escrow cannot be reversed.
+          </p>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setReleaseConfirmOrder(null)}
+              className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => handleReleaseEscrow(releaseConfirmOrder.id)}
+              disabled={releaseSubmitting}
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md"
+            >
+              {releaseSubmitting ? 'Releasing...' : 'Yes, Release Crypto'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // ---------------------------------------------------------------------------
@@ -676,6 +756,10 @@ export default function P2PPage() {
             </button>
           </form>
         </div>
+
+        {/* Action Modals inside Active Chat */}
+        {renderDisputeModal()}
+        {renderReleaseConfirmModal()}
       </div>
     );
   }
@@ -1407,79 +1491,10 @@ export default function P2PPage() {
       )}
 
       {/* DISPUTE MODAL */}
-      {disputeModalOrder && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white">
-            <h3 className="font-bold text-base flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-amber-500" />
-              <span>Open P2P Trade Dispute</span>
-            </h3>
-            <p className="text-xs text-slate-400">
-              An Avora compliance officer will inspect chat messages, bank slips, and account logs to arbitrate.
-            </p>
-            <form onSubmit={handleDispute} className="space-y-3 text-xs">
-              <textarea
-                rows={3}
-                required
-                value={disputeReason}
-                onChange={(e) => setDisputeReason(e.target.value)}
-                placeholder="Explain the issue (e.g., Buyer clicked paid but no funds arrived in bank)..."
-                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none"
-              />
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDisputeModalOrder(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={disputeSubmitting}
-                  className="px-4 py-2 rounded-xl bg-rose-600 text-white font-bold"
-                >
-                  {disputeSubmitting ? 'Submitting...' : 'Submit Dispute'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {renderDisputeModal()}
 
       {/* RELEASE CONFIRM MODAL */}
-      {releaseConfirmOrder && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white text-center">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <h3 className="font-bold text-base">Release Crypto to Buyer?</h3>
-            <p className="text-xs text-slate-400">
-              Please verify in your bank app that you have received the exact fiat payment of{' '}
-              <strong>{releaseConfirmOrder.fiatSymbol} {releaseConfirmOrder.fiatAmount} {releaseConfirmOrder.fiatCurrency}</strong>.
-              Once released, escrow cannot be reversed.
-            </p>
-            <div className="flex items-center justify-center gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setReleaseConfirmOrder(null)}
-                className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleReleaseEscrow(releaseConfirmOrder.id)}
-                disabled={releaseSubmitting}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md"
-              >
-                {releaseSubmitting ? 'Releasing...' : 'Yes, Release Crypto'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {renderReleaseConfirmModal()}
 
     </div>
   );

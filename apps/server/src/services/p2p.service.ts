@@ -748,9 +748,11 @@ export class P2PService {
       ? new Decimal(params.fiatAmount.toString())
       : cryptoAmountDec.times(priceDec);
 
-    // Determine seller and buyer
-    const sellerId = offer.side === P2PSide.BUY ? offer.userId : buyerId;
-    const actualBuyerId = offer.side === P2PSide.BUY ? buyerId : offer.userId;
+    // Determine seller and buyer:
+    // If offer side is SELL: the offer creator is selling USDT, taker is buying USDT
+    // If offer side is BUY: the offer creator is buying USDT, taker is selling USDT
+    const sellerId = offer.side === P2PSide.SELL ? offer.userId : buyerId;
+    const actualBuyerId = offer.side === P2PSide.SELL ? buyerId : offer.userId;
 
     if (sellerId === actualBuyerId) {
       throw new Error('Self-trading is prohibited');
