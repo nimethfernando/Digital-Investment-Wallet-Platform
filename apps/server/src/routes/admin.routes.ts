@@ -8,6 +8,16 @@ const router = Router();
 router.use(authenticateToken);
 router.use(requireRole([Role.ADMIN, Role.STAFF]));
 
+// User Management operations
+router.get('/users', (req, res, next) => adminController.getUsers(req, res, next));
+router.get('/users/:id', (req, res, next) => adminController.getUserDetails(req, res, next));
+router.patch('/users/:id', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUser(req, res, next));
+router.post('/users/:id/adjust-balance', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.adjustUserBalance(req, res, next));
+
+// Platform Configuration & Commissions
+router.get('/settings/config', (req, res, next) => adminController.getPlatformConfig(req, res, next));
+router.post('/settings/config', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updatePlatformConfig(req, res, next));
+
 // Package operations
 router.get('/packages', (req, res, next) => adminController.getPackages(req, res, next));
 router.post('/packages/:id/approve', (req, res, next) => adminController.approvePackage(req, res, next));

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { PackageStatus, DepositStatus, WithdrawalStatus } from '@prisma/client';
+import { PackageStatus, DepositStatus, WithdrawalStatus, Role, KycStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { packageService } from '../services/package.service';
@@ -8,6 +8,7 @@ import { returnsJobService } from '../services/returns.job';
 import { ledgerService } from '../services/ledger.service';
 import { withdrawalService } from '../services/withdrawal.service';
 import { kycService } from '../services/kyc.service';
+import { generateAvoraAccountNumber } from '../services/p2p.service';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -24,7 +25,16 @@ export class AdminController {
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
       });
-      res.json({ success: true, data: result });
+      res.json({
+        success: true,
+        data: result.packages,
+        packages: result.packages,
+        meta: {
+          total: result.total,
+          page: result.page,
+          totalPages: result.totalPages,
+        },
+      });
     } catch (err) {
       next(err);
     }
@@ -307,7 +317,16 @@ export class AdminController {
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
       });
-      res.json({ success: true, data: result });
+      res.json({
+        success: true,
+        data: result.withdrawals,
+        withdrawals: result.withdrawals,
+        meta: {
+          total: result.total,
+          page: result.page,
+          totalPages: result.totalPages,
+        },
+      });
     } catch (err) {
       next(err);
     }
@@ -957,6 +976,351 @@ export class AdminController {
           investorCount: distributedRecords.length,
           distributions: distributedRecords,
         },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * List registered users with search, role, and KYC filters
+   */
+  async getUsers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { search, role, kycStatus, page, limit } = req.query;
+      const pageNum = page ? parseInt(page as string, 10) : 1;
+      const limitNum = limit ? parseInt(limit as string, 10) : 50;
+      const skip = (pageNum - 1) * limitNum;
+
+      const where: any = {};
+      if (role && Object.values(Role).includes(role as any)) {
+        where.role = role as Role;
+      }
+      if (kycStatus && Object.values(KycStatus).includes(kycStatus as any)) {
+        where.kycStatus = kycStatus as KycStatus;
+      }
+      if (search && typeof search === 'string' && search.trim()) {
+        const query = search.trim();
+        where.OR = [
+          { email: { contains: query } },
+          { firstName: { contains: query } },
+          { lastName: { contains: query } },
+          { phone: { contains: query } },
+        ];
+      }
+
+      const [users, total] = await Promise.all([
+        prisma.user.findMany({
+          where,
+          include: {
+            wallet: {
+              include: { balances: true },
+            },
+            _count: {
+              select: {
+                packages: true,
+                investorCommitments: true,
+                deposits: true,
+                withdrawals: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limitNum,
+        }),
+        prisma.user.count({ where }),
+      ]);
+
+      const formatted = users.map((u) => {
+        const usdBal = u.wallet?.balances.find((b) => b.currency === 'USD')?.availableBalance?.toString() || '0.00';
+        const usdtBal = u.wallet?.balances.find((b) => b.currency === 'USDT')?.availableBalance?.toString() || '0.00';
+        const isLocked = !!(u.withdrawalLockedUntil && new Date() < u.withdrawalLockedUntil);
+
+        return {
+          id: u.id,
+          email: u.email,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          phone: u.phone,
+          country: u.country,
+          role: u.role,
+          kycStatus: u.kycStatus,
+          twoFactorEnabled: u.twoFactorEnabled,
+          accountNumber: generateAvoraAccountNumber(u.id),
+          isWithdrawalLocked: isLocked,
+          withdrawalLockedUntil: u.withdrawalLockedUntil,
+          status: u.status,
+          balances: {
+            USD: parseFloat(usdBal).toFixed(2),
+            USDT: parseFloat(usdtBal).toFixed(2),
+          },
+          walletBalances: u.wallet?.balances.map((b) => ({
+            currency: b.currency,
+            available: b.availableBalance.toString(),
+            locked: b.lockedPrincipal.toString(),
+          })) || [],
+          counts: u._count,
+          createdAt: u.createdAt,
+        };
+      });
+
+      res.json({
+        success: true,
+        data: formatted,
+        users: formatted,
+        meta: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(total / limitNum),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get single user detailed profile
+   */
+  async getUserDetails(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = String(req.params.id);
+      const user = await prisma.user.findUnique({
+        where: { id },
+        include: {
+          wallet: {
+            include: { balances: true },
+          },
+          packages: {
+            orderBy: { createdAt: 'desc' },
+            take: 10,
+          },
+          transactions: {
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+          },
+          kycDocuments: true,
+          _count: {
+            select: {
+              packages: true,
+              investorCommitments: true,
+              deposits: true,
+              withdrawals: true,
+            },
+          },
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          ...user,
+          accountNumber: generateAvoraAccountNumber(user.id),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update user role, KYC status, or freeze withdrawals
+   */
+  async updateUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : undefined;
+      const id = String(req.params.id);
+      const { role, kycStatus, isWithdrawalLocked, notes } = req.body;
+
+      const dataToUpdate: any = {};
+      if (role && Object.values(Role).includes(role)) {
+        dataToUpdate.role = role;
+      }
+      if (kycStatus && Object.values(KycStatus).includes(kycStatus)) {
+        dataToUpdate.kycStatus = kycStatus;
+      }
+      if (typeof isWithdrawalLocked === 'boolean') {
+        dataToUpdate.withdrawalLockedUntil = isWithdrawalLocked ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) : null;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id },
+        data: dataToUpdate,
+      });
+
+      if (adminUserId) {
+        await prisma.adminAuditLog.create({
+          data: {
+            userId: adminUserId,
+            action: 'ADMIN_USER_UPDATE',
+            entity: 'User',
+            entityId: id,
+            details: `Updated user ${updated.email}: ${JSON.stringify(dataToUpdate)}. Notes: ${notes || 'None'}`,
+          },
+        });
+      }
+
+      res.json({
+        success: true,
+        message: `User ${updated.email} updated successfully`,
+        data: {
+          id: updated.id,
+          role: updated.role,
+          kycStatus: updated.kycStatus,
+          isWithdrawalLocked: !!(updated.withdrawalLockedUntil && new Date() < updated.withdrawalLockedUntil),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Adjust user balance directly via double-entry ledger with full audit trail
+   */
+  async adjustUserBalance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { currency = 'USD', amount, type, reason } = req.body;
+
+      if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid positive amount required' });
+      }
+      if (type !== 'CREDIT' && type !== 'DEBIT') {
+        return res.status(400).json({ success: false, message: 'Adjustment type must be CREDIT or DEBIT' });
+      }
+      if (!reason || !reason.trim()) {
+        return res.status(400).json({ success: false, message: 'Adjustment reason is required for institutional audit' });
+      }
+
+      const result = await ledgerService.processAdminBalanceAdjustment({
+        userId: id,
+        adminUserId,
+        currency,
+        amount: parseFloat(amount),
+        type,
+        reason: reason.trim(),
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'ADMIN_BALANCE_ADJUSTMENT',
+          entity: 'Wallet',
+          entityId: result.walletId,
+          details: `Admin ${type} of ${amount} ${currency} to user ${id}. Reason: ${reason}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Successfully executed ${type} of ${amount} ${currency}. New balance: ${result.balanceAfter} ${currency}`,
+        data: result,
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message || 'Balance adjustment failed' });
+    }
+  }
+
+  /**
+   * Get platform fee & FD configuration settings
+   */
+  async getPlatformConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const settings = await prisma.cmsSetting.findMany({
+        where: {
+          group: { in: ['INVESTMENT', 'COMMISSION', 'WITHDRAWAL'] },
+        },
+      });
+
+      const configMap: Record<string, string> = {};
+      settings.forEach((s) => {
+        configMap[s.key] = s.value;
+      });
+
+      const defaults = {
+        // Fixed Deposit (FD) Engine Defaults
+        package_monthly_return_rate: configMap['package_monthly_return_rate'] || '0.0100', // 1.00%
+        package_lock_in_months: configMap['package_lock_in_months'] || '6',
+        package_min_amount: configMap['package_min_amount'] || '1000',
+        package_max_amount: configMap['package_max_amount'] || '10000',
+        payout_day_of_month: configMap['payout_day_of_month'] || '1',
+        withdrawal_processing_days: configMap['withdrawal_processing_days'] || '15',
+        withdrawal_window_day: configMap['withdrawal_window_day'] || '1',
+
+        // Platform Commissions & Fees Defaults
+        remittance_fee_percent: configMap['remittance_fee_percent'] || '3.0',
+        remittance_margin_percent: configMap['remittance_margin_percent'] || '2.0',
+        startup_allocation_fee_percent: configMap['startup_allocation_fee_percent'] || '5.0',
+        startup_profit_share_percent: configMap['startup_profit_share_percent'] || '5.0',
+        otc_spread_percent: configMap['otc_spread_percent'] || '1.0',
+        p2p_fee_percent: configMap['p2p_fee_percent'] || '0.0',
+        virtual_card_issuance_fee: configMap['virtual_card_issuance_fee'] || '10.00',
+      };
+
+      res.json({
+        success: true,
+        data: defaults,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update platform fee & FD configuration settings
+   */
+  async updatePlatformConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : undefined;
+      const { settings } = req.body;
+
+      if (!settings || typeof settings !== 'object') {
+        return res.status(400).json({ success: false, message: 'Settings payload object required' });
+      }
+
+      const updatedKeys: string[] = [];
+
+      for (const [key, value] of Object.entries(settings)) {
+        if (value !== undefined && value !== null) {
+          let group = 'COMMISSION';
+          if (key.startsWith('package_') || key === 'payout_day_of_month') group = 'INVESTMENT';
+          if (key.startsWith('withdrawal_')) group = 'WITHDRAWAL';
+
+          await prisma.cmsSetting.upsert({
+            where: { key },
+            update: { value: String(value) },
+            create: {
+              group,
+              key,
+              value: String(value),
+              description: `Configured via Admin Portal for ${key}`,
+            },
+          });
+          updatedKeys.push(key);
+        }
+      }
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'PLATFORM_CONFIG_UPDATE',
+          entity: 'CmsSetting',
+          details: `Updated ${updatedKeys.length} settings: ${JSON.stringify(settings)}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Successfully updated ${updatedKeys.length} platform parameters`,
+        updatedKeys,
       });
     } catch (err) {
       next(err);

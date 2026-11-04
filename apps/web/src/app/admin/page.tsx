@@ -37,6 +37,13 @@ import {
   Building,
   DollarSign,
   Calendar,
+  Users,
+  Sliders,
+  Settings,
+  Percent,
+  Eye,
+  UserCog,
+  Unlock,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -44,8 +51,44 @@ export default function AdminPortalPage() {
   const router = useRouter();
   const { user, token, isAdmin, isLoading } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'treasury' | 'packages' | 'investments' | 'kyc' | 'deposits' | 'withdrawals' | 'disputes' | 'addresses'>('treasury');
+  const [activeTab, setActiveTab] = useState<'treasury' | 'users' | 'packages' | 'config' | 'investments' | 'kyc' | 'deposits' | 'withdrawals' | 'disputes' | 'addresses'>('treasury');
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Users Management State
+  const [users, setUsers] = useState<any[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('');
+  const [userKycFilter, setUserKycFilter] = useState('');
+  const [selectedUserDetails, setSelectedUserDetails] = useState<any | null>(null);
+  const [userModalOpen, setUserModalOpen] = useState(false);
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
+  const [adjustUserTarget, setAdjustUserTarget] = useState<any | null>(null);
+  const [adjustCurrency, setAdjustCurrency] = useState('USD');
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustType, setAdjustType] = useState<'CREDIT' | 'DEBIT'>('CREDIT');
+  const [adjustReason, setAdjustReason] = useState('');
+  const [adjustLoading, setAdjustLoading] = useState(false);
+
+  // Platform Configuration & Commissions State
+  const [platformConfig, setPlatformConfig] = useState<Record<string, string>>({
+    package_monthly_return_rate: '0.0100',
+    package_lock_in_months: '6',
+    package_min_amount: '1000',
+    package_max_amount: '10000',
+    payout_day_of_month: '1',
+    withdrawal_processing_days: '15',
+    withdrawal_window_day: '1',
+    remittance_fee_percent: '3.0',
+    remittance_margin_percent: '2.0',
+    startup_allocation_fee_percent: '5.0',
+    startup_profit_share_percent: '5.0',
+    otc_spread_percent: '1.0',
+    p2p_fee_percent: '0.0',
+    virtual_card_issuance_fee: '10.00',
+  });
+  const [configLoading, setConfigLoading] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
 
   // Treasury State
   const [ledgerReconciliation, setLedgerReconciliation] = useState<any | null>(null);
@@ -154,7 +197,37 @@ export default function AdminPortalPage() {
 
   // Load Tab Data
   const loadData = async () => {
-    if (activeTab === 'treasury' || activeTab === 'packages') {
+    if (activeTab === 'users') {
+      setUsersLoading(true);
+      try {
+        const res = await api.get('/admin/users', {
+          params: {
+            search: userSearch || undefined,
+            role: userRoleFilter || undefined,
+            kycStatus: userKycFilter || undefined,
+          },
+        });
+        const userList = res.data?.data?.users || res.data?.users || res.data?.data;
+        setUsers(Array.isArray(userList) ? userList : []);
+      } catch (e) {
+        console.error('Failed to load users:', e);
+        setUsers([]);
+      } finally {
+        setUsersLoading(false);
+      }
+    } else if (activeTab === 'config') {
+      setConfigLoading(true);
+      try {
+        const res = await api.get('/admin/settings/config');
+        if (res.data?.success && res.data?.data) {
+          setPlatformConfig(res.data.data);
+        }
+      } catch (e) {
+        console.error('Failed to load platform config:', e);
+      } finally {
+        setConfigLoading(false);
+      }
+    } else if (activeTab === 'treasury' || activeTab === 'packages') {
       setPackagesLoading(true);
       try {
         const [recRes, pkgRes] = await Promise.all([
@@ -162,8 +235,8 @@ export default function AdminPortalPage() {
           api.get('/admin/packages').catch(() => ({ data: { packages: [] } })),
         ]);
         if (recRes.data?.success) setLedgerReconciliation(recRes.data.data);
-        if (pkgRes.data?.packages) setAdminPackages(pkgRes.data.packages);
-        else if (Array.isArray(pkgRes.data?.data)) setAdminPackages(pkgRes.data.data);
+        const pkgList = pkgRes.data?.data?.packages || pkgRes.data?.packages || (Array.isArray(pkgRes.data?.data) ? pkgRes.data.data : []);
+        setAdminPackages(Array.isArray(pkgList) ? pkgList : []);
       } catch (e) {
         console.error('Failed to load treasury data:', e);
       } finally {
@@ -259,6 +332,117 @@ export default function AdminPortalPage() {
       showToast(err.response?.data?.message || err.message || 'Failed to update receiver addresses.', 'error');
     } finally {
       setSavingAddresses(false);
+    }
+  };
+
+  // User Management Handlers
+  const handleViewUser = async (userId: string) => {
+    try {
+      const res = await api.get(`/admin/users/${userId}`);
+      if (res.data?.success && res.data?.data) {
+        setSelectedUserDetails(res.data.data);
+        setUserModalOpen(true);
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to load user profile details', 'error');
+    }
+  };
+
+  const handleUpdateUserRole = async (userId: string, newRole: string) => {
+    try {
+      const res = await api.patch(`/admin/users/${userId}`, { role: newRole });
+      if (res.data?.success) {
+        showToast(`User role updated to ${newRole}`, 'success');
+        loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to update user role', 'error');
+    }
+  };
+
+  const handleToggleUserKyc = async (userId: string, newStatus: string) => {
+    try {
+      const res = await api.patch(`/admin/users/${userId}`, { kycStatus: newStatus });
+      if (res.data?.success) {
+        showToast(`User KYC status set to ${newStatus}`, 'success');
+        loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to update KYC status', 'error');
+    }
+  };
+
+  const handleToggleUserLock = async (userId: string, currentlyLocked: boolean) => {
+    try {
+      const res = await api.patch(`/admin/users/${userId}`, { isWithdrawalLocked: !currentlyLocked });
+      if (res.data?.success) {
+        showToast(currentlyLocked ? 'User withdrawals unlocked' : 'User withdrawals locked', 'success');
+        loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to update withdrawal lock', 'error');
+    }
+  };
+
+  const handleOpenAdjustModal = (userItem: any) => {
+    setAdjustUserTarget(userItem);
+    setAdjustAmount('');
+    setAdjustReason('');
+    setAdjustCurrency('USD');
+    setAdjustType('CREDIT');
+    setAdjustModalOpen(true);
+  };
+
+  const handleExecuteBalanceAdjustment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adjustUserTarget || !adjustAmount || parseFloat(adjustAmount) <= 0) return;
+    if (!adjustReason.trim()) {
+      showToast('Adjustment reason is required', 'error');
+      return;
+    }
+    setAdjustLoading(true);
+    try {
+      const res = await api.post(
+        `/admin/users/${adjustUserTarget.id}/adjust-balance`,
+        {
+          currency: adjustCurrency,
+          amount: adjustAmount,
+          type: adjustType,
+          reason: adjustReason.trim(),
+        },
+        { headers: admin2FaCode ? { 'x-admin-2fa': admin2FaCode } : {} }
+      );
+      if (res.data?.success) {
+        showToast(res.data.message || 'Balance adjusted successfully via double-entry ledger', 'success');
+        setAdjustModalOpen(false);
+        setAdjustUserTarget(null);
+        loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Balance adjustment failed', 'error');
+    } finally {
+      setAdjustLoading(false);
+    }
+  };
+
+  // Platform Configuration & Commissions Handler
+  const handleSavePlatformConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingConfig(true);
+    try {
+      const res = await api.post(
+        '/admin/settings/config',
+        { settings: platformConfig },
+        { headers: admin2FaCode ? { 'x-admin-2fa': admin2FaCode } : {} }
+      );
+      if (res.data?.success) {
+        showToast('Platform parameters & commission rates updated successfully!', 'success');
+        loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to update platform settings', 'error');
+    } finally {
+      setSavingConfig(false);
     }
   };
 
@@ -564,6 +748,131 @@ export default function AdminPortalPage() {
     }
   };
 
+  // User Management Handlers
+  const handleViewUser = async (userId: string) => {
+    try {
+      const res = await api.get(`/admin/users/${userId}`);
+      if (res.data?.success) {
+        setSelectedUserDetails(res.data.data);
+        setUserModalOpen(true);
+      }
+    } catch (e: any) {
+      setFeedback({ text: e.response?.data?.message || 'Failed to fetch user details', type: 'error' });
+    }
+  };
+
+  const handleUpdateUserRole = async (userId: string, newRole: string) => {
+    try {
+      const res = await api.patch(`/admin/users/${userId}`, { role: newRole });
+      if (res.data?.success) {
+        setFeedback({ text: `User role updated to ${newRole}`, type: 'success' });
+        loadData();
+        if (selectedUserDetails?.id === userId) {
+          setSelectedUserDetails({ ...selectedUserDetails, role: newRole });
+        }
+      }
+    } catch (e: any) {
+      setFeedback({ text: e.response?.data?.message || 'Failed to update user role', type: 'error' });
+    }
+  };
+
+  const handleToggleUserKyc = async (userId: string, currentStatus: string) => {
+    const nextStatus = currentStatus === 'VERIFIED' ? 'REJECTED' : 'VERIFIED';
+    try {
+      const res = await api.patch(`/admin/users/${userId}`, { kycStatus: nextStatus });
+      if (res.data?.success) {
+        setFeedback({ text: `User KYC status updated to ${nextStatus}`, type: 'success' });
+        loadData();
+        if (selectedUserDetails?.id === userId) {
+          setSelectedUserDetails({ ...selectedUserDetails, kycStatus: nextStatus });
+        }
+      }
+    } catch (e: any) {
+      setFeedback({ text: e.response?.data?.message || 'Failed to update KYC status', type: 'error' });
+    }
+  };
+
+  const handleToggleUserLock = async (userId: string, currentlyLocked: boolean) => {
+    try {
+      const res = await api.patch(`/admin/users/${userId}`, { isWithdrawalLocked: !currentlyLocked });
+      if (res.data?.success) {
+        setFeedback({ text: currentlyLocked ? 'User withdrawals unlocked' : 'User withdrawals locked for 365 days', type: 'success' });
+        loadData();
+        if (selectedUserDetails?.id === userId) {
+          setSelectedUserDetails({ ...selectedUserDetails, isWithdrawalLocked: !currentlyLocked });
+        }
+      }
+    } catch (e: any) {
+      setFeedback({ text: e.response?.data?.message || 'Failed to toggle lock status', type: 'error' });
+    }
+  };
+
+  const handleOpenAdjustModal = (targetUser: any) => {
+    setAdjustUserTarget(targetUser);
+    setAdjustCurrency('USD');
+    setAdjustAmount('');
+    setAdjustType('CREDIT');
+    setAdjustReason('');
+    setAdjustModalOpen(true);
+  };
+
+  const handleExecuteBalanceAdjustment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adjustUserTarget) return;
+    if (!adjustAmount || parseFloat(adjustAmount) <= 0) {
+      setFeedback({ text: 'Please enter a valid positive adjustment amount', type: 'error' });
+      return;
+    }
+    if (!adjustReason.trim()) {
+      setFeedback({ text: 'Adjustment reason is required for institutional audit', type: 'error' });
+      return;
+    }
+
+    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
+    setAdjustLoading(true);
+    try {
+      const res = await api.post(
+        `/admin/users/${adjustUserTarget.id}/adjust-balance`,
+        {
+          currency: adjustCurrency,
+          amount: parseFloat(adjustAmount),
+          type: adjustType,
+          reason: adjustReason.trim(),
+        },
+        { headers: { 'x-admin-2fa': code } }
+      );
+      if (res.data?.success) {
+        setFeedback({ text: res.data.message || 'Balance adjusted successfully', type: 'success' });
+        setAdjustModalOpen(false);
+        loadData();
+      }
+    } catch (err: any) {
+      setFeedback({ text: err.response?.data?.message || 'Balance adjustment failed', type: 'error' });
+    } finally {
+      setAdjustLoading(false);
+    }
+  };
+
+  const handleSavePlatformConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
+    setSavingConfig(true);
+    try {
+      const res = await api.post(
+        '/admin/settings/config',
+        { settings: platformConfig },
+        { headers: { 'x-admin-2fa': code } }
+      );
+      if (res.data?.success) {
+        setFeedback({ text: res.data.message || 'Platform parameters updated successfully', type: 'success' });
+      }
+    } catch (err: any) {
+      setFeedback({ text: err.response?.data?.message || 'Failed to update platform settings', type: 'error' });
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
   const [purgingDemo, setPurgingDemo] = useState(false);
 
   const handlePurgeDemoData = async () => {
@@ -660,7 +969,11 @@ export default function AdminPortalPage() {
         <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs font-bold">
           {[
             { id: 'treasury', label: 'Treasury & Ledger', icon: Landmark },
+            { id: 'users', label: `Users & Accounts (${users.length || 0})`, icon: Users },
+            { id: 'users', label: `Users & Accounts (${users.length})`, icon: Users },
+            { id: 'config', label: 'FD & Commission Controls', icon: Sliders },
             { id: 'packages', label: `Packages & Yields (${adminPackages.length})`, icon: Package },
+            { id: 'config', label: 'FD & Commission Controls', icon: Sliders },
             { id: 'investments', label: `Startup Portfolios & Exits (${adminInvestments.length})`, icon: Building },
             { id: 'deposits', label: `Deposits (${(Array.isArray(deposits) ? deposits : []).filter((d) => d?.status === 'PENDING').length})`, icon: Coins },
             { id: 'addresses', label: 'Receiver Addresses & QR', icon: QrCode },
@@ -789,6 +1102,987 @@ export default function AdminPortalPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* TAB: USERS & ACCOUNTS MANAGEMENT SUITE */}
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            {/* Header & Controls */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-5 rounded-3xl border border-slate-800">
+              <div>
+                <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-rose-500" />
+                  <span>Registered Client Accounts ({users.length})</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Manage customer profiles, KYC approvals, account locks, and double-entry ledger balance adjustments.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative min-w-[220px]">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Search name, email, phone..."
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && loadData()}
+                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 outline-none focus:border-rose-500 transition-colors"
+                  />
+                </div>
+
+                <select
+                  value={userRoleFilter}
+                  onChange={(e) => {
+                    setUserRoleFilter(e.target.value);
+                  }}
+                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 outline-none focus:border-rose-500"
+                >
+                  <option value="">All Roles</option>
+                  <option value="USER">USER</option>
+                  <option value="ADMIN">ADMIN</option>
+                </select>
+
+                <select
+                  value={userKycFilter}
+                  onChange={(e) => {
+                    setUserKycFilter(e.target.value);
+                  }}
+                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 outline-none focus:border-rose-500"
+                >
+                  <option value="">All KYC Statuses</option>
+                  <option value="VERIFIED">VERIFIED</option>
+                  <option value="PENDING">PENDING</option>
+                  <option value="REJECTED">REJECTED</option>
+                  <option value="NOT_SUBMITTED">NOT SUBMITTED</option>
+                </select>
+
+                <button
+                  onClick={loadData}
+                  className="px-3 py-2 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-rose-500/30"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Users Table */}
+            {usersLoading ? (
+              <div className="p-16 text-center text-slate-500">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading registered users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900/50 border border-slate-800 rounded-3xl">
+                <Users className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+                <p className="text-sm font-semibold text-slate-400">No registered accounts found matching your filter</p>
+                <button
+                  onClick={() => { setUserSearch(''); setUserRoleFilter(''); setUserKycFilter(''); loadData(); }}
+                  className="mt-3 text-xs text-rose-400 hover:underline cursor-pointer"
+                >
+                  Clear all filters
+                </button>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950/70 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                      <tr>
+                        <th className="py-3.5 px-4">User / Account</th>
+                        <th className="py-3.5 px-4">Contact</th>
+                        <th className="py-3.5 px-4">Role &amp; KYC</th>
+                        <th className="py-3.5 px-4">Available Balances</th>
+                        <th className="py-3.5 px-4">Holdings</th>
+                        <th className="py-3.5 px-4 text-right">Administrative Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {users.map((u) => (
+                        <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-white text-sm">
+                              {u.firstName || u.lastName ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : 'Unnamed Client'}
+                            </div>
+                            <div className="text-slate-400 text-[11px] font-mono flex items-center gap-1.5 mt-0.5">
+                              <span>{u.accountNumber || 'AVR-PENDING'}</span>
+                              <button
+                                onClick={() => handleCopyKey(u.accountNumber, u.id)}
+                                title="Copy Account Number"
+                                className="text-slate-500 hover:text-white"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              Registered: {new Date(u.createdAt).toLocaleDateString()}
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 space-y-0.5">
+                            <div className="text-slate-200">{u.email}</div>
+                            <div className="text-slate-500 text-[11px]">{u.phone || 'No Phone'}</div>
+                            <div className="text-slate-500 text-[10px]">{u.country || 'Global'}</div>
+                          </td>
+
+                          <td className="py-3.5 px-4 space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-wider ${
+                                u.role === 'ADMIN' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-slate-800 text-slate-300'
+                              }`}>
+                                {u.role}
+                              </span>
+                              {u.isWithdrawalLocked && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-500/20 text-amber-300 flex items-center gap-0.5">
+                                  <Lock className="w-2.5 h-2.5" /> LOCKED
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                u.kycStatus === 'VERIFIED'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                  : u.kycStatus === 'PENDING'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  : 'bg-slate-800 text-slate-400'
+                              }`}>
+                                KYC: {u.kycStatus || 'NOT_SUBMITTED'}
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <div className="font-mono font-bold text-white text-xs">
+                              ${parseFloat(u.balances?.USD || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                            </div>
+                            <div className="font-mono text-emerald-400 text-[11px] mt-0.5">
+                              {parseFloat(u.balances?.USDT || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USDT
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <div className="text-slate-300 text-xs">
+                              <span className="font-bold text-white">{u.counts?.packages || 0}</span> FD Packages
+                            </div>
+                            <div className="text-slate-400 text-[11px] mt-0.5">
+                              <span className="font-bold text-white">{u.counts?.investorCommitments || 0}</span> Venture Equity
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleViewUser(u.id)}
+                                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                                title="View Customer Dossier"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Details</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleOpenAdjustModal(u)}
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border border-rose-500/30"
+                                title="Double-entry Credit or Debit"
+                              >
+                                <DollarSign className="w-3.5 h-3.5" />
+                                <span>Adjust</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleToggleUserKyc(u.id, u.kycStatus)}
+                                className={`p-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                  u.kycStatus === 'VERIFIED'
+                                    ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                                    : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                                }`}
+                                title={u.kycStatus === 'VERIFIED' ? 'Revoke KYC Verification' : 'Instant Approve KYC'}
+                              >
+                                <UserCheck className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                onClick={() => handleToggleUserLock(u.id, !!u.isWithdrawalLocked)}
+                                className={`p-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                  u.isWithdrawalLocked
+                                    ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                                    : 'bg-slate-800 text-slate-400 hover:bg-rose-950/40 hover:text-rose-300'
+                                }`}
+                                title={u.isWithdrawalLocked ? 'Unlock User Withdrawals' : 'Freeze / Lock Withdrawals'}
+                              >
+                                {u.isWithdrawalLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: PLATFORM CONFIGURATION & COMMISSION CONTROLS */}
+        {activeTab === 'config' && (
+          <form onSubmit={handleSavePlatformConfig} className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-5 rounded-3xl border border-slate-800">
+              <div>
+                <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-rose-500" />
+                  <span>Platform Parameters &amp; Commission Margins</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Adjust Fixed Deposit engine terms, cross-border remittance fees, equity nominee splits, and OTC spreads.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={loadData}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Reset</span>
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingConfig}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-rose-600/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {savingConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>Save Configuration</span>
+                </button>
+              </div>
+            </div>
+
+            {configLoading ? (
+              <div className="p-16 text-center text-slate-500">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading platform configuration...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* SECTION 1: FIXED DEPOSITS (FD) ENGINE */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
+                    <div className="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold">
+                      <Percent className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-black text-white text-sm">Digital Fixed Deposits (FD) Parameters</h4>
+                      <p className="text-[11px] text-slate-400">Institutional yield schedules &amp; package tenures</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Monthly Yield Distribution Rate (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.0001"
+                          value={parseFloat(platformConfig.package_monthly_return_rate || '0.01') * 100}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) / 100;
+                            setPlatformConfig({ ...platformConfig, package_monthly_return_rate: val.toString() });
+                          }}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">% / month</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Currently 1.00% monthly (Annualized 12.00% APR)</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                          Lock-in Tenure (Months)
+                        </label>
+                        <input
+                          type="number"
+                          step="1"
+                          value={platformConfig.package_lock_in_months || '6'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, package_lock_in_months: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                          Monthly Payout Day
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="28"
+                          value={platformConfig.payout_day_of_month || '1'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, payout_day_of_month: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                          Min Package ($)
+                        </label>
+                        <input
+                          type="number"
+                          value={platformConfig.package_min_amount || '1000'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, package_min_amount: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                          Max Package ($)
+                        </label>
+                        <input
+                          type="number"
+                          value={platformConfig.package_max_amount || '10000'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, package_max_amount: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Withdrawal Processing Queue (Days)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.withdrawal_processing_days || '15'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, withdrawal_processing_days: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Maturity queue duration before settlement release</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: COMMISSIONS & PROTOCOL SPREADS */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                      <DollarSign className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-black text-white text-sm">Platform Fees &amp; Commission Spreads</h4>
+                      <p className="text-[11px] text-slate-400">Institutional take-rates across financial corridors</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Global Remittance Transfer Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_fee_percent || '3.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Gross transaction fee deducted on transfers (Default: 3.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Remittance FX Corridor Spread Margin (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_margin_percent || '2.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_margin_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Exchange rate spread applied (Default: 2.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Equity Allocation Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_allocation_fee_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_allocation_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Fee added on investor commitments (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Exit Profit Share (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_profit_share_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_profit_share_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Success fee deducted on buyout exits (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        OTC Desk Benchmark Spread (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.otc_spread_percent || '1.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, otc_spread_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Spread for high-volume OTC quotes (Default: 1.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        BaaS Virtual Card Issuance ($)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="1"
+                          value={platformConfig.virtual_card_issuance_fee || '10.00'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, virtual_card_issuance_fee: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">USD</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Card generation fee deducted from user (Default: $10.00)</p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </form>
+        )}
+
+        {/* TAB: REGISTERED USERS & ACCOUNTS */}
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            {/* Header & Filter Controls */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-rose-500" />
+                  <span>Registered Users &amp; Accounts ({users.length})</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Search customers, inspect multi-currency portfolios, manage KYC compliance &amp; execute manual balance adjustments.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={loadData}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-center gap-3">
+              <div className="relative flex-1 w-full">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search by name, email, phone, or AVR account number..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && loadData()}
+                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <select
+                value={userRoleFilter}
+                onChange={(e) => {
+                  setUserRoleFilter(e.target.value);
+                  setTimeout(loadData, 50);
+                }}
+                className="w-full sm:w-36 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none cursor-pointer"
+              >
+                <option value="">All Roles</option>
+                <option value="USER">USER</option>
+                <option value="STAFF">STAFF</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+
+              <select
+                value={userKycFilter}
+                onChange={(e) => {
+                  setUserKycFilter(e.target.value);
+                  setTimeout(loadData, 50);
+                }}
+                className="w-full sm:w-40 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none cursor-pointer"
+              >
+                <option value="">All KYC Status</option>
+                <option value="APPROVED">APPROVED</option>
+                <option value="PENDING">PENDING</option>
+                <option value="REJECTED">REJECTED</option>
+                <option value="NOT_STARTED">NOT_STARTED</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={loadData}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs cursor-pointer shrink-0"
+              >
+                Filter
+              </button>
+            </div>
+
+            {/* Users Table */}
+            {usersLoading ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading registered users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                No users found matching your criteria.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-3xl border border-slate-800 bg-slate-900 shadow-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950/80 text-slate-400 font-mono uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="p-4">Customer Identity</th>
+                      <th className="p-4">Account Number</th>
+                      <th className="p-4">Role</th>
+                      <th className="p-4">KYC Compliance</th>
+                      <th className="p-4">Available Cash / Crypto</th>
+                      <th className="p-4">Security / Lock</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-sans">
+                    {users.map((u) => {
+                      const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Private Client';
+                      return (
+                        <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-rose-400 shrink-0">
+                                {fullName.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                                  <span>{fullName}</span>
+                                  {u.country && (
+                                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                                      {u.country}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-slate-400 text-xs font-mono">{u.email}</div>
+                                {u.phone && <div className="text-slate-500 text-[11px] font-mono">{u.phone}</div>}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <span className="font-mono text-xs font-bold px-2 py-1 rounded-md bg-slate-950 border border-slate-800 text-emerald-400">
+                              {u.accountNumber}
+                            </span>
+                          </td>
+
+                          <td className="p-4">
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                              className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-bold text-slate-300 outline-none cursor-pointer"
+                            >
+                              <option value="USER">USER</option>
+                              <option value="STAFF">STAFF</option>
+                              <option value="ADMIN">ADMIN</option>
+                            </select>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  u.kycStatus === 'APPROVED'
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : u.kycStatus === 'PENDING'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : u.kycStatus === 'REJECTED'
+                                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {u.kycStatus}
+                              </span>
+                              {u.kycStatus !== 'APPROVED' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserKyc(u.id, 'APPROVED')}
+                                  title="Quick Approve KYC"
+                                  className="p-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-400 text-[10px] font-bold border border-emerald-800 cursor-pointer"
+                                >
+                                  ✓
+                                </button>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="space-y-0.5 font-mono text-xs">
+                              <div className="text-white font-bold">${u.balances?.USD || '0.00'} <span className="text-[10px] text-slate-400">USD</span></div>
+                              <div className="text-emerald-400 text-[11px]">{u.balances?.USDT || '0.00'} <span className="text-[10px] text-slate-400">USDT</span></div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="space-y-1">
+                              <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${u.twoFactorEnabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
+                                {u.twoFactorEnabled ? '2FA ON' : '2FA OFF'}
+                              </span>
+                              <div>
+                                {u.isWithdrawalLocked ? (
+                                  <span className="text-rose-400 text-[10px] font-bold flex items-center gap-1">
+                                    <Lock className="w-3 h-3" /> Locked
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
+                                    <Unlock className="w-3 h-3" /> Normal
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleViewUser(u.id)}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3 text-cyan-400" />
+                                <span>Details</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAdjustModal(u)}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-800/80 text-rose-300 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <DollarSign className="w-3 h-3" />
+                                <span>Adjust</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleUserLock(u.id, u.isWithdrawalLocked)}
+                                className={`px-2 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${
+                                  u.isWithdrawalLocked
+                                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300 hover:bg-emerald-900'
+                                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-rose-400'
+                                }`}
+                                title={u.isWithdrawalLocked ? 'Unlock Withdrawals' : 'Freeze Withdrawals'}
+                              >
+                                {u.isWithdrawalLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: FIXED DEPOSIT & COMMISSIONS CONTROLS */}
+        {activeTab === 'config' && (
+          <form onSubmit={handleSavePlatformConfig} className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-rose-500" />
+                  <span>FD Engine &amp; Platform Commission Controls</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Configure Fixed Deposit yields, minimum/maximum packages, global remittance margins, startup equity fees, and OTC spreads.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingConfig}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/25 disabled:opacity-50 cursor-pointer self-start md:self-auto"
+              >
+                {savingConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Save Platform Configurations</span>
+              </button>
+            </div>
+
+            {configLoading ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading platform configuration parameters...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* SECTION 1: FIXED DEPOSIT ENGINE PARAMETERS */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <TrendingUp className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <h4 className="font-extrabold text-sm text-white">Fixed Deposit (FD) Engine Parameters</h4>
+                      <p className="text-[11px] text-slate-400">Controls package returns, vault lock-ins, and scheduled distribution cycles</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Monthly Target Yield Rate
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={platformConfig.package_monthly_return_rate || '0.0100'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, package_monthly_return_rate: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-[11px] text-slate-500">
+                          ({(parseFloat(platformConfig.package_monthly_return_rate || '0.01') * 100).toFixed(2)}%/mo)
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Default: 0.0100 = 1.00% monthly return</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Default Lock-In Period (Months)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_lock_in_months || '6'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_lock_in_months: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Standard institutional vault tenure: 6 months</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Minimum Package Allocation ($)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_min_amount || '1000'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_min_amount: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Core Package floor (e.g. $1,000 USD)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Maximum Single Package ($)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_max_amount || '10000'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_max_amount: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Prime Package ceiling (e.g. $10,000 USD)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Monthly Yield Distribution Day
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={28}
+                        value={platformConfig.payout_day_of_month || '1'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, payout_day_of_month: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Calendar day yields are credited (Default: 1st)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Settlement Window (Days)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.withdrawal_processing_days || '15'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, withdrawal_processing_days: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Administrative clearance window: 15 days</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: PLATFORM COMMISSIONS & FEES */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <Percent className="w-5 h-5 text-cyan-400" />
+                    <div>
+                      <h4 className="font-extrabold text-sm text-white">Platform Fees &amp; Commission Rates</h4>
+                      <p className="text-[11px] text-slate-400">Controls remittance margin, OTC spreads, startup fees &amp; card issuance</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Remittance Transfer Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_fee_percent || '3.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Cross-border payout service fee (Default: 3.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Remittance FX Spread Margin (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_margin_percent || '2.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_margin_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Exchange rate spread applied (Default: 2.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Equity Allocation Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_allocation_fee_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_allocation_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Fee added on investor commitments (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Exit Profit Share (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_profit_share_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_profit_share_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Success fee deducted on buyout exits (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        OTC Desk Benchmark Spread (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.otc_spread_percent || '1.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, otc_spread_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Spread for high-volume OTC quotes (Default: 1.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        BaaS Virtual Card Issuance ($)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="1"
+                          value={platformConfig.virtual_card_issuance_fee || '10.00'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, virtual_card_issuance_fee: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">USD</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Card generation fee deducted from user (Default: $10.00)</p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </form>
         )}
 
         {/* TAB: PACKAGES & FIXED DEPOSIT YIELDS */}
@@ -1253,6 +2547,498 @@ export default function AdminPortalPage() {
           </div>
         )}
 
+        {/* TAB: REGISTERED USERS & ACCOUNTS */}
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            {/* Header & Filter Controls */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-rose-500" />
+                  <span>Registered Users &amp; Accounts ({users.length})</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Search customers, inspect multi-currency portfolios, manage KYC compliance &amp; execute manual balance adjustments.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={loadData}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-center gap-3">
+              <div className="relative flex-1 w-full">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search by name, email, phone, or AVR account number..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && loadData()}
+                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <select
+                value={userRoleFilter}
+                onChange={(e) => {
+                  setUserRoleFilter(e.target.value);
+                  setTimeout(loadData, 50);
+                }}
+                className="w-full sm:w-36 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none cursor-pointer"
+              >
+                <option value="">All Roles</option>
+                <option value="USER">USER</option>
+                <option value="STAFF">STAFF</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+
+              <select
+                value={userKycFilter}
+                onChange={(e) => {
+                  setUserKycFilter(e.target.value);
+                  setTimeout(loadData, 50);
+                }}
+                className="w-full sm:w-40 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none cursor-pointer"
+              >
+                <option value="">All KYC Status</option>
+                <option value="APPROVED">APPROVED</option>
+                <option value="PENDING">PENDING</option>
+                <option value="REJECTED">REJECTED</option>
+                <option value="NOT_STARTED">NOT_STARTED</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={loadData}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs cursor-pointer shrink-0"
+              >
+                Filter
+              </button>
+            </div>
+
+            {/* Users Table */}
+            {usersLoading ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading registered users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                No users found matching your criteria.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-3xl border border-slate-800 bg-slate-900 shadow-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950/80 text-slate-400 font-mono uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="p-4">Customer Identity</th>
+                      <th className="p-4">Account Number</th>
+                      <th className="p-4">Role</th>
+                      <th className="p-4">KYC Compliance</th>
+                      <th className="p-4">Available Cash / Crypto</th>
+                      <th className="p-4">Security / Lock</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-sans">
+                    {users.map((u) => {
+                      const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Private Client';
+                      return (
+                        <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-rose-400 shrink-0">
+                                {fullName.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                                  <span>{fullName}</span>
+                                  {u.country && (
+                                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                                      {u.country}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-slate-400 text-xs font-mono">{u.email}</div>
+                                {u.phone && <div className="text-slate-500 text-[11px] font-mono">{u.phone}</div>}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <span className="font-mono text-xs font-bold px-2 py-1 rounded-md bg-slate-950 border border-slate-800 text-emerald-400">
+                              {u.accountNumber}
+                            </span>
+                          </td>
+
+                          <td className="p-4">
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                              className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-bold text-slate-300 outline-none cursor-pointer"
+                            >
+                              <option value="USER">USER</option>
+                              <option value="STAFF">STAFF</option>
+                              <option value="ADMIN">ADMIN</option>
+                            </select>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  u.kycStatus === 'APPROVED'
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : u.kycStatus === 'PENDING'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : u.kycStatus === 'REJECTED'
+                                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {u.kycStatus}
+                              </span>
+                              {u.kycStatus !== 'APPROVED' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserKyc(u.id, 'APPROVED')}
+                                  title="Quick Approve KYC"
+                                  className="p-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-400 text-[10px] font-bold border border-emerald-800 cursor-pointer"
+                                >
+                                  ✓
+                                </button>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="space-y-0.5 font-mono text-xs">
+                              <div className="text-white font-bold">${u.balances?.USD || '0.00'} <span className="text-[10px] text-slate-400">USD</span></div>
+                              <div className="text-emerald-400 text-[11px]">{u.balances?.USDT || '0.00'} <span className="text-[10px] text-slate-400">USDT</span></div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="space-y-1">
+                              <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${u.twoFactorEnabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
+                                {u.twoFactorEnabled ? '2FA ON' : '2FA OFF'}
+                              </span>
+                              <div>
+                                {u.isWithdrawalLocked ? (
+                                  <span className="text-rose-400 text-[10px] font-bold flex items-center gap-1">
+                                    <Lock className="w-3 h-3" /> Locked
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
+                                    <Unlock className="w-3 h-3" /> Normal
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleViewUser(u.id)}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3 text-cyan-400" />
+                                <span>Details</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAdjustModal(u)}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-800/80 text-rose-300 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <DollarSign className="w-3 h-3" />
+                                <span>Adjust</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleUserLock(u.id, u.isWithdrawalLocked)}
+                                className={`px-2 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${
+                                  u.isWithdrawalLocked
+                                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300 hover:bg-emerald-900'
+                                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-rose-400'
+                                }`}
+                                title={u.isWithdrawalLocked ? 'Unlock Withdrawals' : 'Freeze Withdrawals'}
+                              >
+                                {u.isWithdrawalLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: FIXED DEPOSIT & COMMISSIONS CONTROLS */}
+        {activeTab === 'config' && (
+          <form onSubmit={handleSavePlatformConfig} className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-rose-500" />
+                  <span>FD Engine &amp; Platform Commission Controls</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Configure Fixed Deposit yields, minimum/maximum packages, global remittance margins, startup equity fees, and OTC spreads.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingConfig}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/25 disabled:opacity-50 cursor-pointer self-start md:self-auto"
+              >
+                {savingConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Save Platform Configurations</span>
+              </button>
+            </div>
+
+            {configLoading ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading platform configuration parameters...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* SECTION 1: FIXED DEPOSIT ENGINE PARAMETERS */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <TrendingUp className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <h4 className="font-extrabold text-sm text-white">Fixed Deposit (FD) Engine Parameters</h4>
+                      <p className="text-[11px] text-slate-400">Controls package returns, vault lock-ins, and scheduled distribution cycles</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Monthly Target Yield Rate
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={platformConfig.package_monthly_return_rate || '0.0100'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, package_monthly_return_rate: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-[11px] text-slate-500">
+                          ({(parseFloat(platformConfig.package_monthly_return_rate || '0.01') * 100).toFixed(2)}%/mo)
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Default: 0.0100 = 1.00% monthly return</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Default Lock-In Period (Months)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_lock_in_months || '6'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_lock_in_months: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Standard institutional vault tenure: 6 months</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Minimum Package Allocation ($)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_min_amount || '1000'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_min_amount: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Core Package floor (e.g. $1,000 USD)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Maximum Single Package ($)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_max_amount || '10000'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_max_amount: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Prime Package ceiling (e.g. $10,000 USD)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Monthly Yield Distribution Day
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={28}
+                        value={platformConfig.payout_day_of_month || '1'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, payout_day_of_month: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Calendar day yields are credited (Default: 1st)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Settlement Window (Days)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.withdrawal_processing_days || '15'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, withdrawal_processing_days: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Administrative clearance window: 15 days</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: PLATFORM COMMISSIONS & FEES */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <Percent className="w-5 h-5 text-cyan-400" />
+                    <div>
+                      <h4 className="font-extrabold text-sm text-white">Platform Fees &amp; Commission Rates</h4>
+                      <p className="text-[11px] text-slate-400">Controls remittance margin, OTC spreads, startup fees &amp; card issuance</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Remittance Transfer Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_fee_percent || '3.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Cross-border payout service fee (Default: 3.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Remittance FX Spread Margin (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_margin_percent || '2.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_margin_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Exchange rate spread applied (Default: 2.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Equity Allocation Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_allocation_fee_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_allocation_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Fee added on investor commitments (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Exit Profit Share (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_profit_share_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_profit_share_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Success fee deducted on buyout exits (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        OTC Desk Benchmark Spread (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.otc_spread_percent || '1.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, otc_spread_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Spread for high-volume OTC quotes (Default: 1.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        BaaS Virtual Card Issuance ($)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="1"
+                          value={platformConfig.virtual_card_issuance_fee || '10.00'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, virtual_card_issuance_fee: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">USD</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Card generation fee deducted from user (Default: $10.00)</p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </form>
+        )}
+
         {/* TAB 3: DEPOSITS AUDIT */}
         {activeTab === 'deposits' && (
           <div className="space-y-4">
@@ -1331,6 +3117,498 @@ export default function AdminPortalPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* TAB: REGISTERED USERS & ACCOUNTS */}
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            {/* Header & Filter Controls */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-rose-500" />
+                  <span>Registered Users &amp; Accounts ({users.length})</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Search customers, inspect multi-currency portfolios, manage KYC compliance &amp; execute manual balance adjustments.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={loadData}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-center gap-3">
+              <div className="relative flex-1 w-full">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search by name, email, phone, or AVR account number..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && loadData()}
+                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <select
+                value={userRoleFilter}
+                onChange={(e) => {
+                  setUserRoleFilter(e.target.value);
+                  setTimeout(loadData, 50);
+                }}
+                className="w-full sm:w-36 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none cursor-pointer"
+              >
+                <option value="">All Roles</option>
+                <option value="USER">USER</option>
+                <option value="STAFF">STAFF</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+
+              <select
+                value={userKycFilter}
+                onChange={(e) => {
+                  setUserKycFilter(e.target.value);
+                  setTimeout(loadData, 50);
+                }}
+                className="w-full sm:w-40 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none cursor-pointer"
+              >
+                <option value="">All KYC Status</option>
+                <option value="APPROVED">APPROVED</option>
+                <option value="PENDING">PENDING</option>
+                <option value="REJECTED">REJECTED</option>
+                <option value="NOT_STARTED">NOT_STARTED</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={loadData}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs cursor-pointer shrink-0"
+              >
+                Filter
+              </button>
+            </div>
+
+            {/* Users Table */}
+            {usersLoading ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading registered users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                No users found matching your criteria.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-3xl border border-slate-800 bg-slate-900 shadow-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950/80 text-slate-400 font-mono uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="p-4">Customer Identity</th>
+                      <th className="p-4">Account Number</th>
+                      <th className="p-4">Role</th>
+                      <th className="p-4">KYC Compliance</th>
+                      <th className="p-4">Available Cash / Crypto</th>
+                      <th className="p-4">Security / Lock</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-sans">
+                    {users.map((u) => {
+                      const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Private Client';
+                      return (
+                        <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-rose-400 shrink-0">
+                                {fullName.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                                  <span>{fullName}</span>
+                                  {u.country && (
+                                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                                      {u.country}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-slate-400 text-xs font-mono">{u.email}</div>
+                                {u.phone && <div className="text-slate-500 text-[11px] font-mono">{u.phone}</div>}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <span className="font-mono text-xs font-bold px-2 py-1 rounded-md bg-slate-950 border border-slate-800 text-emerald-400">
+                              {u.accountNumber}
+                            </span>
+                          </td>
+
+                          <td className="p-4">
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                              className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-bold text-slate-300 outline-none cursor-pointer"
+                            >
+                              <option value="USER">USER</option>
+                              <option value="STAFF">STAFF</option>
+                              <option value="ADMIN">ADMIN</option>
+                            </select>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  u.kycStatus === 'APPROVED'
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : u.kycStatus === 'PENDING'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : u.kycStatus === 'REJECTED'
+                                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {u.kycStatus}
+                              </span>
+                              {u.kycStatus !== 'APPROVED' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserKyc(u.id, 'APPROVED')}
+                                  title="Quick Approve KYC"
+                                  className="p-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-400 text-[10px] font-bold border border-emerald-800 cursor-pointer"
+                                >
+                                  ✓
+                                </button>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="space-y-0.5 font-mono text-xs">
+                              <div className="text-white font-bold">${u.balances?.USD || '0.00'} <span className="text-[10px] text-slate-400">USD</span></div>
+                              <div className="text-emerald-400 text-[11px]">{u.balances?.USDT || '0.00'} <span className="text-[10px] text-slate-400">USDT</span></div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="space-y-1">
+                              <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${u.twoFactorEnabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
+                                {u.twoFactorEnabled ? '2FA ON' : '2FA OFF'}
+                              </span>
+                              <div>
+                                {u.isWithdrawalLocked ? (
+                                  <span className="text-rose-400 text-[10px] font-bold flex items-center gap-1">
+                                    <Lock className="w-3 h-3" /> Locked
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
+                                    <Unlock className="w-3 h-3" /> Normal
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleViewUser(u.id)}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3 text-cyan-400" />
+                                <span>Details</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAdjustModal(u)}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-800/80 text-rose-300 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <DollarSign className="w-3 h-3" />
+                                <span>Adjust</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleUserLock(u.id, u.isWithdrawalLocked)}
+                                className={`px-2 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${
+                                  u.isWithdrawalLocked
+                                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300 hover:bg-emerald-900'
+                                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-rose-400'
+                                }`}
+                                title={u.isWithdrawalLocked ? 'Unlock Withdrawals' : 'Freeze Withdrawals'}
+                              >
+                                {u.isWithdrawalLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: FIXED DEPOSIT & COMMISSIONS CONTROLS */}
+        {activeTab === 'config' && (
+          <form onSubmit={handleSavePlatformConfig} className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-rose-500" />
+                  <span>FD Engine &amp; Platform Commission Controls</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Configure Fixed Deposit yields, minimum/maximum packages, global remittance margins, startup equity fees, and OTC spreads.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingConfig}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/25 disabled:opacity-50 cursor-pointer self-start md:self-auto"
+              >
+                {savingConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Save Platform Configurations</span>
+              </button>
+            </div>
+
+            {configLoading ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading platform configuration parameters...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* SECTION 1: FIXED DEPOSIT ENGINE PARAMETERS */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <TrendingUp className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <h4 className="font-extrabold text-sm text-white">Fixed Deposit (FD) Engine Parameters</h4>
+                      <p className="text-[11px] text-slate-400">Controls package returns, vault lock-ins, and scheduled distribution cycles</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Monthly Target Yield Rate
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={platformConfig.package_monthly_return_rate || '0.0100'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, package_monthly_return_rate: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-[11px] text-slate-500">
+                          ({(parseFloat(platformConfig.package_monthly_return_rate || '0.01') * 100).toFixed(2)}%/mo)
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Default: 0.0100 = 1.00% monthly return</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Default Lock-In Period (Months)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_lock_in_months || '6'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_lock_in_months: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Standard institutional vault tenure: 6 months</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Minimum Package Allocation ($)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_min_amount || '1000'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_min_amount: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Core Package floor (e.g. $1,000 USD)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Maximum Single Package ($)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_max_amount || '10000'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_max_amount: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Prime Package ceiling (e.g. $10,000 USD)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Monthly Yield Distribution Day
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={28}
+                        value={platformConfig.payout_day_of_month || '1'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, payout_day_of_month: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Calendar day yields are credited (Default: 1st)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Settlement Window (Days)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.withdrawal_processing_days || '15'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, withdrawal_processing_days: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Administrative clearance window: 15 days</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: PLATFORM COMMISSIONS & FEES */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <Percent className="w-5 h-5 text-cyan-400" />
+                    <div>
+                      <h4 className="font-extrabold text-sm text-white">Platform Fees &amp; Commission Rates</h4>
+                      <p className="text-[11px] text-slate-400">Controls remittance margin, OTC spreads, startup fees &amp; card issuance</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Remittance Transfer Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_fee_percent || '3.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Cross-border payout service fee (Default: 3.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Remittance FX Spread Margin (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_margin_percent || '2.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_margin_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Exchange rate spread applied (Default: 2.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Equity Allocation Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_allocation_fee_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_allocation_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Fee added on investor commitments (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Exit Profit Share (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_profit_share_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_profit_share_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Success fee deducted on buyout exits (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        OTC Desk Benchmark Spread (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.otc_spread_percent || '1.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, otc_spread_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Spread for high-volume OTC quotes (Default: 1.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        BaaS Virtual Card Issuance ($)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="1"
+                          value={platformConfig.virtual_card_issuance_fee || '10.00'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, virtual_card_issuance_fee: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">USD</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Card generation fee deducted from user (Default: $10.00)</p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </form>
         )}
 
         {/* TAB 4: WITHDRAWALS SETTLEMENT QUEUE */}
@@ -1515,6 +3793,498 @@ export default function AdminPortalPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* TAB: REGISTERED USERS & ACCOUNTS */}
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            {/* Header & Filter Controls */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-rose-500" />
+                  <span>Registered Users &amp; Accounts ({users.length})</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Search customers, inspect multi-currency portfolios, manage KYC compliance &amp; execute manual balance adjustments.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={loadData}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-center gap-3">
+              <div className="relative flex-1 w-full">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search by name, email, phone, or AVR account number..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && loadData()}
+                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <select
+                value={userRoleFilter}
+                onChange={(e) => {
+                  setUserRoleFilter(e.target.value);
+                  setTimeout(loadData, 50);
+                }}
+                className="w-full sm:w-36 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none cursor-pointer"
+              >
+                <option value="">All Roles</option>
+                <option value="USER">USER</option>
+                <option value="STAFF">STAFF</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+
+              <select
+                value={userKycFilter}
+                onChange={(e) => {
+                  setUserKycFilter(e.target.value);
+                  setTimeout(loadData, 50);
+                }}
+                className="w-full sm:w-40 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none cursor-pointer"
+              >
+                <option value="">All KYC Status</option>
+                <option value="APPROVED">APPROVED</option>
+                <option value="PENDING">PENDING</option>
+                <option value="REJECTED">REJECTED</option>
+                <option value="NOT_STARTED">NOT_STARTED</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={loadData}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs cursor-pointer shrink-0"
+              >
+                Filter
+              </button>
+            </div>
+
+            {/* Users Table */}
+            {usersLoading ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading registered users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                No users found matching your criteria.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-3xl border border-slate-800 bg-slate-900 shadow-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950/80 text-slate-400 font-mono uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="p-4">Customer Identity</th>
+                      <th className="p-4">Account Number</th>
+                      <th className="p-4">Role</th>
+                      <th className="p-4">KYC Compliance</th>
+                      <th className="p-4">Available Cash / Crypto</th>
+                      <th className="p-4">Security / Lock</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-sans">
+                    {users.map((u) => {
+                      const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Private Client';
+                      return (
+                        <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-rose-400 shrink-0">
+                                {fullName.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                                  <span>{fullName}</span>
+                                  {u.country && (
+                                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                                      {u.country}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-slate-400 text-xs font-mono">{u.email}</div>
+                                {u.phone && <div className="text-slate-500 text-[11px] font-mono">{u.phone}</div>}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <span className="font-mono text-xs font-bold px-2 py-1 rounded-md bg-slate-950 border border-slate-800 text-emerald-400">
+                              {u.accountNumber}
+                            </span>
+                          </td>
+
+                          <td className="p-4">
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                              className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-bold text-slate-300 outline-none cursor-pointer"
+                            >
+                              <option value="USER">USER</option>
+                              <option value="STAFF">STAFF</option>
+                              <option value="ADMIN">ADMIN</option>
+                            </select>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  u.kycStatus === 'APPROVED'
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : u.kycStatus === 'PENDING'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : u.kycStatus === 'REJECTED'
+                                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {u.kycStatus}
+                              </span>
+                              {u.kycStatus !== 'APPROVED' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserKyc(u.id, 'APPROVED')}
+                                  title="Quick Approve KYC"
+                                  className="p-1 rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-400 text-[10px] font-bold border border-emerald-800 cursor-pointer"
+                                >
+                                  ✓
+                                </button>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="space-y-0.5 font-mono text-xs">
+                              <div className="text-white font-bold">${u.balances?.USD || '0.00'} <span className="text-[10px] text-slate-400">USD</span></div>
+                              <div className="text-emerald-400 text-[11px]">{u.balances?.USDT || '0.00'} <span className="text-[10px] text-slate-400">USDT</span></div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="space-y-1">
+                              <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${u.twoFactorEnabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
+                                {u.twoFactorEnabled ? '2FA ON' : '2FA OFF'}
+                              </span>
+                              <div>
+                                {u.isWithdrawalLocked ? (
+                                  <span className="text-rose-400 text-[10px] font-bold flex items-center gap-1">
+                                    <Lock className="w-3 h-3" /> Locked
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
+                                    <Unlock className="w-3 h-3" /> Normal
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleViewUser(u.id)}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3 text-cyan-400" />
+                                <span>Details</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAdjustModal(u)}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-800/80 text-rose-300 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <DollarSign className="w-3 h-3" />
+                                <span>Adjust</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleUserLock(u.id, u.isWithdrawalLocked)}
+                                className={`px-2 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${
+                                  u.isWithdrawalLocked
+                                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300 hover:bg-emerald-900'
+                                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-rose-400'
+                                }`}
+                                title={u.isWithdrawalLocked ? 'Unlock Withdrawals' : 'Freeze Withdrawals'}
+                              >
+                                {u.isWithdrawalLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: FIXED DEPOSIT & COMMISSIONS CONTROLS */}
+        {activeTab === 'config' && (
+          <form onSubmit={handleSavePlatformConfig} className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-rose-500" />
+                  <span>FD Engine &amp; Platform Commission Controls</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Configure Fixed Deposit yields, minimum/maximum packages, global remittance margins, startup equity fees, and OTC spreads.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingConfig}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/25 disabled:opacity-50 cursor-pointer self-start md:self-auto"
+              >
+                {savingConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Save Platform Configurations</span>
+              </button>
+            </div>
+
+            {configLoading ? (
+              <div className="p-16 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500 mb-2" />
+                <p className="text-xs">Loading platform configuration parameters...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* SECTION 1: FIXED DEPOSIT ENGINE PARAMETERS */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <TrendingUp className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <h4 className="font-extrabold text-sm text-white">Fixed Deposit (FD) Engine Parameters</h4>
+                      <p className="text-[11px] text-slate-400">Controls package returns, vault lock-ins, and scheduled distribution cycles</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Monthly Target Yield Rate
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={platformConfig.package_monthly_return_rate || '0.0100'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, package_monthly_return_rate: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-[11px] text-slate-500">
+                          ({(parseFloat(platformConfig.package_monthly_return_rate || '0.01') * 100).toFixed(2)}%/mo)
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Default: 0.0100 = 1.00% monthly return</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Default Lock-In Period (Months)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_lock_in_months || '6'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_lock_in_months: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Standard institutional vault tenure: 6 months</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Minimum Package Allocation ($)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_min_amount || '1000'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_min_amount: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Core Package floor (e.g. $1,000 USD)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Maximum Single Package ($)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.package_max_amount || '10000'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, package_max_amount: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Prime Package ceiling (e.g. $10,000 USD)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Monthly Yield Distribution Day
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={28}
+                        value={platformConfig.payout_day_of_month || '1'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, payout_day_of_month: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Calendar day yields are credited (Default: 1st)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Settlement Window (Days)
+                      </label>
+                      <input
+                        type="number"
+                        value={platformConfig.withdrawal_processing_days || '15'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, withdrawal_processing_days: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Administrative clearance window: 15 days</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: PLATFORM COMMISSIONS & FEES */}
+                <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
+                    <Percent className="w-5 h-5 text-cyan-400" />
+                    <div>
+                      <h4 className="font-extrabold text-sm text-white">Platform Fees &amp; Commission Rates</h4>
+                      <p className="text-[11px] text-slate-400">Controls remittance margin, OTC spreads, startup fees &amp; card issuance</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Remittance Transfer Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_fee_percent || '3.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Cross-border payout service fee (Default: 3.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Remittance FX Spread Margin (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.remittance_margin_percent || '2.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_margin_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Exchange rate spread applied (Default: 2.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Equity Allocation Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_allocation_fee_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_allocation_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Fee added on investor commitments (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Startup Exit Profit Share (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.startup_profit_share_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_profit_share_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Success fee deducted on buyout exits (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        OTC Desk Benchmark Spread (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.otc_spread_percent || '1.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, otc_spread_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Spread for high-volume OTC quotes (Default: 1.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        BaaS Virtual Card Issuance ($)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="1"
+                          value={platformConfig.virtual_card_issuance_fee || '10.00'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, virtual_card_issuance_fee: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">USD</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Card generation fee deducted from user (Default: $10.00)</p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </form>
         )}
 
         {/* TAB 5: DISPUTE & TICKET DESK */}
@@ -2428,6 +5198,240 @@ export default function AdminPortalPage() {
               >
                 {distributingExit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 <span>Execute &amp; Credit Wallets</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* USER DETAILS MODAL */}
+      {userModalOpen && selectedUserDetails && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-black">
+                  {selectedUserDetails.firstName ? selectedUserDetails.firstName[0] : 'U'}
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">
+                    {selectedUserDetails.firstName || selectedUserDetails.lastName
+                      ? `${selectedUserDetails.firstName || ''} ${selectedUserDetails.lastName || ''}`.trim()
+                      : 'Client Profile'}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono">{selectedUserDetails.accountNumber}</p>
+                </div>
+              </div>
+              <button onClick={() => setUserModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl">
+                <span className="text-[10px] text-slate-400 uppercase font-mono">Role</span>
+                <p className="text-xs font-bold text-white mt-0.5">{selectedUserDetails.role}</p>
+              </div>
+              <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl">
+                <span className="text-[10px] text-slate-400 uppercase font-mono">KYC Status</span>
+                <p className="text-xs font-bold text-emerald-400 mt-0.5">{selectedUserDetails.kycStatus || 'NOT_SUBMITTED'}</p>
+              </div>
+              <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl">
+                <span className="text-[10px] text-slate-400 uppercase font-mono">2FA Active</span>
+                <p className="text-xs font-bold text-white mt-0.5">{selectedUserDetails.twoFactorEnabled ? 'Enabled' : 'Disabled'}</p>
+              </div>
+              <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl">
+                <span className="text-[10px] text-slate-400 uppercase font-mono">Withdrawal Lock</span>
+                <p className="text-xs font-bold text-amber-400 mt-0.5">{selectedUserDetails.withdrawalLockedUntil ? 'FROZEN' : 'ACTIVE'}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-400 uppercase font-mono">Multi-Currency Wallet Balances</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {(selectedUserDetails.wallet?.balances || []).map((b: any) => (
+                  <div key={b.id} className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-white text-sm">{b.currency}</div>
+                      <div className="text-[10px] text-slate-400">Locked: {parseFloat(b.lockedPrincipal).toFixed(2)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono font-bold text-emerald-400 text-sm">{parseFloat(b.availableBalance).toFixed(2)}</div>
+                      <div className="text-[10px] text-slate-500">Available</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-400 uppercase font-mono">Active FD Packages ({selectedUserDetails.packages?.length || 0})</h4>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                {(selectedUserDetails.packages || []).length === 0 ? (
+                  <p className="text-xs text-slate-500 italic">No investment packages found for this user.</p>
+                ) : (
+                  (selectedUserDetails.packages || []).map((p: any) => (
+                    <div key={p.id} className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-bold text-white">${parseFloat(p.amount).toFixed(2)} USD</span>
+                        <span className="text-slate-400 ml-2">({p.tier})</span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400">
+                        {p.status}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-between border-t border-slate-800">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleUpdateUserRole(selectedUserDetails.id, selectedUserDetails.role === 'ADMIN' ? 'USER' : 'ADMIN')}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Make {selectedUserDetails.role === 'ADMIN' ? 'Standard USER' : 'ADMIN'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserModalOpen(false);
+                    handleOpenAdjustModal(selectedUserDetails);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold transition-all cursor-pointer border border-rose-500/30"
+                >
+                  Adjust Balance
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setUserModalOpen(false)}
+                className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DOUBLE-ENTRY BALANCE ADJUSTMENT MODAL */}
+      {adjustModalOpen && adjustUserTarget && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            onSubmit={handleExecuteBalanceAdjustment}
+            className="bg-slate-950 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-black">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Double-Entry Balance Adjustment</h3>
+                  <p className="text-xs text-slate-400">{adjustUserTarget.email} ({adjustUserTarget.accountNumber || 'AVR-CLIENT'})</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setAdjustModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-rose-950/20 border border-rose-500/30 rounded-2xl text-[11px] text-rose-200">
+              <strong>Institutional Warning:</strong> This operation immediately issues atomic double-entry ledger journals against platform treasury and updates user available funds with a permanent audit trail.
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Adjustment Type</label>
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-900 border border-slate-800 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setAdjustType('CREDIT')}
+                      className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        adjustType === 'CREDIT' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      + Credit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdjustType('DEBIT')}
+                      className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        adjustType === 'DEBIT' ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      - Debit
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Currency</label>
+                  <select
+                    value={adjustCurrency}
+                    onChange={(e) => setAdjustCurrency(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-rose-500"
+                  >
+                    <option value="USD">USD (United States Dollar)</option>
+                    <option value="USDT">USDT (Tether USD)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Amount</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="0.00"
+                    value={adjustAmount}
+                    onChange={(e) => setAdjustAmount(e.target.value)}
+                    required
+                    className="w-full px-3 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-rose-500"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">{adjustCurrency}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                  Mandatory Audit Reason <span className="text-rose-400">*</span>
+                </label>
+                <textarea
+                  placeholder="e.g. Approved manual OTC bank wire receipt, or compliance correction ref #49821"
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  rows={2}
+                  required
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs outline-none focus:border-rose-500 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setAdjustModalOpen(false)}
+                className="w-full py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={adjustLoading}
+                className={`w-full py-2.5 rounded-xl text-white text-xs font-black shadow-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${
+                  adjustType === 'CREDIT' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30' : 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30'
+                }`}
+              >
+                {adjustLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Execute {adjustType} Adjustment</span>
               </button>
             </div>
           </form>

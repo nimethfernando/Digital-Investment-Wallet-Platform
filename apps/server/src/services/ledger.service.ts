@@ -880,6 +880,92 @@ export class LedgerService {
       }
     );
   }
+
+  /**
+   * Admin manual balance adjustment (CREDIT or DEBIT)
+   * With atomic double-entry ledger entries, user transaction record, and full audit trail
+   */
+  async processAdminBalanceAdjustment(params: {
+    userId: string;
+    adminUserId: string;
+    currency: string;
+    amount: string | number;
+    type: 'CREDIT' | 'DEBIT';
+    reason: string;
+  }) {
+    const amountDec = new Decimal(params.amount.toString());
+    if (amountDec.isNegative() || amountDec.isZero()) {
+      throw new Error('Adjustment amount must be strictly positive');
+    }
+
+    const idempotencyKey = `ADJ-${params.userId}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+    return await prisma.$transaction(async (tx) => {
+      const wallet = await this.ensureWallet(params.userId);
+      const lockedBalance = await this.lockWalletBalance(tx, wallet.id, params.currency);
+      const balBefore = new Decimal(lockedBalance.availableBalance.toString());
+
+      let balAfter: Decimal;
+      if (params.type === 'CREDIT') {
+        balAfter = balBefore.plus(amountDec);
+      } else {
+        if (balBefore.lessThan(amountDec)) {
+          throw new Error(`Insufficient funds: user has ${balBefore.toFixed(2)} ${params.currency}, cannot debit ${amountDec.toFixed(2)}`);
+        }
+        balAfter = balBefore.minus(amountDec);
+      }
+
+      await tx.walletBalance.update({
+        where: { id: lockedBalance.id },
+        data: { availableBalance: balAfter.toFixed(8) },
+      });
+
+      const assetAccount = params.currency === 'USDT' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
+      const liabilityAccount = 'USER_AVAILABLE_USD';
+
+      await this.recordJournal(tx, {
+        idempotencyKey,
+        referenceType: params.type === 'CREDIT' ? JournalReferenceType.DEPOSIT : JournalReferenceType.WITHDRAWAL_SETTLEMENT,
+        referenceId: idempotencyKey,
+        notes: `Admin manual ${params.type}: ${params.reason}`,
+        createdBy: params.adminUserId,
+        entries: params.type === 'CREDIT' ? [
+          { accountId: assetAccount, direction: 'DEBIT', amount: amountDec.toFixed(8), currency: params.currency },
+          { accountId: liabilityAccount, userId: params.userId, direction: 'CREDIT', amount: amountDec.toFixed(8), currency: params.currency },
+        ] : [
+          { accountId: liabilityAccount, userId: params.userId, direction: 'DEBIT', amount: amountDec.toFixed(8), currency: params.currency },
+          { accountId: assetAccount, direction: 'CREDIT', amount: amountDec.toFixed(8), currency: params.currency },
+        ],
+      });
+
+      const transactionCode = `TX-ADJ-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+      await tx.transaction.create({
+        data: {
+          transactionCode,
+          userId: params.userId,
+          type: params.type === 'CREDIT' ? TransactionType.DEPOSIT : TransactionType.WITHDRAWAL_SETTLEMENT,
+          amount: amountDec.toFixed(8),
+          currency: params.currency,
+          balanceBefore: balBefore.toFixed(8),
+          balanceAfter: balAfter.toFixed(8),
+          status: TransactionStatus.COMPLETED,
+          settlementReference: idempotencyKey,
+          createdBy: params.adminUserId,
+          idempotencyKey,
+          notes: `Admin balance adjustment (${params.type}): ${params.reason}`,
+        },
+      });
+
+      return {
+        walletId: wallet.id,
+        currency: params.currency,
+        balanceBefore: balBefore.toFixed(2),
+        balanceAfter: balAfter.toFixed(2),
+        amount: amountDec.toFixed(2),
+        type: params.type,
+      };
+    });
+  }
 }
 
 export const ledgerService = new LedgerService();
