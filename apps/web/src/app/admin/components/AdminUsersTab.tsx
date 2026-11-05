@@ -21,8 +21,10 @@ import {
   Calendar,
   AlertCircle,
   FileText,
+  ExternalLink,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
+import { getExplorerInfo } from '../../../lib/blockchain';
 
 interface UsersTabProps {
   users: any[];
@@ -563,6 +565,101 @@ export default function AdminUsersTab({
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* Fixed Deposit Packages Section */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-400 uppercase font-mono">
+                Active Investment Packages ({selectedUser.packages?.length || 0})
+              </h4>
+              {(!selectedUser.packages || selectedUser.packages.length === 0) ? (
+                <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl text-xs text-slate-500 italic text-center">
+                  Zero active fixed deposit packages for this user.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {selectedUser.packages.map((pkg: any) => (
+                    <div key={pkg.id} className="p-3 bg-slate-900 border border-slate-800 rounded-2xl space-y-1.5 text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="font-mono font-bold text-emerald-400">{pkg.packageCode}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          pkg.status === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'
+                        }`}>
+                          {pkg.status}
+                        </span>
+                      </div>
+                      <div className="flex justify-between font-mono">
+                        <span className="text-slate-400">Principal:</span>
+                        <span className="font-bold text-white">${parseFloat(pkg.amount).toFixed(2)} {pkg.currency}</span>
+                      </div>
+                      <div className="flex justify-between text-[11px] text-slate-400">
+                        <span>Tenure: {pkg.lockInMonths} Months (1.00%/mo)</span>
+                        <span>Maturity: {pkg.lockInEnd ? new Date(pkg.lockInEnd).toLocaleDateString() : 'Active'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Financial Ledger & Audit Trail */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-400 uppercase font-mono">
+                Financial Ledger Audit Trail ({selectedUser.transactions?.length || 0})
+              </h4>
+              {(!selectedUser.transactions || selectedUser.transactions.length === 0) ? (
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl text-xs text-slate-500 italic text-center">
+                  No recorded ledger transactions for this account yet.
+                </div>
+              ) : (
+                <div className="border border-slate-800 rounded-2xl overflow-hidden max-h-60 overflow-y-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-900 border-b border-slate-800 text-[10px] font-mono uppercase text-slate-400">
+                      <tr>
+                        <th className="py-2.5 px-3">Transaction</th>
+                        <th className="py-2.5 px-3">Type</th>
+                        <th className="py-2.5 px-3">Amount</th>
+                        <th className="py-2.5 px-3">After</th>
+                        <th className="py-2.5 px-3">Ref / On-Chain</th>
+                        <th className="py-2.5 px-3">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 bg-slate-950/60 font-mono text-[11px]">
+                      {selectedUser.transactions.map((tx: any) => {
+                        const explorer = getExplorerInfo(tx.settlementReference, tx.currency);
+                        const isUsd = tx.currency === 'USD';
+                        return (
+                          <tr key={tx.id} className="hover:bg-slate-900/40">
+                            <td className="py-2 px-3 text-emerald-400 font-bold">{tx.transactionCode}</td>
+                            <td className="py-2 px-3 font-sans text-xs">{tx.type}</td>
+                            <td className="py-2 px-3 text-white font-bold">
+                              {isUsd ? `$${parseFloat(tx.amount).toFixed(2)}` : `${parseFloat(tx.amount).toFixed(2)} ${tx.currency}`}
+                            </td>
+                            <td className="py-2 px-3 text-slate-400">{parseFloat(tx.balanceAfter).toFixed(2)}</td>
+                            <td className="py-2 px-3">
+                              {explorer?.isCrypto ? (
+                                <a
+                                  href={explorer.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition-all"
+                                  title={`Open ${explorer.name}`}
+                                >
+                                  <span>{explorer.shortHash}</span>
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              ) : (
+                                <span className="text-slate-500">{tx.settlementReference || '—'}</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-slate-500">{new Date(tx.createdAt).toLocaleDateString()}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

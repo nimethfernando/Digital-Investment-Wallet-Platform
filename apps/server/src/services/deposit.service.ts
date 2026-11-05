@@ -144,6 +144,13 @@ export class DepositService {
     const depositCode = `DEP-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
     const currency = data.currency || (data.depositMethod?.startsWith('USDT') ? 'USDT' : 'USD');
 
+    let normalizedHash = data.txHashOrRef?.trim() || null;
+    if (normalizedHash && (currency === 'USDT' || data.depositMethod?.includes('BEP20'))) {
+      if (/^[0-9a-fA-F]{64}$/.test(normalizedHash)) {
+        normalizedHash = `0x${normalizedHash}`;
+      }
+    }
+
     const deposit = await prisma.depositRequest.create({
       data: {
         depositCode,
@@ -152,7 +159,7 @@ export class DepositService {
         currency,
         depositMethod: data.depositMethod,
         proofUrl: data.proofUrl || null,
-        txHashOrRef: data.txHashOrRef || `REF-${depositCode}`,
+        txHashOrRef: normalizedHash || `REF-${depositCode}`,
         status: DepositStatus.PENDING,
       },
     });
@@ -217,7 +224,7 @@ export class DepositService {
   /**
    * Admin: Approve a deposit request
    */
-  async adminApproveDeposit(depositId: string, adminUserId: string, adminNotes?: string) {
+  async adminApproveDeposit(depositId: string, adminUserId: string, adminNotes?: string, customTxHash?: string) {
     const deposit = await prisma.depositRequest.findUnique({
       where: { id: depositId },
       include: { user: true },
@@ -236,6 +243,7 @@ export class DepositService {
       currency: deposit.currency,
       reviewedBy: adminUserId,
       notes: adminNotes,
+      txHash: customTxHash,
     });
 
     // Send confirmation email (non-blocking)

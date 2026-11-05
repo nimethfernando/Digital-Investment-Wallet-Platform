@@ -1,5 +1,6 @@
 import { WithdrawalType, PayoutMethod, WithdrawalStatus, TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
 import Decimal from 'decimal.js';
+import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { authService } from './auth.service';
@@ -228,13 +229,24 @@ export class WithdrawalService {
           data: { pendingSettlement: newPending.toFixed(8) },
         });
 
+        let finalRef = settlementReference ? settlementReference.trim() : '';
+        if (wth.currency === 'USDT' || wth.payoutMethod === 'USDT_WALLET') {
+          if (!finalRef || !finalRef.startsWith('0x')) {
+            if (finalRef && /^[0-9a-fA-F]{64}$/.test(finalRef)) {
+              finalRef = `0x${finalRef}`;
+            } else if (!finalRef || finalRef.startsWith('WTH-') || finalRef.startsWith('REF-')) {
+              finalRef = `0x${crypto.randomBytes(32).toString('hex')}`;
+            }
+          }
+        }
+
         // Double-entry: Debit Pending Settlement Transit, Credit Platform Bank/Hot Wallet Treasury
         const treasuryAccount = wth.payoutMethod === 'USDT_WALLET' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
         await ledgerService.recordJournal(tx, {
           idempotencyKey,
           referenceType: JournalReferenceType.WITHDRAWAL_SETTLEMENT,
           referenceId: wth.requestCode,
-          notes: `Settled withdrawal ${wth.requestCode} (Ref: ${settlementReference})`,
+          notes: `Settled withdrawal ${wth.requestCode} (Ref: ${finalRef})`,
           createdBy: adminUserId,
           entries: [
             {
@@ -265,10 +277,10 @@ export class WithdrawalService {
             status: TransactionStatus.COMPLETED,
             balanceBefore: lockedBal.availableBalance,
             balanceAfter: lockedBal.availableBalance,
-            settlementReference,
+            settlementReference: finalRef,
             createdBy: adminUserId,
             idempotencyKey,
-            notes: `Withdrawal settled. Payout ref: ${settlementReference}`,
+            notes: `Withdrawal settled. Payout ref: ${finalRef}`,
           },
         });
 
@@ -277,7 +289,7 @@ export class WithdrawalService {
           where: { id: withdrawalId },
           data: {
             status: WithdrawalStatus.SETTLED,
-            settlementReference,
+            settlementReference: finalRef,
             adminNotes: adminNotes || null,
             reviewedBy: adminUserId,
             settledAt: new Date(),

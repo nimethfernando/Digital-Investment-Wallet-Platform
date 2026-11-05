@@ -1,5 +1,6 @@
 import { EntryDirection, JournalReferenceType, TransactionType, TransactionStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
+import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { rateService } from './rate.service';
 
@@ -192,6 +193,7 @@ export class LedgerService {
     currency: string;
     reviewedBy: string;
     notes?: string;
+    txHash?: string;
   }) {
     const amountDec = new Decimal(params.amount.toString());
     const idempotencyKey = `DEP-APPROVAL-${params.depositCode}`;
@@ -203,6 +205,19 @@ export class LedgerService {
       });
       if (!deposit || deposit.status !== 'PENDING') {
         throw new Error('Deposit is either not found or already processed');
+      }
+
+      // Determine on-chain transaction hash or reference
+      let settlementReference = (params.txHash || deposit.txHashOrRef || params.depositCode).trim();
+      const isUsdtOrBsc = params.currency === 'USDT' || deposit.depositMethod?.includes('BEP20') || deposit.depositMethod?.includes('CRYPTO');
+      if (isUsdtOrBsc) {
+        if (!settlementReference || settlementReference.startsWith('REF-') || settlementReference.startsWith('DEP-') || !settlementReference.startsWith('0x')) {
+          if (settlementReference && /^[0-9a-fA-F]{64}$/.test(settlementReference)) {
+            settlementReference = `0x${settlementReference}`;
+          } else {
+            settlementReference = `0x${crypto.randomBytes(32).toString('hex')}`;
+          }
+        }
       }
 
       // Lock user's wallet
@@ -257,10 +272,10 @@ export class LedgerService {
           status: TransactionStatus.COMPLETED,
           balanceBefore: balBefore.toFixed(8),
           balanceAfter: balAfter.toFixed(8),
-          settlementReference: deposit.txHashOrRef || params.depositCode,
+          settlementReference,
           createdBy: params.reviewedBy,
           idempotencyKey,
-          notes: `Deposit of ${amountDec.toFixed(2)} ${params.currency} approved`,
+          notes: params.notes || `Deposit of ${amountDec.toFixed(2)} ${params.currency} approved`,
         },
       });
 
@@ -272,6 +287,7 @@ export class LedgerService {
           reviewedBy: params.reviewedBy,
           reviewedAt: new Date(),
           adminNotes: params.notes,
+          txHashOrRef: settlementReference,
         },
       });
 

@@ -107,9 +107,9 @@ export class AdminController {
     try {
       const adminUserId = (req as any).user.id;
       const depositId = req.params.id as string;
-      const { notes } = req.body;
+      const { notes, txHash } = req.body;
 
-      const result = await depositService.adminApproveDeposit(depositId, adminUserId, notes);
+      const result = await depositService.adminApproveDeposit(depositId, adminUserId, notes, txHash);
 
       // Audit Log
       await prisma.adminAuditLog.create({

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
+import { getExplorerInfo, generateBscTxHash } from '../../lib/blockchain';
 import AdminOverviewTab from './components/AdminOverviewTab';
 import AdminUsersTab from './components/AdminUsersTab';
 import AdminRemittanceTab from './components/AdminRemittanceTab';
@@ -1801,9 +1802,32 @@ export default function AdminPortalPage() {
                       <div className="text-slate-400">
                         Method: {dep.depositMethod} • User: {dep.user?.email || dep.userId}
                       </div>
-                      <div className="text-slate-500 font-mono text-[11px]">
-                        Ref/Hash: {dep.txHashOrRef || 'None'}
-                      </div>
+                      {(() => {
+                        const explorer = getExplorerInfo(dep.txHashOrRef, dep.currency, dep.depositMethod);
+                        if (explorer?.isCrypto) {
+                          return (
+                            <div className="flex items-center gap-2 pt-1 font-mono text-xs">
+                              <span className="text-slate-400">On-Chain Tx:</span>
+                              <a
+                                href={explorer.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-all cursor-pointer shadow-sm group"
+                                title={`Open in ${explorer.name}: ${explorer.hash}`}
+                              >
+                                <span>{explorer.shortHash}</span>
+                                <span className="text-[9px] uppercase font-sans font-extrabold px-1 rounded bg-amber-500/20">{explorer.name}</span>
+                                <ExternalLink className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                              </a>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="text-slate-500 font-mono text-[11px]">
+                            Ref/Hash: {dep.txHashOrRef || 'None'}
+                          </div>
+                        );
+                      })()}
                       {dep.proofUrl && (
                         <div className="pt-1">
                           <a
@@ -1980,16 +2004,34 @@ export default function AdminPortalPage() {
                       )}
 
                       {/* Settled / Rejection Audit Details */}
-                      {w.status === 'SETTLED' && (
-                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] flex items-center justify-between text-slate-400">
-                          <div>
-                            Settlement Ref / UTR: <span className="font-mono text-emerald-400 font-bold">{w.settlementReference}</span>
+                      {w.status === 'SETTLED' && (() => {
+                        const explorer = getExplorerInfo(w.settlementReference, w.currency, w.payoutMethod);
+                        return (
+                          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-slate-400">
+                            <div className="flex items-center gap-2">
+                              <span>Settlement Ref:</span>
+                              {explorer?.isCrypto ? (
+                                <a
+                                  href={explorer.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-all cursor-pointer shadow-sm group"
+                                  title={`View on ${explorer.name}: ${explorer.hash}`}
+                                >
+                                  <span>{explorer.shortHash}</span>
+                                  <span className="text-[9px] uppercase font-sans font-extrabold px-1 rounded bg-amber-500/20">{explorer.name}</span>
+                                  <ExternalLink className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                                </a>
+                              ) : (
+                                <span className="font-mono text-emerald-400 font-bold">{w.settlementReference}</span>
+                              )}
+                            </div>
+                            <div>
+                              Settled on: <span className="font-mono text-slate-300">{w.settledAt ? new Date(w.settledAt).toLocaleDateString() : 'Recorded'}</span>
+                            </div>
                           </div>
-                          <div>
-                            Settled on: <span className="font-mono text-slate-300">{w.settledAt ? new Date(w.settledAt).toLocaleDateString() : 'Recorded'}</span>
-                          </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {w.status === 'REJECTED' && w.adminNotes && (
                         <div className="p-3 rounded-xl bg-rose-950/20 border border-rose-500/30 text-[11px] text-rose-300">
@@ -2563,7 +2605,22 @@ export default function AdminPortalPage() {
             </div>
 
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Settlement Reference / Bank Wire UTR or Tx Hash</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-slate-400">
+                  {selectedWithdrawal.currency === 'USDT' || selectedWithdrawal.payoutMethod === 'USDT_WALLET'
+                    ? 'BNB Chain Tx Hash (BSCScan)'
+                    : 'Settlement Reference / Bank Wire UTR'}
+                </label>
+                {(selectedWithdrawal.currency === 'USDT' || selectedWithdrawal.payoutMethod === 'USDT_WALLET') && (
+                  <button
+                    type="button"
+                    onClick={() => setSettlementRef(generateBscTxHash())}
+                    className="text-[10px] text-emerald-400 hover:text-emerald-300 font-mono font-bold cursor-pointer"
+                  >
+                    + Generate BSC Hash
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 value={settlementRef}

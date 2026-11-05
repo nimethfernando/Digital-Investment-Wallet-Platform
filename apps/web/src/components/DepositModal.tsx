@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { api, extractErrorMessage } from '../lib/api';
+import { getExplorerInfo } from '../lib/blockchain';
 import {
   X,
   Copy,
@@ -333,14 +334,32 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                   {successData.status || 'PENDING_VERIFICATION'}
                 </span>
               </div>
-              {successData.txHashOrRef && (
-                <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-slate-800">
-                  <span className="text-slate-500">Tx Hash:</span>
-                  <span className="font-mono text-[11px] truncate max-w-[200px] text-slate-700 dark:text-slate-300">
-                    {successData.txHashOrRef}
-                  </span>
-                </div>
-              )}
+              {successData.txHashOrRef && (() => {
+                const explorer = getExplorerInfo(successData.txHashOrRef, successData.currency, successData.depositMethod);
+                return (
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-800">
+                    <span className="text-slate-500">Tx Hash / Explorer:</span>
+                    {explorer?.isCrypto ? (
+                      <a
+                        href={explorer.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-all cursor-pointer shadow-sm group"
+                      >
+                        <span>{explorer.shortHash}</span>
+                        <span className="text-[9px] uppercase font-sans font-extrabold px-1 py-0.5 rounded bg-amber-500/20">
+                          {explorer.name}
+                        </span>
+                        <ExternalLink className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                      </a>
+                    ) : (
+                      <span className="font-mono text-[11px] truncate max-w-[200px] text-slate-700 dark:text-slate-300">
+                        {successData.txHashOrRef}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
