@@ -152,6 +152,7 @@ export default function AdminPortalPage() {
   // Deposits State
   const [deposits, setDeposits] = useState<any[]>([]);
   const [depositsLoading, setDepositsLoading] = useState(false);
+  const [approvingDepId, setApprovingDepId] = useState<string | null>(null);
 
   // Withdrawals State
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
@@ -514,15 +515,29 @@ export default function AdminPortalPage() {
 
   // Handle Deposit Approval / Rejection
   const handleApproveDeposit = async (depId: string) => {
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
+    if (approvingDepId) return;
+
+    let code = '';
+    if (user?.twoFactorEnabled) {
+      const input = prompt('Enter your 6-digit Google Authenticator 2FA code:');
+      if (input === null) return; // User cancelled
+      code = input.trim();
+    } else {
+      const confirmApprove = confirm('Approve this deposit request and credit the customer\'s balance now?');
+      if (!confirmApprove) return;
+    }
+
+    setApprovingDepId(depId);
     try {
-      const res = await api.post(`/admin/deposits/${depId}/approve`, {}, { headers: { 'x-admin-2fa': code } });
+      const res = await api.post(`/admin/deposits/${depId}/approve`, {}, { headers: code ? { 'x-admin-2fa': code } : {} });
       if (res.data?.success) {
         showToast('Deposit approved! Double-entry ledger balance credited.', 'success');
         loadData();
       }
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Deposit approval failed', 'error');
+    } finally {
+      setApprovingDepId(null);
     }
   };
 
@@ -716,8 +731,13 @@ export default function AdminPortalPage() {
   };
 
   const handleUpdateSystemStatus = async (newStatus: any) => {
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
-    const res = await api.post('/admin/system/settings', newStatus, { headers: { 'x-admin-2fa': code } });
+    let code = '';
+    if (user?.twoFactorEnabled) {
+      const input = prompt('Enter your 6-digit Google Authenticator 2FA code:');
+      if (input === null) return;
+      code = input.trim();
+    }
+    const res = await api.post('/admin/system/settings', newStatus, { headers: code ? { 'x-admin-2fa': code } : {} });
     if (res.data?.success) {
       setSystemStatus(newStatus);
     }
@@ -725,10 +745,15 @@ export default function AdminPortalPage() {
 
   const handleSavePlatformConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
+    let code = '';
+    if (user?.twoFactorEnabled) {
+      const input = prompt('Enter your 6-digit Google Authenticator 2FA code:');
+      if (input === null) return;
+      code = input.trim();
+    }
     setSavingConfig(true);
     try {
-      const res = await api.post('/admin/settings/config', { settings: platformConfig }, { headers: { 'x-admin-2fa': code } });
+      const res = await api.post('/admin/settings/config', { settings: platformConfig }, { headers: code ? { 'x-admin-2fa': code } : {} });
       if (res.data?.success) {
         showToast(res.data.message || 'Platform parameters updated successfully');
       }
@@ -1854,10 +1879,18 @@ export default function AdminPortalPage() {
                         </button>
                         <button
                           type="button"
+                          disabled={approvingDepId === dep.id}
                           onClick={() => handleApproveDeposit(dep.id)}
-                          className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs cursor-pointer shadow-sm"
+                          className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs cursor-pointer shadow-sm flex items-center gap-1.5"
                         >
-                          Approve &amp; Credit Balance
+                          {approvingDepId === dep.id ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Approving...</span>
+                            </>
+                          ) : (
+                            <span>Approve &amp; Credit Balance</span>
+                          )}
                         </button>
                       </div>
                     )}
