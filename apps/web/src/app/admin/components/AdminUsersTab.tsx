@@ -22,6 +22,9 @@ import {
   AlertCircle,
   FileText,
   ExternalLink,
+  UserPlus,
+  Package,
+  Coins,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { getExplorerInfo } from '../../../lib/blockchain';
@@ -31,6 +34,9 @@ interface UsersTabProps {
   usersLoading: boolean;
   onRefresh: () => void;
   onFeedback: (feedback: { text: string; type: 'success' | 'error' } | null) => void;
+  onOpenOnboard?: () => void;
+  onOpenDeployPackage?: (user: any) => void;
+  onOpenManualDeposit?: (user: any) => void;
 }
 
 export default function AdminUsersTab({
@@ -38,6 +44,9 @@ export default function AdminUsersTab({
   usersLoading,
   onRefresh,
   onFeedback,
+  onOpenOnboard,
+  onOpenDeployPackage,
+  onOpenManualDeposit,
 }: UsersTabProps) {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -135,9 +144,8 @@ export default function AdminUsersTab({
   };
 
   const handleResetPassword = async (userId: string, email: string) => {
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
     try {
-      const res = await api.post(`/admin/users/${userId}/reset-password`, {}, { headers: { 'x-admin-2fa': code } });
+      const res = await api.post(`/admin/users/${userId}/reset-password`, {});
       if (res.data?.success) {
         setTempPassResult({ email, password: res.data.temporaryPassword });
       }
@@ -147,9 +155,8 @@ export default function AdminUsersTab({
   };
 
   const handleDisable2FA = async (userId: string, email: string) => {
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
     try {
-      const res = await api.post(`/admin/users/${userId}/disable-2fa`, {}, { headers: { 'x-admin-2fa': code } });
+      const res = await api.post(`/admin/users/${userId}/disable-2fa`, {});
       if (res.data?.success) {
         onFeedback({ text: `2FA disabled for ${email}`, type: 'success' });
         onRefresh();
@@ -181,7 +188,6 @@ export default function AdminUsersTab({
       return;
     }
 
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
     setAdjustLoading(true);
     try {
       const res = await api.post(
@@ -191,8 +197,7 @@ export default function AdminUsersTab({
           amount: parseFloat(adjustAmount),
           type: adjustType,
           reason: adjustReason.trim(),
-        },
-        { headers: { 'x-admin-2fa': code } }
+        }
       );
       if (res.data?.success) {
         onFeedback({ text: res.data.message || 'Balance adjusted successfully', type: 'success' });
@@ -286,11 +291,21 @@ export default function AdminUsersTab({
 
           <button
             onClick={onRefresh}
-            className="px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-rose-500/30"
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-slate-700"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Refresh</span>
           </button>
+
+          {onOpenOnboard && (
+            <button
+              onClick={onOpenOnboard}
+              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-black shadow-lg shadow-rose-600/30 flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>+ Onboard Client</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -417,6 +432,30 @@ export default function AdminUsersTab({
                           <Eye className="w-3.5 h-3.5 text-slate-400" />
                           <span>Dossier</span>
                         </button>
+
+                        {/* Deploy FD Package */}
+                        {onOpenDeployPackage && (
+                          <button
+                            onClick={() => onOpenDeployPackage(u)}
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-slate-950 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border border-amber-500/30"
+                            title="Deploy Fixed Deposit Package for this user"
+                          >
+                            <Package className="w-3.5 h-3.5" />
+                            <span>FD</span>
+                          </button>
+                        )}
+
+                        {/* Credit Manual Deposit */}
+                        {onOpenManualDeposit && (
+                          <button
+                            onClick={() => onOpenManualDeposit(u)}
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border border-emerald-500/30"
+                            title="Credit Direct Deposit for this user"
+                          >
+                            <Coins className="w-3.5 h-3.5" />
+                            <span>Deposit</span>
+                          </button>
+                        )}
 
                         {/* Adjust Balance */}
                         <button

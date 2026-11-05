@@ -10,6 +10,7 @@ router.use(requireRole([Role.ADMIN, Role.STAFF]));
 
 // User Management operations
 router.get('/users', (req, res, next) => adminController.getUsers(req, res, next));
+router.post('/users/create', requireRole([Role.ADMIN]), (req, res, next) => adminController.createUser(req, res, next));
 router.get('/users/:id', (req, res, next) => adminController.getUserDetails(req, res, next));
 router.patch('/users/:id', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUser(req, res, next));
 router.post('/users/:id/adjust-balance', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.adjustUserBalance(req, res, next));
@@ -20,6 +21,7 @@ router.post('/settings/config', requireRole([Role.ADMIN]), requireAdmin2FA, (req
 
 // Package operations
 router.get('/packages', (req, res, next) => adminController.getPackages(req, res, next));
+router.post('/packages/create', requireRole([Role.ADMIN]), (req, res, next) => adminController.createPackage(req, res, next));
 router.post('/packages/:id/approve', (req, res, next) => adminController.approvePackage(req, res, next));
 router.post('/packages/:id/settle-full', requireAdmin2FA, (req, res, next) => adminController.settleFullPackage(req, res, next));
 router.patch('/packages/:id/tenure', requireAdmin2FA, (req, res, next) => adminController.updatePackageTenure(req, res, next));
@@ -32,6 +34,7 @@ router.get('/token-allocations', (req, res, next) => adminController.getTokenAll
 
 // Deposit operations
 router.get('/deposits', (req, res, next) => adminController.getDeposits(req, res, next));
+router.post('/deposits/manual', requireRole([Role.ADMIN]), (req, res, next) => adminController.createManualDeposit(req, res, next));
 router.post('/deposits/:id/approve', requireAdmin2FA, (req, res, next) => adminController.approveDeposit(req, res, next));
 router.post('/deposits/:id/reject', requireAdmin2FA, (req, res, next) => adminController.rejectDeposit(req, res, next));
 

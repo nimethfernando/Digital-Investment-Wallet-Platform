@@ -14,12 +14,14 @@ import AdminP2PTab from './components/AdminP2PTab';
 import AdminKycTab from './components/AdminKycTab';
 import AdminSystemTab from './components/AdminSystemTab';
 import AdminAuditLogsTab from './components/AdminAuditLogsTab';
+import AdminActionModals from './components/AdminActionModals';
 import {
   LayoutDashboard,
   Globe,
   Sliders,
   Settings,
   Users,
+  UserPlus,
   Percent,
   ShieldAlert,
   ShieldCheck,
@@ -66,6 +68,13 @@ export default function AdminPortalPage() {
 
   // Overview & Analytics State
   const [overviewAnalytics, setOverviewAnalytics] = useState<any | null>(null);
+  const [lastSyncedTime, setLastSyncedTime] = useState<string>('');
+
+  // Action Modals State
+  const [onboardModalOpen, setOnboardModalOpen] = useState(false);
+  const [deployPackageModalOpen, setDeployPackageModalOpen] = useState(false);
+  const [manualDepositModalOpen, setManualDepositModalOpen] = useState(false);
+  const [actionTargetUser, setActionTargetUser] = useState<any | null>(null);
 
   // Users Directory State
   const [users, setUsers] = useState<any[]>([]);
@@ -214,6 +223,20 @@ export default function AdminPortalPage() {
     setTimeout(() => setFeedback(null), 4000);
   };
 
+  // Fast initial mount analytics fetch so ALL tab badges and KPI cards are immediately populated with real counts
+  useEffect(() => {
+    if (token && isAdmin) {
+      api.get('/admin/analytics/overview')
+        .then((res) => {
+          if (res.data?.success && res.data?.data) {
+            setOverviewAnalytics(res.data.data);
+            setLastSyncedTime(new Date().toLocaleTimeString());
+          }
+        })
+        .catch((err) => console.error('Initial analytics preload error:', err));
+    }
+  }, [token, isAdmin]);
+
   // Auth Guard
   useEffect(() => {
     if (!isLoading && (!token || !isAdmin)) {
@@ -223,6 +246,16 @@ export default function AdminPortalPage() {
 
   // Load Tab Data
   const loadData = async () => {
+    // Re-fetch overview analytics in background on any data load to keep tab counts accurate
+    api.get('/admin/analytics/overview')
+      .then((res) => {
+        if (res.data?.success && res.data?.data) {
+          setOverviewAnalytics(res.data.data);
+          setLastSyncedTime(new Date().toLocaleTimeString());
+        }
+      })
+      .catch(() => {});
+
     if (activeTab === 'overview') {
       try {
         const [anRes, recRes] = await Promise.all([
@@ -231,6 +264,7 @@ export default function AdminPortalPage() {
         ]);
         if (anRes.data?.success) setOverviewAnalytics(anRes.data.data);
         if (recRes.data?.success) setLedgerReconciliation(recRes.data.data);
+        setLastSyncedTime(new Date().toLocaleTimeString());
       } catch (e) {
         console.error('Failed to load overview analytics:', e);
       }
@@ -792,12 +826,34 @@ export default function AdminPortalPage() {
     );
   }
 
+  const tabBadgeCounts: Record<string, number> = {
+    overview: 0,
+    users: users.length > 0 ? users.length : (overviewAnalytics?.totalUsers || 0),
+    packages: adminPackages.length > 0 ? adminPackages.length : (overviewAnalytics?.totalPackages || 0),
+    remittance: remittanceTransfers.length > 0 ? remittanceTransfers.length : (overviewAnalytics?.totalTransfers || 0),
+    investments: adminInvestments.length > 0 ? adminInvestments.length : (overviewAnalytics?.totalStartups || 0),
+    p2p: p2pOrders.length || 0,
+    deposits: (Array.isArray(deposits) && deposits.length > 0)
+      ? deposits.filter((d) => d?.status === 'PENDING').length
+      : (overviewAnalytics?.pendingDeposits ?? 0),
+    withdrawals: (Array.isArray(withdrawals) && withdrawals.length > 0)
+      ? withdrawals.filter((w) => ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w?.status)).length
+      : (overviewAnalytics?.pendingWithdrawals ?? 0),
+    kyc: kycDocs.length > 0 ? kycDocs.length : (overviewAnalytics?.pendingKyc ?? 0),
+    treasury: 0,
+    addresses: 0,
+    config: 0,
+    system: 0,
+    audit: auditLogs.length || 0,
+    disputes: tickets.length > 0 ? tickets.length : (overviewAnalytics?.totalTickets ?? 0),
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans">
       
       {/* Top Header */}
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-600 to-red-600 flex items-center justify-center font-black text-sm shadow-md">
               A
@@ -808,27 +864,60 @@ export default function AdminPortalPage() {
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-500/20 text-rose-400 border border-rose-500/30">
                   {user?.role}
                 </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  ONLINE
+                </span>
               </h1>
               <p className="text-[11px] text-slate-400 font-mono">
-                Institutional Core Ledger, Compliance & Settlement Desk
+                Institutional Core Ledger, Compliance &amp; Settlement Desk
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
+            <button
+              onClick={() => { setActionTargetUser(null); setOnboardModalOpen(true); }}
+              className="text-xs font-black bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-xl transition-all shadow-md shadow-rose-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>+ Onboard Client</span>
+            </button>
+            <button
+              onClick={() => { setActionTargetUser(null); setDeployPackageModalOpen(true); }}
+              className="text-xs font-black bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-xl transition-all shadow-md shadow-amber-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <Package className="w-3.5 h-3.5" />
+              <span>+ Deploy FD</span>
+            </button>
+            <button
+              onClick={() => { setActionTargetUser(null); setManualDepositModalOpen(true); }}
+              className="text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl transition-all shadow-md shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <Coins className="w-3.5 h-3.5" />
+              <span>+ Credit Deposit</span>
+            </button>
+            <button
+              onClick={() => loadData()}
+              className="text-xs font-bold text-slate-300 hover:text-white px-3 py-1.5 rounded-xl border border-slate-800 hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+              title={lastSyncedTime ? `Last synced: ${lastSyncedTime}` : 'Sync all data'}
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-rose-400" />
+              <span className="hidden md:inline">{lastSyncedTime ? `Synced ${lastSyncedTime}` : 'Sync Data'}</span>
+            </button>
             <button
               onClick={handlePurgeDemoData}
               disabled={purgingDemo}
               className="text-xs font-bold text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-xl border border-amber-500/30 hover:bg-amber-500/10 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>{purgingDemo ? 'Purging Demo...' : 'Purge Demo Data'}</span>
+              <span className="hidden lg:inline">{purgingDemo ? 'Purging...' : 'Purge Demo'}</span>
             </button>
             <Link
               href="/dashboard"
               className="text-xs font-bold text-slate-400 hover:text-white px-3 py-1.5 rounded-xl border border-slate-800 hover:bg-slate-800 transition-colors"
             >
-              Investor Dashboard
+              Client Dashboard
             </Link>
           </div>
         </div>
@@ -860,20 +949,20 @@ export default function AdminPortalPage() {
         <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs font-bold">
           {[
             { id: 'overview', label: 'Overview & Analytics', icon: LayoutDashboard },
-            { id: 'users', label: `Users & Accounts (${users.length || 0})`, icon: Users },
-            { id: 'packages', label: `Packages & Yields (${adminPackages.length || 0})`, icon: Package },
-            { id: 'remittance', label: `Remittance Orders (${remittanceTransfers.length || 0})`, icon: Globe },
-            { id: 'investments', label: `Startup Portfolios (${adminInvestments.length || 0})`, icon: Building },
-            { id: 'p2p', label: `P2P Escrow (${p2pOrders.length || 0})`, icon: TrendingUp },
-            { id: 'deposits', label: `Deposits (${(Array.isArray(deposits) ? deposits : []).filter((d) => d?.status === 'PENDING').length})`, icon: Coins },
-            { id: 'withdrawals', label: `Settlements (${(Array.isArray(withdrawals) ? withdrawals : []).filter((w) => ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w?.status)).length})`, icon: Clock },
-            { id: 'kyc', label: `KYC Compliance (${kycDocs.length || 0})`, icon: UserCheck },
+            { id: 'users', label: `Users & Accounts (${tabBadgeCounts.users})`, icon: Users },
+            { id: 'packages', label: `Packages & Yields (${tabBadgeCounts.packages})`, icon: Package },
+            { id: 'remittance', label: `Remittance Orders (${tabBadgeCounts.remittance})`, icon: Globe },
+            { id: 'investments', label: `Startup Portfolios (${tabBadgeCounts.investments})`, icon: Building },
+            { id: 'p2p', label: `P2P Escrow (${tabBadgeCounts.p2p})`, icon: TrendingUp },
+            { id: 'deposits', label: `Deposits (${tabBadgeCounts.deposits})`, icon: Coins },
+            { id: 'withdrawals', label: `Settlements (${tabBadgeCounts.withdrawals})`, icon: Clock },
+            { id: 'kyc', label: `KYC Compliance (${tabBadgeCounts.kyc})`, icon: UserCheck },
             { id: 'treasury', label: 'Treasury & Core Ledger', icon: Landmark },
             { id: 'addresses', label: 'Receiver Addresses & QR', icon: QrCode },
             { id: 'config', label: 'Protocol Fee Controls', icon: Sliders },
             { id: 'system', label: 'System & Maintenance', icon: Settings },
             { id: 'audit', label: 'Audit Logs', icon: FileText },
-            { id: 'disputes', label: `Tickets (${tickets.length || 0})`, icon: MessageSquare },
+            { id: 'disputes', label: `Tickets (${tabBadgeCounts.disputes})`, icon: MessageSquare },
           ].map((t) => {
             const Icon = t.icon;
             return (
@@ -913,6 +1002,9 @@ export default function AdminPortalPage() {
             usersLoading={usersLoading}
             onRefresh={loadData}
             onFeedback={(f) => setFeedback(f)}
+            onOpenOnboard={() => { setActionTargetUser(null); setOnboardModalOpen(true); }}
+            onOpenDeployPackage={(targetUser) => { setActionTargetUser(targetUser); setDeployPackageModalOpen(true); }}
+            onOpenManualDeposit={(targetUser) => { setActionTargetUser(targetUser); setManualDepositModalOpen(true); }}
           />
         )}
 
@@ -1419,14 +1511,23 @@ export default function AdminPortalPage() {
 
             {/* Customer Investment Packages Table */}
             <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="font-extrabold text-base text-white">Client Investment Packages ({adminPackages.length})</h3>
                   <p className="text-xs text-slate-400">All customer capital deployments, lock-in terms & yield payout statuses</p>
                 </div>
-                <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1">
-                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
-                </button>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={() => { setActionTargetUser(null); setDeployPackageModalOpen(true); }}
+                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-600/30 cursor-pointer whitespace-nowrap"
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>+ Deploy FD Package</span>
+                  </button>
+                  <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1 cursor-pointer">
+                    <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                  </button>
+                </div>
               </div>
 
               {packagesLoading ? (
@@ -1793,11 +1894,23 @@ export default function AdminPortalPage() {
         {/* TAB 3: DEPOSITS AUDIT */}
         {activeTab === 'deposits' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-extrabold text-base text-white">Deposit Requests ({Array.isArray(deposits) ? deposits.length : 0})</h3>
-              <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1 cursor-pointer">
-                <RefreshCw className="w-3.5 h-3.5" /> Refresh
-              </button>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-extrabold text-base text-white">Deposit Requests ({Array.isArray(deposits) ? deposits.length : 0})</h3>
+                <p className="text-xs text-slate-400">Review pending crypto &amp; wire transfers or credit manual institutional deposits</p>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => { setActionTargetUser(null); setManualDepositModalOpen(true); }}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/30 cursor-pointer whitespace-nowrap"
+                >
+                  <Coins className="w-3.5 h-3.5" />
+                  <span>+ Credit Deposit</span>
+                </button>
+                <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1 cursor-pointer">
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                </button>
+              </div>
             </div>
 
             {depositsLoading ? (
@@ -3034,6 +3147,20 @@ export default function AdminPortalPage() {
           </form>
         </div>
       )}
+
+      {/* GLOBAL ADMINISTRATIVE ACTION MODALS */}
+      <AdminActionModals
+        onboardOpen={onboardModalOpen}
+        onCloseOnboard={() => setOnboardModalOpen(false)}
+        deployPackageOpen={deployPackageModalOpen}
+        onCloseDeployPackage={() => setDeployPackageModalOpen(false)}
+        manualDepositOpen={manualDepositModalOpen}
+        onCloseManualDeposit={() => setManualDepositModalOpen(false)}
+        onRefreshAll={loadData}
+        onFeedback={setFeedback}
+        preselectedUser={actionTargetUser}
+        usersList={users}
+      />
 
     </div>
   );

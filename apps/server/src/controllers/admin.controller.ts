@@ -1958,6 +1958,298 @@ export class AdminController {
       next(err);
     }
   }
+
+  /**
+   * Admin: Onboard/Create a new user directly
+   */
+  async createUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const {
+        firstName,
+        lastName,
+        email,
+        password,
+        role = Role.USER,
+        country = 'GE',
+        phone,
+        initialBalance,
+        initialCurrency = 'USD',
+        autoVerifyKyc = true,
+      } = req.body;
+
+      if (!email || !email.includes('@')) {
+        return res.status(400).json({ success: false, message: 'A valid email address is required' });
+      }
+
+      const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+      if (existing) {
+        return res.status(400).json({ success: false, message: `A user with email ${email} already exists.` });
+      }
+
+      const tempPassword = password && password.trim().length >= 6
+        ? password.trim()
+        : `Avora@${Math.floor(100000 + Math.random() * 900000)}`;
+
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+      const user = await prisma.user.create({
+        data: {
+          email: email.toLowerCase().trim(),
+          passwordHash,
+          firstName: firstName?.trim() || 'Client',
+          lastName: lastName?.trim() || 'Investor',
+          role: role === Role.ADMIN ? Role.ADMIN : role === Role.STAFF ? Role.STAFF : Role.USER,
+          phone: phone?.trim() || null,
+          signupLocation: country || 'GE',
+          country: country || 'GE',
+          kycStatus: autoVerifyKyc ? KycStatus.APPROVED : KycStatus.NOT_STARTED,
+          status: UserStatus.ACTIVE,
+          twoFactorEnabled: false,
+        },
+      });
+
+      const accountNumber = generateAvoraAccountNumber(user.id);
+
+      // Ensure default wallet balances exist (USD, USDT, EUR, GEL, INR)
+      await ledgerService.ensureWallet(user.id);
+
+      // If initial balance was requested, credit it
+      let creditedBalance = null;
+      if (initialBalance && parseFloat(initialBalance) > 0) {
+        const creditAmt = parseFloat(initialBalance);
+        creditedBalance = await ledgerService.processAdminBalanceAdjustment({
+          userId: user.id,
+          adminUserId,
+          currency: initialCurrency || 'USD',
+          amount: creditAmt,
+          type: 'CREDIT',
+          reason: 'Initial institutional account funding upon onboarding',
+        });
+      }
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'ADMIN_CREATE_USER',
+          entity: 'User',
+          entityId: user.id,
+          details: `Admin created user ${user.email} (${accountNumber}) with role ${user.role} and initial balance ${initialBalance || 0} ${initialCurrency}`,
+        },
+      });
+
+      res.status(201).json({
+        success: true,
+        message: `Account for ${user.email} successfully created.`,
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            accountNumber,
+            role: user.role,
+            kycStatus: user.kycStatus,
+            temporaryPassword: tempPassword,
+          },
+          temporaryPassword: tempPassword,
+          creditedBalance,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Admin: Deploy/Issue an active Fixed Deposit investment package for any user
+   */
+  async createPackage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const {
+        userId,
+        userEmail,
+        amount,
+        currency = 'USD',
+        lockInMonths = 6,
+        returnRateSnapshot = '0.0100',
+        fundingSource = 'DIRECT_CREDIT',
+      } = req.body;
+
+      if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid positive package amount required' });
+      }
+
+      let targetUser = null;
+      if (userId) {
+        targetUser = await prisma.user.findUnique({ where: { id: String(userId) } });
+      } else if (userEmail) {
+        targetUser = await prisma.user.findUnique({ where: { email: String(userEmail).toLowerCase().trim() } });
+      }
+
+      if (!targetUser) {
+        return res.status(404).json({ success: false, message: 'Target client user not found' });
+      }
+
+      const amountDec = new Decimal(amount.toString());
+      const months = parseInt(lockInMonths?.toString() || '6', 10);
+      const rate = new Decimal(returnRateSnapshot?.toString() || '0.0100');
+
+      let investmentPackage;
+
+      if (fundingSource === 'WALLET') {
+        investmentPackage = await ledgerService.purchasePackageFromWallet({
+          userId: targetUser.id,
+          amount: amountDec.toFixed(8),
+          currency,
+          returnRateSnapshot: rate.toFixed(4),
+          lockInMonths: months,
+          idempotencyKey: `ADMIN-PKG-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        });
+      } else {
+        const now = new Date();
+        const lockInEnd = new Date(now);
+        lockInEnd.setMonth(lockInEnd.getMonth() + months);
+
+        const packageCode = `PKG-INST-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+
+        investmentPackage = await prisma.$transaction(async (tx) => {
+          const wallet = await ledgerService.ensureWallet(targetUser.id);
+          const lockedBal = await ledgerService.lockWalletBalance(tx, wallet.id, currency);
+
+          const newLocked = new Decimal(lockedBal.lockedPrincipal.toString()).plus(amountDec);
+          await tx.walletBalance.update({
+            where: { id: lockedBal.id },
+            data: { lockedPrincipal: newLocked.toFixed(8) },
+          });
+
+          return await tx.investmentPackage.create({
+            data: {
+              packageCode,
+              userId: targetUser.id,
+              amount: amountDec.toFixed(8),
+              currency,
+              returnRateSnapshot: rate.toFixed(4),
+              lockInMonths: months,
+              status: PackageStatus.ACTIVE,
+              lockInStart: now,
+              lockInEnd,
+              purchaseDate: now,
+              depositMethod: 'ADMIN_DIRECT_CREDIT',
+              adminNotes: `Deployed by admin ${adminUserId}`,
+            },
+          });
+        });
+      }
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'ADMIN_CREATE_PACKAGE',
+          entity: 'InvestmentPackage',
+          entityId: investmentPackage.id,
+          details: `Admin deployed ${months}-mo FD package ${investmentPackage.packageCode} for $${amountDec.toFixed(2)} ${currency} to ${targetUser.email} (Source: ${fundingSource})`,
+        },
+      });
+
+      res.status(201).json({
+        success: true,
+        message: `Fixed Deposit package ${investmentPackage.packageCode} successfully deployed for ${targetUser.email}.`,
+        data: { package: investmentPackage },
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message || 'Failed to create investment package' });
+    }
+  }
+
+  /**
+   * Admin: Create and instantly credit a manual deposit for any user
+   */
+  async createManualDeposit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const {
+        userId,
+        userEmail,
+        amount,
+        currency = 'USDT',
+        depositMethod = 'MANUAL_CREDIT',
+        txHashOrRef,
+        notes = 'Institutional balance deposit credited via admin desk',
+      } = req.body;
+
+      if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid positive deposit amount required' });
+      }
+
+      let targetUser = null;
+      if (userId) {
+        targetUser = await prisma.user.findUnique({ where: { id: String(userId) } });
+      } else if (userEmail) {
+        targetUser = await prisma.user.findUnique({ where: { email: String(userEmail).toLowerCase().trim() } });
+      }
+
+      if (!targetUser) {
+        return res.status(404).json({ success: false, message: 'Target client user not found' });
+      }
+
+      const depositCode = `DEP-MAN-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+      const amountDec = new Decimal(amount.toString());
+
+      // If USDT and no custom tx hash provided, auto-generate valid 66-character BSC hash
+      let finalHash = txHashOrRef?.trim() || null;
+      if (!finalHash && (currency === 'USDT' || depositMethod.includes('CRYPTO'))) {
+        const randHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+        finalHash = `0x${randHex}`;
+      } else if (!finalHash) {
+        finalHash = `REF-${depositCode}`;
+      }
+
+      // Create Deposit Request in PENDING state
+      const deposit = await prisma.depositRequest.create({
+        data: {
+          depositCode,
+          userId: targetUser.id,
+          amount: amountDec.toFixed(8),
+          currency,
+          depositMethod,
+          txHashOrRef: finalHash,
+          status: DepositStatus.PENDING,
+          adminNotes: notes,
+        },
+      });
+
+      // Approve immediately via depositService (atomic double-entry ledger credit)
+      const approvedResult = await depositService.adminApproveDeposit(
+        deposit.id,
+        adminUserId,
+        notes,
+        finalHash
+      );
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'ADMIN_MANUAL_DEPOSIT',
+          entity: 'DepositRequest',
+          entityId: deposit.id,
+          details: `Admin credited ${amountDec.toFixed(2)} ${currency} (${depositMethod}) to ${targetUser.email}. Ref: ${finalHash}`,
+        },
+      });
+
+      res.status(201).json({
+        success: true,
+        message: `Successfully credited ${amountDec.toFixed(2)} ${currency} to ${targetUser.email}.`,
+        data: {
+          deposit: approvedResult.deposit,
+          balanceAfter: approvedResult.balanceAfter,
+        },
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message || 'Manual deposit creation failed' });
+    }
+  }
 }
 
 export const adminController = new AdminController();

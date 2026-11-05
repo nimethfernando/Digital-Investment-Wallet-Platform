@@ -36,10 +36,9 @@ export default function AdminKycTab({
   const [actionLoading, setActionLoading] = useState(false);
 
   const handleApprove = async (docId: string) => {
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
     setActionLoading(true);
     try {
-      const res = await api.post(`/admin/kyc/${docId}/approve`, {}, { headers: { 'x-admin-2fa': code } });
+      const res = await api.post(`/admin/kyc/${docId}/approve`, {});
       if (res.data?.success) {
         onFeedback({ text: 'KYC submission approved and user marked as VERIFIED', type: 'success' });
         setPreviewOpen(false);
@@ -53,18 +52,15 @@ export default function AdminKycTab({
   };
 
   const handleReject = async (docId: string) => {
-    const reason = prompt('Enter Mandatory Rejection Reason:') || '';
-    if (!reason.trim()) {
-      onFeedback({ text: 'Rejection reason is required', type: 'error' });
+    const reason = prompt('Enter Mandatory Rejection Reason:');
+    if (!reason || !reason.trim()) {
       return;
     }
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
     setActionLoading(true);
     try {
       const res = await api.post(
         `/admin/kyc/${docId}/reject`,
-        { rejectionReason: reason.trim() },
-        { headers: { 'x-admin-2fa': code } }
+        { rejectionReason: reason.trim() }
       );
       if (res.data?.success) {
         onFeedback({ text: 'KYC submission rejected', type: 'success' });

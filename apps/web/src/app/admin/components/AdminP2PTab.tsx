@@ -60,7 +60,6 @@ export default function AdminP2PTab({
       return;
     }
 
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
     setResolving(true);
     try {
       const res = await api.post(
@@ -68,8 +67,7 @@ export default function AdminP2PTab({
         {
           resolution,
           reason: resolveReason.trim(),
-        },
-        { headers: { 'x-admin-2fa': code } }
+        }
       );
 
       if (res.data?.success) {

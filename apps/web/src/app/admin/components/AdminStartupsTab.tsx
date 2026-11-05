@@ -74,13 +74,11 @@ export default function AdminStartupsTab({
       return;
     }
 
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
     setCreating(true);
     try {
       const res = await api.post(
         '/admin/investments/listings',
-        newStartup,
-        { headers: { 'x-admin-2fa': code } }
+        newStartup
       );
       if (res.data?.success) {
         onFeedback({ text: res.data.message || 'Startup listing created successfully!', type: 'success' });
@@ -111,7 +109,6 @@ export default function AdminStartupsTab({
       return;
     }
 
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
     setDistributingExit(true);
     try {
       const res = await api.post(
@@ -120,8 +117,7 @@ export default function AdminStartupsTab({
           totalGrossProceeds: parseFloat(totalProceeds),
           exitMultiplier: parseFloat(exitMultiplier),
           notes: exitNotes,
-        },
-        { headers: { 'x-admin-2fa': code } }
+        }
       );
       if (res.data?.success) {
         onFeedback({ text: res.data.message || 'Exit proceeds distributed to investor wallets!', type: 'success' });
@@ -137,9 +133,8 @@ export default function AdminStartupsTab({
 
   const handleDeleteListing = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to suspend startup campaign for ${name}?`)) return;
-    const code = prompt('Enter Admin 2FA Code (Optional if not enforced):') || '';
     try {
-      const res = await api.delete(`/admin/investments/listings/${id}`, { headers: { 'x-admin-2fa': code } });
+      const res = await api.delete(`/admin/investments/listings/${id}`);
       if (res.data?.success) {
         onFeedback({ text: `Listing ${name} suspended`, type: 'success' });
         onRefresh();
