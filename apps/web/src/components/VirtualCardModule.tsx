@@ -74,7 +74,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   const [onlineEnabled, setOnlineEnabled] = useState(true);
   const [intlEnabled, setIntlEnabled] = useState(true);
   const [atmEnabled, setAtmEnabled] = useState(true);
-  const [cardNumberMask, setCardNumberMask] = useState('•••• •••• •••• 8829');
+  const [cardNumberMask, setCardNumberMask] = useState('•••• •••• •••• 8824');
   const [cardPan, setCardPan] = useState<string>('');
   const [expiryDate, setExpiryDate] = useState('08/29');
   const [externalCardId, setExternalCardId] = useState<string | null>(null);
@@ -440,7 +440,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
               <div
                 onClick={() => {
                   if (showSensitive) {
-                    navigator.clipboard.writeText((cardPan || '4532982144028829').replace(/\s+/g, ''));
+                    navigator.clipboard.writeText((cardPan || '4532982144028824').replace(/\s+/g, ''));
                     showToast('Card number copied to clipboard', 'success');
                   }
                 }}
@@ -449,7 +449,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
                 }`}
                 title={showSensitive ? 'Click to copy card number' : undefined}
               >
-                {showSensitive ? (cardPan || '4532 9821 4402 8829') : cardNumberMask}
+                {showSensitive ? (cardPan || '4532 9821 4402 8824') : cardNumberMask}
               </div>
 
               {cardNetwork === 'visa' ? (
@@ -573,7 +573,9 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           >
             <span className="text-base"></span>
             <span>
-              {externalCardId
+              {issuerStatus === 'PENDING_ISSUER_CONFIG'
+                ? 'Card Details & Issuer Activation Info'
+                : externalCardId
                 ? `Add to Apple Wallet (${externalCardId})`
                 : 'Add to Apple Wallet / Reveal via Issuer SDK'}
             </span>
@@ -1121,18 +1123,22 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950/70 to-slate-900 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Card Credentials</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
-                  {issuerStatus === 'PROVISIONED' ? 'LIVE ISSUED' : 'ACTIVE PROFILE'}
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                  issuerStatus === 'PROVISIONED'
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : 'bg-amber-500/20 text-amber-300'
+                }`}>
+                  {issuerStatus === 'PROVISIONED' ? 'LIVE ISSUED' : 'SANDBOX PREVIEW (AWAITING VISA/MC API)'}
                 </span>
               </div>
 
               <div className="space-y-1">
                 <span className="text-[10px] text-slate-400 uppercase font-semibold">16-Digit Card Number</span>
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-black/50 border border-slate-800 font-mono text-sm sm:text-base font-bold text-white tracking-widest">
-                  <span>{showSensitive ? '4532 9821 4402 8829' : '•••• •••• •••• 8829'}</span>
+                  <span>{showSensitive ? (cardPan || '4532 9821 4402 8824') : cardNumberMask}</span>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText('4532982144028829');
+                      navigator.clipboard.writeText((cardPan || '4532982144028824').replace(/\s+/g, ''));
                       showToast('Card number copied to clipboard', 'success');
                     }}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-xs flex items-center gap-1 font-sans cursor-pointer"

@@ -280,7 +280,7 @@ export class CardService {
       where: { userId },
     });
 
-    const user = !card || (!card.externalCardId && Boolean(this.issuerApiKey))
+    const user = !card || ((!card.externalCardId || card.externalCardId.startsWith('avr_card_')) && this.hasLiveIssuerKey)
       ? await prisma.user.findUnique({
           where: { id: userId },
           select: { id: true, email: true, firstName: true, lastName: true, phone: true },
@@ -333,7 +333,7 @@ export class CardService {
           },
         });
       } else {
-        const defaultLast4 = '8829';
+        const defaultLast4 = '8824';
         const defaultExternalId = `avr_card_${userId.replace(/-/g, '').slice(0, 12)}`;
         card = await prisma.virtualCard.create({
           data: {
@@ -360,12 +360,11 @@ export class CardService {
         });
       }
     } else if (
-      !card.externalCardId &&
-      this.issuerApiKey &&
-      !/placeholder|your_|change_me|example|xxxx/i.test(this.issuerApiKey) &&
+      (!card.externalCardId || card.externalCardId.startsWith('avr_card_')) &&
+      this.hasLiveIssuerKey &&
       user
     ) {
-      // Auto-upgrade pre-existing card profile once a valid BaaS API key is active
+      // Auto-upgrade pre-existing sandbox card profile once a valid BaaS API key is active
       try {
         const issued = await this.provisionCardWithIssuer(user);
         const expMonthStr = String(issued.expMonth).padStart(2, '0');
@@ -391,10 +390,10 @@ export class CardService {
           `[CardService] External BaaS auto-upgrade skipped (${issuerErr?.message || 'Issuer unavailable'}). Retaining local card profile.`
         );
       }
-    } else if (!card.externalCardId || card.last4 === '••••') {
-      // Ensure existing pre-issuance cards receive active sandbox parameters
-      const defaultLast4 = '8829';
-      const defaultExternalId = `avr_card_${userId.replace(/-/g, '').slice(0, 12)}`;
+    } else if (!card.externalCardId || card.last4 === '••••' || (card.externalCardId.startsWith('avr_card_') && card.last4 === '8829')) {
+      // Ensure existing pre-issuance sandbox cards use Luhn-valid sandbox preview parameters (4532 9821 4402 8824)
+      const defaultLast4 = '8824';
+      const defaultExternalId = card.externalCardId || `avr_card_${userId.replace(/-/g, '').slice(0, 12)}`;
       card = await prisma.virtualCard.update({
         where: { userId },
         data: {
@@ -413,7 +412,7 @@ export class CardService {
       !card.externalCardId.startsWith('avr_card_') &&
       card.last4 !== '••••'
     );
-    const maskSuffix = isProvisioned ? card.last4 : '8829';
+    const maskSuffix = isProvisioned ? card.last4 : '8824';
 
     return {
       id: card.id,
@@ -421,7 +420,7 @@ export class CardService {
       externalCardId: card.externalCardId,
       issuerProvider: this.providerName,
       issuerStatus: isLiveProvisioned ? 'PROVISIONED' : 'PENDING_ISSUER_CONFIG',
-      last4: card.last4 !== '••••' ? card.last4 : '8829',
+      last4: card.last4 !== '••••' ? card.last4 : '8824',
       expMonth: card.expMonth || 8,
       expYear: card.expYear || 2029,
       brand: card.brand || 'visa',
@@ -506,8 +505,8 @@ export class CardService {
       };
     }
 
-    // Default Avora Vault Reveal Session (instant unmasked sandbox preview credentials)
-    const last4 = card.last4 && card.last4 !== '••••' ? card.last4 : '8829';
+    // Default Avora Vault Reveal Session (instant unmasked Luhn-valid sandbox preview credentials)
+    const last4 = card.last4 && card.last4 !== '••••' && card.last4 !== '8829' ? card.last4 : '8824';
     return {
       provider: 'AVORA_VAULT',
       externalCardId,
