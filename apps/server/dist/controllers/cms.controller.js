@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getSettings = void 0;
+exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getSettings = exports.subscribeNewsletter = void 0;
 const zod_1 = require("zod");
 const cms_service_1 = require("../services/cms.service");
 const client_1 = require("@prisma/client");
@@ -12,6 +12,20 @@ const inquirySchema = zod_1.z.object({
     subject: zod_1.z.string().min(3, 'Subject is required'),
     message: zod_1.z.string().min(10, 'Message must be at least 10 characters'),
 });
+const newsletterSchema = zod_1.z.object({
+    email: zod_1.z.string().email('Please enter a valid email address'),
+});
+const subscribeNewsletter = async (req, res, next) => {
+    try {
+        const { email } = newsletterSchema.parse(req.body);
+        const result = await cms_service_1.cmsService.subscribeNewsletter(email);
+        res.json(result);
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.subscribeNewsletter = subscribeNewsletter;
 const getSettings = async (req, res, next) => {
     try {
         const settings = await cms_service_1.cmsService.getPublicSettings();

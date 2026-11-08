@@ -574,6 +574,76 @@ class P2PService {
         }));
     }
     /**
+     * Create a new P2P Trade Offer (Requires P2P Merchant status)
+     */
+    async createOffer(userId, input) {
+        if (!userId) {
+            throw new Error('Authentication required. Please sign in before creating a P2P advertisement.');
+        }
+        const user = await prisma_1.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, isP2pMerchant: true, p2pDepositLocked: true, kycStatus: true, email: true },
+        });
+        if (!user) {
+            throw new Error('User not found.');
+        }
+        if (!user.isP2pMerchant) {
+            throw new Error('You must become an authorized P2P Member (Merchant) before posting trade advertisements. Please activate your $50 refundable security deposit.');
+        }
+        const priceNum = new decimal_js_1.default(input.price.toString());
+        const amountNum = new decimal_js_1.default(input.totalAmount.toString());
+        if (priceNum.isZero() || priceNum.isNegative()) {
+            throw new Error('Offer price must be greater than zero.');
+        }
+        if (amountNum.isZero() || amountNum.isNegative()) {
+            throw new Error('Total amount must be greater than zero.');
+        }
+        const minLimitNum = input.minLimit ? new decimal_js_1.default(input.minLimit.toString()) : new decimal_js_1.default(10);
+        const maxLimitNum = input.maxLimit ? new decimal_js_1.default(input.maxLimit.toString()) : amountNum.times(priceNum);
+        const offerCode = `OFF-${Math.floor(100000 + Math.random() * 900000)}`;
+        const newOffer = await prisma_1.prisma.p2POffer.create({
+            data: {
+                offerCode,
+                userId,
+                side: input.side === 'BUY' ? client_1.P2PSide.BUY : client_1.P2PSide.SELL,
+                cryptoCurrency: input.cryptoCurrency || 'USDT',
+                fiatCurrency: input.fiatCurrency.toUpperCase(),
+                price: priceNum.toString(),
+                totalAmount: amountNum.toString(),
+                availableAmount: amountNum.toString(),
+                minLimit: minLimitNum.toString(),
+                maxLimit: maxLimitNum.toString(),
+                paymentMethods: JSON.stringify(input.paymentMethods || ['Bank Transfer']),
+                paymentTerms: input.paymentTerms || 'Payment via domestic instant transfer. Fast escrow release.',
+                status: client_1.P2POfferStatus.OPEN,
+            },
+        });
+        return {
+            success: true,
+            offerCode: newOffer.offerCode,
+            message: 'P2P advertisement published to marketplace successfully.',
+            offer: newOffer,
+        };
+    }
+    /**
+     * Cancel/Close an active P2P Offer
+     */
+    async cancelOffer(userId, offerId) {
+        const offer = await prisma_1.prisma.p2POffer.findUnique({ where: { id: offerId } });
+        if (!offer)
+            throw new Error('Offer not found.');
+        if (offer.userId !== userId)
+            throw new Error('Unauthorized to cancel this offer.');
+        await prisma_1.prisma.p2POffer.update({
+            where: { id: offerId },
+            data: { status: client_1.P2POfferStatus.CANCELLED },
+        });
+        return {
+            success: true,
+            message: 'Offer closed successfully.',
+        };
+    }
+    /**
      * Create a P2P Order and lock seller crypto into Escrow
      */
     async createP2POrder(buyerId, params) {
@@ -592,9 +662,11 @@ class P2PService {
         const fiatAmountDec = params.fiatAmount
             ? new decimal_js_1.default(params.fiatAmount.toString())
             : cryptoAmountDec.times(priceDec);
-        // Determine seller and buyer
-        const sellerId = offer.side === client_1.P2PSide.BUY ? offer.userId : buyerId;
-        const actualBuyerId = offer.side === client_1.P2PSide.BUY ? buyerId : offer.userId;
+        // Determine seller and buyer:
+        // If offer side is SELL: the offer creator is selling USDT, taker is buying USDT
+        // If offer side is BUY: the offer creator is buying USDT, taker is selling USDT
+        const sellerId = offer.side === client_1.P2PSide.SELL ? offer.userId : buyerId;
+        const actualBuyerId = offer.side === client_1.P2PSide.SELL ? buyerId : offer.userId;
         if (sellerId === actualBuyerId) {
             throw new Error('Self-trading is prohibited');
         }
@@ -813,7 +885,7 @@ class P2PService {
     /**
      * Seller releases escrowed crypto directly into buyer's wallet
      */
-    async releaseOrderEscrow(orderId, userId) {
+    async releaseOrderEscrow(orderId, userId, twoFactorCode) {
         const order = await prisma_1.prisma.p2POrder.findUnique({
             where: { id: orderId },
             include: { buyer: true, seller: true, offer: true },
@@ -826,6 +898,8 @@ class P2PService {
         if (order.status !== client_1.P2POrderStatus.PAYMENT_SENT && order.status !== client_1.P2POrderStatus.DISPUTED) {
             throw new Error(`Cannot release funds while order is in status: ${order.status}`);
         }
+        // Enforce 2FA Authenticator verification if user has 2FA enabled
+        await auth_service_1.authService.verify2faForUser(userId, twoFactorCode);
         const cryptoAmountDec = new decimal_js_1.default(order.cryptoAmount.toString());
         // Ensure both wallets outside interactive transaction
         const sellerWallet = await ledger_service_1.ledgerService.ensureWallet(order.sellerId);
@@ -1010,6 +1084,15 @@ class P2PService {
      * Get current user's P2P merchant status and deposit info ($50 security deposit model)
      */
     async getP2pMerchantStatus(userId) {
+        if (!userId) {
+            return {
+                isP2pMerchant: false,
+                p2pDepositLocked: 0,
+                depositRequired: 50.0,
+                isKycApproved: false,
+                kycStatus: 'NOT_STARTED',
+            };
+        }
         const user = await prisma_1.prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -1034,6 +1117,9 @@ class P2PService {
      * Apply for P2P Merchant status by locking $50 security deposit
      */
     async applyP2pMerchant(userId) {
+        if (!userId) {
+            throw new Error('Authentication required. Please sign in to apply for P2P Merchant.');
+        }
         const user = await prisma_1.prisma.user.findUnique({
             where: { id: userId },
             select: { id: true, kycStatus: true, isP2pMerchant: true, p2pDepositLocked: true, status: true },
@@ -1120,6 +1206,9 @@ class P2PService {
      * Request refund of $50 P2P merchant deposit and revoke merchant status
      */
     async refundP2pMerchant(userId) {
+        if (!userId) {
+            throw new Error('Authentication required. Please sign in.');
+        }
         const user = await prisma_1.prisma.user.findUnique({
             where: { id: userId },
             select: { id: true, isP2pMerchant: true, p2pDepositLocked: true },

@@ -10,6 +10,7 @@ router.get('/sections/:page', cms_controller_1.getPageSections);
 router.get('/blogs', cms_controller_1.getBlogPosts);
 router.get('/blogs/:slug', cms_controller_1.getBlogPost);
 router.post('/inquiry', cms_controller_1.submitInquiry);
+router.post('/newsletter', cms_controller_1.subscribeNewsletter);
 router.get('/my-tickets', auth_1.authenticateToken, cms_controller_1.getMyInquiries);
 // Admin-only CMS routes
 router.get('/admin/sections', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.getAllSections);

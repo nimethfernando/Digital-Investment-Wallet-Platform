@@ -60,7 +60,7 @@ export default function AdminKycTab({
     try {
       const res = await api.post(
         `/admin/kyc/${docId}/reject`,
-        { rejectionReason: reason.trim() }
+        { reason: reason.trim(), rejectionReason: reason.trim() }
       );
       if (res.data?.success) {
         onFeedback({ text: 'KYC submission rejected', type: 'success' });

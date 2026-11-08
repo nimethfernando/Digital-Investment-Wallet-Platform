@@ -76,6 +76,10 @@ export class CardService {
     return this.providerName === 'STRIPE';
   }
 
+  private get hasLiveIssuerKey(): boolean {
+    return Boolean(this.issuerApiKey && !/placeholder|your_|change_me|example|xxxx/i.test(this.issuerApiKey));
+  }
+
   /**
    * Calls the live Card Issuing BaaS API (Stripe Issuing, Interlace, Striga, Wallester, Rain, or Generic REST)
    * to provision a virtual Visa/Mastercard.
@@ -403,6 +407,12 @@ export class CardService {
     }
 
     const isProvisioned = Boolean(card.externalCardId && card.last4 !== '••••');
+    const isLiveProvisioned = Boolean(
+      this.hasLiveIssuerKey &&
+      card.externalCardId &&
+      !card.externalCardId.startsWith('avr_card_') &&
+      card.last4 !== '••••'
+    );
     const maskSuffix = isProvisioned ? card.last4 : '8829';
 
     return {
@@ -410,7 +420,7 @@ export class CardService {
       userId: card.userId,
       externalCardId: card.externalCardId,
       issuerProvider: this.providerName,
-      issuerStatus: 'PROVISIONED',
+      issuerStatus: isLiveProvisioned ? 'PROVISIONED' : 'PENDING_ISSUER_CONFIG',
       last4: card.last4 !== '••••' ? card.last4 : '8829',
       expMonth: card.expMonth || 8,
       expYear: card.expYear || 2029,
@@ -443,8 +453,9 @@ export class CardService {
     }
 
     const externalCardId = card.externalCardId || cardData.externalCardId || `avr_card_${userId.replace(/-/g, '').slice(0, 12)}`;
+    const isExternalIssuerCard = Boolean(this.hasLiveIssuerKey && externalCardId && !externalCardId.startsWith('avr_card_'));
 
-    if (this.isStripeProvider && this.issuerApiKey) {
+    if (this.isStripeProvider && isExternalIssuerCard) {
       const params = new URLSearchParams({
         issuing_card: externalCardId,
         ...(nonce ? { nonce } : {}),
@@ -470,7 +481,7 @@ export class CardService {
       };
     }
 
-    if (this.issuerApiKey) {
+    if (isExternalIssuerCard) {
       const res = await fetch(
         `${this.issuerBaseUrl}/v1/cards/${encodeURIComponent(externalCardId)}/ephemeral-token`,
         {
@@ -495,7 +506,7 @@ export class CardService {
       };
     }
 
-    // Default Avora Vault Reveal Session (instant unmasked credentials)
+    // Default Avora Vault Reveal Session (instant unmasked sandbox preview credentials)
     const last4 = card.last4 && card.last4 !== '••••' ? card.last4 : '8829';
     return {
       provider: 'AVORA_VAULT',
@@ -522,7 +533,7 @@ export class CardService {
 
     const nextFrozen = !card.isFrozen;
 
-    if (card.externalCardId && this.isStripeProvider && this.issuerApiKey) {
+    if (card.externalCardId && !card.externalCardId.startsWith('avr_card_') && this.isStripeProvider && this.hasLiveIssuerKey) {
       const status = nextFrozen ? 'inactive' : 'active';
       await fetch(`https://api.stripe.com/v1/issuing/cards/${encodeURIComponent(card.externalCardId)}`, {
         method: 'POST',

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSumsubToken = exports.getKycStatus = exports.submitKyc = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.register = void 0;
+exports.instantVerifyKyc = exports.resetKyc = exports.getSumsubToken = exports.getKycStatus = exports.submitKyc = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.detectLocation = exports.register = void 0;
 const zod_1 = require("zod");
 const prisma_1 = require("../lib/prisma");
 const auth_service_1 = require("../services/auth.service");
@@ -10,7 +10,10 @@ const registerSchema = zod_1.z.object({
     password: zod_1.z.string().min(8, 'Password must be at least 8 characters'),
     firstName: zod_1.z.string().optional(),
     lastName: zod_1.z.string().optional(),
-    phone: zod_1.z.string().optional(),
+    phone: zod_1.z.string().max(25, 'Phone number must not exceed 25 characters').optional(),
+    country: zod_1.z.string().max(100).optional(),
+    countryCode: zod_1.z.string().max(10).optional(),
+    signupLocation: zod_1.z.string().max(191).optional(),
 });
 const loginSchema = zod_1.z.object({
     email: zod_1.z.string().email(),
@@ -31,7 +34,11 @@ const changePasswordSchema = zod_1.z.object({
 const register = async (req, res, next) => {
     try {
         const data = registerSchema.parse(req.body);
-        const result = await auth_service_1.authService.register(data);
+        const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || null;
+        const result = await auth_service_1.authService.register({
+            ...data,
+            signupIp: clientIp || undefined,
+        });
         res.status(201).json({ success: true, ...result });
     }
     catch (err) {
@@ -39,6 +46,18 @@ const register = async (req, res, next) => {
     }
 };
 exports.register = register;
+const detectLocation = async (req, res) => {
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || '';
+    const cfCountry = req.headers['cf-ipcountry'] || null;
+    res.json({
+        success: true,
+        data: {
+            ip: clientIp,
+            countryCode: cfCountry,
+        },
+    });
+};
+exports.detectLocation = detectLocation;
 const login = async (req, res, next) => {
     try {
         const data = loginSchema.parse(req.body);
@@ -140,6 +159,8 @@ const getMe = async (req, res, next) => {
                 firstName: true,
                 lastName: true,
                 phone: true,
+                country: true,
+                signupLocation: true,
                 role: true,
                 kycStatus: true,
                 twoFactorEnabled: true,
@@ -212,3 +233,27 @@ const getSumsubToken = async (req, res, next) => {
     }
 };
 exports.getSumsubToken = getSumsubToken;
+const resetKyc = async (req, res, next) => {
+    try {
+        if (!req.user)
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const result = await kyc_service_1.kycService.resetKyc(req.user.userId);
+        res.json({ success: true, ...result });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.resetKyc = resetKyc;
+const instantVerifyKyc = async (req, res, next) => {
+    try {
+        if (!req.user)
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const result = await kyc_service_1.kycService.instantVerifyKyc(req.user.userId, req.body);
+        res.json({ success: true, ...result });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.instantVerifyKyc = instantVerifyKyc;

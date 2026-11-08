@@ -359,11 +359,18 @@ export default function AdminPortalPage() {
       setInvestmentsLoading(true);
       try {
         const [invRes, listRes] = await Promise.all([
-          api.get('/admin/investments').catch(() => ({ data: { commitments: [] } })),
-          api.get('/crowdfunding/listings').catch(() => ({ data: { listings: [] } })),
+          api.get('/admin/investments').catch(() => ({ data: { commitments: [], listings: [] } })),
+          api.get('/investments/campaigns').catch(() => ({ data: { data: [] } })),
         ]);
-        if (invRes.data?.success) setAdminInvestments(invRes.data.data?.commitments || invRes.data.commitments || []);
-        if (listRes.data?.success) setStartupListings(listRes.data.data?.listings || listRes.data.listings || []);
+        const commitments = invRes.data?.data?.commitments || invRes.data?.commitments || [];
+        const adminListings = invRes.data?.data?.listings || invRes.data?.listings;
+        const publicCampaigns = Array.isArray(listRes.data?.data) ? listRes.data.data : [];
+        setAdminInvestments(Array.isArray(commitments) ? commitments : []);
+        setStartupListings(
+          Array.isArray(adminListings) && adminListings.length > 0
+            ? adminListings
+            : publicCampaigns
+        );
       } catch (e) {
         console.error('Failed to load investments:', e);
       } finally {
@@ -1645,250 +1652,23 @@ export default function AdminPortalPage() {
 
         {/* TAB 1.5: STARTUP PORTFOLIOS & EXIT ENGINE */}
         {activeTab === 'investments' && (
-          <div className="space-y-6">
-            <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-extrabold text-base text-white flex items-center gap-2">
-                    <Building className="w-5 h-5 text-amber-500" />
-                    <span>Startup Venture Offerings &amp; Valuation Desk</span>
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Update mark-to-market company valuations to show money growing, or distribute dividends &amp; liquidity exit returns.
-                  </p>
-                </div>
-                <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1">
-                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
-                </button>
-              </div>
-
-              {startupListings.length === 0 ? (
-                <div className="p-8 text-center text-slate-500 text-xs">
-                  No startup listings currently published.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {startupListings.map((listing) => (
-                    <div
-                      key={listing.id}
-                      className="p-5 rounded-3xl bg-slate-950 border border-slate-800 space-y-3.5 hover:border-slate-700 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="font-extrabold text-white text-base">{listing.companyName}</h4>
-                          <span className="text-[11px] text-slate-400">{listing.industry} • {listing.country} ({listing.countryCode})</span>
-                        </div>
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                          {listing.stage}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2 bg-slate-900 p-3 rounded-2xl border border-slate-800/80 text-xs">
-                        <div>
-                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Current Valuation</span>
-                          <span className="font-black text-emerald-400 text-sm font-mono">
-                            ${parseFloat(listing.valuation).toLocaleString()}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Funds Raised</span>
-                          <span className="font-bold text-white text-sm font-mono">
-                            ${parseFloat(listing.verifiedFundsRaised || '0').toLocaleString()}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Investors</span>
-                          <span className="font-bold text-white text-sm">
-                            {listing.investorCount || 0} Backers
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-1 border-t border-slate-800/80">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedListing(listing);
-                            setNewValuation(listing.valuation.toString());
-                            setNewStage(listing.stage);
-                            setGrowthNotes('');
-                            setValuationModalOpen(true);
-                          }}
-                          className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
-                        >
-                          <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Update Valuation / Growth</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedListing(listing);
-                            setTotalProceeds('');
-                            setExitMultiplier('2.0');
-                            setExitNotes('');
-                            setExitModalOpen(true);
-                          }}
-                          className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition-colors cursor-pointer"
-                        >
-                          <DollarSign className="w-3.5 h-3.5" />
-                          <span>Distribute Exit / Dividend</span>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Client Commitments Ledger Table */}
-            <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-extrabold text-base text-white">Investor Commitments ({adminInvestments.length})</h3>
-                  <p className="text-xs text-slate-400">All customer startup allocations, current valuation growth &amp; exit proceeds</p>
-                </div>
-              </div>
-
-              {investmentsLoading ? (
-                <div className="p-12 text-center text-slate-500">
-                  <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500" />
-                </div>
-              ) : adminInvestments.length === 0 ? (
-                <div className="p-8 text-center text-slate-500 text-xs">
-                  No investor commitments recorded yet.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="border-b border-slate-800 text-slate-400 uppercase font-bold text-[10px]">
-                      <tr>
-                        <th className="pb-3">Code</th>
-                        <th className="pb-3">Startup</th>
-                        <th className="pb-3">Investor</th>
-                        <th className="pb-3">Net Capital</th>
-                        <th className="pb-3">Current Holding Value</th>
-                        <th className="pb-3">Valuation Gain</th>
-                        <th className="pb-3">Distributed Exit Proceeds</th>
-                        <th className="pb-3 text-right">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800">
-                      {adminInvestments.map((inv) => (
-                        <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3 font-mono font-bold text-amber-400">{inv.investmentCode}</td>
-                          <td className="py-3 font-bold text-white">{inv.listing?.companyName}</td>
-                          <td className="py-3 text-slate-300">
-                            <div className="font-bold">{inv.investor?.firstName} {inv.investor?.lastName}</div>
-                            <div className="text-[10px] text-slate-500 font-mono">{inv.investor?.email}</div>
-                          </td>
-                          <td className="py-3 font-mono font-bold text-slate-200">
-                            ${parseFloat(inv.netInvestedAmount).toLocaleString()} USD
-                          </td>
-                          <td className="py-3 font-mono font-black text-emerald-400">
-                            ${parseFloat(inv.currentValuation || inv.netInvestedAmount).toLocaleString()} USD
-                          </td>
-                          <td className="py-3 font-mono font-bold">
-                            <span className={`px-2 py-0.5 rounded text-[10px] ${
-                              parseFloat(inv.unrealizedReturnPct || '0') >= 0
-                                ? 'bg-emerald-500/20 text-emerald-400'
-                                : 'bg-rose-500/20 text-rose-400'
-                            }`}>
-                              {parseFloat(inv.unrealizedReturnPct || '0') >= 0 ? '+' : ''}
-                              {parseFloat(inv.unrealizedReturnPct || '0').toFixed(1)}%
-                            </span>
-                          </td>
-                          <td className="py-3 font-mono font-bold text-white">
-                            ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
-                          </td>
-                          <td className="py-3 text-right">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                              inv.status === 'EXITED'
-                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                                : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            }`}>
-                              {inv.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+          <AdminStartupsTab
+            listings={startupListings}
+            commitments={adminInvestments}
+            listingsLoading={investmentsLoading}
+            onRefresh={loadData}
+            onFeedback={setFeedback}
+          />
         )}
 
         {/* TAB 2: KYC / AML COMPLIANCE */}
         {activeTab === 'kyc' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-extrabold text-base text-white">Pending KYC Applications ({kycDocs.length})</h3>
-              <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1">
-                <RefreshCw className="w-3.5 h-3.5" /> Refresh
-              </button>
-            </div>
-
-            {kycLoading ? (
-              <div className="p-12 text-center text-slate-500">
-                <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500" />
-              </div>
-            ) : kycDocs.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
-                No pending KYC applications in queue. All investors reviewed.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {kycDocs.map((doc) => (
-                  <div key={doc.id} className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400">
-                        {doc.documentType}
-                      </span>
-                      <span className="text-[11px] text-slate-500 font-mono">
-                        {new Date(doc.createdAt).toLocaleString()}
-                      </span>
-                    </div>
-
-                    <div className="space-y-1 text-xs">
-                      <div className="font-bold text-white text-sm">
-                        {doc.user?.firstName} {doc.user?.lastName}
-                      </div>
-                      <div className="text-slate-400">{doc.user?.email}</div>
-                      <div className="text-slate-500">Phone: {doc.user?.phone || 'N/A'}</div>
-                      {(doc.user?.signupLocation || doc.user?.country) && (
-                        <div className="text-emerald-400 text-[11px] font-semibold">
-                          📍 Location: {doc.user?.signupLocation || doc.user?.country}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 text-[11px] font-mono break-all text-slate-300">
-                      URL: {doc.documentUrl}
-                    </div>
-
-                    <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
-                      <button
-                        onClick={() => handleApproveKyc(doc.id)}
-                        className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <Check className="w-4 h-4" />
-                        <span>Approve</span>
-                      </button>
-                      <button
-                        onClick={() => handleRejectKyc(doc.id)}
-                        className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <X className="w-4 h-4" />
-                        <span>Reject</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <AdminKycTab
+            kycDocs={kycDocs}
+            kycLoading={kycLoading}
+            onRefresh={loadData}
+            onFeedback={setFeedback}
+          />
         )}
 
         {/* TAB 3: DEPOSITS AUDIT */}

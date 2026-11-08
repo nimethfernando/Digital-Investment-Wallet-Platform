@@ -293,12 +293,16 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
               Avora Global Crypto Visa Card
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                isFrozen ? 'bg-cyan-500/20 text-cyan-300' : 'bg-emerald-500/20 text-emerald-300'
+                isFrozen
+                  ? 'bg-cyan-500/20 text-cyan-300'
+                  : issuerStatus === 'PENDING_ISSUER_CONFIG'
+                  ? 'bg-amber-500/20 text-amber-300'
+                  : 'bg-emerald-500/20 text-emerald-300'
               }`}>
-                {isFrozen ? 'FROZEN' : 'ACTIVE'}
+                {isFrozen ? 'FROZEN' : issuerStatus === 'PENDING_ISSUER_CONFIG' ? 'SANDBOX PREVIEW' : 'ACTIVE'}
               </span>
               {cardTheme.startsWith('fifa-') && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/30">
@@ -325,6 +329,18 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           </span>
         </div>
       </div>
+
+      {issuerStatus === 'PENDING_ISSUER_CONFIG' && (
+        <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-3 text-xs text-amber-200">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold text-amber-300">Awaiting Visa / Mastercard Issuer API Activation: </span>
+            <span className="text-slate-300">
+              Card editions, freeze controls, and spending limits are active in Sandbox Preview mode. Live merchant POS &amp; e-commerce card authorization activates automatically once external Visa / Mastercard BaaS credentials are connected.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* CARD MAIN SECTION */}
       <div className="flex flex-col items-center space-y-6">
@@ -424,7 +440,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
               <div
                 onClick={() => {
                   if (showSensitive) {
-                    navigator.clipboard.writeText('4532982144028829');
+                    navigator.clipboard.writeText((cardPan || '4532982144028829').replace(/\s+/g, ''));
                     showToast('Card number copied to clipboard', 'success');
                   }
                 }}
@@ -433,7 +449,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
                 }`}
                 title={showSensitive ? 'Click to copy card number' : undefined}
               >
-                {showSensitive ? '4532 9821 4402 8829' : cardNumberMask}
+                {showSensitive ? (cardPan || '4532 9821 4402 8829') : cardNumberMask}
               </div>
 
               {cardNetwork === 'visa' ? (

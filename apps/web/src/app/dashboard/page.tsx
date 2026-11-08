@@ -120,12 +120,16 @@ interface StartupInvestmentItem {
 interface TokenStatusItem {
   earlyAccess?: {
     registeredInterest: boolean;
-    requestedAllocationUsd: string;
+    requestedAllocationUsd: string | number;
     status: string;
     walletAddress?: string;
     notes?: string;
     createdAt?: string;
   } | null;
+  wallet?: {
+    walletAddress?: string;
+    testnetBalance?: number;
+  };
   testnetBalance?: number;
 }
 
@@ -409,14 +413,16 @@ function DashboardContent() {
         setUserDeposits(depRes.data.data);
       }
 
-      if (investRes.data?.commitments && Array.isArray(investRes.data.commitments)) {
-        setStartupInvestments(investRes.data.commitments);
+      const resolvedInvest = investRes.data?.data || investRes.data;
+      if (resolvedInvest?.commitments && Array.isArray(resolvedInvest.commitments)) {
+        setStartupInvestments(resolvedInvest.commitments);
       }
-      if (investRes.data?.summary) {
-        setStartupSummary(investRes.data.summary);
+      if (resolvedInvest?.summary) {
+        setStartupSummary(resolvedInvest.summary);
       }
-      if (tokenRes.data) {
-        setTokenStatus(tokenRes.data);
+      const resolvedToken = tokenRes.data?.data || tokenRes.data;
+      if (resolvedToken) {
+        setTokenStatus(resolvedToken);
       }
 
       // Synchronize latest user state (KYC approval, roles)
@@ -519,15 +525,15 @@ function DashboardContent() {
     e.preventDefault();
     setTicketLoading(true);
     try {
-      await api.post('/cms/inquiry', {
-        type: newTicketType === 'TRADE_DISPUTE' ? 'EXCHANGE_ENQUIRY' : 'GENERAL',
-        name: `${user?.firstName || 'Client'} ${user?.lastName || ''}`.trim(),
-        email: user?.email,
-        subject: `[${newTicketType}] ${newTicketSubject}`,
+      const res = await api.post('/tickets', {
+        category: newTicketType,
+        priority: 'MEDIUM',
+        subject: newTicketSubject,
         message: newTicketMessage,
       });
 
-      const newT: SupportTicket = {
+      const createdTicket = res.data?.data;
+      const newT: SupportTicket = createdTicket || {
         id: `t-${Date.now()}`,
         type: newTicketType,
         subject: newTicketSubject,
@@ -536,7 +542,7 @@ function DashboardContent() {
         createdAt: new Date().toISOString(),
       };
       setTickets([newT, ...tickets]);
-      setTicketSuccess('Support ticket raised successfully. A desk specialist has been assigned.');
+      setTicketSuccess(res.data?.message || 'Support ticket raised successfully. A desk specialist has been assigned.');
       setTimeout(() => {
         setTicketModalOpen(false);
         setTicketSuccess(null);
@@ -568,7 +574,9 @@ function DashboardContent() {
       });
 
       if (res.data.success) {
-        setDepositSuccess('Deposit credited! Your available wallet balance and double-entry ledger have been updated.');
+        setDepositSuccess(
+          res.data.message || 'Deposit request submitted successfully! Awaiting verification.'
+        );
         setDepositAmount('');
         setDepositTxHash('');
         fetchDashboardData();
@@ -1098,11 +1106,11 @@ function DashboardContent() {
                     </span>
                   </div>
                   <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
-                    ${parseFloat(tokenStatus?.earlyAccess?.requestedAllocationUsd || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    ${parseFloat(String(tokenStatus?.earlyAccess?.requestedAllocationUsd || '0')).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                   </div>
                   <p className="text-[11px] text-slate-400">
                     {tokenStatus?.earlyAccess?.registeredInterest
-                      ? `Whitelisted (~ ${parseFloat(tokenStatus.earlyAccess.requestedAllocationUsd).toLocaleString()} AVR)`
+                      ? `Whitelisted (~ ${parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd)).toLocaleString()} AVR)`
                       : 'Q4 2027 Mainnet Whitelist open'}
                   </p>
                 </div>
@@ -1838,19 +1846,21 @@ function DashboardContent() {
                 </div>
 
                 <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-4">
-                  {tokenStatus?.earlyAccess?.registeredInterest ? (
+                  {tokenStatus?.earlyAccess?.registeredInterest || (tokenStatus?.wallet?.testnetBalance ?? tokenStatus?.testnetBalance ?? 0) > 0 ? (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div className="space-y-0.5">
                           <span className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
-                            Early-Access Allocation Registered
+                            {tokenStatus?.earlyAccess?.registeredInterest ? 'Early-Access Allocation Registered' : 'Avora Testnet Wallet Active'}
                           </span>
                           <h4 className="text-xl font-black text-slate-900 dark:text-white">
-                            ${parseFloat(tokenStatus.earlyAccess.requestedAllocationUsd).toLocaleString()} USD Whitelist Request
+                            {tokenStatus?.earlyAccess?.registeredInterest
+                              ? `$${parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd)).toLocaleString()} USD Whitelist Request`
+                              : `${tokenStatus?.wallet?.testnetBalance ?? tokenStatus?.testnetBalance ?? 0} AVR Testnet Balance`}
                           </h4>
                         </div>
                         <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
-                          {tokenStatus.earlyAccess.status}
+                          {tokenStatus?.earlyAccess?.status || 'TESTNET'}
                         </span>
                       </div>
 
@@ -1862,13 +1872,13 @@ function DashboardContent() {
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
                           <span className="text-slate-400 text-[11px]">Estimated Token Volume:</span>
                           <p className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                            ~{parseFloat(tokenStatus.earlyAccess.requestedAllocationUsd).toLocaleString()} AVR
+                            ~{parseFloat(String(tokenStatus?.earlyAccess?.requestedAllocationUsd || '0')).toLocaleString()} AVR
                           </p>
                         </div>
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
                           <span className="text-slate-400 text-[11px]">Sepolia L2 Testnet Balance:</span>
                           <p className="font-bold text-blue-600 dark:text-blue-400 font-mono">
-                            {tokenStatus.testnetBalance || 0} AVR Test Tokens
+                            {tokenStatus?.wallet?.testnetBalance ?? tokenStatus?.testnetBalance ?? 0} AVR Test Tokens
                           </p>
                         </div>
                       </div>

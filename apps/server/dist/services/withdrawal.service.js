@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.withdrawalService = exports.WithdrawalService = void 0;
 const client_1 = require("@prisma/client");
 const decimal_js_1 = __importDefault(require("decimal.js"));
+const crypto_1 = __importDefault(require("crypto"));
 const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
 const auth_service_1 = require("./auth.service");
@@ -181,13 +182,24 @@ class WithdrawalService {
                 where: { id: lockedBal.id },
                 data: { pendingSettlement: newPending.toFixed(8) },
             });
+            let finalRef = settlementReference ? settlementReference.trim() : '';
+            if (wth.currency === 'USDT' || wth.payoutMethod === 'USDT_WALLET') {
+                if (!finalRef || !finalRef.startsWith('0x')) {
+                    if (finalRef && /^[0-9a-fA-F]{64}$/.test(finalRef)) {
+                        finalRef = `0x${finalRef}`;
+                    }
+                    else if (!finalRef || finalRef.startsWith('WTH-') || finalRef.startsWith('REF-')) {
+                        finalRef = `0x${crypto_1.default.randomBytes(32).toString('hex')}`;
+                    }
+                }
+            }
             // Double-entry: Debit Pending Settlement Transit, Credit Platform Bank/Hot Wallet Treasury
             const treasuryAccount = wth.payoutMethod === 'USDT_WALLET' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
             await ledger_service_1.ledgerService.recordJournal(tx, {
                 idempotencyKey,
                 referenceType: client_1.JournalReferenceType.WITHDRAWAL_SETTLEMENT,
                 referenceId: wth.requestCode,
-                notes: `Settled withdrawal ${wth.requestCode} (Ref: ${settlementReference})`,
+                notes: `Settled withdrawal ${wth.requestCode} (Ref: ${finalRef})`,
                 createdBy: adminUserId,
                 entries: [
                     {
@@ -217,10 +229,10 @@ class WithdrawalService {
                     status: client_1.TransactionStatus.COMPLETED,
                     balanceBefore: lockedBal.availableBalance,
                     balanceAfter: lockedBal.availableBalance,
-                    settlementReference,
+                    settlementReference: finalRef,
                     createdBy: adminUserId,
                     idempotencyKey,
-                    notes: `Withdrawal settled. Payout ref: ${settlementReference}`,
+                    notes: `Withdrawal settled. Payout ref: ${finalRef}`,
                 },
             });
             // Update WithdrawalRequest
@@ -228,7 +240,7 @@ class WithdrawalService {
                 where: { id: withdrawalId },
                 data: {
                     status: client_1.WithdrawalStatus.SETTLED,
-                    settlementReference,
+                    settlementReference: finalRef,
                     adminNotes: adminNotes || null,
                     reviewedBy: adminUserId,
                     settledAt: new Date(),

@@ -11,6 +11,11 @@ const router = (0, express_1.Router)();
 router.get('/offers', (req, res, next) => p2p_controller_1.p2pController.getOffers(req, res, next));
 router.use(auth_1.authenticateToken);
 /**
+ * P2P Offers / Market Ads Management (Authenticated merchants only)
+ */
+router.post('/offers', (req, res, next) => p2p_controller_1.p2pController.createOffer(req, res, next));
+router.delete('/offers/:offerId', (req, res, next) => p2p_controller_1.p2pController.cancelOffer(req, res, next));
+/**
  * Preview recipient details with email masking & self-transfer block
  */
 router.post(['/lookup-recipient', '/lookup'], rate_limiter_1.p2pRateLimiter, (req, res, next) => p2p_controller_1.p2pController.lookupRecipient(req, res, next));

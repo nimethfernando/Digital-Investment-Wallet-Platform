@@ -21,13 +21,16 @@ class DepositService {
         const bankNameSetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_name' } }).catch(() => null);
         const bankBeneficiarySetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_beneficiary' } }).catch(() => null);
         const bankIbanSetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_iban' } }).catch(() => null);
+        const bankIbanUsdSetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_iban_usd' } }).catch(() => null);
+        const bankIbanEurSetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_iban_eur' } }).catch(() => null);
         const bankSwiftSetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_swift' } }).catch(() => null);
-        const trc20Address = trc20Setting?.value || process.env.USDT_TRC20_WALLET_ADDRESS || 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y';
+        const trc20Address = trc20Setting?.value || process.env.USDT_TRC20_WALLET_ADDRESS || 'TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm';
         const erc20Address = erc20Setting?.value || process.env.USDT_ERC20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
         const bep20Address = bep20Setting?.value || process.env.USDT_BEP20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
-        const bankName = bankNameSetting?.value || 'Bank of Georgia / TBC Bank';
-        const bankBeneficiary = bankBeneficiarySetting?.value || 'Avora Bank Platform Custody';
-        const bankIban = bankIbanSetting?.value || 'GE29NB0000000123456789';
+        const bankName = bankNameSetting?.value || 'Avora Bank (Bank of Georgia)';
+        const bankBeneficiary = bankBeneficiarySetting?.value || 'Avora Bank';
+        const bankIbanUsd = bankIbanUsdSetting?.value || bankIbanSetting?.value || 'GE51BG0000000613125640';
+        const bankIbanEur = bankIbanEurSetting?.value || 'GE71BG0000000613184450';
         const bankSwift = bankSwiftSetting?.value || 'BAGAGE22';
         return {
             usdt: {
@@ -88,10 +91,28 @@ class DepositService {
                 currency: 'USD',
                 bankName,
                 beneficiary: bankBeneficiary,
-                iban: bankIban,
+                iban: bankIbanUsd,
                 swift: bankSwift,
+                usd: {
+                    currency: 'USD',
+                    currencyLabel: 'US Dollars ($)',
+                    iban: bankIbanUsd,
+                    bankName,
+                    beneficiary: bankBeneficiary,
+                    swift: bankSwift,
+                    minDeposit: 500,
+                },
+                eur: {
+                    currency: 'EUR',
+                    currencyLabel: 'Euros (€)',
+                    iban: bankIbanEur,
+                    bankName,
+                    beneficiary: bankBeneficiary,
+                    swift: bankSwift,
+                    minDeposit: 500,
+                },
                 instructions: [
-                    'Send bank wire or SEPA/SWIFT transfer to the specified IBAN.',
+                    'Send bank wire, SEPA, or SWIFT transfer to the specified currency account.',
                     'Always include your Avora Account Number or Deposit Code in the payment reference.',
                     'Upload your payment confirmation receipt after dispatching.',
                 ],
@@ -111,6 +132,12 @@ class DepositService {
             throw new Error('User not found');
         const depositCode = `DEP-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
         const currency = data.currency || (data.depositMethod?.startsWith('USDT') ? 'USDT' : 'USD');
+        let normalizedHash = data.txHashOrRef?.trim() || null;
+        if (normalizedHash && (currency === 'USDT' || data.depositMethod?.includes('BEP20'))) {
+            if (/^[0-9a-fA-F]{64}$/.test(normalizedHash)) {
+                normalizedHash = `0x${normalizedHash}`;
+            }
+        }
         const deposit = await prisma_1.prisma.depositRequest.create({
             data: {
                 depositCode,
@@ -119,7 +146,7 @@ class DepositService {
                 currency,
                 depositMethod: data.depositMethod,
                 proofUrl: data.proofUrl || null,
-                txHashOrRef: data.txHashOrRef || `REF-${depositCode}`,
+                txHashOrRef: normalizedHash || `REF-${depositCode}`,
                 status: client_1.DepositStatus.PENDING,
             },
         });
@@ -179,7 +206,7 @@ class DepositService {
     /**
      * Admin: Approve a deposit request
      */
-    async adminApproveDeposit(depositId, adminUserId, adminNotes) {
+    async adminApproveDeposit(depositId, adminUserId, adminNotes, customTxHash) {
         const deposit = await prisma_1.prisma.depositRequest.findUnique({
             where: { id: depositId },
             include: { user: true },
@@ -197,6 +224,7 @@ class DepositService {
             currency: deposit.currency,
             reviewedBy: adminUserId,
             notes: adminNotes,
+            txHash: customTxHash,
         });
         // Send confirmation email (non-blocking)
         notification_provider_1.notificationService.sendEmail({
@@ -306,6 +334,8 @@ class DepositService {
             'bank_wire_name',
             'bank_wire_beneficiary',
             'bank_wire_iban',
+            'bank_wire_iban_usd',
+            'bank_wire_iban_eur',
             'bank_wire_swift',
         ];
         const settings = await prisma_1.prisma.cmsSetting.findMany({
@@ -313,13 +343,17 @@ class DepositService {
         }).catch(() => []);
         const map = new Map();
         settings.forEach((s) => map.set(s.key, s.value));
+        const ibanUsd = map.get('bank_wire_iban_usd') || map.get('bank_wire_iban') || 'GE51BG0000000613125640';
+        const ibanEur = map.get('bank_wire_iban_eur') || 'GE71BG0000000613184450';
         return {
             usdt_bep20_address: map.get('usdt_bep20_address') || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
             usdt_erc20_address: map.get('usdt_erc20_address') || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
-            usdt_trc20_address: map.get('usdt_trc20_address') || 'TW4v8m5B8V5n2fG1xK9q3L7p4M6s8R2t1Y',
-            bank_wire_name: map.get('bank_wire_name') || 'Bank of Georgia / TBC Bank',
-            bank_wire_beneficiary: map.get('bank_wire_beneficiary') || 'Avora Bank Platform Custody',
-            bank_wire_iban: map.get('bank_wire_iban') || 'GE29NB0000000123456789',
+            usdt_trc20_address: map.get('usdt_trc20_address') || 'TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm',
+            bank_wire_name: map.get('bank_wire_name') || 'Avora Bank (Bank of Georgia)',
+            bank_wire_beneficiary: map.get('bank_wire_beneficiary') || 'Avora Bank',
+            bank_wire_iban: ibanUsd,
+            bank_wire_iban_usd: ibanUsd,
+            bank_wire_iban_eur: ibanEur,
             bank_wire_swift: map.get('bank_wire_swift') || 'BAGAGE22',
             updatedAt: settings.length > 0 ? settings.reduce((latest, s) => s.updatedAt > latest ? s.updatedAt : latest, settings[0].updatedAt) : new Date(),
         };
@@ -381,12 +415,27 @@ class DepositService {
                 description: 'Beneficiary Corporate Account Name',
             });
         }
-        if (data.bank_wire_iban !== undefined) {
+        if (data.bank_wire_iban_usd !== undefined || data.bank_wire_iban !== undefined) {
+            const val = (data.bank_wire_iban_usd || data.bank_wire_iban || '').trim().replace(/\s+/g, '');
+            updates.push({
+                key: 'bank_wire_iban_usd',
+                value: val,
+                group: 'DEPOSIT_BANK',
+                description: 'Beneficiary Bank USD Account IBAN',
+            });
             updates.push({
                 key: 'bank_wire_iban',
-                value: data.bank_wire_iban.trim().replace(/\s+/g, ''),
+                value: val,
                 group: 'DEPOSIT_BANK',
-                description: 'Beneficiary Bank IBAN / Account Number',
+                description: 'Beneficiary Bank Default IBAN',
+            });
+        }
+        if (data.bank_wire_iban_eur !== undefined) {
+            updates.push({
+                key: 'bank_wire_iban_eur',
+                value: data.bank_wire_iban_eur.trim().replace(/\s+/g, ''),
+                group: 'DEPOSIT_BANK',
+                description: 'Beneficiary Bank EUR Account IBAN',
             });
         }
         if (data.bank_wire_swift !== undefined) {

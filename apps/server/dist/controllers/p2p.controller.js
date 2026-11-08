@@ -71,6 +71,39 @@ class P2PController {
         }
     }
     /**
+     * Create a new P2P Offer / Ad (Merchants only)
+     */
+    async createOffer(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            if (!userId) {
+                return res.status(401).json({ success: false, message: 'Authentication required. Please sign in to create an advertisement.' });
+            }
+            const result = await p2p_service_1.p2pService.createOffer(userId, req.body);
+            res.status(201).json(result);
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Cancel P2P Offer
+     */
+    async cancelOffer(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            if (!userId) {
+                return res.status(401).json({ success: false, message: 'Authentication required. Please sign in.' });
+            }
+            const offerId = req.params.offerId;
+            const result = await p2p_service_1.p2pService.cancelOffer(userId, offerId);
+            res.json(result);
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * Create P2P Order (Locks seller crypto in Escrow)
      */
     async createOrder(req, res, next) {
@@ -152,7 +185,8 @@ class P2PController {
         try {
             const userId = req.user.id;
             const orderId = req.params.orderId;
-            const order = await p2p_service_1.p2pService.releaseOrderEscrow(orderId, userId);
+            const { twoFactorCode } = req.body;
+            const order = await p2p_service_1.p2pService.releaseOrderEscrow(orderId, userId, twoFactorCode);
             res.json({
                 success: true,
                 message: 'Escrow released! Crypto has been credited to the buyer wallet.',
@@ -249,6 +283,9 @@ class P2PController {
     async applyMerchant(req, res, next) {
         try {
             const userId = req.user?.id || req.user?.userId;
+            if (!userId) {
+                return res.status(401).json({ success: false, message: 'Authentication required. Please sign in.' });
+            }
             const result = await p2p_service_1.p2pService.applyP2pMerchant(userId);
             res.status(201).json(result);
         }
@@ -262,6 +299,9 @@ class P2PController {
     async refundMerchant(req, res, next) {
         try {
             const userId = req.user?.id || req.user?.userId;
+            if (!userId) {
+                return res.status(401).json({ success: false, message: 'Authentication required. Please sign in.' });
+            }
             const result = await p2p_service_1.p2pService.refundP2pMerchant(userId);
             res.json(result);
         }

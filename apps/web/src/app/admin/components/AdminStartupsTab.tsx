@@ -59,9 +59,17 @@ export default function AdminStartupsTab({
     coverImageUrl: 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&auto=format&fit=crop&q=80',
   });
 
+  // Valuation / Mark-to-Market Modal
+  const [valuationModalOpen, setValuationModalOpen] = useState(false);
+  const [newValuation, setNewValuation] = useState('');
+  const [newStage, setNewStage] = useState('SEED');
+  const [growthNotes, setGrowthNotes] = useState('');
+  const [savingValuation, setSavingValuation] = useState(false);
+
   // Exit Distribution Modal
   const [exitModalOpen, setExitModalOpen] = useState(false);
   const [selectedListing, setSelectedListing] = useState<any | null>(null);
+  const [distributionType, setDistributionType] = useState<'EXIT_BUYOUT' | 'DIVIDEND'>('EXIT_BUYOUT');
   const [totalProceeds, setTotalProceeds] = useState('');
   const [exitMultiplier, setExitMultiplier] = useState('2.0');
   const [exitNotes, setExitNotes] = useState('');
@@ -92,20 +100,57 @@ export default function AdminStartupsTab({
     }
   };
 
+  const handleOpenValuationModal = (listing: any) => {
+    setSelectedListing(listing);
+    setNewValuation(String(listing.valuation || ''));
+    setNewStage(listing.stage || 'SEED');
+    setGrowthNotes('');
+    setValuationModalOpen(true);
+  };
+
+  const handleSaveValuation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedListing || !newValuation || parseFloat(newValuation) <= 0) {
+      onFeedback({ text: 'Valid post-money valuation is required', type: 'error' });
+      return;
+    }
+    setSavingValuation(true);
+    try {
+      const res = await api.patch(
+        `/admin/investments/listings/${selectedListing.id}/valuation`,
+        {
+          valuation: parseFloat(newValuation),
+          stage: newStage,
+          growthNotes,
+        }
+      );
+      if (res.data?.success) {
+        onFeedback({ text: res.data.message || 'Valuation updated successfully!', type: 'success' });
+        setValuationModalOpen(false);
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback({ text: err.response?.data?.message || 'Failed to update valuation', type: 'error' });
+    } finally {
+      setSavingValuation(false);
+    }
+  };
+
   const handleOpenExitModal = (listing: any) => {
     setSelectedListing(listing);
     const raised = parseFloat(listing.verifiedFundsRaised || '0');
+    setDistributionType('EXIT_BUYOUT');
     setExitMultiplier('2.0');
-    setTotalProceeds((raised * 2).toFixed(2));
-    setExitNotes(`Q4 Realized buyout distribution for ${listing.companyName}`);
+    setTotalProceeds(raised > 0 ? (raised * 2).toFixed(2) : '');
+    setExitNotes(`Realized payout distribution for ${listing.companyName}`);
     setExitModalOpen(true);
   };
 
   const handleExecuteExit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedListing) return;
-    if (!totalProceeds || parseFloat(totalProceeds) <= 0) {
-      onFeedback({ text: 'Valid proceeds amount required', type: 'error' });
+    if ((!totalProceeds || parseFloat(totalProceeds) <= 0) && (!exitMultiplier || parseFloat(exitMultiplier) <= 0)) {
+      onFeedback({ text: 'Valid proceeds amount or multiplier required', type: 'error' });
       return;
     }
 
@@ -114,8 +159,10 @@ export default function AdminStartupsTab({
       const res = await api.post(
         `/admin/investments/listings/${selectedListing.id}/distribute-exit`,
         {
-          totalGrossProceeds: parseFloat(totalProceeds),
-          exitMultiplier: parseFloat(exitMultiplier),
+          distributionType,
+          totalProceeds: totalProceeds ? parseFloat(totalProceeds) : undefined,
+          totalGrossProceeds: totalProceeds ? parseFloat(totalProceeds) : undefined,
+          exitMultiplier: exitMultiplier ? parseFloat(exitMultiplier) : undefined,
           notes: exitNotes,
         }
       );
@@ -163,7 +210,18 @@ export default function AdminStartupsTab({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search startup or sector..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 outline-none focus:border-purple-500 w-52"
+            />
+          </div>
+
           <button
             onClick={() => setCreateModalOpen(true)}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-600/30 transition-all flex items-center gap-2 cursor-pointer"
@@ -290,7 +348,7 @@ export default function AdminStartupsTab({
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between pt-2 border-t border-slate-800 gap-2 flex-wrap">
                   <button
                     onClick={() => handleDeleteListing(l.id, l.companyName)}
                     className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"
@@ -299,19 +357,202 @@ export default function AdminStartupsTab({
                     <Trash2 className="w-4 h-4" />
                   </button>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => handleOpenValuationModal(l)}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-slate-950 text-xs font-bold transition-all border border-amber-500/30 cursor-pointer flex items-center gap-1"
+                    >
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      <span>Update Valuation</span>
+                    </button>
+
                     <button
                       onClick={() => handleOpenExitModal(l)}
                       className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white text-xs font-black transition-all border border-emerald-500/30 cursor-pointer flex items-center gap-1"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>Distribute Exit Multiplier</span>
+                      <span>Distribute Exit / Dividend</span>
                     </button>
                   </div>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Investor Commitments Ledger Table */}
+      <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-extrabold text-base text-white">Investor Commitments ({commitments.length})</h3>
+            <p className="text-xs text-slate-400">All customer startup allocations, mark-to-market valuation gains &amp; exit proceeds</p>
+          </div>
+        </div>
+
+        {listingsLoading ? (
+          <div className="p-12 text-center text-slate-500">
+            <Loader2 className="w-6 h-6 animate-spin mx-auto text-purple-500" />
+          </div>
+        ) : commitments.length === 0 ? (
+          <div className="p-8 text-center text-slate-500 text-xs">
+            No investor commitments recorded yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-slate-800 text-slate-400 uppercase font-bold text-[10px]">
+                <tr>
+                  <th className="pb-3">Code</th>
+                  <th className="pb-3">Startup</th>
+                  <th className="pb-3">Investor</th>
+                  <th className="pb-3">Net Capital</th>
+                  <th className="pb-3">Current Holding Value</th>
+                  <th className="pb-3">Valuation Gain</th>
+                  <th className="pb-3">Distributed Proceeds</th>
+                  <th className="pb-3 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {commitments.map((inv) => (
+                  <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="py-3 font-mono font-bold text-amber-400">{inv.investmentCode}</td>
+                    <td className="py-3 font-bold text-white">{inv.listing?.companyName}</td>
+                    <td className="py-3 text-slate-300">
+                      <div className="font-bold">{inv.investor?.firstName} {inv.investor?.lastName}</div>
+                      <div className="text-[10px] text-slate-500 font-mono">{inv.investor?.email}</div>
+                    </td>
+                    <td className="py-3 font-mono font-bold text-slate-200">
+                      ${parseFloat(inv.netInvestedAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    </td>
+                    <td className="py-3 font-mono font-black text-emerald-400">
+                      ${parseFloat(inv.currentValuation || inv.netInvestedAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    </td>
+                    <td className="py-3 font-mono font-bold">
+                      <span className={`px-2 py-0.5 rounded text-[10px] ${
+                        parseFloat(inv.unrealizedReturnPct || '0') >= 0
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : 'bg-rose-500/20 text-rose-400'
+                      }`}>
+                        {parseFloat(inv.unrealizedReturnPct || '0') >= 0 ? '+' : ''}
+                        {parseFloat(inv.unrealizedReturnPct || '0').toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="py-3 font-mono font-bold text-white">
+                      ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
+                    </td>
+                    <td className="py-3 text-right">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                        inv.status === 'EXITED'
+                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                          : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      }`}>
+                        {inv.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* UPDATE VALUATION / MARK-TO-MARKET MODAL */}
+      {valuationModalOpen && selectedListing && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSaveValuation}
+            className="bg-slate-950 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Update Company Valuation</h3>
+                  <p className="text-xs text-slate-400">{selectedListing.companyName}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setValuationModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl text-xs space-y-1">
+              <div className="text-slate-400">
+                Current Valuation:{' '}
+                <span className="font-mono text-emerald-400 font-bold">
+                  ${parseFloat(selectedListing.valuation || '0').toLocaleString('en-US')} USD
+                </span>
+              </div>
+              {newValuation && parseFloat(newValuation) > 0 && parseFloat(selectedListing.valuation || '0') > 0 && (
+                <div className="text-amber-300 font-semibold text-[11px]">
+                  Mark-to-Market Shift:{' '}
+                  {(((parseFloat(newValuation) / parseFloat(selectedListing.valuation)) - 1) * 100).toFixed(1)}% across all investor holdings
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">New Post-Money Valuation ($ USD)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={newValuation}
+                  onChange={(e) => setNewValuation(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Updated Round Stage</label>
+                <select
+                  value={newStage}
+                  onChange={(e) => setNewStage(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-amber-500"
+                >
+                  <option value="PRE_SEED">PRE-SEED</option>
+                  <option value="SEED">SEED</option>
+                  <option value="SERIES_A">SERIES A</option>
+                  <option value="SERIES_B">SERIES B</option>
+                  <option value="GROWTH">GROWTH</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Audit / Growth Notes</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Series A up-round led by institutional syndicate"
+                  value={growthNotes}
+                  onChange={(e) => setGrowthNotes(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setValuationModalOpen(false)}
+                className="w-full py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingValuation}
+                className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {savingValuation && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Save Valuation</span>
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

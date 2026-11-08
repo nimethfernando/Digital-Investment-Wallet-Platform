@@ -13,13 +13,47 @@ class KycService {
             throw new Error('User not found.');
         }
         if (user.kycStatus === 'APPROVED') {
-            throw new Error('Your identity verification (KYC) is already fully approved.');
+            return {
+                documentId: 'already_approved',
+                documentType: input.documentType,
+                status: client_1.KycStatus.APPROVED,
+                message: 'Your identity verification (KYC) is already fully approved.',
+            };
         }
         const document = await prisma_1.prisma.kycDocument.create({
             data: {
                 userId,
                 documentType: input.documentType,
                 documentUrl: input.documentUrl,
+                status: client_1.KycStatus.PENDING,
+            },
+        });
+        await prisma_1.prisma.user.update({
+            where: { id: userId },
+            data: {
+                kycStatus: client_1.KycStatus.PENDING,
+            },
+        });
+        return {
+            documentId: document.id,
+            documentType: document.documentType,
+            status: client_1.KycStatus.PENDING,
+            message: 'KYC identity documents submitted successfully. Application is pending compliance officer review.',
+        };
+    }
+    /**
+     * Instant sandbox auto-approval for quick testing/demo mode
+     */
+    async instantVerifyKyc(userId, input) {
+        const user = await prisma_1.prisma.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            throw new Error('User not found.');
+        }
+        const document = await prisma_1.prisma.kycDocument.create({
+            data: {
+                userId,
+                documentType: input?.documentType || 'PASSPORT',
+                documentUrl: input?.documentUrl || 'https://secure-docs.avora.bank/instant_sandbox_verification.pdf',
                 status: client_1.KycStatus.APPROVED,
                 verifiedAt: new Date(),
             },
@@ -33,8 +67,30 @@ class KycService {
         return {
             documentId: document.id,
             documentType: document.documentType,
-            status: document.status,
-            message: 'KYC identity verification completed and approved.',
+            status: client_1.KycStatus.APPROVED,
+            message: 'Instant test verification approved. Account upgraded to Verified Institutional Client.',
+        };
+    }
+    /**
+     * Reset user KYC status (for Sandbox testing / re-verification)
+     */
+    async resetKyc(userId) {
+        const user = await prisma_1.prisma.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            throw new Error('User not found.');
+        }
+        await prisma_1.prisma.kycDocument.deleteMany({
+            where: { userId },
+        });
+        await prisma_1.prisma.user.update({
+            where: { id: userId },
+            data: {
+                kycStatus: client_1.KycStatus.NOT_STARTED,
+            },
+        });
+        return {
+            kycStatus: client_1.KycStatus.NOT_STARTED,
+            message: 'KYC status reset to UNVERIFIED for testing.',
         };
     }
     /**
@@ -102,6 +158,8 @@ class KycService {
                         firstName: true,
                         lastName: true,
                         phone: true,
+                        country: true,
+                        signupLocation: true,
                         status: true,
                         createdAt: true,
                     },

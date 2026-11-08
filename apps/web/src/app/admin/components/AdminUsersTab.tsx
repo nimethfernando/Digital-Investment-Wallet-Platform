@@ -104,7 +104,8 @@ export default function AdminUsersTab({
   };
 
   const handleToggleKyc = async (userId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'VERIFIED' ? 'REJECTED' : 'VERIFIED';
+    const isApproved = currentStatus === 'APPROVED' || currentStatus === 'VERIFIED';
+    const nextStatus = isApproved ? 'REJECTED' : 'APPROVED';
     try {
       const res = await api.patch(`/admin/users/${userId}`, { kycStatus: nextStatus });
       if (res.data?.success) {
@@ -272,10 +273,10 @@ export default function AdminUsersTab({
             className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 outline-none focus:border-rose-500"
           >
             <option value="">All KYC</option>
-            <option value="VERIFIED">VERIFIED</option>
+            <option value="APPROVED">APPROVED (Verified)</option>
             <option value="PENDING">PENDING</option>
             <option value="REJECTED">REJECTED</option>
-            <option value="NOT_SUBMITTED">NOT SUBMITTED</option>
+            <option value="NOT_STARTED">NOT STARTED</option>
           </select>
 
           <select
@@ -392,13 +393,15 @@ export default function AdminUsersTab({
                       </div>
                       <div>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          u.kycStatus === 'VERIFIED'
+                          u.kycStatus === 'APPROVED' || u.kycStatus === 'VERIFIED'
                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                             : u.kycStatus === 'PENDING'
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : u.kycStatus === 'REJECTED'
+                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                             : 'bg-slate-800 text-slate-400'
                         }`}>
-                          KYC: {u.kycStatus || 'NOT_SUBMITTED'}
+                          KYC: {u.kycStatus || 'NOT_STARTED'}
                         </span>
                       </div>
                     </td>
@@ -480,11 +483,11 @@ export default function AdminUsersTab({
                         <button
                           onClick={() => handleToggleKyc(u.id, u.kycStatus)}
                           className={`p-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                            u.kycStatus === 'VERIFIED'
+                            u.kycStatus === 'APPROVED' || u.kycStatus === 'VERIFIED'
                               ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
                               : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
                           }`}
-                          title={u.kycStatus === 'VERIFIED' ? 'Revoke KYC Verification' : 'Instant Approve KYC'}
+                          title={u.kycStatus === 'APPROVED' || u.kycStatus === 'VERIFIED' ? 'Revoke KYC Verification' : 'Instant Approve KYC'}
                         >
                           <UserCheck className="w-3.5 h-3.5" />
                         </button>
@@ -592,7 +595,7 @@ export default function AdminUsersTab({
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-white">{doc.documentType}</span>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          doc.status === 'VERIFIED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'
+                          doc.status === 'APPROVED' || doc.status === 'VERIFIED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'
                         }`}>
                           {doc.status}
                         </span>

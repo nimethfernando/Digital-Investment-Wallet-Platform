@@ -459,7 +459,7 @@ export class AdminController {
     try {
       const adminUserId = (req as any).user.id;
       const documentId = req.params.id as string;
-      const { reason } = req.body;
+      const reason = req.body?.reason || req.body?.rejectionReason;
 
       const result = await kycService.rejectKyc(documentId, adminUserId, reason);
 
@@ -591,35 +591,40 @@ export class AdminController {
   }
 
   /**
-   * List all startup crowdfunding investments across all investors
+   * List all startup crowdfunding investments and all startup listings across the platform
    */
   async getInvestments(req: Request, res: Response, next: NextFunction) {
     try {
-      const commitments = await prisma.investmentCommitment.findMany({
-        include: {
-          investor: {
-            select: {
-              id: true,
-              email: true,
-              firstName: true,
-              lastName: true,
-              phone: true,
+      const [commitments, listings] = await Promise.all([
+        prisma.investmentCommitment.findMany({
+          include: {
+            investor: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+              },
+            },
+            listing: {
+              select: {
+                id: true,
+                slug: true,
+                companyName: true,
+                industry: true,
+                stage: true,
+                country: true,
+              },
             },
           },
-          listing: {
-            select: {
-              id: true,
-              slug: true,
-              companyName: true,
-              industry: true,
-              stage: true,
-              country: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-      res.json({ success: true, data: { commitments } });
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.startupListing.findMany({
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
+      res.json({ success: true, data: { commitments, listings } });
     } catch (err) {
       next(err);
     }
@@ -823,7 +828,8 @@ export class AdminController {
     try {
       const adminUserId = (req as any).user.id;
       const listingId = req.params.id as string;
-      const { distributionType, totalProceeds, exitMultiplier, notes } = req.body;
+      const { distributionType, exitMultiplier, notes } = req.body;
+      const totalProceeds = req.body.totalProceeds ?? req.body.totalGrossProceeds;
 
       const listing = await prisma.startupListing.findUnique({
         where: { id: listingId },
@@ -997,8 +1003,14 @@ export class AdminController {
       if (role && Object.values(Role).includes(role as any)) {
         where.role = role as Role;
       }
-      if (kycStatus && Object.values(KycStatus).includes(kycStatus as any)) {
-        where.kycStatus = kycStatus as KycStatus;
+      const normalizedFilterKyc =
+        kycStatus === 'VERIFIED'
+          ? KycStatus.APPROVED
+          : kycStatus === 'NOT_SUBMITTED'
+          ? KycStatus.NOT_STARTED
+          : kycStatus;
+      if (normalizedFilterKyc && Object.values(KycStatus).includes(normalizedFilterKyc as any)) {
+        where.kycStatus = normalizedFilterKyc as KycStatus;
       }
       if (search && typeof search === 'string' && search.trim()) {
         const query = search.trim();
@@ -1143,8 +1155,14 @@ export class AdminController {
       if (role && Object.values(Role).includes(role)) {
         dataToUpdate.role = role;
       }
-      if (kycStatus && Object.values(KycStatus).includes(kycStatus)) {
-        dataToUpdate.kycStatus = kycStatus;
+      const normalizedUpdateKyc =
+        kycStatus === 'VERIFIED'
+          ? KycStatus.APPROVED
+          : kycStatus === 'NOT_SUBMITTED'
+          ? KycStatus.NOT_STARTED
+          : kycStatus;
+      if (normalizedUpdateKyc && Object.values(KycStatus).includes(normalizedUpdateKyc)) {
+        dataToUpdate.kycStatus = normalizedUpdateKyc;
       }
       if (typeof isWithdrawalLocked === 'boolean') {
         dataToUpdate.withdrawalLockedUntil = isWithdrawalLocked ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) : null;

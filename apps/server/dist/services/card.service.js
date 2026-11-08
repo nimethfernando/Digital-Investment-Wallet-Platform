@@ -50,6 +50,9 @@ class CardService {
     get isStripeProvider() {
         return this.providerName === 'STRIPE';
     }
+    get hasLiveIssuerKey() {
+        return Boolean(this.issuerApiKey && !/placeholder|your_|change_me|example|xxxx/i.test(this.issuerApiKey));
+    }
     /**
      * Calls the live Card Issuing BaaS API (Stripe Issuing, Interlace, Striga, Wallester, Rain, or Generic REST)
      * to provision a virtual Visa/Mastercard.
@@ -334,13 +337,17 @@ class CardService {
             });
         }
         const isProvisioned = Boolean(card.externalCardId && card.last4 !== '••••');
+        const isLiveProvisioned = Boolean(this.hasLiveIssuerKey &&
+            card.externalCardId &&
+            !card.externalCardId.startsWith('avr_card_') &&
+            card.last4 !== '••••');
         const maskSuffix = isProvisioned ? card.last4 : '8829';
         return {
             id: card.id,
             userId: card.userId,
             externalCardId: card.externalCardId,
             issuerProvider: this.providerName,
-            issuerStatus: 'PROVISIONED',
+            issuerStatus: isLiveProvisioned ? 'PROVISIONED' : 'PENDING_ISSUER_CONFIG',
             last4: card.last4 !== '••••' ? card.last4 : '8829',
             expMonth: card.expMonth || 8,
             expYear: card.expYear || 2029,
@@ -365,13 +372,16 @@ class CardService {
      * Card Issuer so the frontend can render the PAN and CVV without our database storing them.
      */
     async createRevealSession(userId, nonce) {
+        const cardData = await this.getOrCreateCard(userId);
         const card = await prisma_1.prisma.virtualCard.findUnique({ where: { userId } });
-        if (!card || !card.externalCardId) {
-            throw new Error('No external BaaS card is provisioned for this account yet.');
+        if (!card) {
+            throw new Error('Virtual card profile not found for user');
         }
-        if (this.isStripeProvider && this.issuerApiKey) {
+        const externalCardId = card.externalCardId || cardData.externalCardId || `avr_card_${userId.replace(/-/g, '').slice(0, 12)}`;
+        const isExternalIssuerCard = Boolean(this.hasLiveIssuerKey && externalCardId && !externalCardId.startsWith('avr_card_'));
+        if (this.isStripeProvider && isExternalIssuerCard) {
             const params = new URLSearchParams({
-                issuing_card: card.externalCardId,
+                issuing_card: externalCardId,
                 ...(nonce ? { nonce } : {}),
             });
             const res = await fetch('https://api.stripe.com/v1/ephemeral_keys', {
@@ -389,13 +399,13 @@ class CardService {
             }
             return {
                 provider: 'STRIPE_ISSUING',
-                externalCardId: card.externalCardId,
+                externalCardId,
                 ephemeralKeySecret: data.secret,
                 expiresAt: data.expires,
             };
         }
-        if (this.issuerApiKey) {
-            const res = await fetch(`${this.issuerBaseUrl}/v1/cards/${encodeURIComponent(card.externalCardId)}/ephemeral-token`, {
+        if (isExternalIssuerCard) {
+            const res = await fetch(`${this.issuerBaseUrl}/v1/cards/${encodeURIComponent(externalCardId)}/ephemeral-token`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -410,16 +420,16 @@ class CardService {
             }
             return {
                 provider: 'BAAS_ISSUER',
-                externalCardId: card.externalCardId,
+                externalCardId,
                 token: data?.data?.token || data?.token,
                 iframeUrl: data?.data?.iframeUrl || data?.iframeUrl,
             };
         }
-        // Default Avora Vault Reveal Session (instant unmasked credentials)
+        // Default Avora Vault Reveal Session (instant unmasked sandbox preview credentials)
         const last4 = card.last4 && card.last4 !== '••••' ? card.last4 : '8829';
         return {
             provider: 'AVORA_VAULT',
-            externalCardId: card.externalCardId || `avr_card_${userId.slice(0, 8)}`,
+            externalCardId,
             pan: `4532 9821 4402 ${last4}`,
             exp: card.expiryDate && card.expiryDate !== '--/--' ? card.expiryDate : '08/29',
             cvv: '739',
@@ -439,7 +449,7 @@ class CardService {
             throw new Error('Virtual card not found for user');
         }
         const nextFrozen = !card.isFrozen;
-        if (card.externalCardId && this.isStripeProvider && this.issuerApiKey) {
+        if (card.externalCardId && !card.externalCardId.startsWith('avr_card_') && this.isStripeProvider && this.hasLiveIssuerKey) {
             const status = nextFrozen ? 'inactive' : 'active';
             await fetch(`https://api.stripe.com/v1/issuing/cards/${encodeURIComponent(card.externalCardId)}`, {
                 method: 'POST',
