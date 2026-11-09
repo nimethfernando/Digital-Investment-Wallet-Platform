@@ -19,7 +19,7 @@ export const TOKEN_SPEC = {
     { category: 'Validator Staking & Security Reserve', percentage: 8, tokens: '80,000,000 AVR' },
   ],
   roadmap: [
-    { phase: 'Phase 1: Q1 2026', title: 'Avora Testnet v1 & Ledger Faucet', status: 'ACTIVE', description: 'Testnet deployment, cryptographic wallet generation, and faucet testing.' },
+    { phase: 'Phase 1: Q1 2026', title: 'Avora Testnet v1 & Ledger Settlement', status: 'ACTIVE', description: 'Cryptographic ledger deployment, validator integration, and smart settlement auditing.' },
     { phase: 'Phase 2: Q3 2026', title: 'Smart Contract Audits & Early Access Whitelist', status: 'UPCOMING', description: 'CertiK and OpenZeppelin security reviews, early-access whitelist registration.' },
     { phase: 'Phase 3: Q1 2027', title: 'Devnet & Institutional Validator Staking', status: 'UPCOMING', description: 'Decentralized node testing and proof-of-stake consensus validation.' },
     { phase: 'Phase 4: Q4 2027', title: 'Target Mainnet Launch & TGE', status: 'TARGET', description: 'Token Generation Event (TGE), mainnet genesis block, and ecosystem liquidity migration.' }
@@ -91,10 +91,7 @@ export class TokenService {
    * Claim Testnet Faucet Tokens (100 AVR / 24h)
    */
   async claimFaucet(userId: string) {
-    const status = await this.getUserTokenStatus(userId);
-    if (!status.wallet.canClaimFaucet) {
-      throw new Error(`Faucet cooldown active. Next claim available at ${status.wallet.nextClaimAllowedAt?.toLocaleTimeString()}`);
-    }
+    throw new Error('Public faucet distributions are disabled. Avora tokens ($AVR) are strictly allocated via authorized Early-Access Whitelist enrollment.');
 
     const FAUCET_AMOUNT = new Decimal(TOKEN_SPEC.faucetClaimAmount);
 

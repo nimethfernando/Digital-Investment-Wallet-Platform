@@ -1291,9 +1291,9 @@ function DashboardContent() {
                   <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Avora Token & Testnet</h4>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Avora Token ($AVR)</h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Acquire early-access $AVR at $0.10 or claim testnet faucet tokens
+                    Early-access whitelist allocation &amp; Mainnet Genesis roadmap
                   </p>
                 </div>
               </Link>
@@ -1849,7 +1849,7 @@ function DashboardContent() {
                     </h3>
                   </div>
                   <Link href="/token" className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline">
-                    Token Roadmap & Faucet →
+                    Token Allocation &amp; Roadmap →
                   </Link>
                 </div>
 

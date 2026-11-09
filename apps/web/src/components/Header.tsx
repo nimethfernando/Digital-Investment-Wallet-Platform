@@ -177,8 +177,8 @@ export const Header: React.FC = () => {
         {
           href: '/token',
           label: 'Avora Token ($AVR)',
-          description: 'Early-access token allocation & interactive testnet faucet',
-          badge: '$0.10',
+          description: 'Early-access token allocation & Mainnet Genesis roadmap',
+          badge: '$1.00',
           icon: Coins,
         },
       ],

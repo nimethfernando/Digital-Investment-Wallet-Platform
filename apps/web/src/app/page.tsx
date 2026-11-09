@@ -861,7 +861,7 @@ export default function HomePage() {
                 Avora Token ($AVR) Hub
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Free testnet faucet claiming (100 AVR/24h) for simulation, $0.10 reference Early Access Whitelist registry, and Q4 2027 Mainnet roadmap & tokenomics.
+                Early-Access Whitelist allocation registry ($1.00 USD reference price), ecosystem utility staking, and Q4 2027 Mainnet Genesis roadmap &amp; tokenomics.
               </p>
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
@@ -869,7 +869,7 @@ export default function HomePage() {
                 href={user ? '/token' : '/login?redirect=/token'}
                 className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
               >
-                {user ? 'Claim Faucet' : 'Sign In for Faucet'}
+                {user ? 'Explore Token Allocation' : 'Sign In for Whitelist'}
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
               <Link href="/token" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">

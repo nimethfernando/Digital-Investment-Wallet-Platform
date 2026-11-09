@@ -31,10 +31,6 @@ export default function AvoraTokenPage() {
   const [userStatus, setUserStatus] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Faucet claim state
-  const [faucetLoading, setFaucetLoading] = useState<boolean>(false);
-  const [faucetMsg, setFaucetMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
   // Whitelist Registration State
   const [allocAmount, setAllocAmount] = useState<number>(1000);
   const [allocNotes, setAllocNotes] = useState<string>('');
@@ -66,27 +62,6 @@ export default function AvoraTokenPage() {
   useEffect(() => {
     loadData();
   }, [user]);
-
-  // Handle Claim Faucet
-  const handleClaimFaucet = async () => {
-    if (!user) {
-      alert('Please sign in to claim testnet AVR tokens.');
-      return;
-    }
-    setFaucetLoading(true);
-    setFaucetMsg(null);
-    try {
-      const res = await api.post('/token/faucet/claim');
-      if (res.data?.success) {
-        setFaucetMsg({ type: 'success', text: res.data.message });
-        loadData();
-      }
-    } catch (err: any) {
-      setFaucetMsg({ type: 'error', text: extractErrorMessage(err, 'Failed to claim faucet.') });
-    } finally {
-      setFaucetLoading(false);
-    }
-  };
 
   // Handle Early Access Whitelist Registration
   const handleRegisterEarlyAccess = async (e: React.FormEvent) => {
@@ -127,7 +102,7 @@ export default function AvoraTokenPage() {
       <div className="text-center max-w-4xl mx-auto space-y-4">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold shadow-sm">
           <Coins className="w-4 h-4 text-emerald-500" />
-          <span>8. Avora Token – Early Access & Future Mainnet Launch</span>
+          <span>Avora Token – Early Access &amp; Future Mainnet Launch</span>
         </div>
 
         <h1 className="text-3xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
@@ -135,11 +110,11 @@ export default function AvoraTokenPage() {
         </h1>
 
         <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed max-w-3xl mx-auto">
-          The native utility, governance, and settlement asset powering the Avora Bank ecosystem. Explore testnet token allocation, early-access whitelist participation, and the Q4 2027 Mainnet Genesis roadmap.
+          The native utility, governance, and settlement asset powering the Avora Bank ecosystem. Explore institutional token utility, early-access whitelist allocation, and the Q4 2027 Mainnet Genesis roadmap.
         </p>
       </div>
 
-      {/* 8.1 Key Token Metrics Strip */}
+      {/* Key Token Metrics Strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-5xl mx-auto">
         <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
           <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Token Name</span>
@@ -169,23 +144,23 @@ export default function AvoraTokenPage() {
         </div>
       </div>
 
-      {/* 8.2 Three Distinct Participation Pathways (Mandatory Disclosure Section) */}
+      {/* Three Distinct Participation Pathways (Mandatory Disclosure Section) */}
       <div className="p-6 sm:p-8 rounded-3xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 max-w-5xl mx-auto space-y-4">
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
           <Info className="w-4 h-4 text-emerald-500" />
           <span>Regulatory Disclosure: Three Distinct Participation Pathways</span>
         </div>
         <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-          Avora Bank strictly distinguishes between testnet exploration, allocation registration, and future mainnet token delivery:
+          Avora Bank strictly distinguishes between ecosystem utility, allocation registration, and future mainnet token delivery:
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-1">
           <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5">
             <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-blue-500" />
-              Testnet Token Faucet
+              Institutional Utility Staking
             </div>
             <p className="text-slate-500 text-[11px] leading-relaxed">
-              Used strictly for testing ledger settlement and dapp features. Testnet tokens have $0 monetary value and cannot be redeemed for fiat.
+              Reserved for verified Avora clients. Staking provides tiered fee discounts on international wires, OTC wholesale settlement, and BaaS card benefits.
             </p>
           </div>
 
@@ -211,74 +186,60 @@ export default function AvoraTokenPage() {
         </div>
       </div>
 
-      {/* Interactive Modules: Testnet Wallet & Early-Access Whitelist */}
+      {/* Interactive Modules: Token Utility & Early-Access Whitelist */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-5xl mx-auto items-start">
         
-        {/* Module A: Testnet Wallet & Faucet */}
+        {/* Module A: Token Utility & Governance Privileges */}
         <div className="lg:col-span-6 p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                8.3 Testnet Wallet & Faucet
+                Token Utility &amp; Governance
               </h3>
-              <p className="text-xs text-slate-500">Avora Sepolia L2 Devnet</p>
+              <p className="text-xs text-slate-500">Core Institutional Value Drivers</p>
             </div>
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
-              FREE TEST ASSETS
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+              UTILITY ASSET
             </span>
           </div>
 
-          {/* Testnet Balance Card */}
-          <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
-            <div className="flex justify-between items-center text-xs text-slate-400 font-semibold">
-              <span>Your Testnet Balance:</span>
-              <span className="font-mono text-emerald-500">Network: Live</span>
-            </div>
-            <div className="text-3xl font-black font-mono text-slate-900 dark:text-white flex items-baseline gap-2">
-              <span>{userStatus?.wallet?.testnetBalance?.toFixed(2) || '0.00'}</span>
-              <span className="text-sm font-bold text-slate-500">AVR (Testnet)</span>
-            </div>
-            
-            {userStatus?.wallet?.walletAddress && (
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Testnet Address:</span>
-                <div className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-600 dark:text-slate-300">
-                  <span className="truncate pr-2">{userStatus.wallet.walletAddress}</span>
-                  <button onClick={copyWallet} className="shrink-0 p-1 rounded text-slate-400 hover:text-emerald-500">
-                    {copiedAddress ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
+          <div className="space-y-3">
+            {[
+              {
+                title: '50% Remittance Fee Reductions',
+                desc: 'Hold or stake AVR to unlock up to 50% discount on cross-border wire margins and FX corridor settlement fees.',
+              },
+              {
+                title: 'Priority Startup Equity Allocations',
+                desc: 'Guaranteed subscription priority in oversubscribed venture crowdfunding rounds on our StartEngine-grade portal.',
+              },
+              {
+                title: 'Institutional OTC Wholesale Spreads',
+                desc: 'Access ultra-tight institutional benchmark spreads and zero slippage on high-volume OTC desk conversions.',
+              },
+              {
+                title: 'BaaS Virtual Card Rewards',
+                desc: 'Tier upgrades and up to 3.5% automated cashback on corporate ad-spend and tokenized virtual Visa/Mastercard purchases.',
+              },
+            ].map((item, idx) => (
+              <div key={idx} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-start gap-3">
+                <div className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0 mt-0.5">
+                  <Check className="w-3.5 h-3.5" />
+                </div>
+                <div className="space-y-0.5">
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">{item.title}</div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">{item.desc}</p>
                 </div>
               </div>
-            )}
+            ))}
           </div>
 
-          {faucetMsg && (
-            <div
-              className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
-                faucetMsg.type === 'success'
-                  ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                  : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
-              }`}
-            >
-              {faucetMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
-              <span>{faucetMsg.text}</span>
-            </div>
-          )}
-
-          <button
-            onClick={handleClaimFaucet}
-            disabled={faucetLoading || (userStatus && !userStatus.wallet.canClaimFaucet)}
-            className="w-full py-3.5 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-blue-600 dark:hover:bg-blue-700 text-white shadow-md disabled:opacity-50 transition-all cursor-pointer flex items-center justify-center gap-2"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>
-              {faucetLoading
-                ? 'Claiming Faucet...'
-                : userStatus && !userStatus.wallet.canClaimFaucet
-                ? 'Faucet Cooldown Active (24h)'
-                : 'Claim 100 Testnet AVR Faucet'}
+          <div className="p-3.5 rounded-2xl bg-slate-950 text-white border border-slate-800 text-[11px] flex items-center gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="text-slate-300">
+              <strong className="text-white">Strict Allocation Policy:</strong> Avora Bank does not distribute tokens for free or operate public airdrop faucets. All allocations are conducted strictly via authorized whitelist subscription.
             </span>
-          </button>
+          </div>
         </div>
 
         {/* Module B: Early-Access Whitelist Registration */}
@@ -286,7 +247,7 @@ export default function AvoraTokenPage() {
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                8.2 Early-Access Whitelist
+                Early-Access Whitelist Allocation
               </h3>
               <p className="text-xs text-slate-500">$1.00 USD Proposed Reference Price</p>
             </div>
@@ -367,7 +328,7 @@ export default function AvoraTokenPage() {
 
       </div>
 
-      {/* 8.4 Tokenomics & Roadmap Section */}
+      {/* Tokenomics & Roadmap Section */}
       <div className="max-w-5xl mx-auto space-y-8">
         <div className="text-center space-y-2">
           <h2 className="text-2xl font-black text-slate-900 dark:text-white">
@@ -393,7 +354,7 @@ export default function AvoraTokenPage() {
           ))}
         </div>
 
-        {/* 8.4 Roadmap Timeline */}
+        {/* Roadmap Timeline */}
         <div className="p-6 sm:p-8 rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-xl space-y-6">
           <h3 className="text-lg font-black flex items-center gap-2">
             <Clock className="w-5 h-5 text-emerald-400" />
