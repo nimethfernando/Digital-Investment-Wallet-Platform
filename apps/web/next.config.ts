@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 import path from 'path';
 
-const internalApiUrl = process.env.SERVER_URL || process.env.INTERNAL_API_URL || 'https://avora-bank-backend.onrender.com';
+const internalApiUrl = process.env.SERVER_URL || process.env.INTERNAL_API_URL || 'https://digital-investment-wallet-platform.onrender.com';
 
 const nextConfig: NextConfig = {
   ...(process.env.BUILD_STANDALONE ? { output: 'standalone' as const, outputFileTracingRoot: path.join(__dirname, '../../') } : {}),
