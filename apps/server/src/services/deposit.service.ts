@@ -656,6 +656,16 @@ export class DepositService {
       }
     }
 
+    let cleanProofUrl = data.proofUrl?.trim() || null;
+    if (cleanProofUrl && cleanProofUrl.includes('?__cf_chl')) {
+      cleanProofUrl = cleanProofUrl.split('?')[0];
+    }
+    if (!cleanProofUrl && normalizedHash && (data.depositMethod?.includes('BEP20') || currency === 'USDT')) {
+      if (normalizedHash.startsWith('0x')) {
+        cleanProofUrl = `https://bscscan.com/tx/${normalizedHash}`;
+      }
+    }
+
     const deposit = await prisma.depositRequest.create({
       data: {
         depositCode,
@@ -663,7 +673,7 @@ export class DepositService {
         amount: new Decimal(amountNum).toFixed(8),
         currency,
         depositMethod: data.depositMethod,
-        proofUrl: data.proofUrl || null,
+        proofUrl: cleanProofUrl,
         txHashOrRef: normalizedHash || `REF-${depositCode}`,
         status: DepositStatus.PENDING,
       },
@@ -695,7 +705,8 @@ export class DepositService {
         <h3>Deposit Submitted</h3>
         <p>Your deposit of <strong>${amountNum.toLocaleString()} ${currency}</strong> via <strong>${data.depositMethod}</strong> has been received.</p>
         <p>Reference Code: <strong>${depositCode}</strong></p>
-        <p>Transaction Hash: <code>${data.txHashOrRef || 'N/A'}</code></p>
+        <p>Transaction Hash: <code>${normalizedHash || data.txHashOrRef || 'N/A'}</code></p>
+        ${cleanProofUrl ? `<p>Proof Explorer Link: <a href="${cleanProofUrl}">${cleanProofUrl}</a></p>` : ''}
         <p>Status: <strong>PENDING REVIEW</strong>. Funds will be credited once confirmed on-chain / bank statement.</p>
       `,
     }).catch(() => {});

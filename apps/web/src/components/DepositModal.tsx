@@ -20,6 +20,7 @@ import {
   Coins,
   CreditCard,
   Loader2,
+  Clipboard,
 } from 'lucide-react';
 
 interface DepositModalProps {
@@ -362,6 +363,61 @@ export const DepositModal: React.FC<DepositModalProps> = ({
     }
   };
 
+  // Helper to handle and smart-parse TxHash input
+  const handleTxHashChange = (val: string) => {
+    let clean = val.trim();
+    // If user pastes an explorer URL (e.g. bscscan.com/tx/0x... or bscscan.com/address/0x...)
+    if (clean.includes('bscscan.com') || clean.includes('etherscan.io') || clean.includes('tronscan.org') || clean.startsWith('http')) {
+      try {
+        const urlObj = new URL(clean);
+        const cleanUrl = `${urlObj.origin}${urlObj.pathname}`;
+        setProofUrl(cleanUrl);
+
+        const txMatch = urlObj.pathname.match(/\/tx\/(0x[a-fA-F0-9]+|[a-fA-F0-9]+)/);
+        if (txMatch && txMatch[1]) {
+          setTxHash(txMatch[1]);
+          return;
+        }
+        const addrMatch = urlObj.pathname.match(/\/address\/(0x[a-fA-F0-9]+|[a-fA-F0-9]+)/);
+        if (addrMatch && addrMatch[1]) {
+          setTxHash(addrMatch[1]);
+          return;
+        }
+      } catch (e) {
+        // fallback
+      }
+    }
+
+    setTxHash(clean);
+
+    // Auto-populate proofUrl with BscScan if it's a hex hash and proofUrl is blank or was auto-generated
+    if (clean.startsWith('0x') && clean.length >= 10) {
+      if (!proofUrl || proofUrl.includes('bscscan.com/tx/')) {
+        setProofUrl(`https://bscscan.com/tx/${clean}`);
+      }
+    }
+  };
+
+  const handleProofUrlChange = (val: string) => {
+    let clean = val.trim();
+    if (clean.includes('?__cf_chl')) {
+      clean = clean.split('?')[0];
+    }
+    setProofUrl(clean);
+
+    if (!txHash.trim()) {
+      const txMatch = clean.match(/\/tx\/(0x[a-fA-F0-9]+|[a-fA-F0-9]+)/);
+      if (txMatch && txMatch[1]) {
+        setTxHash(txMatch[1]);
+      } else {
+        const addrMatch = clean.match(/\/address\/(0x[a-fA-F0-9]+|[a-fA-F0-9]+)/);
+        if (addrMatch && addrMatch[1]) {
+          setTxHash(addrMatch[1]);
+        }
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -378,14 +434,17 @@ export const DepositModal: React.FC<DepositModalProps> = ({
       return;
     }
 
+    const finalHash = txHash.trim() || undefined;
+    const finalProofUrl = proofUrl.trim() || (finalHash && finalHash.startsWith('0x') ? `https://bscscan.com/tx/${finalHash}` : undefined);
+
     setSubmitting(true);
     try {
       const res = await api.post('/wallet/deposit', {
         amount: amt,
         currency: selectedRail === 'USDT' ? 'USDT' : selectedBankCurrency,
         depositMethod: selectedRail === 'USDT' ? activeConfig.id : 'BANK_WIRE',
-        txHashOrRef: txHash.trim() || undefined,
-        proofUrl: proofUrl.trim() || undefined,
+        txHashOrRef: finalHash,
+        proofUrl: finalProofUrl,
       });
 
       if (res.data?.success) {
@@ -507,6 +566,20 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                   </div>
                 );
               })()}
+              {successData.proofUrl && (
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <span className="text-slate-500">Explorer Proof:</span>
+                  <a
+                    href={successData.proofUrl.startsWith('http') ? successData.proofUrl : `https://${successData.proofUrl}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all cursor-pointer shadow-sm group truncate max-w-[220px]"
+                  >
+                    <span className="truncate">View On BscScan</span>
+                    <ExternalLink className="w-3 h-3 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                  </a>
+                </div>
+              )}
             </div>
 
             <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
@@ -769,26 +842,89 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                     </div>
                   </div>
 
+                  {/* FIELD 1: Blockchain Transaction Hash */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Blockchain Transaction Hash (TxID)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Blockchain Transaction Hash (TxID) <span className="text-rose-500">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const txt = await navigator.clipboard.readText();
+                            if (txt) handleTxHashChange(txt);
+                          } catch (e) {}
+                        }}
+                        className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Clipboard className="w-3 h-3" />
+                        <span>Paste</span>
+                      </button>
+                    </div>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. 5d9f0b83c4e... or paste from your wallet"
+                      placeholder="e.g. 0x5d9f0b83c4e... or paste from your wallet"
                       value={txHash}
-                      onChange={(e) => setTxHash(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500"
+                      onChange={(e) => handleTxHashChange(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500 font-bold"
                     />
                     <p className="text-[10px] text-slate-400 mt-1">
-                      After sending from your wallet/exchange, paste the Transaction ID or Hash here for verification.
+                      The transaction hash (TxID) generated by your wallet after sending USDT.
+                    </p>
+                  </div>
+
+                  {/* FIELD 2: Blockchain Explorer Proof Link */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <ExternalLink className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Explorer Proof Link (BscScan URL) <span className="text-rose-500">*</span></span>
+                      </label>
+                      {proofUrl && (
+                        <a
+                          href={proofUrl.startsWith('http') ? proofUrl : `https://${proofUrl}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>Test / Open Proof</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        required
+                        placeholder="e.g. https://bscscan.com/tx/0x... or https://bscscan.com/address/0x..."
+                        value={proofUrl}
+                        onChange={(e) => handleProofUrlChange(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (txHash.trim()) {
+                            handleProofUrlChange(`https://bscscan.com/tx/${txHash.trim()}`);
+                          }
+                        }}
+                        disabled={!txHash.trim()}
+                        title="Auto-generate BscScan link from Transaction Hash"
+                        className="px-3 py-2 rounded-xl text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 shrink-0 disabled:opacity-40 transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        Auto BscScan
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Paste the BscScan transaction URL or wallet address link as proof so treasury can validate and credit your balance quickly.
                     </p>
                   </div>
 
                   <button
                     type="submit"
-                    disabled={submitting || !depositAmount || !txHash.trim()}
+                    disabled={submitting || !depositAmount || !txHash.trim() || (!proofUrl.trim() && !txHash.trim().startsWith('0x'))}
                     className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
                     {submitting ? (
@@ -1079,7 +1215,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Bank Transfer Reference / UTR Number
+                      Bank Transfer Reference / UTR Number <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -1087,7 +1223,20 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                       placeholder="e.g. UTR-98241029 or Wire Ref"
                       value={txHash}
                       onChange={(e) => setTxHash(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none"
+                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Payment Proof Link / Receipt URL (Optional)
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="e.g. https://drive.google.com/... or Receipt Screenshot URL"
+                      value={proofUrl}
+                      onChange={(e) => setProofUrl(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500"
                     />
                   </div>
 

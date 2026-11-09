@@ -1813,15 +1813,19 @@ export default function AdminPortalPage() {
                         );
                       })()}
                       {dep.proofUrl && (
-                        <div className="pt-1">
+                        <div className="pt-1 flex items-center gap-2">
+                          <span className="text-slate-400 font-mono text-xs">Proof Link:</span>
                           <a
-                            href={dep.proofUrl}
+                            href={dep.proofUrl.startsWith('http') ? dep.proofUrl : `https://${dep.proofUrl}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-emerald-400 hover:underline flex items-center gap-1"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all cursor-pointer shadow-sm group"
+                            title={dep.proofUrl}
                           >
-                            <span>View Deposit Proof</span>
-                            <ExternalLink className="w-3 h-3" />
+                            <span className="truncate max-w-[280px]">
+                              {dep.proofUrl.includes('bscscan.com') ? 'Open BscScan Proof' : dep.proofUrl}
+                            </span>
+                            <ExternalLink className="w-3 h-3 text-emerald-400 shrink-0 group-hover:translate-x-0.5 transition-transform" />
                           </a>
                         </div>
                       )}
