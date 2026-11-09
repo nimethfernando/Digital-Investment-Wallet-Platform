@@ -19,6 +19,13 @@ services:
       - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-CAjiLZYrr7Zo4HyLRafqagyx}
       - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-avora_live_webhook_secret_2026}
       - RAZORPAY_PROJECT_NAMESPACE=${RAZORPAY_PROJECT_NAMESPACE:-AVORA_BANK}
+      - EMAIL_HOST=${EMAIL_HOST:-smtp.gmail.com}
+      - EMAIL_PORT=${EMAIL_PORT:-587}
+      - EMAIL_SECURE=${EMAIL_SECURE:-false}
+      - EMAIL_USER=${EMAIL_USER:-gnbmailsender@gmail.com}
+      - EMAIL_PASS=${EMAIL_PASS:-akkjqlnhkgbudmxe}
+      - EMAIL_FROM=${EMAIL_FROM:-Avora Bank <gnbmailsender@gmail.com>}
+      - ADMIN_NOTIFICATION_EMAIL=${ADMIN_NOTIFICATION_EMAIL:-gnbmailsender@gmail.com}
     volumes:
       - ./apps/server/uploads:/app/uploads
     networks:

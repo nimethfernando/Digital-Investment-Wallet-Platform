@@ -426,6 +426,17 @@ export class DepositService {
         txHash: paymentIdClean,
       });
 
+      notificationService.sendEmail({
+        to: deposit.user.email,
+        subject: `Avora Bank Razorpay Deposit Credited - ${deposit.depositCode}`,
+        html: `
+          <h3>Razorpay Payment Verified & Credited</h3>
+          <p>Your Razorpay payment (ID: <code>${paymentIdClean}</code>) has been verified.</p>
+          <p>Net Credited Amount: <strong>$${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency}</strong> (after ${razorpayCfg.commissionPercent.toFixed(1)}% platform & gateway commission).</p>
+          <p>New Available Wallet Balance: <strong>$${approval.balanceAfter} ${deposit.currency}</strong>.</p>
+        `,
+      }).catch(() => {});
+
       return {
         verified: true,
         autoCredited: true,
@@ -458,6 +469,17 @@ export class DepositService {
         txHash: paymentIdClean,
       });
 
+      notificationService.sendEmail({
+        to: deposit.user.email,
+        subject: `Avora Bank Razorpay Deposit Credited - ${deposit.depositCode}`,
+        html: `
+          <h3>Razorpay Payment Confirmed</h3>
+          <p>Your Razorpay payment reference (<code>${paymentIdClean}</code>) has been confirmed and credited.</p>
+          <p>Net Credited Amount: <strong>$${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency}</strong> (after ${razorpayCfg.commissionPercent.toFixed(1)}% commission).</p>
+          <p>New Available Wallet Balance: <strong>$${approval.balanceAfter} ${deposit.currency}</strong>.</p>
+        `,
+      }).catch(() => {});
+
       return {
         verified: true,
         autoCredited: true,
@@ -467,6 +489,17 @@ export class DepositService {
         message: `Razorpay payment confirmed! $${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency} (net of ${razorpayCfg.commissionPercent.toFixed(1)}% commission) has been credited to your wallet.`,
       };
     }
+
+    notificationService.sendEmail({
+      to: deposit.user.email,
+      subject: `Avora Bank Razorpay Deposit Received - ${deposit.depositCode}`,
+      html: `
+        <h3>Razorpay Payment Reference Logged</h3>
+        <p>We have received your Razorpay payment reference (<code>${paymentIdClean}</code>) for deposit code <strong>${deposit.depositCode}</strong>.</p>
+        <p>Net Wallet Credit (after ${razorpayCfg.commissionPercent.toFixed(1)}% commission): <strong>$${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency}</strong>.</p>
+        <p>Status: <strong>PENDING TREASURY VERIFICATION</strong>.</p>
+      `,
+    }).catch(() => {});
 
     return {
       verified: true,
