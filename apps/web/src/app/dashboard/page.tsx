@@ -1875,12 +1875,12 @@ function DashboardContent() {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
                           <span className="text-slate-400 text-[11px]">Proposed Reference Price:</span>
-                          <p className="font-bold text-slate-900 dark:text-white font-mono">$1.00 USD / AVR</p>
+                          <p className="font-bold text-slate-900 dark:text-white font-mono">$0.10 USD / AVR</p>
                         </div>
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
                           <span className="text-slate-400 text-[11px]">Estimated Token Volume:</span>
                           <p className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                            ~{parseFloat(String(tokenStatus?.earlyAccess?.requestedAllocationUsd || '0')).toLocaleString()} AVR
+                            ~{(parseFloat(String(tokenStatus?.earlyAccess?.requestedAllocationUsd || '0')) / 0.10).toLocaleString()} AVR
                           </p>
                         </div>
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">

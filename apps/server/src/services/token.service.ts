@@ -7,7 +7,7 @@ export const TOKEN_SPEC = {
   tokenName: 'Avora Token',
   tokenSymbol: 'AVR',
   currentStatus: 'Testnet (Avora Sepolia L2)',
-  proposedEarlyAccessPriceUsd: 1.00,
+  proposedEarlyAccessPriceUsd: 0.10,
   targetMainnetLaunch: 'Q4 2027',
   totalSupply: '1,000,000,000',
   faucetClaimAmount: 100.0,
@@ -111,11 +111,11 @@ export class TokenService {
   }
 
   /**
-   * Register interest in the early-access allocation programme ($1.00 USD reference price)
+   * Register interest in the early-access allocation programme ($0.10 USD reference price)
    */
   async registerEarlyAccess(userId: string, requestedAllocationUsd: number, notes?: string) {
     if (!requestedAllocationUsd || requestedAllocationUsd < 100) {
-      throw new Error('Minimum requested allocation is $100 USD (100 AVR).');
+      throw new Error('Minimum requested allocation is $100 USD (1,000 AVR).');
     }
 
     const updated = await prisma.tokenEarlyAccess.upsert({
@@ -136,9 +136,11 @@ export class TokenService {
       },
     });
 
+    const estimatedTokens = Math.round(requestedAllocationUsd / 0.10);
+
     return {
       success: true,
-      message: `Interest registered for $${requestedAllocationUsd} USD allocation (approx. ${requestedAllocationUsd} AVR @ $1.00 reference price). Our token allocations desk has whitelisted your profile.`,
+      message: `Interest registered for $${requestedAllocationUsd} USD allocation (approx. ${estimatedTokens.toLocaleString()} AVR @ $0.10 reference price). Our token allocations desk has whitelisted your profile.`,
       status: updated.status,
       requestedAllocationUsd: Number(updated.requestedAllocationUsd),
     };

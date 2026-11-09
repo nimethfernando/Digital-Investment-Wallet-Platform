@@ -133,7 +133,7 @@ export default function AvoraTokenPage() {
 
         <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
           <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Proposed Early-Access</span>
-          <div className="text-lg font-black font-mono text-slate-900 dark:text-white">$1.00 USD</div>
+          <div className="text-lg font-black font-mono text-slate-900 dark:text-white">$0.10 USD</div>
           <div className="text-[11px] text-slate-500">Per token reference price</div>
         </div>
 
@@ -170,7 +170,7 @@ export default function AvoraTokenPage() {
               Early-Access Whitelist
             </div>
             <p className="text-slate-500 text-[11px] leading-relaxed">
-              Register interest for prospective token allocations under the proposed $1.00 early-access terms, subject to separate subscription agreements.
+              Register interest for prospective token allocations under the proposed $0.10 early-access terms, subject to separate subscription agreements.
             </p>
           </div>
 
@@ -180,7 +180,7 @@ export default function AvoraTokenPage() {
               Q4 2027 Mainnet TGE
             </div>
             <p className="text-slate-500 text-[11px] leading-relaxed">
-              The official mainnet launch is targeted for Q4 2027. The proposed $1.00 price is not a guaranteed listing price or promise of return.
+              The official mainnet launch is targeted for Q4 2027. The proposed $0.10 price is not a guaranteed listing price or promise of return.
             </p>
           </div>
         </div>
@@ -237,7 +237,7 @@ export default function AvoraTokenPage() {
           <div className="p-3.5 rounded-2xl bg-slate-950 text-white border border-slate-800 text-[11px] flex items-center gap-2.5">
             <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
             <span className="text-slate-300">
-              <strong className="text-white">Strict Allocation Policy:</strong> Avora Bank does not distribute tokens for free or operate public airdrop faucets. All allocations are conducted strictly via authorized whitelist subscription.
+              <strong className="text-white">Strict Allocation Policy:</strong> Avora Bank does not distribute tokens for free or operate public airdrop faucets. All allocations are conducted strictly via authorized whitelist subscription at the $0.10 reference price.
             </span>
           </div>
         </div>
@@ -249,7 +249,7 @@ export default function AvoraTokenPage() {
               <h3 className="text-lg font-black text-slate-900 dark:text-white">
                 Early-Access Whitelist Allocation
               </h3>
-              <p className="text-xs text-slate-500">$1.00 USD Proposed Reference Price</p>
+              <p className="text-xs text-slate-500">$0.10 USD Proposed Reference Price</p>
             </div>
             {userStatus?.earlyAccess?.status === 'WHITELISTED' ? (
               <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
@@ -294,7 +294,7 @@ export default function AvoraTokenPage() {
                 />
               </div>
               <span className="text-[11px] text-slate-400 block mt-1">
-                Approx. {allocAmount} AVR tokens @ $1.00 USD early-access reference price
+                Approx. {Math.round(allocAmount / 0.10).toLocaleString()} AVR tokens @ $0.10 USD early-access reference price
               </span>
             </div>
 

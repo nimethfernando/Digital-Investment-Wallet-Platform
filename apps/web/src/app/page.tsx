@@ -861,7 +861,7 @@ export default function HomePage() {
                 Avora Token ($AVR) Hub
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Early-Access Whitelist allocation registry ($1.00 USD reference price), ecosystem utility staking, and Q4 2027 Mainnet Genesis roadmap &amp; tokenomics.
+                Early-Access Whitelist allocation registry ($0.10 USD reference price), ecosystem utility staking, and Q4 2027 Mainnet Genesis roadmap &amp; tokenomics.
               </p>
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
