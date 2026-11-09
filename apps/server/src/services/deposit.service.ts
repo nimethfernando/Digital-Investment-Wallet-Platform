@@ -18,6 +18,7 @@ export class DepositService {
       'razorpay_gateway_fee_percent',
       'razorpay_key_id',
       'razorpay_key_secret',
+      'razorpay_webhook_secret',
     ];
     const settings = await prisma.cmsSetting.findMany({
       where: { key: { in: keys } },
@@ -32,8 +33,24 @@ export class DepositService {
     const safeGatewayFee = isNaN(gatewayFeePercent) || gatewayFeePercent < 0 ? 3.0 : gatewayFeePercent;
     const platformSpreadPercent = Math.max(0, Number((safeCommission - safeGatewayFee).toFixed(2)));
 
-    const keyId = (map.get('razorpay_key_id') || process.env.RAZORPAY_KEY_ID || '').trim();
-    const keySecret = (map.get('razorpay_key_secret') || process.env.RAZORPAY_KEY_SECRET || '').trim();
+    const keyId = (
+      map.get('razorpay_key_id') ||
+      process.env.RAZORPAY_KEY_ID ||
+      process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
+      'rzp_live_TnowHJ9GdrYvsV'
+    ).trim();
+    const keySecret = (
+      map.get('razorpay_key_secret') ||
+      process.env.RAZORPAY_KEY_SECRET ||
+      'CAjiLZYrr7Zo4HyLRafqagyx'
+    ).trim();
+    const webhookSecret = (
+      map.get('razorpay_webhook_secret') ||
+      process.env.RAZORPAY_WEBHOOK_SECRET ||
+      'avora_live_webhook_secret_2026'
+    ).trim();
+    const projectNamespace = (process.env.RAZORPAY_PROJECT_NAMESPACE || 'AVORA_BANK').trim();
+
     const hasLiveKeys = Boolean(
       keyId &&
       keySecret &&
@@ -48,6 +65,8 @@ export class DepositService {
       platformSpreadPercent,
       keyId,
       keySecret,
+      webhookSecret,
+      projectNamespace,
       hasLiveKeys,
     };
   }
@@ -253,6 +272,8 @@ export class DepositService {
     let mode: 'LIVE' | 'ASSISTED' = 'ASSISTED';
     const amountSubunits = Math.max(100, Math.round(grossPayableAmount.toNumber() * 100));
 
+    const namespacedReceipt = `${razorpayCfg.projectNamespace}_${depositCode}`.slice(0, 40);
+
     if (razorpayCfg.hasLiveKeys) {
       try {
         const basicAuth = Buffer.from(`${razorpayCfg.keyId}:${razorpayCfg.keySecret}`).toString('base64');
@@ -265,8 +286,11 @@ export class DepositService {
           body: JSON.stringify({
             amount: amountSubunits,
             currency: checkoutCurrency,
-            receipt: depositCode,
+            receipt: namespacedReceipt,
             notes: {
+              project: razorpayCfg.projectNamespace,
+              application: 'avora-bank-wallet',
+              isolatedFrom: 'avora-library',
               userId,
               depositCode,
               purpose: purposeLabel,
@@ -450,6 +474,121 @@ export class DepositService {
       status: 'PENDING',
       deposit: updated,
       message: `Razorpay payment reference (${paymentIdClean}) submitted! Net credit of $${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency} (after ${razorpayCfg.commissionPercent.toFixed(1)}% commission) is queued for treasury verification.`,
+    };
+  }
+
+  /**
+   * Handle Razorpay Webhook events (payment.captured / order.paid)
+   * Multi-Project Safe: Because this Razorpay merchant account is shared with Avora Library,
+   * any webhook event belonging to Avora Library (or lacking AVORA_BANK project namespace / order match)
+   * is safely acknowledged with HTTP 200 (ignored: true) so Razorpay never disables either project's webhook.
+   */
+  async handleRazorpayWebhook(payload: any, rawBody?: string, signatureHeader?: string) {
+    const razorpayCfg = await this.getRazorpayConfig();
+
+    // 1. Verify webhook signature if secret & signature header are present
+    if (razorpayCfg.webhookSecret && signatureHeader && rawBody) {
+      const expectedSig = crypto
+        .createHmac('sha256', razorpayCfg.webhookSecret)
+        .update(rawBody)
+        .digest('hex');
+
+      if (expectedSig !== signatureHeader) {
+        // If another project on the same Razorpay account uses a different webhook secret, return ignored 200
+        return {
+          received: true,
+          ignored: true,
+          reason: 'Signature mismatch or external project webhook secret',
+        };
+      }
+    }
+
+    const eventType: string = payload?.event || '';
+    const paymentEntity = payload?.payload?.payment?.entity || {};
+    const orderEntity = payload?.payload?.order?.entity || {};
+
+    const orderId: string = (paymentEntity.order_id || orderEntity.id || '').trim();
+    const paymentId: string = (paymentEntity.id || '').trim();
+    const receipt: string = (orderEntity.receipt || paymentEntity.receipt || '').trim();
+    const notes: Record<string, any> = {
+      ...(orderEntity.notes || {}),
+      ...(paymentEntity.notes || {}),
+    };
+
+    // 2. Multi-Project Isolation Check (Avora Bank vs Avora Library)
+    if (notes.project && notes.project !== razorpayCfg.projectNamespace && notes.project !== 'AVORA_BANK') {
+      return {
+        received: true,
+        ignored: true,
+        project: notes.project,
+        reason: `Event belongs to sibling project (${notes.project}) on shared Razorpay merchant account — safely ignored by Avora Bank.`,
+      };
+    }
+
+    if (receipt && !receipt.startsWith('AVORA_BANK_') && !receipt.startsWith('RZP-')) {
+      return {
+        received: true,
+        ignored: true,
+        receipt,
+        reason: 'Order receipt prefix belongs to external project (e.g. Avora Library) — safely ignored by Avora Bank.',
+      };
+    }
+
+    // 3. Locate corresponding Avora Bank DepositRequest
+    const deposit = await prisma.depositRequest.findFirst({
+      where: {
+        OR: [
+          ...(orderId ? [{ txHashOrRef: orderId }] : []),
+          ...(notes.depositCode ? [{ depositCode: String(notes.depositCode) }] : []),
+        ],
+      },
+    });
+
+    if (!deposit) {
+      // Order was created by Avora Library or another service sharing the Razorpay merchant account
+      return {
+        received: true,
+        ignored: true,
+        orderId,
+        reason: 'No matching Avora Bank deposit order (belongs to Avora Library or external project).',
+      };
+    }
+
+    if (deposit.status === DepositStatus.APPROVED) {
+      return {
+        received: true,
+        ignored: false,
+        alreadyProcessed: true,
+        depositCode: deposit.depositCode,
+      };
+    }
+
+    if (eventType === 'payment.captured' || eventType === 'order.paid') {
+      const approval = await ledgerService.processDepositApproval({
+        depositId: deposit.id,
+        depositCode: deposit.depositCode,
+        userId: deposit.userId,
+        amount: deposit.amount.toString(),
+        currency: deposit.currency,
+        reviewedBy: 'RAZORPAY_LIVE_WEBHOOK',
+        notes: `${deposit.adminNotes || 'Razorpay Webhook Verified'} | Webhook Event: ${eventType} | Payment ID: ${paymentId || orderId}`,
+        txHash: paymentId || orderId,
+      });
+
+      return {
+        received: true,
+        ignored: false,
+        approved: true,
+        depositCode: deposit.depositCode,
+        balanceAfter: approval.balanceAfter,
+      };
+    }
+
+    return {
+      received: true,
+      ignored: false,
+      eventType,
+      depositCode: deposit.depositCode,
     };
   }
 

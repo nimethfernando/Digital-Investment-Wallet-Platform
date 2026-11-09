@@ -1277,7 +1277,8 @@ export class AdminController {
         // Platform Commissions & Fees Defaults
         razorpay_commission_percent: configMap['razorpay_commission_percent'] || '5.0',
         razorpay_gateway_fee_percent: configMap['razorpay_gateway_fee_percent'] || '3.0',
-        razorpay_key_id: configMap['razorpay_key_id'] || process.env.RAZORPAY_KEY_ID || '',
+        razorpay_key_id: configMap['razorpay_key_id'] || process.env.RAZORPAY_KEY_ID || 'rzp_live_TnowHJ9GdrYvsV',
+        razorpay_webhook_secret: configMap['razorpay_webhook_secret'] || process.env.RAZORPAY_WEBHOOK_SECRET || 'avora_live_webhook_secret_2026',
         remittance_fee_percent: configMap['remittance_fee_percent'] || '3.0',
         remittance_margin_percent: configMap['remittance_margin_percent'] || '2.0',
         startup_allocation_fee_percent: configMap['startup_allocation_fee_percent'] || '5.0',

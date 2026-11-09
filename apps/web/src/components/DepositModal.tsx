@@ -141,8 +141,8 @@ export const DepositModal: React.FC<DepositModalProps> = ({
     gatewayFeePercent: 3.0,
     platformSpreadPercent: 2.0,
     minDeposit: 10,
-    hasLiveKeys: false,
-    keyId: null as string | null,
+    hasLiveKeys: true,
+    keyId: (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_TnowHJ9GdrYvsV') as string | null,
   });
   const [razorpayMethodTag, setRazorpayMethodTag] = useState<'CARD' | 'UPI' | 'NETBANKING'>('CARD');
 
@@ -280,16 +280,23 @@ export const DepositModal: React.FC<DepositModalProps> = ({
       }
 
       // If live Razorpay keys are configured on backend, open official Razorpay Checkout modal
-      if (orderData.mode === 'LIVE' && orderData.keyId) {
+      const activeKeyId = orderData.keyId || razorpayConfig.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_TnowHJ9GdrYvsV';
+      if (orderData.mode === 'LIVE' && activeKeyId) {
         const scriptLoaded = await loadRazorpayCheckoutScript();
         if (scriptLoaded && (window as any).Razorpay) {
           const rzpInstance = new (window as any).Razorpay({
-            key: orderData.keyId,
+            key: activeKeyId,
             amount: orderData.amountSubunits,
             currency: orderData.checkoutCurrency || 'USD',
             name: 'Avora Bank',
-            description: `Net Wallet Credit $${orderData.feeBreakdown.netWalletCredit} USD (+${orderData.feeBreakdown.commissionPercent}% Fee)`,
+            description: `Avora Bank Wallet Credit $${orderData.feeBreakdown.netWalletCredit} USD (+${orderData.feeBreakdown.commissionPercent}% Fee)`,
             order_id: orderData.razorpayOrderId,
+            notes: {
+              project: 'AVORA_BANK',
+              application: 'avora-bank-wallet',
+              isolatedFrom: 'avora-library',
+              depositCode: orderData.deposit.depositCode,
+            },
             prefill: {
               name: orderData.user?.name || '',
               email: orderData.user?.email || '',

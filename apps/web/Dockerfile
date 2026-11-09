@@ -21,6 +21,7 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+ENV NEXT_PUBLIC_RAZORPAY_KEY_ID="rzp_live_TnowHJ9GdrYvsV"
 
 RUN npm run build
 

@@ -232,6 +232,30 @@ export class WalletController {
   }
 
   /**
+   * Public Razorpay Webhook endpoint (POST /api/v1/wallet/razorpay/webhook)
+   * Safely isolates Avora Bank orders from Avora Library orders on the shared merchant account
+   */
+  async handleRazorpayWebhook(req: Request, res: Response) {
+    try {
+      const signature = req.headers['x-razorpay-signature'] as string | undefined;
+      const rawBody = (req as any).rawBody || JSON.stringify(req.body || {});
+      const result = await depositService.handleRazorpayWebhook(req.body, rawBody, signature);
+      res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (err: any) {
+      console.error('[WalletController] Razorpay webhook processing notice:', err);
+      // Always return 200 to prevent Razorpay from disabling shared merchant webhooks
+      res.status(200).json({
+        success: false,
+        received: true,
+        message: err.message || 'Webhook logged',
+      });
+    }
+  }
+
+  /**
    * Execute an instant real multi-currency swap between wallet balances
    */
   async executeSwap(req: Request, res: Response, next: NextFunction) {

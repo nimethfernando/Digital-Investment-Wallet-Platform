@@ -45,6 +45,10 @@ services:
       - UPLOAD_DIR=/app/uploads
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-900000}
       - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-rzp_live_TnowHJ9GdrYvsV}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-CAjiLZYrr7Zo4HyLRafqagyx}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-avora_live_webhook_secret_2026}
+      - RAZORPAY_PROJECT_NAMESPACE=${RAZORPAY_PROJECT_NAMESPACE:-AVORA_BANK}
     volumes:
       - uploads_data:/app/uploads
     networks:
@@ -72,6 +76,7 @@ services:
       - HOSTNAME=0.0.0.0
       - INTERNAL_API_URL=http://server:5000
       - NEXT_PUBLIC_API_URL=/api/v1
+      - NEXT_PUBLIC_RAZORPAY_KEY_ID=${NEXT_PUBLIC_RAZORPAY_KEY_ID:-rzp_live_TnowHJ9GdrYvsV}
     depends_on:
       server:
         condition: service_healthy

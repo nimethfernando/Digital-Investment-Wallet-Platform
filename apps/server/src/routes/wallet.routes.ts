@@ -9,6 +9,9 @@ const router = Router();
 // Public BaaS / Visa Issuer Real-Time Authorization Webhook (Stripe Issuing / Interlace)
 router.post('/card/webhook/authorize', (req, res) => walletController.authorizeCardWebhook(req, res));
 
+// Public Razorpay Webhook (Isolated for AVORA_BANK; safely ignores Avora Library events on shared merchant account)
+router.post('/razorpay/webhook', (req, res) => walletController.handleRazorpayWebhook(req, res));
+
 router.use(authenticateToken);
 
 router.get('/', (req, res, next) => walletController.getWalletOverview(req, res, next));

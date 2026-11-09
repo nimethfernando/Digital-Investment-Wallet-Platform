@@ -215,6 +215,69 @@ export default function BuyCryptoPage() {
           throw new Error('Unable to initialize Razorpay order');
         }
 
+        const activeKeyId = orderData.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_TnowHJ9GdrYvsV';
+        if (orderData.mode === 'LIVE' && activeKeyId && typeof window !== 'undefined') {
+          const loadScript = (): Promise<boolean> =>
+            new Promise((resolve) => {
+              if ((window as any).Razorpay) return resolve(true);
+              const script = document.createElement('script');
+              script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+              script.async = true;
+              script.onload = () => resolve(true);
+              script.onerror = () => resolve(false);
+              document.body.appendChild(script);
+            });
+
+          const loaded = await loadScript();
+          if (loaded && (window as any).Razorpay) {
+            const rzp = new (window as any).Razorpay({
+              key: activeKeyId,
+              amount: orderData.amountSubunits,
+              currency: orderData.checkoutCurrency || 'USD',
+              name: 'Avora Bank',
+              description: `Buy ${selectedCrypto.code} (${selectedCrypto.chain}) • Net $${orderData.feeBreakdown?.netWalletCredit} USD`,
+              order_id: orderData.razorpayOrderId,
+              notes: {
+                project: 'AVORA_BANK',
+                application: 'avora-bank-wallet',
+                isolatedFrom: 'avora-library',
+                depositCode: orderData.deposit.depositCode,
+              },
+              prefill: {
+                name: orderData.user?.name || '',
+                email: orderData.user?.email || '',
+              },
+              theme: { color: '#059669' },
+              handler: async (response: any) => {
+                try {
+                  const vRes = await api.post('/wallet/razorpay/verify', {
+                    depositId: orderData.deposit.id,
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_signature: response.razorpay_signature,
+                  });
+                  if (vRes.data?.success) {
+                    setCreatedOrder({
+                      ...orderData.deposit,
+                      status: vRes.data.data?.status || 'APPROVED',
+                      txHashOrRef: response.razorpay_payment_id,
+                    });
+                  }
+                } catch (vErr: any) {
+                  setOrderError(extractErrorMessage(vErr, 'Razorpay verification failed.'));
+                } finally {
+                  setOrderProcessing(false);
+                }
+              },
+              modal: {
+                ondismiss: () => setOrderProcessing(false),
+              },
+            });
+            rzp.open();
+            return;
+          }
+        }
+
         const payRef = paymentRef.trim() || `pay_avr_${Date.now().toString(36).toUpperCase()}`;
         const verifyRes = await api.post('/wallet/razorpay/verify', {
           depositId: orderData.deposit.id,
