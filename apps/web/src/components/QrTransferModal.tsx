@@ -18,6 +18,7 @@ import {
   Sparkles,
   Smartphone,
   ExternalLink,
+  Clipboard,
 } from 'lucide-react';
 
 interface QrTransferModalProps {
@@ -323,7 +324,7 @@ export function QrTransferModal({
                   </div>
                 )}
                 <div className="text-[10px] text-slate-400 font-mono pt-1 text-center font-bold">
-                  {receiveMode === 'AVORA_ACCOUNT' ? 'Scan to pay this Avora Account' : 'Scan via Binance / Trust / OKX'}
+                  {receiveMode === 'AVORA_ACCOUNT' ? 'Scan with Camera or Avora App' : 'Scan via Trust Wallet / Binance / OKX'}
                 </div>
               </div>
 
@@ -383,14 +384,38 @@ export function QrTransferModal({
                 </div>
               )}
 
-              {/* Notice */}
-              <div className="p-3 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-500/20 text-left text-xs text-emerald-800 dark:text-emerald-200 flex items-start gap-2.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span className="text-[11px] leading-relaxed">
-                  {receiveMode === 'AVORA_ACCOUNT'
-                    ? 'Transfers between Avora Bank client accounts settle instantly with zero fees. Any client can scan this QR or send to your Account Number.'
-                    : 'External USDT deposits are verified on-chain and credited upon network confirmation.'}
-                </span>
+              {/* Where to Scan Explainer Notice */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-500/20 text-left text-xs text-emerald-800 dark:text-emerald-200 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    {receiveMode === 'AVORA_ACCOUNT'
+                      ? 'How to scan or use this QR code:'
+                      : 'How to scan with Trust Wallet / Crypto App:'}
+                  </span>
+                </div>
+                {receiveMode === 'AVORA_ACCOUNT' ? (
+                  <div className="space-y-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                    <p>
+                      • <strong>Using Phone Camera:</strong> Point any smartphone camera at this QR code to detect the Avora Account transfer details.
+                    </p>
+                    <p>
+                      • <strong>Avora Bank Users:</strong> Another client can enter your Account Number (<code>{userAccountNumber}</code>) under the <em>Account Transfer (Send)</em> tab to send funds with zero fees.
+                    </p>
+                    <p className="text-amber-700 dark:text-amber-300 font-medium pt-0.5">
+                      ⚠️ <em>Note: Trust Wallet is for blockchain crypto deposits only. If you want to deposit USDT from Trust Wallet, click the <strong>&quot;External USDT Deposit QR&quot;</strong> tab above.</em>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                    <p>
+                      • <strong>Trust Wallet / Binance / OKX:</strong> Open your wallet &gt; Tap <strong>Send USDT (BEP-20)</strong> &gt; Tap the <strong>QR Scanner</strong> icon &gt; Scan this QR code.
+                    </p>
+                    <p>
+                      • Funds will be credited automatically to your Avora balance upon on-chain block confirmation.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -473,6 +498,25 @@ export function QrTransferModal({
                   }}
                   className="w-full px-4 py-2.5 rounded-2xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500 font-bold"
                 />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const text = await navigator.clipboard.readText();
+                      if (text) {
+                        setRecipientInput(text.trim());
+                        setVerifiedRecipient(null);
+                      }
+                    } catch (e) {
+                      // clipboard permission denied
+                    }
+                  }}
+                  title="Paste from clipboard"
+                  className="px-3 py-2.5 rounded-2xl font-bold text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 shrink-0 cursor-pointer shadow-sm transition-all flex items-center gap-1"
+                >
+                  <Clipboard className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Paste</span>
+                </button>
                 <button
                   type="button"
                   disabled={lookupLoading || !recipientInput.trim()}
