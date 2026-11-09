@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { api, extractErrorMessage } from '../lib/api';
 import {
@@ -14,9 +14,10 @@ import {
   AlertCircle,
   CheckCircle2,
   ShieldCheck,
-  Upload,
-  Sparkles,
   Wallet,
+  Sparkles,
+  Smartphone,
+  ExternalLink,
 } from 'lucide-react';
 
 interface QrTransferModalProps {
@@ -24,6 +25,7 @@ interface QrTransferModalProps {
   onClose: () => void;
   user: any;
   userAccountNumber: string;
+  initialTab?: 'RECEIVE' | 'SEND';
   onTransferSuccess?: () => void;
   onOpenExternalDeposit?: () => void;
 }
@@ -33,16 +35,18 @@ export function QrTransferModal({
   onClose,
   user,
   userAccountNumber,
+  initialTab = 'RECEIVE',
   onTransferSuccess,
   onOpenExternalDeposit,
 }: QrTransferModalProps) {
-  const [tab, setTab] = useState<'RECEIVE' | 'SEND'>('RECEIVE');
+  const [tab, setTab] = useState<'RECEIVE' | 'SEND'>(initialTab);
+  const [receiveMode, setReceiveMode] = useState<'AVORA_ACCOUNT' | 'USDT_CRYPTO'>('AVORA_ACCOUNT');
 
   // Receive State
   const [requestedAmount, setRequestedAmount] = useState<string>('');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copiedAccount, setCopiedAccount] = useState<boolean>(false);
-  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+  const [copiedAddress, setCopiedAddress] = useState<boolean>(false);
 
   // Send State
   const [recipientInput, setRecipientInput] = useState<string>('');
@@ -55,8 +59,17 @@ export function QrTransferModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Official receiving EVM wallet address (compatible with Trust Wallet, Binance, MetaMask)
+  // Official external receiving EVM wallet address for USDT deposits
   const [receivingAddress, setReceivingAddress] = useState<string>('0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad');
+
+  // Sync initialTab when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      if (initialTab) setTab(initialTab);
+      setErrorMsg(null);
+      setSuccessMsg(null);
+    }
+  }, [isOpen, initialTab]);
 
   // Load active receiving address configured by admin
   useEffect(() => {
@@ -69,13 +82,24 @@ export function QrTransferModal({
       .catch(() => {});
   }, [isOpen]);
 
-  // Generate QR code data URL - Raw EVM address for 100% Trust Wallet compatibility
+  // Generate QR Code dynamically
   useEffect(() => {
     if (!isOpen) return;
 
-    // Encode plain EVM address so Trust Wallet, Binance, and MetaMask parse it without "Wrong Input"
-    QRCode.toDataURL(receivingAddress, {
-      width: 320,
+    let qrContent = userAccountNumber;
+    if (receiveMode === 'AVORA_ACCOUNT') {
+      const amt = parseFloat(requestedAmount);
+      if (!isNaN(amt) && amt > 0) {
+        qrContent = `avora:transfer?to=${userAccountNumber}&amount=${amt.toFixed(2)}`;
+      } else {
+        qrContent = `avora:transfer?to=${userAccountNumber}`;
+      }
+    } else {
+      qrContent = receivingAddress;
+    }
+
+    QRCode.toDataURL(qrContent, {
+      width: 340,
       margin: 2,
       color: {
         dark: '#0f172a',
@@ -85,19 +109,19 @@ export function QrTransferModal({
     })
       .then((url) => setQrDataUrl(url))
       .catch((err) => console.error('Failed to generate QR code', err));
-  }, [isOpen, receivingAddress]);
+  }, [isOpen, receiveMode, userAccountNumber, requestedAmount, receivingAddress]);
 
   if (!isOpen) return null;
 
   // Copy helper
-  const handleCopy = (text: string, type: 'account' | 'link') => {
+  const handleCopy = (text: string, type: 'account' | 'address') => {
     navigator.clipboard.writeText(text);
     if (type === 'account') {
       setCopiedAccount(true);
       setTimeout(() => setCopiedAccount(false), 2000);
     } else {
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
+      setCopiedAddress(true);
+      setTimeout(() => setCopiedAddress(false), 2000);
     }
   };
 
@@ -105,7 +129,7 @@ export function QrTransferModal({
   const handleDownloadQr = () => {
     if (!qrDataUrl) return;
     const link = document.createElement('a');
-    link.download = `AvoraBank-QR-${userAccountNumber}.png`;
+    link.download = `Avora-Account-QR-${userAccountNumber}.png`;
     link.href = qrDataUrl;
     link.click();
   };
@@ -117,12 +141,12 @@ export function QrTransferModal({
     setErrorMsg(null);
     setVerifiedRecipient(null);
 
-    // If string is an Avora URI: avora:transfer?to=AVR-XXXX-XXXX&amount=100
     let parsedIdentifier = recipientInput.trim();
-    if (parsedIdentifier.startsWith('avora:transfer?')) {
+    // Support QR URI: avora:transfer?to=AVR-XXXX-XXXX&amount=100
+    if (parsedIdentifier.startsWith('avora:transfer?') || parsedIdentifier.startsWith('avora:pay?')) {
       try {
         const query = new URLSearchParams(parsedIdentifier.split('?')[1]);
-        const to = query.get('to');
+        const to = query.get('to') || query.get('account');
         const amt = query.get('amount');
         if (to) parsedIdentifier = to;
         if (amt && !sendAmount) setSendAmount(amt);
@@ -137,7 +161,7 @@ export function QrTransferModal({
         setVerifiedRecipient(res.data.data);
       }
     } catch (err: any) {
-      setErrorMsg(extractErrorMessage(err, 'Recipient not found. Please verify the account number or email.'));
+      setErrorMsg(extractErrorMessage(err, 'Recipient not found. Please verify the Avora Account Number or registered email.'));
     } finally {
       setLookupLoading(false);
     }
@@ -147,7 +171,7 @@ export function QrTransferModal({
   const handleSendTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!verifiedRecipient) {
-      setErrorMsg('Please verify the recipient before submitting transfer.');
+      setErrorMsg('Please click "Verify" on the recipient account before sending.');
       return;
     }
     const amt = parseFloat(sendAmount);
@@ -165,12 +189,12 @@ export function QrTransferModal({
         recipientIdentifier: verifiedRecipient.accountNumber || verifiedRecipient.recipientId,
         amount: amt,
         currency: 'USD',
-        notes: notes.trim() || 'Avora QR Transfer',
+        notes: notes.trim() || 'Avora Account Transfer',
         twoFactorCode: user?.twoFactorEnabled ? twoFactorCode : undefined,
       });
 
       if (res.data.success) {
-        setSuccessMsg(`Successfully sent $${amt.toFixed(2)} USD to ${verifiedRecipient.fullName}!`);
+        setSuccessMsg(`Successfully transferred $${amt.toFixed(2)} USD to ${verifiedRecipient.fullName} (${verifiedRecipient.accountNumber})!`);
         setSendAmount('');
         setNotes('');
         setTwoFactorCode('');
@@ -179,11 +203,13 @@ export function QrTransferModal({
         if (onTransferSuccess) onTransferSuccess();
       }
     } catch (err: any) {
-      setErrorMsg(extractErrorMessage(err, 'Transfer failed. Check balance or credentials.'));
+      setErrorMsg(extractErrorMessage(err, 'Account transfer failed. Check available balance or credentials.'));
     } finally {
       setSendLoading(false);
     }
   };
+
+  const userName = user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : (user?.email || 'Avora Client');
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
@@ -198,24 +224,25 @@ export function QrTransferModal({
           <X className="w-5 h-5" />
         </button>
 
-        {/* Header */}
+        {/* Modal Header */}
         <div className="flex items-center gap-3 pr-8">
           <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20 shadow-sm shrink-0">
             <QrCode className="w-6 h-6" />
           </div>
           <div>
             <h3 className="text-lg font-black text-slate-900 dark:text-white">
-              Instant QR & Address Transfers
+              Account &amp; QR Transfers
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Zero-fee internal transfers using Avora QR code or account address
+              Instant zero-fee account-to-account transfer via Avora Account Number or QR code
             </p>
           </div>
         </div>
 
-        {/* Tab Toggle */}
+        {/* Main Tab Toggle: Receive via QR vs Send Money */}
         <div className="grid grid-cols-2 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
           <button
+            type="button"
             onClick={() => {
               setTab('RECEIVE');
               setErrorMsg(null);
@@ -228,10 +255,11 @@ export function QrTransferModal({
             }`}
           >
             <ArrowDownLeft className="w-4 h-4 text-emerald-500" />
-            <span>Receive via QR</span>
+            <span>My Account QR (Receive)</span>
           </button>
 
           <button
+            type="button"
             onClick={() => {
               setTab('SEND');
               setErrorMsg(null);
@@ -244,150 +272,219 @@ export function QrTransferModal({
             }`}
           >
             <Send className="w-4 h-4 text-blue-500" />
-            <span>Send Money</span>
+            <span>Account Transfer (Send)</span>
           </button>
         </div>
 
-        {/* TAB 1: RECEIVE VIA QR */}
+        {/* ===================================================================== */}
+        {/* TAB 1: RECEIVE VIA ACCOUNT QR CODE */}
+        {/* ===================================================================== */}
         {tab === 'RECEIVE' && (
           <div className="space-y-4 pb-1">
-            {/* QR Visual Card */}
+            {/* Mode Selector: Avora Account vs External USDT */}
+            <div className="flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setReceiveMode('AVORA_ACCOUNT')}
+                className={`flex-1 py-1.5 rounded-lg transition-all ${
+                  receiveMode === 'AVORA_ACCOUNT'
+                    ? 'bg-emerald-600 text-white font-bold shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Avora Account QR (Zero Fee)
+              </button>
+              <button
+                type="button"
+                onClick={() => setReceiveMode('USDT_CRYPTO')}
+                className={`flex-1 py-1.5 rounded-lg transition-all ${
+                  receiveMode === 'USDT_CRYPTO'
+                    ? 'bg-emerald-600 text-white font-bold shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                External USDT Deposit QR
+              </button>
+            </div>
+
+            {/* QR Card Presentation */}
             <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-col items-center text-center space-y-3.5">
+              
               <div className="p-2.5 bg-white rounded-2xl shadow-md border border-slate-200 dark:border-slate-700 inline-block">
                 {qrDataUrl ? (
                   <img
                     src={qrDataUrl}
-                    alt="Avora Pay QR Code"
-                    className="w-40 h-40 sm:w-48 sm:h-48 rounded-xl object-contain"
+                    alt="Avora Account Transfer QR Code"
+                    className="w-44 h-44 sm:w-52 sm:h-52 rounded-xl object-contain mx-auto"
                   />
                 ) : (
-                  <div className="w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center text-xs text-slate-400">
-                    Generating QR...
+                  <div className="w-44 h-44 sm:w-52 sm:h-52 flex items-center justify-center text-xs text-slate-400">
+                    Generating Account QR...
                   </div>
                 )}
+                <div className="text-[10px] text-slate-400 font-mono pt-1 text-center font-bold">
+                  {receiveMode === 'AVORA_ACCOUNT' ? 'Scan to pay this Avora Account' : 'Scan via Binance / Trust / OKX'}
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Your Avora Account Number
-                </span>
-                <div className="flex items-center justify-center gap-2">
-                  <span className="font-mono text-base font-black text-slate-900 dark:text-white tracking-wider">
-                    {userAccountNumber}
+              {/* Account Details Box */}
+              {receiveMode === 'AVORA_ACCOUNT' ? (
+                <div className="w-full space-y-2">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Account Holder Name
+                    </span>
+                    <div className="font-bold text-sm text-slate-900 dark:text-white">
+                      {userName}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-inner flex items-center justify-between">
+                    <div className="text-left">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">Avora Account Number</span>
+                      <span className="font-mono text-sm sm:text-base font-black text-slate-900 dark:text-white tracking-wider select-all">
+                        {userAccountNumber}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(userAccountNumber, 'account')}
+                      className="px-3 py-1.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                    >
+                      {copiedAccount ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-300" />
+                          <span>Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full space-y-1 text-left">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Official Custody Address (BEP-20 / ERC-20)
                   </span>
-                  <button
-                    onClick={() => handleCopy(userAccountNumber, 'account')}
-                    className="p-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-500 transition-colors"
-                    title="Copy Account Number"
-                  >
-                    {copiedAccount ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-600 dark:text-slate-300">
+                    <span className="truncate pr-2 font-bold select-all">{receivingAddress}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(receivingAddress, 'address')}
+                      className="shrink-0 px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-500 font-sans font-bold text-[11px]"
+                    >
+                      {copiedAddress ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Wallet Address */}
-              <div className="w-full pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1 text-left">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Official Receiving Address (Trust Wallet / EVM)
+              {/* Notice */}
+              <div className="p-3 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-500/20 text-left text-xs text-emerald-800 dark:text-emerald-200 flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span className="text-[11px] leading-relaxed">
+                  {receiveMode === 'AVORA_ACCOUNT'
+                    ? 'Transfers between Avora Bank client accounts settle instantly with zero fees. Any client can scan this QR or send to your Account Number.'
+                    : 'External USDT deposits are verified on-chain and credited upon network confirmation.'}
                 </span>
-                <div className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-600 dark:text-slate-300">
-                  <span className="truncate pr-2">{receivingAddress}</span>
-                  <button
-                    onClick={() => handleCopy(receivingAddress, 'link')}
-                    className="shrink-0 p-1 rounded text-slate-400 hover:text-emerald-500"
-                  >
-                    {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
               </div>
             </div>
 
-            {/* Optional Amount Specification */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Optional: Request Specific Amount (USD)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-xs font-bold text-slate-400">$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="1"
-                  placeholder="e.g. 250.00 (QR updates dynamically)"
-                  value={requestedAmount}
-                  onChange={(e) => setRequestedAmount(e.target.value)}
-                  className="w-full pl-8 pr-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500"
-                />
+            {/* Optional Specific Amount Request */}
+            {receiveMode === 'AVORA_ACCOUNT' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Optional: Request a Specific Amount (USD)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-2.5 text-xs font-bold text-slate-400">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    placeholder="e.g. 500.00 (QR updates dynamically with requested amount)"
+                    value={requestedAmount}
+                    onChange={(e) => setRequestedAmount(e.target.value)}
+                    className="w-full pl-8 pr-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Download Button */}
             <button
+              type="button"
               onClick={handleDownloadQr}
-              className="w-full py-3 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+              className="w-full py-3.5 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              Download QR Image (PNG)
+              <span>Download QR Code Image (PNG)</span>
             </button>
 
-            {/* External Crypto / Trust Wallet Deposit Shortcut */}
-            {onOpenExternalDeposit && (
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={onOpenExternalDeposit}
-                  className="w-full py-3 rounded-xl font-bold text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <Wallet className="w-4 h-4 text-emerald-600" />
-                  <span>Deposit USDT via Trust Wallet / External QR</span>
-                </button>
-              </div>
+            {onOpenExternalDeposit && receiveMode === 'USDT_CRYPTO' && (
+              <button
+                type="button"
+                onClick={onOpenExternalDeposit}
+                className="w-full py-3 rounded-2xl font-bold text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <Wallet className="w-4 h-4 text-emerald-600" />
+                <span>Open Full Deposit Desk</span>
+              </button>
             )}
           </div>
         )}
 
-        {/* TAB 2: SEND VIA QR / ADDRESS */}
+        {/* ===================================================================== */}
+        {/* TAB 2: SEND ACCOUNT-TO-ACCOUNT TRANSFER */}
+        {/* ===================================================================== */}
         {tab === 'SEND' && (
           <form onSubmit={handleSendTransfer} className="space-y-4">
             {errorMsg && (
-              <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{errorMsg}</span>
               </div>
             )}
 
             {successMsg && (
-              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>{successMsg}</span>
               </div>
             )}
 
-            {/* Recipient Input */}
+            {/* Recipient Account Input */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Recipient Avora Account / Wallet Address / Email
+                Recipient Avora Account Number or Registered Email
               </label>
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="e.g. AVR-7829-4102, 0xAvora..., or client@domain.com"
+                  placeholder="e.g. AVR-2488-6560 or client@domain.com"
                   value={recipientInput}
                   onChange={(e) => {
                     setRecipientInput(e.target.value);
                     setVerifiedRecipient(null);
                   }}
-                  className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  className="w-full px-4 py-2.5 rounded-2xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500 font-bold"
                 />
                 <button
                   type="button"
                   disabled={lookupLoading || !recipientInput.trim()}
                   onClick={handleLookup}
-                  className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 dark:bg-emerald-600 text-white shrink-0 disabled:opacity-50"
+                  className="px-4 py-2.5 rounded-2xl font-bold text-xs bg-slate-900 dark:bg-emerald-600 text-white shrink-0 disabled:opacity-50 hover:bg-black dark:hover:bg-emerald-500 cursor-pointer shadow-sm transition-all"
                 >
                   {lookupLoading ? 'Checking...' : 'Verify'}
                 </button>
               </div>
+              <p className="text-[10px] text-slate-400">
+                You can paste an Avora Account Number (`AVR-...`) or any scanned Avora QR code string.
+              </p>
             </div>
 
             {/* Verified Counterparty Badge */}
@@ -399,14 +496,14 @@ export function QrTransferModal({
                     <span>Recipient Verified</span>
                   </div>
                   <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 font-bold">
-                    {verifiedRecipient.kycStatus === 'APPROVED' ? 'KYC Verified' : 'Registered User'}
+                    {verifiedRecipient.kycStatus === 'APPROVED' ? 'KYC Verified' : 'Registered Client'}
                   </span>
                 </div>
                 <div className="text-sm font-bold text-slate-900 dark:text-white">
                   {verifiedRecipient.fullName}
                 </div>
                 <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                  {verifiedRecipient.accountNumber} • {verifiedRecipient.emailMasked}
+                  Account: <strong>{verifiedRecipient.accountNumber}</strong> • {verifiedRecipient.emailMasked}
                 </div>
               </div>
             )}
@@ -417,7 +514,18 @@ export function QrTransferModal({
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                   Amount to Send (USD)
                 </label>
-                <span className="text-[10px] text-slate-400">Velocity limit: $5,000/24h</span>
+                <div className="flex items-center gap-1">
+                  {['50', '100', '500', '1000'].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setSendAmount(val)}
+                      className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-600 transition-colors cursor-pointer"
+                    >
+                      +${val}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="relative">
                 <span className="absolute left-3.5 top-2.5 text-base font-bold text-slate-400">$</span>
@@ -425,27 +533,26 @@ export function QrTransferModal({
                   type="number"
                   step="0.01"
                   min="1"
-                  max="5000"
                   placeholder="0.00"
                   value={sendAmount}
                   onChange={(e) => setSendAmount(e.target.value)}
                   required
-                  className="w-full pl-8 pr-4 py-2.5 rounded-xl text-base font-black font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  className="w-full pl-8 pr-4 py-2.5 rounded-2xl text-base font-black font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                 />
               </div>
             </div>
 
-            {/* Notes */}
+            {/* Memo Note */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Memo / Reference Note
+                Memo / Reference Note (Optional)
               </label>
               <input
                 type="text"
-                placeholder="Optional transfer note..."
+                placeholder="e.g. Account transfer, invoice settlement..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                className="w-full px-4 py-2.5 rounded-2xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
               />
             </div>
 
@@ -462,7 +569,7 @@ export function QrTransferModal({
                   value={twoFactorCode}
                   onChange={(e) => setTwoFactorCode(e.target.value)}
                   required
-                  className="w-full px-4 py-2.5 rounded-xl text-center text-base font-mono tracking-widest border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  className="w-full px-4 py-2.5 rounded-2xl text-center text-base font-mono tracking-widest border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                 />
               </div>
             )}
@@ -471,10 +578,10 @@ export function QrTransferModal({
             <button
               type="submit"
               disabled={sendLoading || !verifiedRecipient || !sendAmount}
-              className="w-full py-3.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 disabled:opacity-50 transition-all cursor-pointer"
+              className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 disabled:opacity-50 transition-all cursor-pointer"
             >
               <Send className="w-4 h-4" />
-              <span>{sendLoading ? 'Executing Transfer...' : 'Send Funds Instantly'}</span>
+              <span>{sendLoading ? 'Executing Transfer...' : 'Send Account Transfer (0% Fee)'}</span>
             </button>
           </form>
         )}
@@ -483,4 +590,3 @@ export function QrTransferModal({
     </div>
   );
 }
-

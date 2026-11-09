@@ -110,7 +110,7 @@ export const Header: React.FC = () => {
           icon: Globe,
         },
         {
-          href: '/dashboard?tab=p2p',
+          href: '/dashboard?tab=transfers',
           label: 'Account & QR Transfers',
           description: 'Instant zero-fee internal settlement via QR or AVR ID',
           badge: 'Instant',
@@ -472,10 +472,10 @@ export const Header: React.FC = () => {
                   </Link>
 
                   <Link
-                    href="/dashboard?tab=p2p"
+                    href="/dashboard?tab=transfers"
                     className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
-                    <Send className="w-3.5 h-3.5 text-teal-500" />
+                    <QrCode className="w-3.5 h-3.5 text-teal-500" />
                     Account & QR Transfers
                   </Link>
 

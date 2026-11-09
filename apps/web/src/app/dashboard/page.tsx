@@ -210,7 +210,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const { user, token, isLoading: authLoading, refreshUser } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'support' | 'security' | 'redotpay'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'redotpay'>('overview');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [startupInvestments, setStartupInvestments] = useState<StartupInvestmentItem[]>([]);
@@ -326,15 +326,17 @@ function DashboardContent() {
 
   // QR Send / Receive Modal State
   const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [qrModalTab, setQrModalTab] = useState<'RECEIVE' | 'SEND'>('RECEIVE');
 
   const userAccountNumber = user?.accountNumber || generateLocalAccountNumber(user?.id);
 
   // Handle query params on initial load
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab === 'p2p') {
-      setActiveTab('p2p');
-      setP2PModalOpen(true);
+    if (tab === 'transfers' || tab === 'transfer' || tab === 'qr' || tab === 'p2p') {
+      setActiveTab('transfers');
+      setQrModalTab('RECEIVE');
+      setQrModalOpen(true);
     } else if (tab === 'packages' || tab === 'investments' || tab === 'portfolio') {
       setActiveTab('packages');
     } else if (tab === 'withdraw') {
@@ -806,11 +808,14 @@ function DashboardContent() {
               </button>
 
               <button
-                onClick={() => setQrModalOpen(true)}
+                onClick={() => {
+                  setQrModalTab('RECEIVE');
+                  setQrModalOpen(true);
+                }}
                 className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 text-white shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 <QrCode className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
-                <span>QR & Account Transfer</span>
+                <span>Account & QR Transfer</span>
               </button>
 
               <button
@@ -852,7 +857,7 @@ function DashboardContent() {
               {[
                 { key: 'overview', label: 'Overview', icon: Wallet },
                 { key: 'redotpay', label: 'Pay & Swap', icon: Smartphone },
-                { key: 'p2p', label: 'Transfers', icon: Send },
+                { key: 'transfers', label: 'Account & QR Transfers', icon: QrCode },
                 { key: 'card', label: 'Virtual Cards', icon: CreditCard },
                 { key: 'packages', label: `Investments (${packages.length + startupInvestments.length + (tokenStatus?.earlyAccess?.registeredInterest ? 1 : 0)})`, icon: Package },
                 { key: 'withdrawals', label: `Withdrawals (${withdrawals.length})`, icon: ArrowUpRight },
@@ -861,7 +866,7 @@ function DashboardContent() {
                 { key: 'support', label: `Support (${tickets.length})`, icon: Headphones },
               ].map((tab) => {
                 const Icon = tab.icon;
-                const active = activeTab === tab.key;
+                const active = activeTab === tab.key || (tab.key === 'transfers' && (activeTab as string) === 'p2p');
                 return (
                   <button
                     key={tab.key}
@@ -905,7 +910,10 @@ function DashboardContent() {
               transactions={transactions}
               onOpenDeposit={() => setDepositModalOpen(true)}
               onOpenWithdraw={() => setWithdrawModalOpen(true)}
-              onOpenP2P={() => setP2PModalOpen(true)}
+              onOpenP2P={() => {
+                setQrModalTab('SEND');
+                setQrModalOpen(true);
+              }}
               onOpenPackages={() => setActiveTab('packages')}
               onRefresh={fetchDashboardData}
             />
@@ -2108,85 +2116,197 @@ function DashboardContent() {
           </div>
         )}
 
-        {/* P2P & SAVED PAYEES TAB */}
-        {activeTab === 'p2p' && (
+        {/* ACCOUNT & QR TRANSFERS TAB */}
+        {(activeTab === 'transfers' || (activeTab as string) === 'p2p') && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-xl font-bold">Internal Transfers &amp; Saved Payees</h3>
-                <p className="text-xs text-slate-500">Send available balance instantly using Avora Account Number or registered email</p>
+                <h3 className="text-xl font-bold">Account &amp; QR Transfers</h3>
+                <p className="text-xs text-slate-500">Instant zero-fee account-to-account settlement via Avora Account Number or personal QR code</p>
               </div>
               <div className="flex items-center gap-2.5">
-                <Link
-                  href="/p2p"
-                  className="px-4 py-2.5 rounded-xl font-bold text-xs bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 flex items-center gap-1.5 transition-all"
-                >
-                  <Users className="w-4 h-4" />
-                  <span>P2P Escrow Market</span>
-                </Link>
                 <button
-                  onClick={() => setP2PModalOpen(true)}
-                  className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center gap-2"
+                  onClick={() => {
+                    setQrModalTab('RECEIVE');
+                    setQrModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 rounded-xl font-bold text-xs bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-2 transition-all cursor-pointer"
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span>My QR Code</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setQrModalTab('SEND');
+                    setQrModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md flex items-center gap-2 transition-all cursor-pointer"
                 >
                   <Send className="w-4 h-4" />
-                  New Transfer
+                  <span>Send Transfer</span>
                 </button>
               </div>
             </div>
 
-            {/* P2P Escrow Exchange Banner */}
+            {/* Quick Hero Banner: Account Number & Scannable QR Access */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-6 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 text-white border border-slate-800 shadow-xl relative overflow-hidden flex flex-col justify-between">
+                <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-44 h-44 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+                <div className="space-y-3 relative z-10">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Avora Clearing Network
+                    </span>
+                    <span className="text-[11px] text-emerald-400 font-bold">0.00% Transfer Fee</span>
+                  </div>
+
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Your Avora Account Number</span>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-xl sm:text-2xl font-black font-mono tracking-tight text-white">{userAccountNumber}</span>
+                      <button
+                        onClick={handleCopyAccount}
+                        className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 transition-colors"
+                        title="Copy Account Number"
+                      >
+                        {accountCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-slate-300 flex items-center gap-2">
+                    <span className="text-slate-400">Account Holder:</span>
+                    <span className="font-semibold text-white">
+                      {user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : (user?.email || 'Valued Client')}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-4 mt-4 border-t border-slate-800 flex items-center justify-between relative z-10">
+                  <span className="text-[11px] text-slate-400">Instant internal bank settlement</span>
+                  <button
+                    onClick={() => {
+                      setQrModalTab('RECEIVE');
+                      setQrModalOpen(true);
+                    }}
+                    className="text-xs font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>View Full QR Code</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Send Card */}
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
+                      <Send className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold">Account-to-Account Transfer</h4>
+                      <p className="text-[11px] text-slate-500">Send USD balance directly to another Avora account</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">Recipient Account Number or Registered Email</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. AVR-7829-4102 or client@domain.com"
+                        value={p2pRecipientInput}
+                        onChange={(e) => setP2PRecipientInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
+                      />
+                      <button
+                        onClick={() => {
+                          setQrModalTab('SEND');
+                          setQrModalOpen(true);
+                        }}
+                        className="px-4 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 shadow-sm transition-colors cursor-pointer"
+                      >
+                        Continue
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
+                  <span>Available Balance: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">${parseFloat(usdBalance || '0').toLocaleString(undefined, { minimumFractionDigits: 2 })} USD</strong></span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">Zero Commission</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Saved Payees Card */}
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bookmark className="w-4 h-4 text-emerald-600" />
+                  <h4 className="text-sm font-bold">Saved Payees &amp; Recent Contacts</h4>
+                </div>
+                <span className="text-xs text-slate-400">{savedPayees.length} saved</span>
+              </div>
+
+              {savedPayees.length === 0 ? (
+                <div className="text-center py-6 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+                  <p className="text-xs text-slate-400">No saved payees yet. Complete a transfer to save frequent contacts for 1-click access.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {savedPayees.map((payee) => (
+                    <div
+                      key={payee.id}
+                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-center justify-between hover:border-emerald-500/30 transition-all"
+                    >
+                      <div className="space-y-0.5 truncate mr-2">
+                        <div className="text-xs font-bold text-slate-900 dark:text-white truncate">{payee.name}</div>
+                        <div className="text-[11px] font-mono text-slate-400">{payee.accountNumber || payee.identifier}</div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setP2PRecipientInput(payee.accountNumber || payee.identifier);
+                          setQrModalTab('SEND');
+                          setQrModalOpen(true);
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shrink-0 cursor-pointer"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Distinct P2P Escrow Market Section */}
             <div className="p-5 rounded-3xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0">
                   <Users className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Avora P2P Escrow Exchange &amp; Member Program
-                  </h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Buy and sell USDT with domestic banks (LKR, INR, AED, GEL, EUR, USD) or lock a $50 bond to become a P2P Member &amp; post your own ads.
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                      External P2P Escrow Exchange
+                    </h4>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Marketplace</span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Looking to buy or sell USDT using local domestic bank accounts (LKR, INR, AED, EUR, USD)? Trade securely via the escrow exchange.
                   </p>
                 </div>
               </div>
               <Link
                 href="/p2p"
-                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5"
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-bold text-xs whitespace-nowrap shadow-sm shrink-0 flex items-center gap-1.5 transition-colors"
               >
-                <span>Open P2P Exchange</span>
+                <span>Open P2P Market</span>
                 <ChevronRight className="w-4 h-4" />
               </Link>
-            </div>
-
-            {/* Saved Payees Card */}
-            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-              <div className="flex items-center gap-2">
-                <Bookmark className="w-4 h-4 text-emerald-600" />
-                <h4 className="text-sm font-bold">Saved Payees Directory</h4>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {savedPayees.map((payee) => (
-                  <div
-                    key={payee.id}
-                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-center justify-between"
-                  >
-                    <div className="space-y-0.5">
-                      <div className="text-xs font-bold text-slate-900 dark:text-white">{payee.name}</div>
-                      <div className="text-[11px] font-mono text-slate-400">{payee.accountNumber || payee.identifier}</div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setP2PRecipientInput(payee.accountNumber || payee.identifier);
-                        setP2PModalOpen(true);
-                      }}
-                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-600 text-white hover:bg-emerald-700"
-                    >
-                      Send
-                    </button>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
         )}
@@ -2291,8 +2411,8 @@ function DashboardContent() {
                 <Send className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-black">Internal P2P Balance Transfer</h3>
-                <p className="text-xs text-slate-500">Zero fees between registered Avora Bank clients</p>
+                <h3 className="text-lg font-black">Account-to-Account Transfer</h3>
+                <p className="text-xs text-slate-500">Zero fees between registered Avora Bank accounts</p>
               </div>
             </div>
 
@@ -2745,6 +2865,7 @@ function DashboardContent() {
       <QrTransferModal
         isOpen={qrModalOpen}
         onClose={() => setQrModalOpen(false)}
+        initialTab={qrModalTab}
         user={user}
         userAccountNumber={userAccountNumber}
         onTransferSuccess={fetchDashboardData}
