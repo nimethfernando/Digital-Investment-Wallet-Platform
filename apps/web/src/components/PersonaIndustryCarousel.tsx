@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useAuth } from '../context/AuthContext';
 import {
   Rocket,
   Briefcase,
@@ -44,7 +45,7 @@ export const PERSONA_DATA: PersonaCard[] = [
     title: 'High-Growth Tech Startups',
     subtitle: 'Multi-currency corporate treasury with 1% monthly package return on operating reserves and instant BaaS virtual cards for AWS, OpenAI & SaaS subscriptions.',
     actionText: 'Explore Venture Treasury',
-    actionHref: '/packages',
+    actionHref: '/investments',
     image: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=900&q=80',
     accentColor: 'text-cyan-400',
     accentBorder: 'hover:border-cyan-400/60',
@@ -78,7 +79,7 @@ export const PERSONA_DATA: PersonaCard[] = [
     title: 'Freelancers & Global Nomads',
     subtitle: 'Invoice US, EU, and UK clients with dedicated multi-currency accounts. Spend worldwide via Apple Pay & Google Wallet tokenized virtual Visa cards with 0 FX markup.',
     actionText: 'Activate Nomad Card',
-    actionHref: '/dashboard',
+    actionHref: '/dashboard?tab=card',
     image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=900&q=80',
     accentColor: 'text-amber-400',
     accentBorder: 'hover:border-amber-400/60',
@@ -112,7 +113,7 @@ export const PERSONA_DATA: PersonaCard[] = [
     title: 'Healthcare Clinics & Medical Practices',
     subtitle: 'Compliant patient billing and escrow settlement, medical equipment leasing and financing, and high-limit procurement virtual cards for pharmacy and hardware supplies.',
     actionText: 'Discover Clinic Accounts',
-    actionHref: '/packages',
+    actionHref: '/transfer',
     image: 'https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&w=900&q=80',
     accentColor: 'text-teal-400',
     accentBorder: 'hover:border-teal-400/60',
@@ -129,7 +130,7 @@ export const PERSONA_DATA: PersonaCard[] = [
     title: 'E-Commerce Brands & Media Agencies',
     subtitle: 'High-velocity daily merchant payouts, dynamic virtual ad-spend cards for Meta and Google Ads with custom daily limits, and automated supplier escrow protection.',
     actionText: 'Scale Merchant Payouts',
-    actionHref: '/p2p',
+    actionHref: '/dashboard?tab=card',
     image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=900&q=80',
     accentColor: 'text-rose-400',
     accentBorder: 'hover:border-rose-400/60',
@@ -150,10 +151,27 @@ const CATEGORY_TABS = [
 ];
 
 export function PersonaIndustryCarousel() {
+  const { user } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
+
+  const resolvePersonaHref = (persona: PersonaCard) => {
+    if (persona.id === 'freelancers') {
+      return user ? '/dashboard?tab=card' : '/login?redirect=/dashboard?tab=card';
+    }
+    if (persona.id === 'entrepreneurs') {
+      return user ? '/dashboard?tab=redotpay' : '/register';
+    }
+    if (persona.id === 'startups') {
+      return user ? '/investments' : '/investments';
+    }
+    if (persona.id === 'ecommerce') {
+      return user ? '/dashboard?tab=card' : '/dashboard?tab=card';
+    }
+    return persona.actionHref;
+  };
   
   // Drag-to-scroll interaction state
   const [isDragging, setIsDragging] = useState(false);
@@ -385,8 +403,8 @@ export function PersonaIndustryCarousel() {
 
                     {/* Interactive Action Pill Capsule (Wallester Style) */}
                     <Link
-                      href={persona.actionHref}
-                      className="mt-2 w-full p-2.5 px-4 rounded-2xl backdrop-blur-md bg-white/15 group-hover:bg-white text-white group-hover:text-slate-950 border border-white/20 group-hover:border-white shadow-lg transition-all duration-300 flex items-center justify-between text-xs font-bold"
+                      href={resolvePersonaHref(persona)}
+                      className="mt-2 w-full p-2.5 px-4 rounded-2xl backdrop-blur-md bg-white/15 group-hover:bg-white text-white group-hover:text-slate-950 border border-white/20 group-hover:border-white shadow-lg transition-all duration-300 flex items-center justify-between text-xs font-bold cursor-pointer"
                     >
                       <div className="flex items-center gap-2">
                         <Icon className={`w-4 h-4 ${persona.accentColor} group-hover:text-slate-950 transition-colors`} />

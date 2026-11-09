@@ -834,7 +834,7 @@ export default function HomePage() {
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
               <Link
-                href={user ? '/dashboard?tab=card' : '/login?redirect=/dashboard'}
+                href={user ? '/dashboard?tab=card' : '/login?redirect=/dashboard%3Ftab%3Dcard'}
                 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
               >
                 {user ? 'Manage Cards' : 'Sign In for Cards'}
