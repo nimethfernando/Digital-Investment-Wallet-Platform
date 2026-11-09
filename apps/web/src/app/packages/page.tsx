@@ -16,6 +16,7 @@ import {
   Wallet,
   Building,
   Smartphone,
+  CreditCard,
   Check,
   Loader2,
   Sparkles,
@@ -31,7 +32,7 @@ export default function PackagesPage() {
 
   const [selectedAmount, setSelectedAmount] = useState<number>(5000);
   const [selectedTerm, setSelectedTerm] = useState<number>(6); // 3, 6, 12 months
-  const [depositMethod, setDepositMethod] = useState<'WALLET_BALANCE' | 'USDT_TRC20' | 'BANK_WIRE'>('WALLET_BALANCE');
+  const [depositMethod, setDepositMethod] = useState<'WALLET_BALANCE' | 'RAZORPAY' | 'USDT_TRC20' | 'BANK_WIRE'>('WALLET_BALANCE');
   const [riskAcknowledged, setRiskAcknowledged] = useState<boolean>(false);
   const [purchasing, setPurchasing] = useState<boolean>(false);
   const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
@@ -82,8 +83,8 @@ export default function PackagesPage() {
         if (pkgCode) setCreatedPackageCode(pkgCode);
         setPurchaseSuccess(res.data.message || 'Investment package allocated successfully!');
 
-        // If paying via crypto or bank wire, automatically open the Deposit modal with the QR code
-        if (depositMethod === 'USDT_TRC20' || depositMethod === 'BANK_WIRE') {
+        // If paying via crypto, Razorpay, or bank wire, automatically open the Deposit modal
+        if (depositMethod === 'USDT_TRC20' || depositMethod === 'BANK_WIRE' || depositMethod === 'RAZORPAY') {
           setIsDepositModalOpen(true);
         }
       } else {
@@ -279,11 +280,11 @@ export default function PackagesPage() {
           <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
             Funding Method
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <button
               type="button"
               onClick={() => setDepositMethod('WALLET_BALANCE')}
-              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
+              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
                 depositMethod === 'WALLET_BALANCE'
                   ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/30 ring-2 ring-emerald-500/20'
                   : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
@@ -293,13 +294,29 @@ export default function PackagesPage() {
                 <Wallet className="w-4 h-4 text-emerald-600" />
                 <span className="text-xs font-bold text-slate-900 dark:text-white">Avora Balance</span>
               </div>
-              <span className="text-[11px] text-slate-500">Instant 1-Click Activation</span>
+              <span className="text-[11px] text-slate-500">Instant 1-Click • 0% Fee</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDepositMethod('RAZORPAY')}
+              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                depositMethod === 'RAZORPAY'
+                  ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 ring-2 ring-blue-500/20'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <CreditCard className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-bold text-slate-900 dark:text-white">Razorpay (Card / UPI)</span>
+              </div>
+              <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">5.0% Fee (3% RZP + 2% Avora)</span>
             </button>
 
             <button
               type="button"
               onClick={() => setDepositMethod('USDT_TRC20')}
-              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
+              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
                 depositMethod === 'USDT_TRC20'
                   ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/30 ring-2 ring-emerald-500/20'
                   : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
@@ -315,7 +332,7 @@ export default function PackagesPage() {
             <button
               type="button"
               onClick={() => setDepositMethod('BANK_WIRE')}
-              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
+              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
                 depositMethod === 'BANK_WIRE'
                   ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/30 ring-2 ring-emerald-500/20'
                   : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
@@ -328,6 +345,18 @@ export default function PackagesPage() {
               <span className="text-[11px] text-slate-500">Institutional Fiat Rail</span>
             </button>
           </div>
+
+          {depositMethod === 'RAZORPAY' && (
+            <div className="p-3.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-500/25 text-xs text-slate-700 dark:text-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="font-bold text-blue-700 dark:text-blue-300">Razorpay 5.0% Commission Breakdown: </span>
+                <span>3.0% Razorpay Gateway Fee (${(selectedAmount * 0.03).toFixed(2)}) + 2.0% Avora Margin (${(selectedAmount * 0.02).toFixed(2)}) = +${(selectedAmount * 0.05).toFixed(2)} USD</span>
+              </div>
+              <span className="font-mono font-bold text-blue-700 dark:text-blue-300 shrink-0">
+                Total Payable: ${(selectedAmount * 1.05).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+              </span>
+            </div>
+          )}
         </div>
 
         {/* RISK NOTICE */}
@@ -417,12 +446,12 @@ export default function PackagesPage() {
         )}
       </div>
 
-      {/* POPUP DEPOSIT QR MODAL FOR CRYPTO / BANK WIRE FUNDING */}
+      {/* POPUP DEPOSIT QR MODAL FOR CRYPTO / RAZORPAY / BANK WIRE FUNDING */}
       <DepositModal
         isOpen={isDepositModalOpen}
         onClose={() => setIsDepositModalOpen(false)}
         initialAmount={selectedAmount}
-        initialRail={depositMethod === 'BANK_WIRE' ? 'BANK_WIRE' : 'USDT'}
+        initialRail={depositMethod === 'BANK_WIRE' ? 'BANK_WIRE' : depositMethod === 'RAZORPAY' ? 'RAZORPAY' : 'USDT'}
         initialNetwork="TRC20"
         intendedPackageCode={createdPackageCode || undefined}
         onDepositSuccess={() => {

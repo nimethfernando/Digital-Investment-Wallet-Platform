@@ -16,6 +16,8 @@ router.get('/transactions', (req, res, next) => walletController.getTransactions
 router.get('/deposit/instructions', (req, res, next) => walletController.getDepositInstructions(req, res, next));
 router.post('/deposit', (req, res, next) => walletController.submitDeposit(req, res, next));
 router.get('/deposits', (req, res, next) => walletController.getDeposits(req, res, next));
+router.post('/razorpay/create-order', (req, res, next) => walletController.createRazorpayOrder(req, res, next));
+router.post('/razorpay/verify', (req, res, next) => walletController.verifyRazorpayPayment(req, res, next));
 
 router.post('/swap', (req, res, next) => walletController.executeSwap(req, res, next));
 

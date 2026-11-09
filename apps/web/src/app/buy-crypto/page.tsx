@@ -71,8 +71,10 @@ export default function BuyCryptoPage() {
   const [fiatAmount, setFiatAmount] = useState<string>('1000');
   const [selectedFiatCode, setSelectedFiatCode] = useState<string>('USD');
   const [selectedCryptoKey, setSelectedCryptoKey] = useState<string>('USDT_TRC-20');
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'apple_pay' | 'google_pay' | 'wire'>('card');
+  const [paymentMethod, setPaymentMethod] = useState<'razorpay' | 'card' | 'apple_pay' | 'google_pay' | 'wire'>('razorpay');
   const [paymentRef, setPaymentRef] = useState<string>('');
+  const [razorpayCommPct, setRazorpayCommPct] = useState<number>(5.0);
+  const [razorpayGatewayPct, setRazorpayGatewayPct] = useState<number>(3.0);
 
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [orderProcessing, setOrderProcessing] = useState(false);
@@ -148,8 +150,28 @@ export default function BuyCryptoPage() {
 
   const numFiat = parseFloat(fiatAmount) || 0;
   const fiatValueInUsd = selectedFiat.perUsd > 0 ? numFiat / selectedFiat.perUsd : 0;
-  const cryptoReceived = selectedCrypto.priceInUsd > 0 ? fiatValueInUsd / selectedCrypto.priceInUsd : 0;
+  const isRazorpayRail = paymentMethod !== 'wire';
+  const activeCommissionPercent = isRazorpayRail ? razorpayCommPct : 0;
+  const activeGatewayFeePercent = isRazorpayRail ? razorpayGatewayPct : 0;
+  const activePlatformMarginPercent = Math.max(0, activeCommissionPercent - activeGatewayFeePercent);
+  const razorpayFeeUsd = fiatValueInUsd * (activeGatewayFeePercent / 100);
+  const avoraMarginUsd = fiatValueInUsd * (activePlatformMarginPercent / 100);
+  const totalCommissionUsd = razorpayFeeUsd + avoraMarginUsd;
+  const netConvertedUsd = Math.max(0, fiatValueInUsd - totalCommissionUsd);
+  const cryptoReceived = selectedCrypto.priceInUsd > 0 ? netConvertedUsd / selectedCrypto.priceInUsd : 0;
   const networkFee = selectedCrypto.code === 'USDT' && selectedCrypto.chain === 'TRC-20' ? 0.0 : 1.5;
+
+  useEffect(() => {
+    api.get('/wallet/deposit/instructions')
+      .then((res) => {
+        const rzp = res.data?.data?.razorpay;
+        if (rzp) {
+          if (rzp.commissionPercent !== undefined) setRazorpayCommPct(Number(rzp.commissionPercent));
+          if (rzp.gatewayFeePercent !== undefined) setRazorpayGatewayPct(Number(rzp.gatewayFeePercent));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleQuickAmount = (val: number) => {
     setFiatAmount(val.toString());
@@ -170,8 +192,8 @@ export default function BuyCryptoPage() {
       router.push('/login?redirect=/buy-crypto');
       return;
     }
-    if (fiatValueInUsd < 50) {
-      setOrderError('Minimum order value is $50.00 USD equivalent.');
+    if (fiatValueInUsd < 10) {
+      setOrderError('Minimum order value is $10.00 USD equivalent.');
       return;
     }
 
@@ -179,6 +201,39 @@ export default function BuyCryptoPage() {
     setOrderError(null);
 
     try {
+      if (isRazorpayRail) {
+        const orderRes = await api.post('/wallet/razorpay/create-order', {
+          amount: Number(fiatValueInUsd.toFixed(2)),
+          currency: selectedCrypto.code === 'USDT' ? 'USDT' : 'USD',
+          checkoutCurrency: 'USD',
+          feeMode: 'DEDUCT_FROM_GROSS',
+          purpose: `BUY_${selectedCrypto.code}_${selectedCrypto.chain}_${paymentMethod.toUpperCase()}`,
+        });
+
+        const orderData = orderRes.data?.data;
+        if (!orderData?.deposit) {
+          throw new Error('Unable to initialize Razorpay order');
+        }
+
+        const payRef = paymentRef.trim() || `pay_avr_${Date.now().toString(36).toUpperCase()}`;
+        const verifyRes = await api.post('/wallet/razorpay/verify', {
+          depositId: orderData.deposit.id,
+          razorpay_order_id: orderData.razorpayOrderId,
+          razorpay_payment_id: payRef,
+        });
+
+        if (verifyRes.data?.success) {
+          setCreatedOrder({
+            ...orderData.deposit,
+            status: verifyRes.data.data?.status || orderData.deposit.status,
+            txHashOrRef: payRef,
+          });
+        } else {
+          setOrderError(verifyRes.data?.message || 'Unable to verify Razorpay payment.');
+        }
+        return;
+      }
+
       const depositMethod =
         paymentMethod === 'wire'
           ? 'BANK_WIRE'
@@ -191,7 +246,7 @@ export default function BuyCryptoPage() {
         `BUY-${selectedCrypto.code}-${paymentMethod.toUpperCase()}-${numFiat}${selectedFiat.code}`;
 
       const res = await api.post('/wallet/deposit', {
-        amount: Number(fiatValueInUsd.toFixed(2)),
+        amount: Number(netConvertedUsd.toFixed(2)),
         currency: selectedCrypto.code === 'USDT' ? 'USDT' : 'USD',
         depositMethod,
         txHashOrRef: refTag,
@@ -321,11 +376,34 @@ export default function BuyCryptoPage() {
 
           {/* STEP 3: PAYMENT METHOD */}
           <div className="space-y-3">
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-              Select Payment Method
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                Select Payment Method
+              </label>
+              {isRazorpayRail && (
+                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
+                  Powered by Razorpay ({activeCommissionPercent.toFixed(1)}% Total Fee)
+                </span>
+              )}
+            </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('razorpay')}
+                className={`p-3 rounded-2xl text-left border transition-all flex flex-col justify-between gap-2 cursor-pointer ${
+                  paymentMethod === 'razorpay'
+                    ? 'border-2 border-blue-600 bg-blue-50/80 dark:bg-blue-950/60 text-slate-900 dark:text-white shadow-sm'
+                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-800 dark:text-slate-200'
+                }`}
+              >
+                <CreditCard className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                <div>
+                  <div className="text-xs font-bold">Razorpay</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Card / UPI / Net</div>
+                </div>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setPaymentMethod('card')}
@@ -370,7 +448,7 @@ export default function BuyCryptoPage() {
                 <Zap className="w-5 h-5 text-amber-500 dark:text-amber-400" />
                 <div>
                   <div className="text-xs font-bold">Google Pay</div>
-                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Instant</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">UPI / Instant</div>
                 </div>
               </button>
 
@@ -400,10 +478,33 @@ export default function BuyCryptoPage() {
                 1 {selectedCrypto.code} = ${selectedCrypto.priceInUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </span>
             </div>
-            <div className="flex justify-between text-slate-500">
-              <span>Aggregator Processing Fee</span>
-              <span className="font-mono text-emerald-600 font-semibold">0.00% (Avora Sponsored)</span>
-            </div>
+            {isRazorpayRail ? (
+              <>
+                <div className="flex justify-between text-slate-500">
+                  <span>Razorpay Gateway Fee ({activeGatewayFeePercent.toFixed(1)}%)</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300 font-semibold">
+                    -${razorpayFeeUsd.toFixed(2)} USD
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>Avora Platform Commission ({activePlatformMarginPercent.toFixed(1)}%)</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300 font-semibold">
+                    -${avoraMarginUsd.toFixed(2)} USD
+                  </span>
+                </div>
+                <div className="flex justify-between text-amber-700 dark:text-amber-400 font-semibold">
+                  <span>Total Platform & Gateway Fee ({activeCommissionPercent.toFixed(1)}%)</span>
+                  <span className="font-mono">
+                    -${totalCommissionUsd.toFixed(2)} USD (Net: ${netConvertedUsd.toFixed(2)} USD)
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between text-slate-500">
+                <span>Bank Wire Processing Fee</span>
+                <span className="font-mono text-emerald-600 font-semibold">0.00% (Direct Institutional Wire)</span>
+              </div>
+            )}
             <div className="flex justify-between text-slate-500">
               <span>Estimated Network Fee ({selectedCrypto.chain})</span>
               <span className="font-mono text-slate-800 dark:text-slate-200 font-semibold">
@@ -413,7 +514,7 @@ export default function BuyCryptoPage() {
             <div className="flex justify-between text-slate-500">
               <span>Settlement Verification</span>
               <span className="text-slate-800 dark:text-slate-200 font-semibold flex items-center gap-1">
-                <Clock className="w-3 h-3 text-emerald-500" /> Treasury Verification & Ledger Credit
+                <Clock className="w-3 h-3 text-emerald-500" /> {isRazorpayRail ? 'Razorpay Gateway + Ledger Credit' : 'Treasury Verification & Ledger Credit'}
               </span>
             </div>
           </div>
@@ -514,13 +615,29 @@ export default function BuyCryptoPage() {
 
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 space-y-3 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Order Amount:</span>
+                    <span className="text-slate-500">Gross Order Amount:</span>
                     <span className="font-bold font-mono text-slate-900 dark:text-white">
                       {selectedFiat.symbol}{numFiat.toLocaleString()} {selectedFiat.code} (${fiatValueInUsd.toFixed(2)} USD)
                     </span>
                   </div>
+                  {isRazorpayRail && (
+                    <>
+                      <div className="flex justify-between text-slate-500">
+                        <span>Razorpay Gateway Fee ({activeGatewayFeePercent.toFixed(1)}%):</span>
+                        <span className="font-mono text-slate-700 dark:text-slate-300">-${razorpayFeeUsd.toFixed(2)} USD</span>
+                      </div>
+                      <div className="flex justify-between text-slate-500">
+                        <span>Avora Platform Commission ({activePlatformMarginPercent.toFixed(1)}%):</span>
+                        <span className="font-mono text-slate-700 dark:text-slate-300">-${avoraMarginUsd.toFixed(2)} USD</span>
+                      </div>
+                      <div className="flex justify-between text-amber-700 dark:text-amber-400 font-semibold">
+                        <span>Total Commission ({activeCommissionPercent.toFixed(1)}%):</span>
+                        <span className="font-mono">-${totalCommissionUsd.toFixed(2)} USD</span>
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Estimated Asset:</span>
+                    <span className="text-slate-500">Net Credited Asset:</span>
                     <span className="font-bold font-mono text-emerald-600">
                       {cryptoReceived.toFixed(selectedCrypto.code === 'USDT' ? 2 : 6)} {selectedCrypto.code} ({selectedCrypto.chain})
                     </span>
@@ -534,7 +651,7 @@ export default function BuyCryptoPage() {
                   <div className="flex justify-between">
                     <span className="text-slate-500">Payment Rail:</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200 uppercase">
-                      {paymentMethod.replace('_', ' ')}
+                      {isRazorpayRail ? `RAZORPAY (${paymentMethod.replace('_', ' ')})` : paymentMethod.replace('_', ' ')}
                     </span>
                   </div>
                 </div>

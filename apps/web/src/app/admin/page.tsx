@@ -113,6 +113,10 @@ export default function AdminPortalPage() {
     payout_day_of_month: '1',
     withdrawal_processing_days: '15',
     withdrawal_window_day: '1',
+    razorpay_commission_percent: '5.0',
+    razorpay_gateway_fee_percent: '3.0',
+    razorpay_key_id: '',
+    razorpay_key_secret: '',
     remittance_fee_percent: '3.0',
     remittance_margin_percent: '2.0',
     startup_allocation_fee_percent: '5.0',
@@ -1313,6 +1317,68 @@ export default function AdminPortalPage() {
                         <span className="absolute right-3 top-2 text-xs text-slate-500">USD</span>
                       </div>
                       <p className="text-[10px] text-slate-500">Card generation fee deducted from user (Default: $10.00)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-blue-400 uppercase font-mono">
+                        Razorpay Total Platform Commission (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.razorpay_commission_percent || '5.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, razorpay_commission_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-blue-500/40 text-white text-xs font-mono outline-none focus:border-blue-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Total charged on Razorpay payments: 3.0% Razorpay Fee + 2.0% Avora Margin (Default: 5.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-blue-400 uppercase font-mono">
+                        Razorpay Gateway Processing Fee (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.razorpay_gateway_fee_percent || '3.0'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, razorpay_gateway_fee_percent: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-blue-500"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">Underlying Razorpay gateway cost (Default: 3.0%)</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Razorpay Live/Test Key ID (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="rzp_live_... or rzp_test_..."
+                        value={platformConfig.razorpay_key_id || ''}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, razorpay_key_id: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-blue-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Enables live Razorpay Checkout popup when paired with Key Secret</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Razorpay Key Secret (Optional)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="••••••••••••••••"
+                        value={platformConfig.razorpay_key_secret || ''}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, razorpay_key_secret: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-blue-500"
+                      />
+                      <p className="text-[10px] text-slate-500">Used for HMAC-SHA256 payment signature verification</p>
                     </div>
                   </div>
                 </div>

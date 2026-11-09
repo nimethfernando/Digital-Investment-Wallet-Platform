@@ -18,6 +18,7 @@ import {
   Sparkles,
   CheckCircle2,
   Coins,
+  CreditCard,
   Loader2,
 } from 'lucide-react';
 
@@ -32,7 +33,7 @@ interface DepositModalProps {
 }
 
 type CryptoNetwork = 'TRC20' | 'BEP20' | 'ERC20';
-type DepositRail = 'USDT' | 'BANK_WIRE';
+type DepositRail = 'USDT' | 'RAZORPAY' | 'BANK_WIRE';
 
 interface NetworkConfig {
   id: string;
@@ -135,6 +136,15 @@ export const DepositModal: React.FC<DepositModalProps> = ({
   const [selectedBankCurrency, setSelectedBankCurrency] = useState<'USD' | 'EUR'>('USD');
   const [networks, setNetworks] = useState<Record<CryptoNetwork, NetworkConfig>>(DEFAULT_NETWORKS);
   const [bankWire, setBankWire] = useState(DEFAULT_BANK_WIRE);
+  const [razorpayConfig, setRazorpayConfig] = useState({
+    commissionPercent: 5.0,
+    gatewayFeePercent: 3.0,
+    platformSpreadPercent: 2.0,
+    minDeposit: 10,
+    hasLiveKeys: false,
+    keyId: null as string | null,
+  });
+  const [razorpayMethodTag, setRazorpayMethodTag] = useState<'CARD' | 'UPI' | 'NETBANKING'>('CARD');
 
   // QR Code State
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
@@ -172,6 +182,17 @@ export const DepositModal: React.FC<DepositModalProps> = ({
           }
           if (res.data.data.bankWire) {
             setBankWire(res.data.data.bankWire);
+          }
+          if (res.data.data.razorpay) {
+            const rzp = res.data.data.razorpay;
+            setRazorpayConfig({
+              commissionPercent: Number(rzp.commissionPercent ?? 5.0),
+              gatewayFeePercent: Number(rzp.gatewayFeePercent ?? 3.0),
+              platformSpreadPercent: Number(rzp.platformSpreadPercent ?? 2.0),
+              minDeposit: Number(rzp.minDeposit ?? 10),
+              hasLiveKeys: Boolean(rzp.hasLiveKeys),
+              keyId: rzp.keyId || null,
+            });
           }
         }
       })
@@ -213,6 +234,125 @@ export const DepositModal: React.FC<DepositModalProps> = ({
 
   const handleQuickAmount = (val: string) => {
     setDepositAmount(val);
+  };
+
+  const loadRazorpayCheckoutScript = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (typeof window === 'undefined') return resolve(false);
+      if ((window as any).Razorpay) return resolve(true);
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleRazorpaySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+
+    const amt = parseFloat(depositAmount);
+    if (isNaN(amt) || amt <= 0) {
+      setErrorMsg('Please enter a valid deposit amount.');
+      return;
+    }
+
+    if (amt < razorpayConfig.minDeposit) {
+      setErrorMsg(`Minimum Razorpay payment amount is $${razorpayConfig.minDeposit} USD.`);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const orderRes = await api.post('/wallet/razorpay/create-order', {
+        amount: amt,
+        currency: 'USD',
+        checkoutCurrency: 'USD',
+        feeMode: 'ADD_ON_TOP',
+        purpose: intendedPackageCode ? `PACKAGE_${intendedPackageCode}` : `WALLET_DEPOSIT_${razorpayMethodTag}`,
+      });
+
+      const orderData = orderRes.data?.data;
+      if (!orderData || !orderData.deposit) {
+        throw new Error('Could not initialize Razorpay order');
+      }
+
+      // If live Razorpay keys are configured on backend, open official Razorpay Checkout modal
+      if (orderData.mode === 'LIVE' && orderData.keyId) {
+        const scriptLoaded = await loadRazorpayCheckoutScript();
+        if (scriptLoaded && (window as any).Razorpay) {
+          const rzpInstance = new (window as any).Razorpay({
+            key: orderData.keyId,
+            amount: orderData.amountSubunits,
+            currency: orderData.checkoutCurrency || 'USD',
+            name: 'Avora Bank',
+            description: `Net Wallet Credit $${orderData.feeBreakdown.netWalletCredit} USD (+${orderData.feeBreakdown.commissionPercent}% Fee)`,
+            order_id: orderData.razorpayOrderId,
+            prefill: {
+              name: orderData.user?.name || '',
+              email: orderData.user?.email || '',
+            },
+            theme: {
+              color: '#059669',
+            },
+            handler: async (response: any) => {
+              try {
+                const verifyRes = await api.post('/wallet/razorpay/verify', {
+                  depositId: orderData.deposit.id,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                });
+                if (verifyRes.data?.success) {
+                  setSuccessData({
+                    ...orderData.deposit,
+                    status: verifyRes.data.data?.status || 'APPROVED',
+                    txHashOrRef: response.razorpay_payment_id,
+                    feeBreakdown: orderData.feeBreakdown,
+                  });
+                  if (onDepositSuccess) onDepositSuccess();
+                }
+              } catch (vErr: any) {
+                setErrorMsg(extractErrorMessage(vErr, 'Payment verification failed. Contact support with your payment ID.'));
+              } finally {
+                setSubmitting(false);
+              }
+            },
+            modal: {
+              ondismiss: () => {
+                setSubmitting(false);
+              },
+            },
+          });
+          rzpInstance.open();
+          return;
+        }
+      }
+
+      // Assisted / Direct Razorpay Reference verification
+      const paymentRef = txHash.trim() || `pay_avr_${Date.now().toString(36).toUpperCase()}`;
+      const verifyRes = await api.post('/wallet/razorpay/verify', {
+        depositId: orderData.deposit.id,
+        razorpay_order_id: orderData.razorpayOrderId,
+        razorpay_payment_id: paymentRef,
+      });
+
+      if (verifyRes.data?.success) {
+        setSuccessData({
+          ...orderData.deposit,
+          status: verifyRes.data.data?.status || orderData.deposit.status,
+          txHashOrRef: paymentRef,
+          feeBreakdown: orderData.feeBreakdown,
+        });
+        if (onDepositSuccess) onDepositSuccess();
+      }
+    } catch (err: any) {
+      setErrorMsg(extractErrorMessage(err, 'Failed to process Razorpay payment.'));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -382,30 +522,42 @@ export const DepositModal: React.FC<DepositModalProps> = ({
           /* ===================================================================== */
           <div className="space-y-5">
             {/* Asset / Rail Toggle */}
-            <div className="flex p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 gap-1 border border-slate-200 dark:border-slate-700">
+            <div className="grid grid-cols-3 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 gap-1 border border-slate-200 dark:border-slate-700">
               <button
                 type="button"
                 onClick={() => setSelectedRail('USDT')}
-                className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                className={`py-2.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   selectedRail === 'USDT'
                     ? 'bg-emerald-600 text-white shadow-md'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                 }`}
               >
-                <Coins className="w-3.5 h-3.5" />
-                <span>USDT (Crypto Rails)</span>
+                <Coins className="w-3.5 h-3.5 shrink-0" />
+                <span>USDT (Crypto)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedRail('RAZORPAY')}
+                className={`py-2.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  selectedRail === 'RAZORPAY'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                }`}
+              >
+                <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                <span>Razorpay ({razorpayConfig.commissionPercent}% Fee)</span>
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedRail('BANK_WIRE')}
-                className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                className={`py-2.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   selectedRail === 'BANK_WIRE'
                     ? 'bg-emerald-600 text-white shadow-md'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                 }`}
               >
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Bank Wire (USD / EUR)</span>
+                <Building2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Bank Wire</span>
               </button>
             </div>
 
@@ -647,6 +799,168 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                 </form>
 
               </div>
+            ) : selectedRail === 'RAZORPAY' ? (
+              /* ================= RAZORPAY INSTANT CHECKOUT (5% COMMISSION) ================= */
+              <form onSubmit={handleRazorpaySubmit} className="space-y-4">
+                <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-blue-50/90 to-indigo-50/60 dark:from-slate-950 dark:to-blue-950/30 border border-blue-500/25 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm">
+                        <CreditCard className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black text-slate-900 dark:text-white">
+                          Razorpay Payment Gateway
+                        </h4>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                          Visa • Mastercard • RuPay • UPI • NetBanking
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-blue-600/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                      {razorpayConfig.commissionPercent.toFixed(1)}% Total Fee
+                    </span>
+                  </div>
+
+                  {/* Method Chips */}
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    {[
+                      { id: 'CARD' as const, label: 'Cards', sub: 'Visa / MC / RuPay' },
+                      { id: 'UPI' as const, label: 'UPI Instant', sub: 'GPay / PhonePe' },
+                      { id: 'NETBANKING' as const, label: 'NetBanking', sub: '50+ Banks' },
+                    ].map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setRazorpayMethodTag(m.id)}
+                        className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
+                          razorpayMethodTag === m.id
+                            ? 'border-blue-600 bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-sm'
+                            : 'border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/40 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{m.label}</div>
+                        <div className="text-[10px] text-slate-400 truncate">{m.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Amount Input */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Net Amount to Credit to Wallet (USD)
+                    </label>
+                    <div className="flex items-center gap-1">
+                      {['100', '500', '1000', '5000'].map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => handleQuickAmount(val)}
+                          className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-blue-50 hover:text-blue-600 transition-colors cursor-pointer"
+                        >
+                          +${Number(val).toLocaleString()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={razorpayConfig.minDeposit}
+                      required
+                      value={depositAmount}
+                      onChange={(e) => setDepositAmount(e.target.value)}
+                      placeholder="1000"
+                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-base font-bold outline-none focus:border-blue-500"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono font-bold text-xs text-slate-400">
+                      USD
+                    </span>
+                  </div>
+                </div>
+
+                {/* Live 5% Commission Breakdown Box (3% Razorpay + 2% Avora) */}
+                {(() => {
+                  const netVal = Math.max(0, parseFloat(depositAmount) || 0);
+                  const rzpFee = netVal * (razorpayConfig.gatewayFeePercent / 100);
+                  const avoraFee = netVal * (razorpayConfig.platformSpreadPercent / 100);
+                  const totalComm = rzpFee + avoraFee;
+                  const grossTotal = netVal + totalComm;
+                  return (
+                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                      <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                        <span>Net Credit to Avora Wallet:</span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">
+                          ${netVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                        <span>Razorpay Gateway Fee ({razorpayConfig.gatewayFeePercent.toFixed(1)}%):</span>
+                        <span className="font-mono">
+                          +${rzpFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                        <span>Avora Bank Platform Commission ({razorpayConfig.platformSpreadPercent.toFixed(1)}%):</span>
+                        <span className="font-mono">
+                          +${avoraFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-amber-700 dark:text-amber-400 font-semibold pt-1 border-t border-slate-200/70 dark:border-slate-800">
+                        <span>Total Commission ({razorpayConfig.commissionPercent.toFixed(1)}%):</span>
+                        <span className="font-mono">
+                          +${totalComm.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-800 text-sm font-black text-slate-900 dark:text-white">
+                        <span>Total Payable via Razorpay:</span>
+                        <span className="font-mono text-blue-600 dark:text-blue-400">
+                          ${grossTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Optional Razorpay Payment ID / UTR input if paying via payment link or assisted mode */}
+                {!razorpayConfig.hasLiveKeys && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Razorpay Payment ID / UTR Reference (Optional for Instant Order)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. pay_P9k28xL09a or UPI UTR (auto-generated if blank)"
+                      value={txHash}
+                      onChange={(e) => setTxHash(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-blue-500"
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={submitting || !depositAmount}
+                  className="w-full py-3.5 rounded-2xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Initializing Razorpay Checkout...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="w-4 h-4" />
+                      <span>
+                        Pay ${((parseFloat(depositAmount) || 0) * (1 + razorpayConfig.commissionPercent / 100)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD via Razorpay
+                      </span>
+                    </>
+                  )}
+                </button>
+              </form>
             ) : (
               /* ================= BANK WIRE TRANSFER ================= */
               <div className="space-y-4">

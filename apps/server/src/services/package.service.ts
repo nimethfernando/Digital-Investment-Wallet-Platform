@@ -124,7 +124,7 @@ export class PackageService {
     userId: string,
     params: {
       amount: number | string;
-      depositMethod: 'WALLET_BALANCE' | 'BANK_WIRE' | 'USDT_TRC20' | 'TBILISI_COUNTER';
+      depositMethod: 'WALLET_BALANCE' | 'BANK_WIRE' | 'USDT_TRC20' | 'RAZORPAY' | 'TBILISI_COUNTER' | string;
       proofUrl?: string;
       txHashOrRef?: string;
       lockInMonths?: number;
