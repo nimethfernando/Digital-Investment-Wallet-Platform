@@ -11,8 +11,11 @@ export const metadata: Metadata = {
   description: 'Fixed-term digital investment packages with 1% monthly returns, immutable double-entry ledger security, virtual cards, and institutional OTC settlement across global rails.',
   keywords: ['Avora Bank', 'digital investment', 'private wallet', 'crypto exchange', 'global OTC desk', 'virtual visa mastercard', 'double entry ledger'],
   icons: {
-    icon: '/favicon.ico',
-    apple: '/favicon.ico',
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/icon.png', type: 'image/png', sizes: '512x512' },
+    ],
+    apple: '/apple-touch-icon.png',
   },
 };
 
