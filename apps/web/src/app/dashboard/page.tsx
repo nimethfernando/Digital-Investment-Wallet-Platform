@@ -172,10 +172,12 @@ interface SavedPayee {
 
 interface SupportTicket {
   id: string;
-  type: string;
+  type?: string;
+  category?: string;
+  ticketNumber?: string;
   subject: string;
   message: string;
-  status: 'OPEN' | 'PENDING' | 'RESOLVED' | 'NEW';
+  status: 'OPEN' | 'PENDING' | 'WAITING_USER' | 'IN_REVIEW' | 'RESOLVED' | 'CLOSED' | 'NEW' | string;
   adminNotes?: string | null;
   createdAt: string;
 }
@@ -231,6 +233,7 @@ function DashboardContent() {
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [p2pModalOpen, setP2PModalOpen] = useState(false);
   const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
+  const [inquiryChatOpen, setInquiryChatOpen] = useState(false);
 
   // Deposit Form State
   const [depositAmount, setDepositAmount] = useState('');
@@ -354,7 +357,7 @@ function DashboardContent() {
       setWithdrawModalOpen(true);
     } else if (tab === 'card') {
       setActiveTab('card');
-    } else if (tab === 'support') {
+    } else if (tab === 'support' || tab === 'inquiry' || tab === 'inquiries' || tab === 'chat') {
       setActiveTab('support');
     } else if (tab === 'redotpay') {
       setActiveTab('redotpay');
@@ -878,7 +881,7 @@ function DashboardContent() {
                 { key: 'withdrawals', label: `Withdrawals (${withdrawals.length})`, icon: ArrowUpRight },
                 { key: 'transactions', label: 'Ledger Audit', icon: Clock },
                 { key: 'security', label: 'Security', icon: ShieldCheck },
-                { key: 'support', label: `Support (${tickets.length})`, icon: Headphones },
+                { key: 'support', label: `Inquiries & Chat (${tickets.length})`, icon: MessageSquare },
               ].map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.key || (tab.key === 'transfers' && (activeTab as string) === 'p2p');
@@ -2898,6 +2901,34 @@ function DashboardContent() {
           setDepositModalOpen(true);
         }}
       />
+
+      {/* Floating Support Inquiries & Admin Chat Launcher */}
+      <button
+        onClick={() => setInquiryChatOpen(true)}
+        className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-extrabold text-xs shadow-2xl shadow-emerald-950/40 border border-emerald-500/40 flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 group cursor-pointer"
+        title="Open Support Inquiries & Admin Chat"
+      >
+        <div className="relative">
+          <MessageSquare className="w-4 h-4 text-emerald-400 dark:text-white" />
+          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+        </div>
+        <span className="hidden sm:inline">Ask Admin / Inquiries</span>
+        <span className="sm:hidden">Inquiries</span>
+        {tickets.filter((t) => t.status !== 'RESOLVED' && t.status !== 'CLOSED').length > 0 && (
+          <span className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-mono font-bold">
+            {tickets.filter((t) => t.status !== 'RESOLVED' && t.status !== 'CLOSED').length}
+          </span>
+        )}
+      </button>
+
+      {/* Standalone Support Inquiry Chat Modal (Accessible from anywhere) */}
+      {inquiryChatOpen && (
+        <SupportTicketModule
+          isOpenModal={true}
+          onCloseModal={() => setInquiryChatOpen(false)}
+          onTicketCreated={fetchDashboardData}
+        />
+      )}
 
     </div>
   );

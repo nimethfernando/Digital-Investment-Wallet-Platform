@@ -8,12 +8,16 @@ const rate_limiter_1 = require("../middleware/rate-limiter");
 const router = (0, express_1.Router)();
 // Public BaaS / Visa Issuer Real-Time Authorization Webhook (Stripe Issuing / Interlace)
 router.post('/card/webhook/authorize', (req, res) => wallet_controller_1.walletController.authorizeCardWebhook(req, res));
+// Public Razorpay Webhook (Isolated for AVORA_BANK; safely ignores Avora Library events on shared merchant account)
+router.post('/razorpay/webhook', (req, res) => wallet_controller_1.walletController.handleRazorpayWebhook(req, res));
 router.use(auth_1.authenticateToken);
 router.get('/', (req, res, next) => wallet_controller_1.walletController.getWalletOverview(req, res, next));
 router.get('/transactions', (req, res, next) => wallet_controller_1.walletController.getTransactions(req, res, next));
 router.get('/deposit/instructions', (req, res, next) => wallet_controller_1.walletController.getDepositInstructions(req, res, next));
 router.post('/deposit', (req, res, next) => wallet_controller_1.walletController.submitDeposit(req, res, next));
 router.get('/deposits', (req, res, next) => wallet_controller_1.walletController.getDeposits(req, res, next));
+router.post('/razorpay/create-order', (req, res, next) => wallet_controller_1.walletController.createRazorpayOrder(req, res, next));
+router.post('/razorpay/verify', (req, res, next) => wallet_controller_1.walletController.verifyRazorpayPayment(req, res, next));
 router.post('/swap', (req, res, next) => wallet_controller_1.walletController.executeSwap(req, res, next));
 // Virtual Card Endpoints
 router.get('/card', (req, res, next) => wallet_controller_1.walletController.getCard(req, res, next));

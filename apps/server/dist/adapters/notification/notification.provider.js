@@ -23,9 +23,9 @@ class SmtpNotificationProvider {
                     user,
                     pass,
                 },
-                connectionTimeout: 5000,
-                greetingTimeout: 5000,
-                socketTimeout: 6000,
+                connectionTimeout: 10000,
+                greetingTimeout: 10000,
+                socketTimeout: 15000,
             });
             console.log(`[NotificationProvider] SMTP initialized successfully with user: ${user} (${host}:${port})`);
         }
@@ -34,7 +34,7 @@ class SmtpNotificationProvider {
         }
     }
     async sendEmail(options) {
-        const fromAddress = config_1.config.email.from || config_1.config.email.user || 'no-reply@avorabank.com';
+        const fromAddress = config_1.config.email.from || `Avora Bank <${config_1.config.email.user || 'gnbmailsender@gmail.com'}>`;
         console.log(`[NotificationProvider] Email dispatched to ${options.to} - "${options.subject}"`);
         if (process.env.NODE_ENV === 'test' || !this.transporter) {
             return true;
@@ -49,7 +49,7 @@ class SmtpNotificationProvider {
                     html: options.html,
                     text: options.text,
                 });
-                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP connection timed out')), 5000));
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP connection timed out')), 15000));
                 await Promise.race([emailPromise, timeoutPromise]);
             }
             catch (error) {

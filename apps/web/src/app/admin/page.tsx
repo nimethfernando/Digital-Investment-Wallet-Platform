@@ -973,7 +973,7 @@ export default function AdminPortalPage() {
             { id: 'config', label: 'Protocol Fee Controls', icon: Sliders },
             { id: 'system', label: 'System & Maintenance', icon: Settings },
             { id: 'audit', label: 'Audit Logs', icon: FileText },
-            { id: 'disputes', label: `Tickets (${tabBadgeCounts.disputes})`, icon: MessageSquare },
+            { id: 'disputes', label: `Inquiries & Chat (${tabBadgeCounts.disputes})`, icon: MessageSquare },
           ].map((t) => {
             const Icon = t.icon;
             return (
@@ -2069,11 +2069,11 @@ export default function AdminPortalPage() {
         {/* TAB 5: DISPUTE & TICKET DESK */}
         {activeTab === 'disputes' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Tickets List */}
+            {/* Inquiries & Tickets List */}
             <div className="lg:col-span-1 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-bold text-sm text-white">Tickets & Disputes ({tickets.length})</h4>
-                <button onClick={loadData} className="text-xs text-rose-400 hover:underline">
+                <h4 className="font-bold text-sm text-white">Client Inquiries & Support ({tickets.length})</h4>
+                <button onClick={loadData} className="text-xs text-emerald-400 hover:underline">
                   Refresh
                 </button>
               </div>
@@ -2081,7 +2081,7 @@ export default function AdminPortalPage() {
               <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
                 {tickets.length === 0 ? (
                   <div className="p-8 text-center text-xs text-slate-500 bg-slate-900 rounded-2xl border border-slate-800">
-                    No open tickets or disputes.
+                    No client inquiries or questions yet.
                   </div>
                 ) : (
                   tickets.map((t) => (
@@ -2097,19 +2097,19 @@ export default function AdminPortalPage() {
                       }}
                       className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
                         selectedTicket?.id === t.id
-                          ? 'border-rose-500 bg-rose-950/20'
+                          ? 'border-emerald-500 bg-emerald-950/20'
                           : 'border-slate-800 bg-slate-900 hover:bg-slate-850'
                       }`}
                     >
                       <div className="flex items-center justify-between text-xs pb-1">
-                        <span className="font-mono font-bold text-rose-400">{t.ticketNumber}</span>
+                        <span className="font-mono font-bold text-emerald-400">{t.ticketNumber}</span>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
                           {t.status}
                         </span>
                       </div>
                       <div className="text-xs font-bold text-white truncate">{t.subject}</div>
                       <div className="text-[11px] text-slate-400 truncate">
-                        {t.user?.email || 'Investor'} • {t.category}
+                        {t.user?.email || 'Client'} • {t.category}
                       </div>
                     </div>
                   ))
@@ -2122,16 +2122,36 @@ export default function AdminPortalPage() {
               {selectedTicket ? (
                 <div className="space-y-4 flex-1 flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-800 gap-2 flex-wrap">
                       <div>
                         <h4 className="font-extrabold text-base text-white">{selectedTicket.subject}</h4>
                         <div className="text-xs text-slate-400 font-mono">
                           {selectedTicket.ticketNumber} • {selectedTicket.user?.email} • Category: {selectedTicket.category}
                         </div>
                       </div>
-                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                        {selectedTicket.status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={selectedTicket.status}
+                          onChange={async (e) => {
+                            const newStatus = e.target.value;
+                            try {
+                              await api.patch(`/tickets/admin/${selectedTicket.id}/status`, { status: newStatus });
+                              showToast(`Status updated to ${newStatus}`, 'success');
+                              setSelectedTicket({ ...selectedTicket, status: newStatus });
+                              loadData();
+                            } catch (err: any) {
+                              showToast('Failed to update status', 'error');
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-950 border border-slate-700 text-emerald-300 outline-none cursor-pointer"
+                        >
+                          <option value="OPEN">OPEN (Waiting Desk)</option>
+                          <option value="IN_REVIEW">IN_REVIEW</option>
+                          <option value="WAITING_USER">WAITING_USER (Replied)</option>
+                          <option value="RESOLVED">RESOLVED</option>
+                          <option value="CLOSED">CLOSED</option>
+                        </select>
+                      </div>
                     </div>
 
                     {/* Messages Feed */}

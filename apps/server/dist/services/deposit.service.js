@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.depositService = exports.DepositService = void 0;
+const crypto_1 = __importDefault(require("crypto"));
 const client_1 = require("@prisma/client");
 const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
@@ -11,6 +12,55 @@ const ledger_service_1 = require("./ledger.service");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class DepositService {
+    /**
+     * Read Razorpay commission & API configuration from CMS settings or environment
+     * Default Commission: 5.0% Total (3.0% Razorpay Gateway Fee + 2.0% Avora Bank Margin)
+     */
+    async getRazorpayConfig() {
+        const keys = [
+            'razorpay_commission_percent',
+            'razorpay_gateway_fee_percent',
+            'razorpay_key_id',
+            'razorpay_key_secret',
+            'razorpay_webhook_secret',
+        ];
+        const settings = await prisma_1.prisma.cmsSetting.findMany({
+            where: { key: { in: keys } },
+        }).catch(() => []);
+        const map = new Map();
+        settings.forEach((s) => map.set(s.key, s.value));
+        const commissionPercent = parseFloat(map.get('razorpay_commission_percent') || '5.0');
+        const gatewayFeePercent = parseFloat(map.get('razorpay_gateway_fee_percent') || '3.0');
+        const safeCommission = isNaN(commissionPercent) || commissionPercent < 0 ? 5.0 : commissionPercent;
+        const safeGatewayFee = isNaN(gatewayFeePercent) || gatewayFeePercent < 0 ? 3.0 : gatewayFeePercent;
+        const platformSpreadPercent = Math.max(0, Number((safeCommission - safeGatewayFee).toFixed(2)));
+        const keyId = (map.get('razorpay_key_id') ||
+            process.env.RAZORPAY_KEY_ID ||
+            process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
+            '').trim();
+        const keySecret = (map.get('razorpay_key_secret') ||
+            process.env.RAZORPAY_KEY_SECRET ||
+            '').trim();
+        const webhookSecret = (map.get('razorpay_webhook_secret') ||
+            process.env.RAZORPAY_WEBHOOK_SECRET ||
+            '').trim();
+        const projectNamespace = (process.env.RAZORPAY_PROJECT_NAMESPACE || 'AVORA_BANK').trim();
+        const hasLiveKeys = Boolean(keyId &&
+            keySecret &&
+            keyId.startsWith('rzp_') &&
+            !keyId.includes('placeholder') &&
+            !keySecret.includes('placeholder'));
+        return {
+            commissionPercent: safeCommission,
+            gatewayFeePercent: safeGatewayFee,
+            platformSpreadPercent,
+            keyId,
+            keySecret,
+            webhookSecret,
+            projectNamespace,
+            hasLiveKeys,
+        };
+    }
     /**
      * Get deposit receiving addresses, networks, and instructions
      */
@@ -24,6 +74,7 @@ class DepositService {
         const bankIbanUsdSetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_iban_usd' } }).catch(() => null);
         const bankIbanEurSetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_iban_eur' } }).catch(() => null);
         const bankSwiftSetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_swift' } }).catch(() => null);
+        const razorpayCfg = await this.getRazorpayConfig();
         const trc20Address = trc20Setting?.value || process.env.USDT_TRC20_WALLET_ADDRESS || 'TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm';
         const erc20Address = erc20Setting?.value || process.env.USDT_ERC20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
         const bep20Address = bep20Setting?.value || process.env.USDT_BEP20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
@@ -117,6 +168,389 @@ class DepositService {
                     'Upload your payment confirmation receipt after dispatching.',
                 ],
             },
+            razorpay: {
+                id: 'RAZORPAY',
+                enabled: true,
+                hasLiveKeys: razorpayCfg.hasLiveKeys,
+                keyId: razorpayCfg.keyId || null,
+                commissionPercent: razorpayCfg.commissionPercent,
+                gatewayFeePercent: razorpayCfg.gatewayFeePercent,
+                platformSpreadPercent: razorpayCfg.platformSpreadPercent,
+                supportedCurrencies: ['USD', 'INR', 'EUR', 'GBP', 'AED'],
+                supportedMethods: [
+                    'Credit / Debit Cards (Visa, Mastercard, RuPay, Amex)',
+                    'UPI (Google Pay, PhonePe, Paytm, BHIM)',
+                    'NetBanking (50+ Supported Banks)',
+                    'International Cards & Wallets',
+                ],
+                minDeposit: 10,
+                tagline: `Instant Card, UPI & NetBanking • ${razorpayCfg.commissionPercent.toFixed(1)}% Total Fee (${razorpayCfg.gatewayFeePercent.toFixed(1)}% Razorpay + ${razorpayCfg.platformSpreadPercent.toFixed(1)}% Avora Margin)`,
+                instructions: [
+                    'Pay seamlessly using Credit/Debit Cards, UPI, NetBanking, or International Cards via Razorpay.',
+                    `A ${razorpayCfg.commissionPercent.toFixed(1)}% total platform commission applies (${razorpayCfg.gatewayFeePercent.toFixed(1)}% Razorpay gateway processing fee + ${razorpayCfg.platformSpreadPercent.toFixed(1)}% Avora Bank settlement margin).`,
+                    'Your net deposit amount is credited directly to your Avora Bank wallet upon payment verification.',
+                ],
+            },
+        };
+    }
+    /**
+     * Create a Razorpay payment order with 5% total platform commission breakdown
+     * (3% Razorpay gateway fee + 2% Avora Bank platform margin by default)
+     */
+    async createRazorpayOrder(userId, params) {
+        const rawAmount = parseFloat(String(params.amount));
+        if (isNaN(rawAmount) || rawAmount <= 0) {
+            throw new Error('Payment amount must be a positive number');
+        }
+        const user = await prisma_1.prisma.user.findUnique({ where: { id: userId } });
+        if (!user)
+            throw new Error('User not found');
+        const razorpayCfg = await this.getRazorpayConfig();
+        const totalCommPct = new decimal_js_1.default(razorpayCfg.commissionPercent);
+        const gatewayFeePct = new decimal_js_1.default(razorpayCfg.gatewayFeePercent);
+        const platformSpreadPct = decimal_js_1.default.max(new decimal_js_1.default(0), totalCommPct.minus(gatewayFeePct));
+        const inputDec = new decimal_js_1.default(rawAmount);
+        const feeMode = params.feeMode || 'ADD_ON_TOP';
+        let netWalletCredit;
+        let grossPayableAmount;
+        let razorpayGatewayFee;
+        let avoraPlatformFee;
+        let totalCommission;
+        if (feeMode === 'DEDUCT_FROM_GROSS') {
+            // User enters gross amount they are paying (e.g. "You Pay $1,000" on Buy Crypto)
+            grossPayableAmount = inputDec;
+            razorpayGatewayFee = grossPayableAmount.mul(gatewayFeePct).div(100);
+            avoraPlatformFee = grossPayableAmount.mul(platformSpreadPct).div(100);
+            totalCommission = razorpayGatewayFee.plus(avoraPlatformFee);
+            netWalletCredit = decimal_js_1.default.max(new decimal_js_1.default(0), grossPayableAmount.minus(totalCommission));
+        }
+        else {
+            // Default ADD_ON_TOP: User specifies net amount to credit to wallet/package ($1,000 -> pays $1,050)
+            netWalletCredit = inputDec;
+            razorpayGatewayFee = netWalletCredit.mul(gatewayFeePct).div(100);
+            avoraPlatformFee = netWalletCredit.mul(platformSpreadPct).div(100);
+            totalCommission = razorpayGatewayFee.plus(avoraPlatformFee);
+            grossPayableAmount = netWalletCredit.plus(totalCommission);
+        }
+        const walletCurrency = (params.currency || 'USD').toUpperCase();
+        const checkoutCurrency = (params.checkoutCurrency || 'USD').toUpperCase();
+        const depositCode = `RZP-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+        const purposeLabel = params.purpose || 'WALLET_DEPOSIT';
+        const feeSummaryNote = `Razorpay (${purposeLabel}) | Gross Charged: $${grossPayableAmount.toFixed(2)} USD | Total Commission ${totalCommPct.toFixed(1)}%: $${totalCommission.toFixed(2)} (${gatewayFeePct.toFixed(1)}% Razorpay Fee: $${razorpayGatewayFee.toFixed(2)} + ${platformSpreadPct.toFixed(1)}% Avora Margin: $${avoraPlatformFee.toFixed(2)}) | Net Wallet Credit: $${netWalletCredit.toFixed(2)} ${walletCurrency}`;
+        let razorpayOrderId = `order_avr_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`;
+        let mode = 'ASSISTED';
+        const amountSubunits = Math.max(100, Math.round(grossPayableAmount.toNumber() * 100));
+        const namespacedReceipt = `${razorpayCfg.projectNamespace}_${depositCode}`.slice(0, 40);
+        if (razorpayCfg.hasLiveKeys) {
+            try {
+                const basicAuth = Buffer.from(`${razorpayCfg.keyId}:${razorpayCfg.keySecret}`).toString('base64');
+                const response = await fetch('https://api.razorpay.com/v1/orders', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Basic ${basicAuth}`,
+                    },
+                    body: JSON.stringify({
+                        amount: amountSubunits,
+                        currency: checkoutCurrency,
+                        receipt: namespacedReceipt,
+                        notes: {
+                            project: razorpayCfg.projectNamespace,
+                            application: 'avora-bank-wallet',
+                            isolatedFrom: 'avora-library',
+                            userId,
+                            depositCode,
+                            purpose: purposeLabel,
+                            netWalletCreditUsd: netWalletCredit.toFixed(2),
+                            grossPayableUsd: grossPayableAmount.toFixed(2),
+                            commissionPercent: totalCommPct.toFixed(2),
+                            razorpayFeeUsd: razorpayGatewayFee.toFixed(2),
+                            avoraMarginUsd: avoraPlatformFee.toFixed(2),
+                        },
+                    }),
+                });
+                if (response.ok) {
+                    const orderData = await response.json();
+                    if (orderData && orderData.id) {
+                        razorpayOrderId = orderData.id;
+                        mode = 'LIVE';
+                    }
+                }
+                else {
+                    const errText = await response.text().catch(() => '');
+                    console.warn('[DepositService] Razorpay API non-200 response, falling back to assisted order:', errText);
+                }
+            }
+            catch (err) {
+                console.warn('[DepositService] Razorpay order creation fallback notice:', err);
+            }
+        }
+        const deposit = await prisma_1.prisma.depositRequest.create({
+            data: {
+                depositCode,
+                userId,
+                amount: netWalletCredit.toFixed(8),
+                currency: walletCurrency,
+                depositMethod: 'RAZORPAY',
+                txHashOrRef: razorpayOrderId,
+                adminNotes: feeSummaryNote,
+                status: client_1.DepositStatus.PENDING,
+            },
+        });
+        return {
+            mode,
+            keyId: razorpayCfg.hasLiveKeys ? razorpayCfg.keyId : null,
+            razorpayOrderId,
+            amountSubunits,
+            checkoutCurrency,
+            walletCurrency,
+            feeBreakdown: {
+                feeMode,
+                commissionPercent: Number(totalCommPct.toFixed(2)),
+                gatewayFeePercent: Number(gatewayFeePct.toFixed(2)),
+                platformSpreadPercent: Number(platformSpreadPct.toFixed(2)),
+                netWalletCredit: netWalletCredit.toFixed(2),
+                razorpayGatewayFee: razorpayGatewayFee.toFixed(2),
+                avoraPlatformFee: avoraPlatformFee.toFixed(2),
+                totalCommission: totalCommission.toFixed(2),
+                grossPayableAmount: grossPayableAmount.toFixed(2),
+            },
+            deposit: {
+                id: deposit.id,
+                depositCode: deposit.depositCode,
+                amount: netWalletCredit.toFixed(2),
+                currency: deposit.currency,
+                status: deposit.status,
+                txHashOrRef: deposit.txHashOrRef,
+            },
+            user: {
+                name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+                email: user.email,
+            },
+        };
+    }
+    /**
+     * Verify a Razorpay payment (HMAC-SHA256 signature verification when live keys are set,
+     * or payment reference / UTR confirmation) and credit the net amount to user's wallet.
+     */
+    async verifyRazorpayPayment(userId, params) {
+        if (!params.depositId || !params.razorpay_payment_id) {
+            throw new Error('depositId and razorpay_payment_id are required');
+        }
+        const deposit = await prisma_1.prisma.depositRequest.findUnique({
+            where: { id: params.depositId },
+            include: { user: true },
+        });
+        if (!deposit || deposit.userId !== userId) {
+            throw new Error('Razorpay deposit order not found');
+        }
+        if (deposit.status === client_1.DepositStatus.APPROVED) {
+            return {
+                verified: true,
+                autoCredited: true,
+                status: 'APPROVED',
+                deposit,
+                message: 'Razorpay payment already verified and credited to your wallet.',
+            };
+        }
+        const razorpayCfg = await this.getRazorpayConfig();
+        const paymentIdClean = params.razorpay_payment_id.trim();
+        const orderIdToVerify = (params.razorpay_order_id || deposit.txHashOrRef || '').trim();
+        // If live Razorpay keys & signature are present, verify cryptographic HMAC-SHA256 signature
+        if (razorpayCfg.hasLiveKeys && params.razorpay_signature) {
+            const expectedSignature = crypto_1.default
+                .createHmac('sha256', razorpayCfg.keySecret)
+                .update(`${orderIdToVerify}|${paymentIdClean}`)
+                .digest('hex');
+            if (expectedSignature !== params.razorpay_signature) {
+                throw new Error('Razorpay payment signature verification failed');
+            }
+            const approval = await ledger_service_1.ledgerService.processDepositApproval({
+                depositId: deposit.id,
+                depositCode: deposit.depositCode,
+                userId: deposit.userId,
+                amount: deposit.amount.toString(),
+                currency: deposit.currency,
+                reviewedBy: 'RAZORPAY_GATEWAY_WEBHOOK',
+                notes: `${deposit.adminNotes || 'Razorpay Verified'} | Payment ID: ${paymentIdClean}`,
+                txHash: paymentIdClean,
+            });
+            notification_provider_1.notificationService.sendEmail({
+                to: deposit.user.email,
+                subject: `Avora Bank Razorpay Deposit Credited - ${deposit.depositCode}`,
+                html: `
+          <h3>Razorpay Payment Verified & Credited</h3>
+          <p>Your Razorpay payment (ID: <code>${paymentIdClean}</code>) has been verified.</p>
+          <p>Net Credited Amount: <strong>$${new decimal_js_1.default(deposit.amount.toString()).toFixed(2)} ${deposit.currency}</strong> (after ${razorpayCfg.commissionPercent.toFixed(1)}% platform & gateway commission).</p>
+          <p>New Available Wallet Balance: <strong>$${approval.balanceAfter} ${deposit.currency}</strong>.</p>
+        `,
+            }).catch(() => { });
+            return {
+                verified: true,
+                autoCredited: true,
+                status: 'APPROVED',
+                deposit: approval.deposit,
+                balanceAfter: approval.balanceAfter,
+                message: `Payment verified via Razorpay! $${new decimal_js_1.default(deposit.amount.toString()).toFixed(2)} ${deposit.currency} (net of ${razorpayCfg.commissionPercent.toFixed(1)}% commission) has been credited to your wallet.`,
+            };
+        }
+        // Assisted / Standard Checkout Confirmation (records payment ID / UTR and auto-credits if AUTO_APPROVE_DEPOSITS is enabled or instant checkout confirmation)
+        const updatedNotes = `${deposit.adminNotes || 'Razorpay Payment'} | Ref/Payment ID: ${paymentIdClean}`;
+        const updated = await prisma_1.prisma.depositRequest.update({
+            where: { id: deposit.id },
+            data: {
+                txHashOrRef: paymentIdClean,
+                adminNotes: updatedNotes,
+            },
+        });
+        if (process.env.AUTO_APPROVE_DEPOSITS === 'true') {
+            const approval = await ledger_service_1.ledgerService.processDepositApproval({
+                depositId: deposit.id,
+                depositCode: deposit.depositCode,
+                userId: deposit.userId,
+                amount: deposit.amount.toString(),
+                currency: deposit.currency,
+                reviewedBy: 'RAZORPAY_INSTANT_DESK',
+                notes: updatedNotes,
+                txHash: paymentIdClean,
+            });
+            notification_provider_1.notificationService.sendEmail({
+                to: deposit.user.email,
+                subject: `Avora Bank Razorpay Deposit Credited - ${deposit.depositCode}`,
+                html: `
+          <h3>Razorpay Payment Confirmed</h3>
+          <p>Your Razorpay payment reference (<code>${paymentIdClean}</code>) has been confirmed and credited.</p>
+          <p>Net Credited Amount: <strong>$${new decimal_js_1.default(deposit.amount.toString()).toFixed(2)} ${deposit.currency}</strong> (after ${razorpayCfg.commissionPercent.toFixed(1)}% commission).</p>
+          <p>New Available Wallet Balance: <strong>$${approval.balanceAfter} ${deposit.currency}</strong>.</p>
+        `,
+            }).catch(() => { });
+            return {
+                verified: true,
+                autoCredited: true,
+                status: 'APPROVED',
+                deposit: approval.deposit,
+                balanceAfter: approval.balanceAfter,
+                message: `Razorpay payment confirmed! $${new decimal_js_1.default(deposit.amount.toString()).toFixed(2)} ${deposit.currency} (net of ${razorpayCfg.commissionPercent.toFixed(1)}% commission) has been credited to your wallet.`,
+            };
+        }
+        notification_provider_1.notificationService.sendEmail({
+            to: deposit.user.email,
+            subject: `Avora Bank Razorpay Deposit Received - ${deposit.depositCode}`,
+            html: `
+        <h3>Razorpay Payment Reference Logged</h3>
+        <p>We have received your Razorpay payment reference (<code>${paymentIdClean}</code>) for deposit code <strong>${deposit.depositCode}</strong>.</p>
+        <p>Net Wallet Credit (after ${razorpayCfg.commissionPercent.toFixed(1)}% commission): <strong>$${new decimal_js_1.default(deposit.amount.toString()).toFixed(2)} ${deposit.currency}</strong>.</p>
+        <p>Status: <strong>PENDING TREASURY VERIFICATION</strong>.</p>
+      `,
+        }).catch(() => { });
+        return {
+            verified: true,
+            autoCredited: false,
+            status: 'PENDING',
+            deposit: updated,
+            message: `Razorpay payment reference (${paymentIdClean}) submitted! Net credit of $${new decimal_js_1.default(deposit.amount.toString()).toFixed(2)} ${deposit.currency} (after ${razorpayCfg.commissionPercent.toFixed(1)}% commission) is queued for treasury verification.`,
+        };
+    }
+    /**
+     * Handle Razorpay Webhook events (payment.captured / order.paid)
+     * Multi-Project Safe: Because this Razorpay merchant account is shared with Avora Library,
+     * any webhook event belonging to Avora Library (or lacking AVORA_BANK project namespace / order match)
+     * is safely acknowledged with HTTP 200 (ignored: true) so Razorpay never disables either project's webhook.
+     */
+    async handleRazorpayWebhook(payload, rawBody, signatureHeader) {
+        const razorpayCfg = await this.getRazorpayConfig();
+        // 1. Verify webhook signature if secret & signature header are present
+        if (razorpayCfg.webhookSecret && signatureHeader && rawBody) {
+            const expectedSig = crypto_1.default
+                .createHmac('sha256', razorpayCfg.webhookSecret)
+                .update(rawBody)
+                .digest('hex');
+            if (expectedSig !== signatureHeader) {
+                // If another project on the same Razorpay account uses a different webhook secret, return ignored 200
+                return {
+                    received: true,
+                    ignored: true,
+                    reason: 'Signature mismatch or external project webhook secret',
+                };
+            }
+        }
+        const eventType = payload?.event || '';
+        const paymentEntity = payload?.payload?.payment?.entity || {};
+        const orderEntity = payload?.payload?.order?.entity || {};
+        const orderId = (paymentEntity.order_id || orderEntity.id || '').trim();
+        const paymentId = (paymentEntity.id || '').trim();
+        const receipt = (orderEntity.receipt || paymentEntity.receipt || '').trim();
+        const notes = {
+            ...(orderEntity.notes || {}),
+            ...(paymentEntity.notes || {}),
+        };
+        // 2. Multi-Project Isolation Check (Avora Bank vs Avora Library)
+        if (notes.project && notes.project !== razorpayCfg.projectNamespace && notes.project !== 'AVORA_BANK') {
+            return {
+                received: true,
+                ignored: true,
+                project: notes.project,
+                reason: `Event belongs to sibling project (${notes.project}) on shared Razorpay merchant account — safely ignored by Avora Bank.`,
+            };
+        }
+        if (receipt && !receipt.startsWith('AVORA_BANK_') && !receipt.startsWith('RZP-')) {
+            return {
+                received: true,
+                ignored: true,
+                receipt,
+                reason: 'Order receipt prefix belongs to external project (e.g. Avora Library) — safely ignored by Avora Bank.',
+            };
+        }
+        // 3. Locate corresponding Avora Bank DepositRequest
+        const deposit = await prisma_1.prisma.depositRequest.findFirst({
+            where: {
+                OR: [
+                    ...(orderId ? [{ txHashOrRef: orderId }] : []),
+                    ...(notes.depositCode ? [{ depositCode: String(notes.depositCode) }] : []),
+                ],
+            },
+        });
+        if (!deposit) {
+            // Order was created by Avora Library or another service sharing the Razorpay merchant account
+            return {
+                received: true,
+                ignored: true,
+                orderId,
+                reason: 'No matching Avora Bank deposit order (belongs to Avora Library or external project).',
+            };
+        }
+        if (deposit.status === client_1.DepositStatus.APPROVED) {
+            return {
+                received: true,
+                ignored: false,
+                alreadyProcessed: true,
+                depositCode: deposit.depositCode,
+            };
+        }
+        if (eventType === 'payment.captured' || eventType === 'order.paid') {
+            const approval = await ledger_service_1.ledgerService.processDepositApproval({
+                depositId: deposit.id,
+                depositCode: deposit.depositCode,
+                userId: deposit.userId,
+                amount: deposit.amount.toString(),
+                currency: deposit.currency,
+                reviewedBy: 'RAZORPAY_LIVE_WEBHOOK',
+                notes: `${deposit.adminNotes || 'Razorpay Webhook Verified'} | Webhook Event: ${eventType} | Payment ID: ${paymentId || orderId}`,
+                txHash: paymentId || orderId,
+            });
+            return {
+                received: true,
+                ignored: false,
+                approved: true,
+                depositCode: deposit.depositCode,
+                balanceAfter: approval.balanceAfter,
+            };
+        }
+        return {
+            received: true,
+            ignored: false,
+            eventType,
+            depositCode: deposit.depositCode,
         };
     }
     /**
@@ -138,6 +572,15 @@ class DepositService {
                 normalizedHash = `0x${normalizedHash}`;
             }
         }
+        let cleanProofUrl = data.proofUrl?.trim() || null;
+        if (cleanProofUrl && cleanProofUrl.includes('?__cf_chl')) {
+            cleanProofUrl = cleanProofUrl.split('?')[0];
+        }
+        if (!cleanProofUrl && normalizedHash && (data.depositMethod?.includes('BEP20') || currency === 'USDT')) {
+            if (normalizedHash.startsWith('0x')) {
+                cleanProofUrl = `https://bscscan.com/tx/${normalizedHash}`;
+            }
+        }
         const deposit = await prisma_1.prisma.depositRequest.create({
             data: {
                 depositCode,
@@ -145,7 +588,7 @@ class DepositService {
                 amount: new decimal_js_1.default(amountNum).toFixed(8),
                 currency,
                 depositMethod: data.depositMethod,
-                proofUrl: data.proofUrl || null,
+                proofUrl: cleanProofUrl,
                 txHashOrRef: normalizedHash || `REF-${depositCode}`,
                 status: client_1.DepositStatus.PENDING,
             },
@@ -176,7 +619,8 @@ class DepositService {
         <h3>Deposit Submitted</h3>
         <p>Your deposit of <strong>${amountNum.toLocaleString()} ${currency}</strong> via <strong>${data.depositMethod}</strong> has been received.</p>
         <p>Reference Code: <strong>${depositCode}</strong></p>
-        <p>Transaction Hash: <code>${data.txHashOrRef || 'N/A'}</code></p>
+        <p>Transaction Hash: <code>${normalizedHash || data.txHashOrRef || 'N/A'}</code></p>
+        ${cleanProofUrl ? `<p>Proof Explorer Link: <a href="${cleanProofUrl}">${cleanProofUrl}</a></p>` : ''}
         <p>Status: <strong>PENDING REVIEW</strong>. Funds will be credited once confirmed on-chain / bank statement.</p>
       `,
         }).catch(() => { });

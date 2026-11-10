@@ -159,6 +159,89 @@ class WalletController {
         }
     }
     /**
+     * Create a Razorpay payment order with 5% total platform commission breakdown
+     */
+    async createRazorpayOrder(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const { amount, currency, checkoutCurrency, feeMode, purpose } = req.body;
+            if (!amount || isNaN(parseFloat(String(amount))) || parseFloat(String(amount)) <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'A valid positive payment amount is required',
+                });
+            }
+            const orderResult = await deposit_service_1.depositService.createRazorpayOrder(userId, {
+                amount,
+                currency,
+                checkoutCurrency,
+                feeMode,
+                purpose,
+            });
+            res.status(201).json({
+                success: true,
+                message: 'Razorpay payment order initialized',
+                data: orderResult,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Verify a Razorpay payment and credit the net amount (after 5% commission) to user's wallet
+     */
+    async verifyRazorpayPayment(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const { depositId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+            if (!depositId || !razorpay_payment_id) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'depositId and razorpay_payment_id are required',
+                });
+            }
+            const result = await deposit_service_1.depositService.verifyRazorpayPayment(userId, {
+                depositId,
+                razorpay_order_id,
+                razorpay_payment_id,
+                razorpay_signature,
+            });
+            res.json({
+                success: true,
+                message: result.message,
+                data: result,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Public Razorpay Webhook endpoint (POST /api/v1/wallet/razorpay/webhook)
+     * Safely isolates Avora Bank orders from Avora Library orders on the shared merchant account
+     */
+    async handleRazorpayWebhook(req, res) {
+        try {
+            const signature = req.headers['x-razorpay-signature'];
+            const rawBody = req.rawBody || JSON.stringify(req.body || {});
+            const result = await deposit_service_1.depositService.handleRazorpayWebhook(req.body, rawBody, signature);
+            res.status(200).json({
+                success: true,
+                ...result,
+            });
+        }
+        catch (err) {
+            console.error('[WalletController] Razorpay webhook processing notice:', err);
+            // Always return 200 to prevent Razorpay from disabling shared merchant webhooks
+            res.status(200).json({
+                success: false,
+                received: true,
+                message: err.message || 'Webhook logged',
+            });
+        }
+    }
+    /**
      * Execute an instant real multi-currency swap between wallet balances
      */
     async executeSwap(req, res, next) {
