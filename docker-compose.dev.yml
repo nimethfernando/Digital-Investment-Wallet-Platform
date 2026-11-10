@@ -15,15 +15,15 @@ services:
       - JWT_REFRESH_SECRET=dev_refresh_secret_key_12345
       - CORS_ORIGIN=http://localhost:3000
       - UPLOAD_DIR=./uploads
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-rzp_live_TnowHJ9GdrYvsV}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-CAjiLZYrr7Zo4HyLRafqagyx}
-      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-avora_live_webhook_secret_2026}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
       - RAZORPAY_PROJECT_NAMESPACE=${RAZORPAY_PROJECT_NAMESPACE:-AVORA_BANK}
       - EMAIL_HOST=${EMAIL_HOST:-smtp.gmail.com}
       - EMAIL_PORT=${EMAIL_PORT:-587}
       - EMAIL_SECURE=${EMAIL_SECURE:-false}
       - EMAIL_USER=${EMAIL_USER:-gnbmailsender@gmail.com}
-      - EMAIL_PASS=${EMAIL_PASS:-akkjqlnhkgbudmxe}
+      - EMAIL_PASS=${EMAIL_PASS:-}
       - EMAIL_FROM=${EMAIL_FROM:-Avora Bank <gnbmailsender@gmail.com>}
       - ADMIN_NOTIFICATION_EMAIL=${ADMIN_NOTIFICATION_EMAIL:-gnbmailsender@gmail.com}
     volumes:

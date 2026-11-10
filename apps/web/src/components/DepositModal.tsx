@@ -143,7 +143,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
     platformSpreadPercent: 2.0,
     minDeposit: 10,
     hasLiveKeys: true,
-    keyId: (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_TnowHJ9GdrYvsV') as string | null,
+    keyId: (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || null) as string | null,
   });
   const [razorpayMethodTag, setRazorpayMethodTag] = useState<'CARD' | 'UPI' | 'NETBANKING'>('CARD');
 
@@ -281,7 +281,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
       }
 
       // If live Razorpay keys are configured on backend, open official Razorpay Checkout modal
-      const activeKeyId = orderData.keyId || razorpayConfig.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_TnowHJ9GdrYvsV';
+      const activeKeyId = orderData.keyId || razorpayConfig.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || null;
       if (orderData.mode === 'LIVE' && activeKeyId) {
         const scriptLoaded = await loadRazorpayCheckoutScript();
         if (scriptLoaded && (window as any).Razorpay) {

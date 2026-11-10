@@ -37,17 +37,17 @@ export class DepositService {
       map.get('razorpay_key_id') ||
       process.env.RAZORPAY_KEY_ID ||
       process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
-      'rzp_live_TnowHJ9GdrYvsV'
+      ''
     ).trim();
     const keySecret = (
       map.get('razorpay_key_secret') ||
       process.env.RAZORPAY_KEY_SECRET ||
-      'CAjiLZYrr7Zo4HyLRafqagyx'
+      ''
     ).trim();
     const webhookSecret = (
       map.get('razorpay_webhook_secret') ||
       process.env.RAZORPAY_WEBHOOK_SECRET ||
-      'avora_live_webhook_secret_2026'
+      ''
     ).trim();
     const projectNamespace = (process.env.RAZORPAY_PROJECT_NAMESPACE || 'AVORA_BANK').trim();
 

@@ -11,7 +11,7 @@ export const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   email: {
     user: (process.env.EMAIL_USER || 'gnbmailsender@gmail.com').trim(),
-    pass: (process.env.EMAIL_PASS || 'akkjqlnhkgbudmxe').trim(),
+    pass: (process.env.EMAIL_PASS || '').trim(),
     host: (process.env.EMAIL_HOST || 'smtp.gmail.com').trim(),
     port: Number(process.env.EMAIL_PORT) || 587,
     from: process.env.EMAIL_FROM || 'Avora Bank <gnbmailsender@gmail.com>',

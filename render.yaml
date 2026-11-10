@@ -26,17 +26,17 @@ services:
       - key: EMAIL_USER
         value: gnbmailsender@gmail.com
       - key: EMAIL_PASS
-        value: akkjqlnhkgbudmxe
+        sync: false
       - key: EMAIL_FROM
         value: "Avora Bank <gnbmailsender@gmail.com>"
       - key: ADMIN_NOTIFICATION_EMAIL
         value: gnbmailsender@gmail.com
       - key: RAZORPAY_KEY_ID
-        value: rzp_live_TnowHJ9GdrYvsV
+        sync: false
       - key: RAZORPAY_KEY_SECRET
-        value: CAjiLZYrr7Zo4HyLRafqagyx
+        sync: false
       - key: RAZORPAY_WEBHOOK_SECRET
-        value: avora_live_webhook_secret_2026
+        sync: false
       - key: RAZORPAY_PROJECT_NAMESPACE
         value: AVORA_BANK
 

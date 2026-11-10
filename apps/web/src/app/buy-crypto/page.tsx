@@ -215,7 +215,7 @@ export default function BuyCryptoPage() {
           throw new Error('Unable to initialize Razorpay order');
         }
 
-        const activeKeyId = orderData.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_TnowHJ9GdrYvsV';
+        const activeKeyId = orderData.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '';
         if (orderData.mode === 'LIVE' && activeKeyId && typeof window !== 'undefined') {
           const loadScript = (): Promise<boolean> =>
             new Promise((resolve) => {
