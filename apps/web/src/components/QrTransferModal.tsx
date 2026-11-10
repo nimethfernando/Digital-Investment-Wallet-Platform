@@ -68,12 +68,106 @@ export function QrTransferModal({
 
   // In-App Camera Scanner State
   const [cameraOpen, setCameraOpen] = useState<boolean>(false);
+  const [scannerStatus, setScannerStatus] = useState<string>('Point your camera at an Avora Account QR Code...');
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<any>(null);
 
   // Official external receiving EVM wallet address for USDT deposits
   const [receivingAddress, setReceivingAddress] = useState<string>('0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad');
+
+  // Ensure jsQR universal decoder is loaded (required for iOS Safari / iPhone which lacks native BarcodeDetector)
+  const ensureJsQrLoaded = (): Promise<any> => {
+    if (typeof window === 'undefined') return Promise.resolve(null);
+    if ((window as any).jsQR) return Promise.resolve((window as any).jsQR);
+
+    return new Promise((resolve) => {
+      const existing = document.getElementById('avora-jsqr-script') as HTMLScriptElement | null;
+      if (existing) {
+        if ((window as any).jsQR) {
+          resolve((window as any).jsQR);
+          return;
+        }
+        existing.addEventListener('load', () => resolve((window as any).jsQR));
+        existing.addEventListener('error', () => resolve(null));
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.id = 'avora-jsqr-script';
+      script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+      script.async = true;
+      script.onload = () => resolve((window as any).jsQR);
+      script.onerror = () => {
+        const fallback = document.createElement('script');
+        fallback.src = 'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js';
+        fallback.async = true;
+        fallback.onload = () => resolve((window as any).jsQR);
+        fallback.onerror = () => resolve(null);
+        document.head.appendChild(fallback);
+      };
+      document.head.appendChild(script);
+    });
+  };
+
+  // Decode QR code from any HTMLVideoElement or HTMLImageElement using HTML5 Canvas + jsQR
+  const decodeQrFromCanvasSource = (
+    source: CanvasImageSource,
+    sourceWidth: number,
+    sourceHeight: number
+  ): string | null => {
+    const jsQR = typeof window !== 'undefined' ? (window as any).jsQR : null;
+    if (!jsQR || !sourceWidth || !sourceHeight) return null;
+
+    if (!canvasRef.current) {
+      canvasRef.current = document.createElement('canvas');
+    }
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+
+    // Pass 1: Full frame scaled to max 720px
+    const scale1 = Math.min(1, 720 / Math.max(sourceWidth, sourceHeight));
+    const w1 = Math.max(1, Math.floor(sourceWidth * scale1));
+    const h1 = Math.max(1, Math.floor(sourceHeight * scale1));
+    canvas.width = w1;
+    canvas.height = h1;
+    ctx.drawImage(source, 0, 0, w1, h1);
+    const imgData1 = ctx.getImageData(0, 0, w1, h1);
+    const code1 = jsQR(imgData1.data, w1, h1, { inversionAttempts: 'attemptBoth' });
+    if (code1 && code1.data) return code1.data;
+
+    // Pass 2: Center 60% crop (zooms into QR code when pointing phone camera at a laptop screen)
+    const crop60 = Math.floor(Math.min(sourceWidth, sourceHeight) * 0.6);
+    if (crop60 > 80) {
+      const sx = Math.floor((sourceWidth - crop60) / 2);
+      const sy = Math.floor((sourceHeight - crop60) / 2);
+      const targetSize = 480;
+      canvas.width = targetSize;
+      canvas.height = targetSize;
+      ctx.drawImage(source, sx, sy, crop60, crop60, 0, 0, targetSize, targetSize);
+      const imgData2 = ctx.getImageData(0, 0, targetSize, targetSize);
+      const code2 = jsQR(imgData2.data, targetSize, targetSize, { inversionAttempts: 'attemptBoth' });
+      if (code2 && code2.data) return code2.data;
+    }
+
+    // Pass 3: Tighter Center 40% crop (for screenshots or further camera distance)
+    const crop40 = Math.floor(Math.min(sourceWidth, sourceHeight) * 0.4);
+    if (crop40 > 60) {
+      const sx = Math.floor((sourceWidth - crop40) / 2);
+      const sy = Math.floor((sourceHeight - crop40) / 2);
+      const targetSize = 420;
+      canvas.width = targetSize;
+      canvas.height = targetSize;
+      ctx.drawImage(source, sx, sy, crop40, crop40, 0, 0, targetSize, targetSize);
+      const imgData3 = ctx.getImageData(0, 0, targetSize, targetSize);
+      const code3 = jsQR(imgData3.data, targetSize, targetSize, { inversionAttempts: 'attemptBoth' });
+      if (code3 && code3.data) return code3.data;
+    }
+
+    return null;
+  };
 
   // Helper to parse any QR payload (https URL, avora: URI, or raw account/email)
   const parseQrPayload = (raw: string): { account: string; amount?: string } => {
@@ -96,6 +190,11 @@ export function QrTransferModal({
       } catch (e) {
         // fallback
       }
+    }
+    // Also detect any AVR-XXXX-XXXX account code inside arbitrary text
+    const avrMatch = trimmed.match(/AVR-\d{4}-\d{4}/i);
+    if (avrMatch) {
+      return { account: avrMatch[0].toUpperCase() };
     }
     return { account: trimmed };
   };
@@ -146,9 +245,10 @@ export function QrTransferModal({
     }
   };
 
-  // Sync initialTab & initialRecipient when modal opens
+  // Sync initialTab & initialRecipient when modal opens, and preload jsQR for instant iOS scanning
   useEffect(() => {
     if (isOpen) {
+      ensureJsQrLoaded().catch(() => {});
       if (initialTab) setTab(initialTab);
       setErrorMsg(null);
       setSuccessMsg(null);
@@ -173,7 +273,7 @@ export function QrTransferModal({
       .catch(() => {});
   }, [isOpen]);
 
-  // Generate QR Code dynamically using standard HTTPS URL so native iOS/Android Camera apps recognize it immediately
+  // Generate QR Code dynamically using standard HTTPS URL with crisp module size for easy screen-to-phone scanning
   useEffect(() => {
     if (!isOpen) return;
 
@@ -185,17 +285,17 @@ export function QrTransferModal({
           : 'https://avorabank.com';
       const amt = parseFloat(requestedAmount);
       if (!isNaN(amt) && amt > 0) {
-        qrContent = `${baseOrigin}/dashboard?tab=transfers&payTo=${encodeURIComponent(userAccountNumber)}&amount=${amt.toFixed(2)}`;
+        qrContent = `${baseOrigin}/dashboard?payTo=${encodeURIComponent(userAccountNumber)}&amount=${amt.toFixed(2)}`;
       } else {
-        qrContent = `${baseOrigin}/dashboard?tab=transfers&payTo=${encodeURIComponent(userAccountNumber)}`;
+        qrContent = `${baseOrigin}/dashboard?payTo=${encodeURIComponent(userAccountNumber)}`;
       }
     } else {
       qrContent = receivingAddress;
     }
 
     QRCode.toDataURL(qrContent, {
-      width: 340,
-      margin: 2,
+      width: 360,
+      margin: 3,
       color: {
         dark: '#0f172a',
         light: '#ffffff',
@@ -208,66 +308,129 @@ export function QrTransferModal({
 
   if (!isOpen) return null;
 
-  // Start Live Camera Scanner
+  // Start Live Camera Scanner (supports iOS Safari via jsQR + Canvas as well as Android/Desktop BarcodeDetector)
   const handleStartCamera = async () => {
     setErrorMsg(null);
+    setScannerStatus('Initializing camera & QR engine...');
+    await ensureJsQrLoaded();
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
       });
       streamRef.current = stream;
       setCameraOpen(true);
+      setScannerStatus('Point your camera at an Avora Account QR Code...');
 
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          videoRef.current.setAttribute('playsinline', 'true');
           videoRef.current.play().catch(() => {});
         }
-      }, 100);
+      }, 80);
 
-      if ('BarcodeDetector' in window) {
-        const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-        scanIntervalRef.current = setInterval(async () => {
-          if (videoRef.current && videoRef.current.readyState >= 2) {
-            try {
-              const barcodes = await detector.detect(videoRef.current);
-              if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-                const rawVal = barcodes[0].rawValue;
-                stopCamera();
-                executeLookup(rawVal);
-              }
-            } catch (e) {
-              // continue scanning
+      const nativeDetector =
+        typeof window !== 'undefined' && 'BarcodeDetector' in window
+          ? new (window as any).BarcodeDetector({ formats: ['qr_code'] })
+          : null;
+
+      scanIntervalRef.current = setInterval(async () => {
+        const videoEl = videoRef.current;
+        if (!videoEl || videoEl.readyState < 2 || !videoEl.videoWidth) return;
+
+        // 1. Universal HTML5 Canvas + jsQR scan (works on iOS Safari / iPhone & all browsers)
+        try {
+          const decoded = decodeQrFromCanvasSource(
+            videoEl,
+            videoEl.videoWidth,
+            videoEl.videoHeight
+          );
+          if (decoded) {
+            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+              navigator.vibrate(100);
             }
+            stopCamera();
+            executeLookup(decoded);
+            return;
           }
-        }, 350);
-      }
+        } catch (e) {
+          // continue
+        }
+
+        // 2. Native BarcodeDetector fallback if available
+        if (nativeDetector) {
+          try {
+            const barcodes = await nativeDetector.detect(videoEl);
+            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+              if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                navigator.vibrate(100);
+              }
+              stopCamera();
+              executeLookup(barcodes[0].rawValue);
+            }
+          } catch (e) {
+            // continue
+          }
+        }
+      }, 200);
     } catch (err) {
-      setErrorMsg('Camera access was denied or unavailable. You can also upload a QR screenshot or paste the account number.');
+      setErrorMsg(
+        'Camera access was denied or unavailable. You can also upload a QR screenshot or paste the account number.'
+      );
     }
   };
 
-  // Handle QR Image Upload
+  // Handle QR Image Upload (supports iOS Safari via jsQR + HTML5 Canvas)
   const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setErrorMsg(null);
+    await ensureJsQrLoaded();
 
-    if ('BarcodeDetector' in window) {
-      try {
-        const bitmap = await createImageBitmap(file);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = dataUrl;
+      });
+
+      const decoded = decodeQrFromCanvasSource(img, img.naturalWidth, img.naturalHeight);
+      if (decoded) {
+        stopCamera();
+        executeLookup(decoded);
+        return;
+      }
+
+      if ('BarcodeDetector' in window) {
         const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-        const barcodes = await detector.detect(bitmap);
+        const barcodes = await detector.detect(img);
         if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
           stopCamera();
           executeLookup(barcodes[0].rawValue);
           return;
         }
-      } catch (err) {
-        // fallback below
       }
+    } catch (err) {
+      // fall through to error message
     }
-    setErrorMsg('Could not automatically read QR from this image on this browser. Please scan with your phone camera or enter the AVR-... account number.');
+
+    setErrorMsg(
+      'Could not detect a clear QR code in that image. Try cropping closer to the QR square or enter the AVR-... account number below.'
+    );
   };
 
   // Copy helper
@@ -641,15 +804,26 @@ export function QrTransferModal({
 
               {cameraOpen && (
                 <div className="p-3 rounded-2xl bg-slate-950 border border-emerald-500/40 relative overflow-hidden space-y-2">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-48 object-cover rounded-xl bg-black"
-                  />
+                  <div className="relative w-full h-56 rounded-xl overflow-hidden bg-black">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Viewfinder targeting guide */}
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <div className="w-40 h-40 rounded-2xl border-2 border-emerald-400/80 shadow-[0_0_0_9999px_rgba(2,6,23,0.35)] relative">
+                        <div className="absolute -top-0.5 -left-0.5 w-4 h-4 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg" />
+                        <div className="absolute -top-0.5 -right-0.5 w-4 h-4 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg" />
+                        <div className="absolute -bottom-0.5 -left-0.5 w-4 h-4 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg" />
+                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 border-b-4 border-r-4 border-emerald-400 rounded-br-lg" />
+                      </div>
+                    </div>
+                  </div>
                   <div className="text-[11px] text-center text-emerald-400 font-mono">
-                    Point your camera at an Avora Account QR Code...
+                    {scannerStatus || 'Point your camera at an Avora Account QR Code...'}
                   </div>
                 </div>
               )}
