@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import { api, extractErrorMessage } from '../lib/api';
 import {
@@ -19,6 +19,8 @@ import {
   Smartphone,
   ExternalLink,
   Clipboard,
+  Camera,
+  Upload,
 } from 'lucide-react';
 
 interface QrTransferModalProps {
@@ -27,6 +29,8 @@ interface QrTransferModalProps {
   user: any;
   userAccountNumber: string;
   initialTab?: 'RECEIVE' | 'SEND';
+  initialRecipient?: string;
+  initialAmount?: string;
   onTransferSuccess?: () => void;
   onOpenExternalDeposit?: () => void;
 }
@@ -37,6 +41,8 @@ export function QrTransferModal({
   user,
   userAccountNumber,
   initialTab = 'RECEIVE',
+  initialRecipient = '',
+  initialAmount = '',
   onTransferSuccess,
   onOpenExternalDeposit,
 }: QrTransferModalProps) {
@@ -60,17 +66,101 @@ export function QrTransferModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // In-App Camera Scanner State
+  const [cameraOpen, setCameraOpen] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<any>(null);
+
   // Official external receiving EVM wallet address for USDT deposits
   const [receivingAddress, setReceivingAddress] = useState<string>('0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad');
 
-  // Sync initialTab when modal opens
+  // Helper to parse any QR payload (https URL, avora: URI, or raw account/email)
+  const parseQrPayload = (raw: string): { account: string; amount?: string } => {
+    const trimmed = raw.trim();
+    if (
+      trimmed.includes('payTo=') ||
+      trimmed.includes('to=') ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('avora:')
+    ) {
+      try {
+        const queryPart = trimmed.includes('?') ? trimmed.split('?')[1] : trimmed;
+        const params = new URLSearchParams(queryPart);
+        const to = params.get('payTo') || params.get('to') || params.get('account');
+        const amt = params.get('amount') || undefined;
+        if (to) {
+          return { account: to.trim(), amount: amt };
+        }
+      } catch (e) {
+        // fallback
+      }
+    }
+    return { account: trimmed };
+  };
+
+  // Stop active camera stream
+  const stopCamera = () => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setCameraOpen(false);
+  };
+
+  // Lookup recipient by identifier
+  const executeLookup = async (rawValue: string, prefillAmount?: string) => {
+    const { account, amount } = parseQrPayload(rawValue);
+    if (!account) return;
+
+    setRecipientInput(account);
+    if (amount) {
+      setSendAmount(amount);
+    } else if (prefillAmount) {
+      setSendAmount(prefillAmount);
+    }
+
+    setLookupLoading(true);
+    setErrorMsg(null);
+    setVerifiedRecipient(null);
+
+    try {
+      const res = await api.post('/p2p/lookup-recipient', { identifier: account });
+      if (res.data.success) {
+        setVerifiedRecipient(res.data.data);
+      }
+    } catch (err: any) {
+      setErrorMsg(
+        extractErrorMessage(
+          err,
+          'Recipient not found. Please verify the Avora Account Number or registered email.'
+        )
+      );
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  // Sync initialTab & initialRecipient when modal opens
   useEffect(() => {
     if (isOpen) {
       if (initialTab) setTab(initialTab);
       setErrorMsg(null);
       setSuccessMsg(null);
+      if (initialRecipient) {
+        setTab('SEND');
+        executeLookup(initialRecipient, initialAmount);
+      }
+    } else {
+      stopCamera();
     }
-  }, [isOpen, initialTab]);
+    return () => stopCamera();
+  }, [isOpen, initialTab, initialRecipient, initialAmount]);
 
   // Load active receiving address configured by admin
   useEffect(() => {
@@ -83,17 +173,21 @@ export function QrTransferModal({
       .catch(() => {});
   }, [isOpen]);
 
-  // Generate QR Code dynamically
+  // Generate QR Code dynamically using standard HTTPS URL so native iOS/Android Camera apps recognize it immediately
   useEffect(() => {
     if (!isOpen) return;
 
     let qrContent = userAccountNumber;
     if (receiveMode === 'AVORA_ACCOUNT') {
+      const baseOrigin =
+        typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'https://avorabank.com';
       const amt = parseFloat(requestedAmount);
       if (!isNaN(amt) && amt > 0) {
-        qrContent = `avora:transfer?to=${userAccountNumber}&amount=${amt.toFixed(2)}`;
+        qrContent = `${baseOrigin}/dashboard?tab=transfers&payTo=${encodeURIComponent(userAccountNumber)}&amount=${amt.toFixed(2)}`;
       } else {
-        qrContent = `avora:transfer?to=${userAccountNumber}`;
+        qrContent = `${baseOrigin}/dashboard?tab=transfers&payTo=${encodeURIComponent(userAccountNumber)}`;
       }
     } else {
       qrContent = receivingAddress;
@@ -113,6 +207,68 @@ export function QrTransferModal({
   }, [isOpen, receiveMode, userAccountNumber, requestedAmount, receivingAddress]);
 
   if (!isOpen) return null;
+
+  // Start Live Camera Scanner
+  const handleStartCamera = async () => {
+    setErrorMsg(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
+      streamRef.current = stream;
+      setCameraOpen(true);
+
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+      }, 100);
+
+      if ('BarcodeDetector' in window) {
+        const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+        scanIntervalRef.current = setInterval(async () => {
+          if (videoRef.current && videoRef.current.readyState >= 2) {
+            try {
+              const barcodes = await detector.detect(videoRef.current);
+              if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                const rawVal = barcodes[0].rawValue;
+                stopCamera();
+                executeLookup(rawVal);
+              }
+            } catch (e) {
+              // continue scanning
+            }
+          }
+        }, 350);
+      }
+    } catch (err) {
+      setErrorMsg('Camera access was denied or unavailable. You can also upload a QR screenshot or paste the account number.');
+    }
+  };
+
+  // Handle QR Image Upload
+  const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrorMsg(null);
+
+    if ('BarcodeDetector' in window) {
+      try {
+        const bitmap = await createImageBitmap(file);
+        const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+        const barcodes = await detector.detect(bitmap);
+        if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+          stopCamera();
+          executeLookup(barcodes[0].rawValue);
+          return;
+        }
+      } catch (err) {
+        // fallback below
+      }
+    }
+    setErrorMsg('Could not automatically read QR from this image on this browser. Please scan with your phone camera or enter the AVR-... account number.');
+  };
 
   // Copy helper
   const handleCopy = (text: string, type: 'account' | 'address') => {
@@ -135,37 +291,10 @@ export function QrTransferModal({
     link.click();
   };
 
-  // Lookup Recipient
+  // Lookup Recipient from button click
   const handleLookup = async () => {
     if (!recipientInput.trim()) return;
-    setLookupLoading(true);
-    setErrorMsg(null);
-    setVerifiedRecipient(null);
-
-    let parsedIdentifier = recipientInput.trim();
-    // Support QR URI: avora:transfer?to=AVR-XXXX-XXXX&amount=100
-    if (parsedIdentifier.startsWith('avora:transfer?') || parsedIdentifier.startsWith('avora:pay?')) {
-      try {
-        const query = new URLSearchParams(parsedIdentifier.split('?')[1]);
-        const to = query.get('to') || query.get('account');
-        const amt = query.get('amount');
-        if (to) parsedIdentifier = to;
-        if (amt && !sendAmount) setSendAmount(amt);
-      } catch (e) {
-        // use raw
-      }
-    }
-
-    try {
-      const res = await api.post('/p2p/lookup-recipient', { identifier: parsedIdentifier });
-      if (res.data.success) {
-        setVerifiedRecipient(res.data.data);
-      }
-    } catch (err: any) {
-      setErrorMsg(extractErrorMessage(err, 'Recipient not found. Please verify the Avora Account Number or registered email.'));
-    } finally {
-      setLookupLoading(false);
-    }
+    await executeLookup(recipientInput);
   };
 
   // Handle Send Execution
@@ -482,6 +611,50 @@ export function QrTransferModal({
               </div>
             )}
 
+            {/* In-App QR Scanner (Camera + Upload) */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={cameraOpen ? stopCamera : handleStartCamera}
+                  className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                    cameraOpen
+                      ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-800'
+                      : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-100/70'
+                  }`}
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>{cameraOpen ? 'Close Camera Scanner' : 'Scan QR with Camera'}</span>
+                </button>
+
+                <label className="flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer">
+                  <Upload className="w-4 h-4" />
+                  <span>Upload QR Image</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleQrImageUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {cameraOpen && (
+                <div className="p-3 rounded-2xl bg-slate-950 border border-emerald-500/40 relative overflow-hidden space-y-2">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-48 object-cover rounded-xl bg-black"
+                  />
+                  <div className="text-[11px] text-center text-emerald-400 font-mono">
+                    Point your camera at an Avora Account QR Code...
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Recipient Account Input */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -504,8 +677,7 @@ export function QrTransferModal({
                     try {
                       const text = await navigator.clipboard.readText();
                       if (text) {
-                        setRecipientInput(text.trim());
-                        setVerifiedRecipient(null);
+                        executeLookup(text);
                       }
                     } catch (e) {
                       // clipboard permission denied
@@ -527,7 +699,7 @@ export function QrTransferModal({
                 </button>
               </div>
               <p className="text-[10px] text-slate-400">
-                You can paste an Avora Account Number (`AVR-...`) or any scanned Avora QR code string.
+                Enter an Avora Account Number (`AVR-...`), registered email, or scan/paste any Avora QR link.
               </p>
             </div>
 

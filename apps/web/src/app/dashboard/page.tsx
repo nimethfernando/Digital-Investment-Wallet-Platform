@@ -327,13 +327,24 @@ function DashboardContent() {
   // QR Send / Receive Modal State
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrModalTab, setQrModalTab] = useState<'RECEIVE' | 'SEND'>('RECEIVE');
+  const [qrInitialRecipient, setQrInitialRecipient] = useState<string>('');
+  const [qrInitialAmount, setQrInitialAmount] = useState<string>('');
 
   const userAccountNumber = user?.accountNumber || generateLocalAccountNumber(user?.id);
 
   // Handle query params on initial load
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab === 'transfers' || tab === 'transfer' || tab === 'qr' || tab === 'p2p') {
+    const payTo = searchParams.get('payTo') || searchParams.get('to');
+    const payAmount = searchParams.get('amount') || '';
+
+    if (payTo) {
+      setActiveTab('transfers');
+      setQrInitialRecipient(payTo);
+      setQrInitialAmount(payAmount);
+      setQrModalTab('SEND');
+      setQrModalOpen(true);
+    } else if (tab === 'transfers' || tab === 'transfer' || tab === 'qr' || tab === 'p2p') {
       setActiveTab('transfers');
       setQrModalTab('RECEIVE');
       setQrModalOpen(true);
@@ -353,7 +364,11 @@ function DashboardContent() {
   // Auth gate
   useEffect(() => {
     if (!authLoading && !token) {
-      router.replace('/login');
+      const fullPath =
+        typeof window !== 'undefined'
+          ? window.location.pathname + window.location.search
+          : '/dashboard';
+      router.replace(`/login?redirect=${encodeURIComponent(fullPath)}`);
     }
   }, [authLoading, token, router]);
 
@@ -2223,6 +2238,9 @@ function DashboardContent() {
                       />
                       <button
                         onClick={() => {
+                          if (p2pRecipientInput.trim()) {
+                            setQrInitialRecipient(p2pRecipientInput.trim());
+                          }
                           setQrModalTab('SEND');
                           setQrModalOpen(true);
                         }}
@@ -2864,8 +2882,14 @@ function DashboardContent() {
       {/* QR Send / Receive Modal */}
       <QrTransferModal
         isOpen={qrModalOpen}
-        onClose={() => setQrModalOpen(false)}
+        onClose={() => {
+          setQrModalOpen(false);
+          setQrInitialRecipient('');
+          setQrInitialAmount('');
+        }}
         initialTab={qrModalTab}
+        initialRecipient={qrInitialRecipient}
+        initialAmount={qrInitialAmount}
         user={user}
         userAccountNumber={userAccountNumber}
         onTransferSuccess={fetchDashboardData}
