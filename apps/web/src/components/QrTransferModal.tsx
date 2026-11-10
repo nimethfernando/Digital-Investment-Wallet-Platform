@@ -68,6 +68,7 @@ export function QrTransferModal({
 
   // In-App Camera Scanner & QR Capture Feedback State
   const [cameraOpen, setCameraOpen] = useState<boolean>(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
   const [cameraCaptureLock, setCameraCaptureLock] = useState<boolean>(false);
   const [capturedQrInfo, setCapturedQrInfo] = useState<{
     account: string;
@@ -218,6 +219,18 @@ export function QrTransferModal({
       const code3 = jsQR(imgData3.data, targetSize, targetSize, { inversionAttempts: 'attemptBoth' });
       if (code3 && code3.data) return code3.data;
     }
+
+    // Pass 4: Horizontally Mirrored Frame (for Windows Laptops / MacBooks / Front Cameras with mirrored webcam drivers)
+    canvas.width = w1;
+    canvas.height = h1;
+    ctx.save();
+    ctx.translate(w1, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(source, 0, 0, w1, h1);
+    ctx.restore();
+    const imgData4 = ctx.getImageData(0, 0, w1, h1);
+    const code4 = jsQR(imgData4.data, w1, h1, { inversionAttempts: 'attemptBoth' });
+    if (code4 && code4.data) return code4.data;
 
     return null;
   };
@@ -423,23 +436,44 @@ export function QrTransferModal({
 
   if (!isOpen) return null;
 
-  // Start Live Camera Scanner (supports iOS Safari via jsQR + Canvas as well as Android/Desktop BarcodeDetector)
-  const handleStartCamera = async () => {
+  // Start Live Camera Scanner (supports Windows Laptops, MacBooks, iPhones, iPads, and all Android devices)
+  const startCameraWithMode = async (preferredMode: 'environment' | 'user') => {
+    stopCamera();
     setErrorMsg(null);
     setCameraCaptureLock(false);
     setCapturedQrInfo(null);
+    setCameraFacingMode(preferredMode);
     setScannerStatus('Initializing camera & QR engine...');
     await ensureJsQrLoaded();
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
+      let stream: MediaStream;
+      try {
+        // Tier 1: High-definition request with preferred camera (rear camera on phones/tablets, webcam on laptops)
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: preferredMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch (constraintErr) {
+        try {
+          // Tier 2: Basic facingMode without resolution constraints (for older iPads / Androids / laptop drivers)
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: preferredMode },
+            audio: false,
+          });
+        } catch (fallbackErr) {
+          // Tier 3: Universal default video device (for Windows Laptops / MacBooks / USB webcams)
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
+      }
+
       streamRef.current = stream;
       setCameraOpen(true);
       setScannerStatus('Point your camera at an Avora Account QR Code...');
@@ -461,7 +495,7 @@ export function QrTransferModal({
         const videoEl = videoRef.current;
         if (!videoEl || videoEl.readyState < 2 || !videoEl.videoWidth) return;
 
-        // 1. Universal HTML5 Canvas + jsQR scan (works on iOS Safari / iPhone & all browsers)
+        // 1. Universal HTML5 Canvas + jsQR scan (works on iOS Safari, iPadOS, macOS, Windows, and Android)
         try {
           const decoded = decodeQrFromCanvasSource(
             videoEl,
@@ -476,7 +510,7 @@ export function QrTransferModal({
           // continue
         }
 
-        // 2. Native BarcodeDetector fallback if available
+        // 2. Native BarcodeDetector hardware acceleration if available
         if (nativeDetector) {
           try {
             const barcodes = await nativeDetector.detect(videoEl);
@@ -493,6 +527,13 @@ export function QrTransferModal({
         'Camera access was denied or unavailable. You can also upload a QR screenshot or paste the account number.'
       );
     }
+  };
+
+  const handleStartCamera = () => startCameraWithMode(cameraFacingMode);
+
+  const handleSwitchCamera = () => {
+    const nextMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    startCameraWithMode(nextMode);
   };
 
   // Handle QR Image Upload (supports iOS Safari via jsQR + HTML5 Canvas)
@@ -964,8 +1005,17 @@ export function QrTransferModal({
                       </div>
                     )}
                   </div>
-                  <div className="text-[11px] text-center text-emerald-400 font-mono font-bold">
-                    {scannerStatus || 'Point your camera at an Avora Account QR Code...'}
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <div className="text-[11px] text-emerald-400 font-mono font-bold truncate">
+                      {scannerStatus || 'Point your camera at an Avora Account QR Code...'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSwitchCamera}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold border border-slate-700 shrink-0 transition-colors cursor-pointer"
+                    >
+                      Switch Camera
+                    </button>
                   </div>
                 </div>
               )}
