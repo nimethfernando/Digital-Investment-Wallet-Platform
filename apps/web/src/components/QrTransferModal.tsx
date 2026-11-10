@@ -66,13 +66,66 @@ export function QrTransferModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // In-App Camera Scanner State
+  // In-App Camera Scanner & QR Capture Feedback State
   const [cameraOpen, setCameraOpen] = useState<boolean>(false);
+  const [cameraCaptureLock, setCameraCaptureLock] = useState<boolean>(false);
+  const [capturedQrInfo, setCapturedQrInfo] = useState<{
+    account: string;
+    amount?: string;
+    source: 'CAMERA' | 'IMAGE' | 'LINK';
+    capturedAt: string;
+  } | null>(null);
   const [scannerStatus, setScannerStatus] = useState<string>('Point your camera at an Avora Account QR Code...');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<any>(null);
+  const amountInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Play crisp audio + haptic confirmation feedback when a QR code is captured
+  const playCaptureFeedback = () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([70, 40, 110]);
+      }
+    } catch (e) {
+      // ignore vibration errors
+    }
+
+    try {
+      if (typeof window === 'undefined') return;
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      // First tone (880Hz A5)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(880, now);
+      gain1.gain.setValueAtTime(0.12, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.09);
+
+      // Second tone (1318.5Hz E6 - pleasant confirmation chime)
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1318.5, now + 0.08);
+      gain2.gain.setValueAtTime(0.15, now + 0.08);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.08);
+      osc2.stop(now + 0.24);
+    } catch (e) {
+      // ignore audio context restrictions
+    }
+  };
 
   // Official external receiving EVM wallet address for USDT deposits
   const [receivingAddress, setReceivingAddress] = useState<string>('0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad');
@@ -209,11 +262,16 @@ export function QrTransferModal({
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+    setCameraCaptureLock(false);
     setCameraOpen(false);
   };
 
   // Lookup recipient by identifier
-  const executeLookup = async (rawValue: string, prefillAmount?: string) => {
+  const executeLookup = async (
+    rawValue: string,
+    prefillAmount?: string,
+    autoFocusAmount = false
+  ) => {
     const { account, amount } = parseQrPayload(rawValue);
     if (!account) return;
 
@@ -232,6 +290,11 @@ export function QrTransferModal({
       const res = await api.post('/p2p/lookup-recipient', { identifier: account });
       if (res.data.success) {
         setVerifiedRecipient(res.data.data);
+        if (autoFocusAmount && !amount && !prefillAmount) {
+          setTimeout(() => {
+            amountInputRef.current?.focus();
+          }, 150);
+        }
       }
     } catch (err: any) {
       setErrorMsg(
@@ -245,6 +308,48 @@ export function QrTransferModal({
     }
   };
 
+  // Unified QR Capture UX handler (Audio/Haptic chime + Lock-On Overlay + Persistent Capture Banner + Auto-Verify)
+  const handleQrCaptured = (rawQrText: string, source: 'CAMERA' | 'IMAGE' | 'LINK') => {
+    const { account, amount } = parseQrPayload(rawQrText);
+    if (!account) return;
+
+    playCaptureFeedback();
+
+    setCapturedQrInfo({
+      account,
+      amount,
+      source,
+      capturedAt: new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+    });
+
+    // Trigger recipient verification immediately
+    executeLookup(rawQrText, amount, true);
+
+    if (source === 'CAMERA') {
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+        scanIntervalRef.current = null;
+      }
+      // Freeze the video frame on the captured QR code for visual confirmation
+      try {
+        videoRef.current?.pause();
+      } catch (e) {
+        // ignore
+      }
+      setCameraCaptureLock(true);
+      setScannerStatus(`QR Code Captured! Found ${account}`);
+      setTimeout(() => {
+        stopCamera();
+      }, 900);
+    } else {
+      stopCamera();
+    }
+  };
+
   // Sync initialTab & initialRecipient when modal opens, and preload jsQR for instant iOS scanning
   useEffect(() => {
     if (isOpen) {
@@ -254,7 +359,17 @@ export function QrTransferModal({
       setSuccessMsg(null);
       if (initialRecipient) {
         setTab('SEND');
-        executeLookup(initialRecipient, initialAmount);
+        setCapturedQrInfo({
+          account: parseQrPayload(initialRecipient).account,
+          amount: initialAmount || parseQrPayload(initialRecipient).amount,
+          source: 'LINK',
+          capturedAt: new Date().toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }),
+        });
+        executeLookup(initialRecipient, initialAmount, true);
       }
     } else {
       stopCamera();
@@ -311,6 +426,8 @@ export function QrTransferModal({
   // Start Live Camera Scanner (supports iOS Safari via jsQR + Canvas as well as Android/Desktop BarcodeDetector)
   const handleStartCamera = async () => {
     setErrorMsg(null);
+    setCameraCaptureLock(false);
+    setCapturedQrInfo(null);
     setScannerStatus('Initializing camera & QR engine...');
     await ensureJsQrLoaded();
 
@@ -352,11 +469,7 @@ export function QrTransferModal({
             videoEl.videoHeight
           );
           if (decoded) {
-            if (typeof navigator !== 'undefined' && navigator.vibrate) {
-              navigator.vibrate(100);
-            }
-            stopCamera();
-            executeLookup(decoded);
+            handleQrCaptured(decoded, 'CAMERA');
             return;
           }
         } catch (e) {
@@ -368,11 +481,7 @@ export function QrTransferModal({
           try {
             const barcodes = await nativeDetector.detect(videoEl);
             if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-              if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                navigator.vibrate(100);
-              }
-              stopCamera();
-              executeLookup(barcodes[0].rawValue);
+              handleQrCaptured(barcodes[0].rawValue, 'CAMERA');
             }
           } catch (e) {
             // continue
@@ -391,6 +500,7 @@ export function QrTransferModal({
     const file = e.target.files?.[0];
     if (!file) return;
     setErrorMsg(null);
+    setCapturedQrInfo(null);
     await ensureJsQrLoaded();
 
     try {
@@ -410,8 +520,7 @@ export function QrTransferModal({
 
       const decoded = decodeQrFromCanvasSource(img, img.naturalWidth, img.naturalHeight);
       if (decoded) {
-        stopCamera();
-        executeLookup(decoded);
+        handleQrCaptured(decoded, 'IMAGE');
         return;
       }
 
@@ -419,8 +528,7 @@ export function QrTransferModal({
         const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
         const barcodes = await detector.detect(img);
         if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-          stopCamera();
-          executeLookup(barcodes[0].rawValue);
+          handleQrCaptured(barcodes[0].rawValue, 'IMAGE');
           return;
         }
       }
@@ -803,7 +911,13 @@ export function QrTransferModal({
               </div>
 
               {cameraOpen && (
-                <div className="p-3 rounded-2xl bg-slate-950 border border-emerald-500/40 relative overflow-hidden space-y-2">
+                <div
+                  className={`p-3 rounded-2xl bg-slate-950 border relative overflow-hidden space-y-2 transition-all duration-300 ${
+                    cameraCaptureLock
+                      ? 'border-emerald-400 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.35)]'
+                      : 'border-emerald-500/40'
+                  }`}
+                >
                   <div className="relative w-full h-56 rounded-xl overflow-hidden bg-black">
                     <video
                       ref={videoRef}
@@ -814,16 +928,102 @@ export function QrTransferModal({
                     />
                     {/* Viewfinder targeting guide */}
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <div className="w-40 h-40 rounded-2xl border-2 border-emerald-400/80 shadow-[0_0_0_9999px_rgba(2,6,23,0.35)] relative">
-                        <div className="absolute -top-0.5 -left-0.5 w-4 h-4 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg" />
-                        <div className="absolute -top-0.5 -right-0.5 w-4 h-4 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg" />
-                        <div className="absolute -bottom-0.5 -left-0.5 w-4 h-4 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg" />
-                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 border-b-4 border-r-4 border-emerald-400 rounded-br-lg" />
+                      <div
+                        className={`w-44 h-44 rounded-2xl border-2 shadow-[0_0_0_9999px_rgba(2,6,23,0.45)] relative transition-all duration-300 ${
+                          cameraCaptureLock
+                            ? 'scale-105 border-emerald-400 bg-emerald-500/20'
+                            : 'border-emerald-400/80'
+                        }`}
+                      >
+                        <div className="absolute -top-0.5 -left-0.5 w-5 h-5 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg" />
+                        <div className="absolute -top-0.5 -right-0.5 w-5 h-5 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg" />
+                        <div className="absolute -bottom-0.5 -left-0.5 w-5 h-5 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg" />
+                        <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 border-b-4 border-r-4 border-emerald-400 rounded-br-lg" />
+
+                        {/* Animated laser scan line while searching */}
+                        {!cameraCaptureLock && (
+                          <div className="absolute inset-x-2 top-1/2 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_#34d399] animate-pulse" />
+                        )}
                       </div>
                     </div>
+
+                    {/* Instant Lock-On Capture Overlay inside Camera Viewfinder */}
+                    {cameraCaptureLock && (
+                      <div className="absolute inset-0 bg-emerald-950/80 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 text-center animate-in fade-in zoom-in-95 duration-200">
+                        <div className="w-14 h-14 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-[0_0_25px_rgba(16,185,129,0.8)] mb-2.5 animate-bounce">
+                          <CheckCircle2 className="w-8 h-8 stroke-[2.5]" />
+                        </div>
+                        <div className="text-sm font-black uppercase tracking-wider text-white">
+                          QR Code Captured!
+                        </div>
+                        {capturedQrInfo?.account && (
+                          <div className="mt-1.5 px-3 py-1 rounded-full bg-black/50 border border-emerald-400/50 text-emerald-300 font-mono text-xs font-bold">
+                            {capturedQrInfo.account}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[11px] text-center text-emerald-400 font-mono">
+                  <div className="text-[11px] text-center text-emerald-400 font-mono font-bold">
                     {scannerStatus || 'Point your camera at an Avora Account QR Code...'}
+                  </div>
+                </div>
+              )}
+
+              {/* Persistent QR Captured Confirmation Banner */}
+              {capturedQrInfo && !cameraOpen && (
+                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-emerald-500/10 to-teal-500/10 border-2 border-emerald-500/50 dark:border-emerald-500/40 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/30 mt-0.5">
+                        <Check className="w-4 h-4 stroke-[3]" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-black text-emerald-800 dark:text-emerald-200">
+                            QR Code Captured
+                          </span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                            {capturedQrInfo.source === 'CAMERA'
+                              ? 'Camera Scan'
+                              : capturedQrInfo.source === 'IMAGE'
+                                ? 'Uploaded Image'
+                                : 'QR Link'}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-mono font-black text-slate-900 dark:text-white bg-white/80 dark:bg-slate-900/90 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                            {capturedQrInfo.account}
+                          </span>
+                          {capturedQrInfo.amount && (
+                            <span className="text-[11px] font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                              • Amount: ${capturedQrInfo.amount}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-300/90 font-medium">
+                          {lookupLoading ? (
+                            <span className="inline-flex items-center gap-1.5 animate-pulse">
+                              Verifying recipient account details...
+                            </span>
+                          ) : verifiedRecipient ? (
+                            <span>
+                              Matched to <strong>{verifiedRecipient.fullName}</strong> — ready to enter amount below
+                            </span>
+                          ) : (
+                            <span>Account populated from QR code</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleStartCamera}
+                      className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-white/80 hover:bg-white dark:bg-slate-900 dark:hover:bg-slate-800 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shrink-0 transition-colors cursor-pointer"
+                    >
+                      Rescan
+                    </button>
                   </div>
                 </div>
               )}
@@ -831,9 +1031,17 @@ export function QrTransferModal({
 
             {/* Recipient Account Input */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Recipient Avora Account Number or Registered Email
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Recipient Avora Account Number or Registered Email
+                </label>
+                {capturedQrInfo && (
+                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Auto-filled from QR
+                  </span>
+                )}
+              </div>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -842,8 +1050,13 @@ export function QrTransferModal({
                   onChange={(e) => {
                     setRecipientInput(e.target.value);
                     setVerifiedRecipient(null);
+                    setCapturedQrInfo(null);
                   }}
-                  className="w-full px-4 py-2.5 rounded-2xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500 font-bold"
+                  className={`w-full px-4 py-2.5 rounded-2xl text-xs border bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500 font-bold transition-all ${
+                    capturedQrInfo
+                      ? 'border-emerald-500/70 ring-2 ring-emerald-500/15'
+                      : 'border-slate-200 dark:border-slate-800'
+                  }`}
                 />
                 <button
                   type="button"
@@ -920,6 +1133,7 @@ export function QrTransferModal({
               <div className="relative">
                 <span className="absolute left-3.5 top-2.5 text-base font-bold text-slate-400">$</span>
                 <input
+                  ref={amountInputRef}
                   type="number"
                   step="0.01"
                   min="1"
