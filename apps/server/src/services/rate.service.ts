@@ -8,6 +8,9 @@ export class RateService {
   private cachedRates: Record<string, number> = {
     USD: 1.0,
     USDT: 1.0,
+    USDC: 1.0,
+    BTC: 1 / 92000,
+    ETH: 1 / 3100,
     EUR: 0.896,
     GBP: 0.747,
     INR: 86.42,
@@ -126,6 +129,9 @@ export class RateService {
 
         mergedRates.USD = 1.0;
         mergedRates.USDT = 1.0;
+        mergedRates.USDC = 1.0;
+        if (!mergedRates.BTC || mergedRates.BTC <= 0) mergedRates.BTC = 1 / 92000;
+        if (!mergedRates.ETH || mergedRates.ETH <= 0) mergedRates.ETH = 1 / 3100;
 
         this.cachedRates = mergedRates;
         this.lastFetched = Date.now();

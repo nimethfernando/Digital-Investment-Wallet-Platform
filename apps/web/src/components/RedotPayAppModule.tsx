@@ -177,6 +177,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const [livePerUsdRates, setLivePerUsdRates] = useState<Record<string, number>>({
     USD: 1.0,
     USDT: 1.0,
+    USDC: 1.0,
+    BTC: 1 / 92000,
+    ETH: 1 / 3100,
     EUR: 0.896,
     GEL: 2.595,
     INR: 95.08,
@@ -194,6 +197,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               ...res.data.rates,
               USD: 1.0,
               USDT: 1.0,
+              USDC: 1.0,
+              BTC: res.data.rates.BTC || 1 / 92000,
+              ETH: res.data.rates.ETH || 1 / 3100,
             }));
           }
           if (typeof res.data?.marginPercent === 'number') {
@@ -239,6 +245,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   // Balances
   const usdBal = wallet?.balances?.find((b: any) => b.currency === 'USD')?.availableBalance || '0.00';
   const usdtBal = wallet?.balances?.find((b: any) => b.currency === 'USDT')?.availableBalance || '0.00';
+  const usdcBal = wallet?.balances?.find((b: any) => b.currency === 'USDC')?.availableBalance || '0.00';
+  const btcBal = wallet?.balances?.find((b: any) => b.currency === 'BTC')?.availableBalance || '0.000000';
+  const ethBal = wallet?.balances?.find((b: any) => b.currency === 'ETH')?.availableBalance || '0.000000';
   const eurBal = wallet?.balances?.find((b: any) => b.currency === 'EUR')?.availableBalance || '0.00';
   const gelBal = wallet?.balances?.find((b: any) => b.currency === 'GEL')?.availableBalance || '0.00';
   const inrBal = wallet?.balances?.find((b: any) => b.currency === 'INR')?.availableBalance || '0.00';
@@ -246,13 +255,19 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const balanceMap: Record<string, string> = {
     USD: usdBal,
     USDT: usdtBal,
+    USDC: usdcBal,
+    BTC: btcBal,
+    ETH: ethBal,
     EUR: eurBal,
     GEL: gelBal,
     INR: inrBal,
   };
 
   const currentFromBalance = balanceMap[sendFromCurrency] || '0.00';
+  const isInsufficientFromBalance = parseFloat(currentFromBalance) < parseFloat(sendAmount || '0') || parseFloat(currentFromBalance) <= 0;
 
+  const btcInUsd = parseFloat(btcBal) / (livePerUsdRates.BTC || (1 / 92000));
+  const ethInUsd = parseFloat(ethBal) / (livePerUsdRates.ETH || (1 / 3100));
   const eurInUsd = parseFloat(eurBal) / (livePerUsdRates.EUR || 0.896);
   const gelInUsd = parseFloat(gelBal) / (livePerUsdRates.GEL || 2.595);
   const inrInUsd = parseFloat(inrBal) / (livePerUsdRates.INR || 95.08);
@@ -260,6 +275,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const totalEstimatedUsd = (
     parseFloat(usdBal) +
     parseFloat(usdtBal) +
+    parseFloat(usdcBal) +
+    btcInUsd +
+    ethInUsd +
     eurInUsd +
     gelInUsd +
     inrInUsd
@@ -413,6 +431,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           </button>
 
           <button
+            onClick={() => router.push('/buy-crypto')}
+            className="px-5 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+            title="Buy USDT, BTC, ETH with Credit Card or Bank Wire"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Buy Crypto</span>
+          </button>
+
+          <button
             onClick={() => setChooseMethodModalOpen(true)}
             className="px-5 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-lg shadow-rose-950/20 dark:shadow-rose-950/40 flex items-center gap-2 transition-all cursor-pointer active:scale-95"
           >
@@ -469,20 +496,33 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </div>
               </div>
               <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold">
-                1 {sendFromCurrency} ≈ {((livePerUsdRates[sendToCurrency] || 1) / (livePerUsdRates[sendFromCurrency] || 1)).toFixed(4)} {sendToCurrency}
+                1 {sendFromCurrency} ≈ {(((livePerUsdRates[sendToCurrency] || 1) / (livePerUsdRates[sendFromCurrency] || 1)) < 0.001
+                  ? ((livePerUsdRates[sendToCurrency] || 1) / (livePerUsdRates[sendFromCurrency] || 1)).toFixed(8)
+                  : ((livePerUsdRates[sendToCurrency] || 1) / (livePerUsdRates[sendFromCurrency] || 1)).toFixed(4))} {sendToCurrency}
               </span>
             </div>
 
-            {/* Error Banner */}
+            {/* Error Banner with Direct Deposit Action */}
             {swapError && (
-              <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between">
+              <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{swapError}</span>
                 </div>
-                <button onClick={() => setSwapError(null)} className="cursor-pointer">
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {swapError.includes('Insufficient') && (
+                    <button
+                      onClick={onOpenDeposit}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3 stroke-[3]" />
+                      <span>Deposit {sendFromCurrency}</span>
+                    </button>
+                  )}
+                  <button onClick={() => setSwapError(null)} className="p-1 hover:text-rose-800 dark:hover:text-rose-200 cursor-pointer">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             )}
 
@@ -493,7 +533,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span className="font-semibold uppercase tracking-wider text-[11px]">Pay From</span>
                   <div className="flex items-center gap-1.5">
-                    <span>Available: <strong className="text-slate-900 dark:text-white font-mono">{parseFloat(currentFromBalance).toFixed(4)}</strong> {sendFromCurrency}</span>
+                    <span>Available: <strong className="text-slate-900 dark:text-white font-mono">{parseFloat(currentFromBalance).toFixed(sendFromCurrency === 'BTC' || sendFromCurrency === 'ETH' ? 6 : 4)}</strong> {sendFromCurrency}</span>
                     <button
                       onClick={onOpenDeposit}
                       className="w-4 h-4 rounded-full bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shadow-xs"
@@ -511,14 +551,17 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                       onChange={(e) => setSendFromCurrency(e.target.value)}
                       className="appearance-none bg-white hover:bg-slate-100/80 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-900 dark:text-white font-black text-sm pl-10 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer transition-colors shadow-xs"
                     >
-                      <option value="USDT">USDT (Crypto)</option>
-                      <option value="USD">USD (Fiat)</option>
-                      <option value="EUR">EUR (SEPA)</option>
-                      <option value="GEL">GEL (Lari)</option>
-                      <option value="INR">INR (Rupee)</option>
+                      <option value="USDT">USDT</option>
+                      <option value="USD">USD</option>
+                      <option value="BTC">BTC</option>
+                      <option value="ETH">ETH</option>
+                      <option value="USDC">USDC</option>
+                      <option value="EUR">EUR</option>
+                      <option value="GEL">GEL</option>
+                      <option value="INR">INR</option>
                     </select>
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold pointer-events-none">
-                      {sendFromCurrency === 'USDT' ? '₮' : sendFromCurrency === 'USD' ? '$' : sendFromCurrency === 'EUR' ? '€' : sendFromCurrency === 'GEL' ? '₾' : '₹'}
+                      {sendFromCurrency === 'USDT' ? '₮' : sendFromCurrency === 'BTC' ? '₿' : sendFromCurrency === 'ETH' ? 'Ξ' : sendFromCurrency === 'EUR' ? '€' : sendFromCurrency === 'GEL' ? '₾' : sendFromCurrency === 'INR' ? '₹' : '$'}
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
                   </div>
@@ -532,7 +575,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                       className="bg-transparent text-right font-mono text-2xl sm:text-3xl font-black text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-700 outline-none w-full"
                     />
                     <button
-                      onClick={() => setSendAmount(parseFloat(currentFromBalance).toFixed(4))}
+                      onClick={() => setSendAmount(parseFloat(currentFromBalance).toFixed(sendFromCurrency === 'BTC' || sendFromCurrency === 'ETH' ? 6 : 4))}
                       className="text-[11px] font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white px-2 py-0.5 mt-1 rounded bg-slate-200/80 hover:bg-slate-300/80 dark:bg-slate-800/80 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                     >
                       Use Max
@@ -568,15 +611,17 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                       onChange={(e) => setSendToCurrency(e.target.value)}
                       className="appearance-none bg-white hover:bg-slate-100/80 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-900 dark:text-white font-black text-sm pl-10 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer transition-colors shadow-xs"
                     >
-                      <option value="USDC">USDC (Crypto)</option>
-                      <option value="USD">USD (Fiat)</option>
-                      <option value="USDT">USDT (Crypto)</option>
-                      <option value="EUR">EUR (SEPA)</option>
-                      <option value="GEL">GEL (Lari)</option>
-                      <option value="INR">INR (Rupee)</option>
+                      <option value="USD">USD</option>
+                      <option value="USDT">USDT</option>
+                      <option value="BTC">BTC</option>
+                      <option value="ETH">ETH</option>
+                      <option value="USDC">USDC</option>
+                      <option value="EUR">EUR</option>
+                      <option value="GEL">GEL</option>
+                      <option value="INR">INR</option>
                     </select>
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center text-[10px] font-bold pointer-events-none">
-                      {sendToCurrency.includes('USD') ? '$' : sendToCurrency === 'EUR' ? '€' : sendToCurrency === 'GEL' ? '₾' : sendToCurrency === 'INR' ? '₹' : '₮'}
+                      {sendToCurrency === 'BTC' ? '₿' : sendToCurrency === 'ETH' ? 'Ξ' : sendToCurrency === 'EUR' ? '€' : sendToCurrency === 'GEL' ? '₾' : sendToCurrency === 'INR' ? '₹' : '$'}
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
                   </div>
@@ -587,8 +632,8 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                         ? (
                             (parseFloat(sendAmount || '0') * (livePerUsdRates[sendToCurrency] || 1)) /
                             (livePerUsdRates[sendFromCurrency] || 1)
-                          ).toFixed(4)
-                        : '0.0000'}
+                          ).toFixed(sendToCurrency === 'BTC' || sendToCurrency === 'ETH' ? 6 : 4)
+                        : (sendToCurrency === 'BTC' || sendToCurrency === 'ETH' ? '0.000000' : '0.0000')}
                     </div>
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
                       ≈ ${parseFloat(sendAmount || '0') > 0
@@ -603,13 +648,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </div>
             </div>
 
-            {/* Execute Swap Button */}
+            {/* Execute Swap Button with Smart Deposit State */}
             <button
-              onClick={handleExecuteSwap}
+              onClick={isInsufficientFromBalance ? onOpenDeposit : handleExecuteSwap}
               disabled={swapping || parseFloat(sendAmount || '0') <= 0}
               className={`w-full py-4 rounded-2xl font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer ${
                 swapping || parseFloat(sendAmount || '0') <= 0
                   ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                  : isInsufficientFromBalance
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20 active:scale-[0.99]'
                   : 'bg-slate-900 hover:bg-black text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-950 active:scale-[0.99] shadow-slate-900/20 dark:shadow-slate-900/50'
               }`}
             >
@@ -617,6 +664,11 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-white dark:text-slate-950" />
                   <span>Settling Double-Entry Swap...</span>
+                </>
+              ) : isInsufficientFromBalance ? (
+                <>
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>Deposit {sendFromCurrency} to Swap ({parseFloat(currentFromBalance).toFixed(sendFromCurrency === 'BTC' || sendFromCurrency === 'ETH' ? 6 : 2)} Available)</span>
                 </>
               ) : (
                 <>
@@ -804,12 +856,12 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
 
             {/* Crypto Assets List */}
             {assetsSubTab === 'crypto' && (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {[
                   { name: 'USDT', sub: 'Tether USD (BEP-20 / TRC-20)', bal: `${parseFloat(usdtBal).toLocaleString()} USDT`, val: `$${parseFloat(usdtBal).toFixed(2)} USD`, icon: '₮', color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' },
-                  { name: 'USDC', sub: 'USD Coin (ERC-20 / Solana)', bal: '0.0000 USDC', val: '$0.00 USD', icon: '$', color: 'text-blue-600 dark:text-blue-400 bg-blue-500/10' },
-                  { name: 'BTC', sub: 'Bitcoin (Lightning & Native)', bal: '0.000000 BTC', val: '$0.00 USD', icon: '₿', color: 'text-amber-600 dark:text-amber-400 bg-amber-500/10' },
-                  { name: 'ETH', sub: 'Ethereum Mainnet', bal: '0.000000 ETH', val: '$0.00 USD', icon: 'Ξ', color: 'text-purple-600 dark:text-purple-400 bg-purple-500/10' },
+                  { name: 'USDC', sub: 'USD Coin (ERC-20 / Solana)', bal: `${parseFloat(usdcBal).toLocaleString()} USDC`, val: `$${parseFloat(usdcBal).toFixed(2)} USD`, icon: '$', color: 'text-blue-600 dark:text-blue-400 bg-blue-500/10' },
+                  { name: 'BTC', sub: 'Bitcoin (Lightning & Native)', bal: `${parseFloat(btcBal).toFixed(6)} BTC`, val: `$${btcInUsd.toFixed(2)} USD`, icon: '₿', color: 'text-amber-600 dark:text-amber-400 bg-amber-500/10' },
+                  { name: 'ETH', sub: 'Ethereum Mainnet', bal: `${parseFloat(ethBal).toFixed(6)} ETH`, val: `$${ethInUsd.toFixed(2)} USD`, icon: 'Ξ', color: 'text-purple-600 dark:text-purple-400 bg-purple-500/10' },
                 ].map((token) => (
                   <div
                     key={token.name}
@@ -820,21 +872,62 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                         {token.icon}
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-slate-900 dark:text-white">{token.name}</div>
+                        <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <span>{token.name}</span>
+                          {(token.name === 'BTC' || token.name === 'ETH') && (
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20">
+                              1 {token.name} ≈ ${(1 / (livePerUsdRates[token.name] || 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-slate-500 dark:text-slate-400">{token.sub}</div>
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <div className="text-xs font-mono font-bold text-slate-900 dark:text-white">
-                        {showBalance ? token.bal : '••••'}
+                    <div className="flex items-center gap-2.5">
+                      <div className="text-right">
+                        <div className="text-xs font-mono font-bold text-slate-900 dark:text-white">
+                          {showBalance ? token.bal : '••••'}
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                          ≈ {showBalance ? token.val : '••••'}
+                        </div>
                       </div>
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                        ≈ {showBalance ? token.val : '••••'}
-                      </div>
+
+                      <button
+                        onClick={() => {
+                          setSendToCurrency(token.name);
+                          window.scrollTo({ top: 380, behavior: 'smooth' });
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
+                        title={`Swap to ${token.name}`}
+                      >
+                        Swap
+                      </button>
                     </div>
                   </div>
                 ))}
+
+                {/* Instant Buy Crypto On-Ramp Banner */}
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-sky-50 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900 border border-emerald-200/90 dark:border-emerald-800/60 flex items-center justify-between gap-3 shadow-xs mt-2">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Buy BTC, ETH &amp; USDT with Card or Wire</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Instant on-ramp via Visa, Mastercard, Apple Pay &amp; SEPA
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => router.push('/buy-crypto')}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 flex items-center gap-1.5 transition-all cursor-pointer shrink-0 active:scale-95"
+                  >
+                    <span>Buy Crypto</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1591,466 +1684,6 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   setIntlRecipientModalOpen(true);
                 }}
                 className="flex-1 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors cursor-pointer shadow-lg shadow-rose-950/20 dark:shadow-rose-950/40"
-              >
-                Apply &amp; Pay Bill
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal 4: Choose Send Method Modal */}
-      <ChooseSendMethodModal
-        isOpen={chooseMethodModalOpen}
-        onClose={() => setChooseMethodModalOpen(false)}
-        onSelectInternational={() => {
-          setChooseMethodModalOpen(false);
-          setIntlRecipientModalOpen(true);
-        }}
-        onSelectAvoraUser={() => {
-          setChooseMethodModalOpen(false);
-          if (onOpenQrScanner) onOpenQrScanner();
-          else onOpenP2P();
-        }}
-      />
-
-      {/* Modal 5: International Bank Recipient Form Modal */}
-      {intlRecipientModalOpen && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-black border border-zinc-800 w-full max-w-lg h-[92vh] sm:h-auto sm:max-h-[88vh] rounded-t-[32px] sm:rounded-3xl p-6 flex flex-col text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
-            
-            <div className="flex items-center justify-between pb-4 border-b border-zinc-900 shrink-0">
-              <button
-                onClick={() => setIntlRecipientModalOpen(false)}
-                className="p-1.5 -ml-1.5 rounded-full hover:bg-zinc-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                title="Back"
-              >
-                <ArrowLeft className="w-6 h-6" />
-              </button>
-              <h3 className="font-extrabold text-base text-white">Bank details</h3>
-              <div className="w-6" />
-            </div>
-
-            <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
-              <div className="flex items-center gap-2 pb-1 overflow-x-auto scrollbar-none">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onOpenQrScanner) onOpenQrScanner();
-                    else onOpenP2P();
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                  title="Scan Invoice or Bank Slip QR"
-                >
-                  <Scan className="w-4 h-4 text-emerald-400" />
-                  <span>Scan</span>
-                </button>
-
-                <label className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0" title="Upload Bank Slip Photo">
-                  <Camera className="w-4 h-4 text-sky-400" />
-                  <span>Take photo</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    className="hidden"
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  onClick={handlePasteClipboard}
-                  className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                  title="Paste IBAN / Account Number"
-                >
-                  <Clipboard className="w-4 h-4 text-purple-400" />
-                  <span>Paste</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-400 mb-1 block">Currency</label>
-                  <select
-                    value={intlCurrency}
-                    onChange={(e) => setIntlCurrency(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-3 text-sm text-white font-bold outline-none cursor-pointer"
-                  >
-                    <option value="USD">🇺🇸 USD</option>
-                    <option value="EUR">🇪🇺 EUR</option>
-                    <option value="GBP">🇬🇧 GBP</option>
-                    <option value="GEL">🇬🇪 GEL</option>
-                    <option value="INR">🇮🇳 INR</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-400 mb-1 block">Payout Rail</label>
-                  <select
-                    value={intlRail}
-                    onChange={(e) => setIntlRail(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-3 text-sm text-white font-bold outline-none cursor-pointer"
-                  >
-                    <option value="Swift">🌐 Swift International</option>
-                    <option value="Local">🏛️ Local / Domestic</option>
-                  </select>
-                </div>
-              </div>
-
-              {intlRail === 'Local' ? (
-                /* LOCAL / DOMESTIC TRANSFER FIELDS (MATCHING SCREENSHOT 43caf055) */
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-300">
-                          <span className="text-rose-500 mr-1">*</span>First name
-                        </label>
-                        <span className="text-[10px] text-slate-500 font-mono">{intlFirstName.length}/64</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={intlFirstName}
-                        onChange={(e) => setIntlFirstName(e.target.value)}
-                        placeholder="First name"
-                        maxLength={64}
-                        className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-300">
-                          <span className="text-rose-500 mr-1">*</span>Last name
-                        </label>
-                        <span className="text-[10px] text-slate-500 font-mono">{intlLastName.length}/64</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={intlLastName}
-                        onChange={(e) => setIntlLastName(e.target.value)}
-                        placeholder="Last name"
-                        maxLength={64}
-                        className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-300 block mb-1">
-                      <span className="text-rose-500 mr-1">*</span>Bank name
-                    </label>
-                    <select
-                      value={intlBankName}
-                      onChange={(e) => setIntlBankName(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-3 text-sm text-white font-semibold outline-none cursor-pointer"
-                    >
-                      <option value="JPMorgan Chase & Co.">JPMorgan Chase & Co.</option>
-                      <option value="Bank of America">Bank of America</option>
-                      <option value="Wells Fargo Bank">Wells Fargo Bank</option>
-                      <option value="Citibank N.A.">Citibank N.A.</option>
-                      <option value="U.S. Bank">U.S. Bank</option>
-                      <option value="PNC Bank">PNC Bank</option>
-                      <option value="Truist Bank">Truist Bank</option>
-                      <option value="Capital One">Capital One</option>
-                      <option value="TD Bank">TD Bank</option>
-                      <option value="Other Domestic Clearing Bank">Other Domestic Clearing Bank</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-300">
-                        <span className="text-rose-500 mr-1">*</span>ABA routing number
-                      </label>
-                      <span className="text-[10px] text-slate-500 font-mono">{intlRoutingNumber.length}/9</span>
-                    </div>
-                    <input
-                      type="text"
-                      value={intlRoutingNumber}
-                      onChange={(e) => setIntlRoutingNumber(e.target.value.replace(/\D/g, '').slice(0, 9))}
-                      placeholder="9-digit ABA routing number"
-                      maxLength={9}
-                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono outline-none mt-1 transition-colors"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-300">
-                        <span className="text-rose-500 mr-1">*</span>Account number
-                      </label>
-                      <span className="text-[10px] text-slate-500 font-mono">{intlAccountNumber.length}/32</span>
-                    </div>
-                    <input
-                      type="text"
-                      value={intlAccountNumber}
-                      onChange={(e) => setIntlAccountNumber(e.target.value.slice(0, 32))}
-                      placeholder="Account number"
-                      maxLength={32}
-                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono outline-none mt-1 transition-colors"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-300 block mb-1">
-                      <span className="text-rose-500 mr-1">*</span>Account type
-                    </label>
-                    <select
-                      value={intlAccountType}
-                      onChange={(e) => setIntlAccountType(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-3 text-sm text-white font-semibold outline-none cursor-pointer"
-                    >
-                      <option value="Checking">Checking</option>
-                      <option value="Savings">Savings</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-300 block mb-1">
-                      <span className="text-rose-500 mr-1">*</span>Nationality
-                    </label>
-                    <select
-                      value={intlNationality}
-                      onChange={(e) => setIntlNationality(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-3 text-sm text-white font-semibold outline-none cursor-pointer"
-                    >
-                      <option value="United States">🇺🇸 United States</option>
-                      <option value="United Kingdom">🇬🇧 United Kingdom</option>
-                      <option value="Canada">🇨🇦 Canada</option>
-                      <option value="Australia">🇦🇺 Australia</option>
-                      <option value="Germany">🇩🇪 Germany</option>
-                      <option value="France">🇫🇷 France</option>
-                      <option value="India">🇮🇳 India</option>
-                      <option value="United Arab Emirates">🇦🇪 United Arab Emirates</option>
-                      <option value="Georgia">🇬🇪 Georgia</option>
-                      <option value="Other">🌍 Other</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-300 block mb-1">
-                      <span className="text-rose-500 mr-1">*</span>Date of birth
-                    </label>
-                    <input
-                      type="date"
-                      value={intlDob}
-                      onChange={(e) => setIntlDob(e.target.value)}
-                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none transition-colors"
-                    />
-                  </div>
-                </div>
-              ) : (
-                /* SWIFT INTERNATIONAL WIRE TRANSFER FIELDS (MATCHING SCREENSHOT 48db6857) */
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-300">
-                        Email address <span className="text-slate-500 font-normal">(optional)</span>
-                      </label>
-                      <span className="text-[10px] text-slate-500 font-mono">{intlEmail.length}/64</span>
-                    </div>
-                    <input
-                      type="email"
-                      value={intlEmail}
-                      onChange={(e) => setIntlEmail(e.target.value)}
-                      placeholder="recipient@example.com"
-                      maxLength={64}
-                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
-                    />
-                    <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                      We&apos;ll email the recipient to let them know the funds are on the way.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-300">
-                          <span className="text-rose-500 mr-1">*</span>First name
-                        </label>
-                        <span className="text-[10px] text-slate-500 font-mono">{intlFirstName.length}/64</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={intlFirstName}
-                        onChange={(e) => setIntlFirstName(e.target.value)}
-                        placeholder="First name"
-                        maxLength={64}
-                        className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-300">
-                          <span className="text-rose-500 mr-1">*</span>Last name
-                        </label>
-                        <span className="text-[10px] text-slate-500 font-mono">{intlLastName.length}/64</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={intlLastName}
-                        onChange={(e) => setIntlLastName(e.target.value)}
-                        placeholder="Last name"
-                        maxLength={64}
-                        className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-300">
-                        <span className="text-rose-500 mr-1">*</span>SWIFT code
-                      </label>
-                      <span className="text-[10px] text-slate-500 font-mono">{intlSwiftCode.length}/11</span>
-                    </div>
-                    <input
-                      type="text"
-                      value={intlSwiftCode}
-                      onChange={(e) => setIntlSwiftCode(e.target.value.toUpperCase())}
-                      placeholder="e.g. CHASUS33"
-                      maxLength={11}
-                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono uppercase outline-none mt-1 transition-colors"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-300">
-                        <span className="text-rose-500 mr-1">*</span>IBAN / Account number
-                      </label>
-                      <span className="text-[10px] text-slate-500 font-mono">{intlIban.length}/34</span>
-                    </div>
-                    <input
-                      type="text"
-                      value={intlIban}
-                      onChange={(e) => setIntlIban(e.target.value)}
-                      placeholder="IBAN or local account number"
-                      maxLength={34}
-                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono outline-none mt-1 transition-colors"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="pt-3 border-t border-zinc-900 shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setIntlSaving(true);
-                  setTimeout(() => {
-                    setIntlSaving(false);
-                    setIntlSavedSuccess(true);
-                    setTimeout(() => {
-                      setIntlSavedSuccess(false);
-                      setIntlRecipientModalOpen(false);
-                      if (onOpenInternationalTransfer) {
-                        onOpenInternationalTransfer();
-                      } else {
-                        router.push('/transfer');
-                      }
-                    }, 800);
-                  }, 600);
-                }}
-                disabled={intlSaving || intlSavedSuccess}
-                className="w-full py-4 rounded-2xl bg-white hover:bg-slate-200 text-black font-extrabold text-sm transition-all cursor-pointer shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
-              >
-                {intlSaving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-black" />
-                    <span>Verifying Bank Corridor...</span>
-                  </>
-                ) : intlSavedSuccess ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Recipient Saved! Proceeding...</span>
-                  </>
-                ) : (
-                  <span>Continue to Transfer</span>
-                )}
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* Modal 6: Scan & Calculate Bill Modal */}
-      {scanInvoiceModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-zinc-950 border border-zinc-800 w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
-            <div className="flex items-center justify-between pb-3 border-zinc-900">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
-                  <Camera className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-sm text-white">Scan &amp; Calculate Bill</h3>
-                  <p className="text-[10px] text-slate-400">Auto-detected invoice settlement amount</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setScanInvoiceModalOpen(false)}
-                className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-zinc-900 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Invoice Total Detected</span>
-                <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                  OCR Verified
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={scannedInvoiceAmount}
-                  onChange={(e) => setScannedInvoiceAmount(e.target.value)}
-                  className="text-2xl font-black text-white font-mono bg-zinc-950 px-3 py-2 rounded-xl border border-zinc-800 outline-none w-full focus:border-zinc-600"
-                />
-                <span className="text-sm font-bold text-slate-300 font-mono px-3 py-2 bg-zinc-950 rounded-xl border border-zinc-800">
-                  {calcReceiveCurrency}
-                </span>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 space-y-2 text-xs">
-              <div className="flex items-center justify-between text-slate-400">
-                <span>Avora Bank Rate:</span>
-                <span className="font-mono text-white">1 {calcSendCurrency} = {calcEffectiveRate} {calcReceiveCurrency}</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-400">
-                <span>Bank Safety Margin:</span>
-                <span className="font-mono text-emerald-400">+{adminRemittanceMargin.toFixed(1)}%</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-400 border-t border-zinc-800/80 pt-2">
-                <span className="font-bold text-white">Exact Crypto Required:</span>
-                <span className="font-mono font-black text-base text-rose-400">
-                  {calcEffectiveRate > 0 ? (Math.ceil(parseFloat(scannedInvoiceAmount || '0') / calcEffectiveRate)).toLocaleString() : '0'} {calcSendCurrency}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => setScanInvoiceModalOpen(false)}
-                className="flex-1 py-3 rounded-2xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  applyScannedInvoice(parseFloat(scannedInvoiceAmount || '0'));
-                  setIntlCurrency(calcReceiveCurrency);
-                  setIntlRecipientModalOpen(true);
-                }}
-                className="flex-1 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors cursor-pointer shadow-lg shadow-rose-950/40"
               >
                 Apply &amp; Pay Bill
               </button>
