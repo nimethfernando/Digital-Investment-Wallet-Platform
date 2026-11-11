@@ -1643,7 +1643,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <button
                   onClick={() => {
                     setServicesModalOpen(false);
-                    onOpenP2P();
+                    router.push('/p2p?tab=express');
                   }}
                   className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
@@ -1654,7 +1654,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </button>
 
                 <button
-                  onClick={() => alert('Avora eSIM: International roaming data connected to crypto wallet.')}
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    router.push('/p2p?tab=lifestyle&cat=ESIM');
+                  }}
                   className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
                   <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
@@ -1664,7 +1667,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </button>
 
                 <button
-                  onClick={() => alert('Gift Cards: Purchase retail vouchers using USDT.')}
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    router.push('/p2p?tab=lifestyle&cat=GIFT_CARD');
+                  }}
                   className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
                   <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
@@ -1674,7 +1680,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </button>
 
                 <button
-                  onClick={() => alert('Mobile top-up available for 140+ countries.')}
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    router.push('/p2p?tab=lifestyle&cat=TOPUP');
+                  }}
                   className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
                   <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
