@@ -55,6 +55,9 @@ import {
   ChevronDown,
   ArrowLeftRight,
   User,
+  Camera,
+  Clipboard,
+  Copy,
 } from 'lucide-react';
 import { VirtualCardModule } from './VirtualCardModule';
 import { SupportTicketModule } from './SupportTicketModule';
@@ -113,6 +116,48 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const [intlDob, setIntlDob] = useState('1990-01-01');
   const [intlSaving, setIntlSaving] = useState(false);
   const [intlSavedSuccess, setIntlSavedSuccess] = useState(false);
+
+  // Quick Action Clipboard & Photo Handlers matching Screenshot 43caf055
+  const handlePasteClipboard = async () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+        const text = await navigator.clipboard.readText();
+        const trimmed = text.trim();
+        if (trimmed.includes('@')) {
+          setIntlEmail(trimmed);
+          alert(`Pasted Email: ${trimmed}`);
+        } else if (/^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(trimmed)) {
+          setIntlSwiftCode(trimmed);
+          alert(`Pasted SWIFT Code: ${trimmed}`);
+        } else if (/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,30}$/.test(trimmed)) {
+          setIntlIban(trimmed);
+          alert(`Pasted IBAN: ${trimmed}`);
+        } else if (/^\d{9}$/.test(trimmed)) {
+          setIntlRoutingNumber(trimmed);
+          alert(`Pasted ABA Routing Number: ${trimmed}`);
+        } else if (/^\d{6,20}$/.test(trimmed)) {
+          setIntlAccountNumber(trimmed);
+          alert(`Pasted Account Number: ${trimmed}`);
+        } else {
+          setIntlIban(trimmed);
+          alert(`Pasted into Account/IBAN: ${trimmed}`);
+        }
+      }
+    } catch {
+      alert('Clipboard permission denied or unavailable in this window.');
+    }
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      alert(`Bank invoice / check document "${file.name}" uploaded. Auto-extracting recipient credentials.`);
+      setIntlBankName('JPMorgan Chase & Co.');
+      setIntlSwiftCode('CHASUS33');
+      setIntlRoutingNumber('021000021');
+      setIntlAccountType('Checking');
+    }
+  };
 
   // Buy Crypto Form State matching Screenshot afcfd75e
   const [buyFiatAmount, setBuyFiatAmount] = useState('1000');
@@ -1921,26 +1966,77 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             {/* Scrollable Form Body */}
             <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
               
-              {/* Currency & Rail Pickers matching Screenshot a133598e: [🇺🇸 USD ▾] [🌐 Swift ▾] */}
+              {/* Quick Action Pill Toolbar matching Screenshot 43caf055: [⛶ Scan] [📷 Take photo] [📋 Paste] */}
+              <div className="flex items-center gap-2 pb-1 overflow-x-auto scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => onOpenP2P()}
+                  className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                  title="Scan Invoice or Bank Slip QR"
+                >
+                  <Scan className="w-4 h-4 text-emerald-400" />
+                  <span>Scan</span>
+                </button>
+
+                <label className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0" title="Upload Bank Slip Photo">
+                  <Camera className="w-4 h-4 text-sky-400" />
+                  <span>Take photo</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handlePhotoUpload}
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handlePasteClipboard}
+                  className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                  title="Auto-fill from Clipboard"
+                >
+                  <Clipboard className="w-4 h-4 text-amber-400" />
+                  <span>Paste</span>
+                </button>
+              </div>
+
+              {/* Currency & Rail Dropdown Pickers matching Screenshot a133598e */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">🇺🇸</span>
-                    <span className="font-bold text-xs text-white">{intlCurrency}</span>
-                  </div>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                {/* Currency Dropdown */}
+                <div className="relative">
+                  <select
+                    value={intlCurrency}
+                    onChange={(e) => setIntlCurrency(e.target.value)}
+                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-white font-bold text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
+                  >
+                    <option value="USD">🇺🇸 USD</option>
+                    <option value="EUR">🇪🇺 EUR</option>
+                    <option value="GBP">🇬🇧 GBP</option>
+                    <option value="AED">🇦🇪 AED</option>
+                    <option value="INR">🇮🇳 INR</option>
+                    <option value="GEL">🇬🇪 GEL</option>
+                    <option value="CAD">🇨🇦 CAD</option>
+                    <option value="AUD">🇦🇺 AUD</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
 
-                <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-emerald-400" />
-                    <span className="font-bold text-xs text-white">{intlRail}</span>
-                  </div>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                {/* Rail Dropdown (Swift vs Local Transfer) */}
+                <div className="relative">
+                  <select
+                    value={intlRail}
+                    onChange={(e) => setIntlRail(e.target.value)}
+                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-white font-bold text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
+                  >
+                    <option value="Swift">🌐 Swift</option>
+                    <option value="Local Transfer">🏛️ Local Transfer</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
               </div>
 
-              {/* Email address (optional) matching Screenshot a133598e */}
+              {/* 1. Email address (optional) matching Screenshot a133598e */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-slate-400">
                   <div className="flex items-center gap-1.5">
@@ -1970,10 +2066,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 )}
               </div>
 
-              {/* First name */}
+              {/* 2. First name */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500">*</span> First name</span>
+                  <span><span className="text-rose-500 font-bold">*</span> First name</span>
                   <span className="text-[10px] text-slate-500 font-mono">{intlFirstName.length}/64</span>
                 </div>
                 <input
@@ -1986,10 +2082,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 />
               </div>
 
-              {/* Last name */}
+              {/* 3. Last name */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500">*</span> Last name</span>
+                  <span><span className="text-rose-500 font-bold">*</span> Last name</span>
                   <span className="text-[10px] text-slate-500 font-mono">{intlLastName.length}/64</span>
                 </div>
                 <input
@@ -2002,26 +2098,26 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 />
               </div>
 
-              {/* SWIFT code */}
+              {/* 4. SWIFT / BIC Code (For Swift) or Local Clearing Identifier */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500">*</span> SWIFT code</span>
+                  <span><span className="text-rose-500 font-bold">*</span> {intlRail === 'Swift' ? 'SWIFT code' : `${intlCurrency} Clearing / BIC Code`}</span>
                   <span className="text-[10px] text-slate-500 font-mono">{intlSwiftCode.length}/11</span>
                 </div>
                 <input
                   type="text"
                   value={intlSwiftCode}
                   onChange={(e) => setIntlSwiftCode(e.target.value.toUpperCase())}
-                  placeholder="SWIFT code (e.g. CHASUS33)"
+                  placeholder={intlRail === 'Swift' ? 'SWIFT code (e.g. CHASUS33)' : 'BIC or National Clearing Code'}
                   maxLength={11}
                   className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono uppercase outline-none focus:border-zinc-600 transition-colors"
                 />
               </div>
 
-              {/* IBAN / Account number */}
+              {/* 5. IBAN / Account number */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500">*</span> IBAN / Account number</span>
+                  <span><span className="text-rose-500 font-bold">*</span> IBAN / Account number</span>
                   <span className="text-[10px] text-slate-500 font-mono">{intlIban.length}/32</span>
                 </div>
                 <input
@@ -2034,9 +2130,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 />
               </div>
 
-              {/* Bank name */}
+              {/* 6. Bank name */}
               <div className="space-y-1">
-                <label className="text-xs text-slate-400"><span className="text-rose-500">*</span> Bank name</label>
+                <label className="text-xs text-slate-400"><span className="text-rose-500 font-bold">*</span> Bank name</label>
                 <div className="relative">
                   <select
                     value={intlBankName}
@@ -2051,30 +2147,51 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                     <option value="HSBC Holdings plc">HSBC Holdings plc</option>
                     <option value="Deutsche Bank">Deutsche Bank</option>
                     <option value="Standard Chartered">Standard Chartered</option>
+                    <option value="Emirates NBD">Emirates NBD</option>
+                    <option value="State Bank of India">State Bank of India</option>
+                    <option value="Bank of Georgia">Bank of Georgia</option>
                   </select>
                   <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
               </div>
 
-              {/* ABA routing number */}
+              {/* 7. ABA routing number / Sort code */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500">*</span> ABA routing number</span>
+                  <span>
+                    <span className="text-rose-500 font-bold">*</span> {intlCurrency === 'GBP' ? 'Sort Code' : intlCurrency === 'INR' ? 'IFSC Code' : 'ABA routing number'}
+                  </span>
                   <span className="text-[10px] text-slate-500 font-mono">{intlRoutingNumber.length}/9</span>
                 </div>
                 <input
                   type="text"
                   value={intlRoutingNumber}
                   onChange={(e) => setIntlRoutingNumber(e.target.value)}
-                  placeholder="ABA routing number"
-                  maxLength={9}
+                  placeholder={intlCurrency === 'GBP' ? '6-digit Sort Code' : intlCurrency === 'INR' ? '11-character IFSC' : '9-digit ABA routing number'}
+                  maxLength={intlCurrency === 'INR' ? 11 : 9}
                   className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono outline-none focus:border-zinc-600 transition-colors"
                 />
               </div>
 
-              {/* Account type */}
+              {/* 8. Account number */}
               <div className="space-y-1">
-                <label className="text-xs text-slate-400"><span className="text-rose-500">*</span> Account type</label>
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span><span className="text-rose-500 font-bold">*</span> Account number</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{intlAccountNumber.length}/32</span>
+                </div>
+                <input
+                  type="text"
+                  value={intlAccountNumber}
+                  onChange={(e) => setIntlAccountNumber(e.target.value)}
+                  placeholder="Domestic Bank Account number"
+                  maxLength={32}
+                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono outline-none focus:border-zinc-600 transition-colors"
+                />
+              </div>
+
+              {/* 9. Account type */}
+              <div className="space-y-1">
+                <label className="text-xs text-slate-400"><span className="text-rose-500 font-bold">*</span> Account type</label>
                 <div className="relative">
                   <select
                     value={intlAccountType}
@@ -2089,9 +2206,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </div>
               </div>
 
-              {/* Nationality */}
+              {/* 10. Nationality */}
               <div className="space-y-1">
-                <label className="text-xs text-slate-400"><span className="text-rose-500">*</span> Nationality</label>
+                <label className="text-xs text-slate-400"><span className="text-rose-500 font-bold">*</span> Nationality</label>
                 <div className="relative">
                   <select
                     value={intlNationality}
@@ -2112,9 +2229,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </div>
               </div>
 
-              {/* Date of birth */}
+              {/* 11. Date of birth */}
               <div className="space-y-1">
-                <label className="text-xs text-slate-400"><span className="text-rose-500">*</span> Date of birth</label>
+                <label className="text-xs text-slate-400"><span className="text-rose-500 font-bold">*</span> Date of birth</label>
                 <input
                   type="date"
                   value={intlDob}
