@@ -369,7 +369,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Pay &amp; Swap Desk
+              Instant OTC Swap &amp; Liquidity Desk
             </span>
             <span className="text-xs text-slate-400 font-medium">
               Multi-Currency Liquidity &amp; Double-Entry Settlement

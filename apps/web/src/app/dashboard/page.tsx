@@ -924,7 +924,7 @@ function DashboardContent() {
             >
               {[
                 { key: 'overview', label: 'Overview', icon: Wallet },
-                { key: 'redotpay', label: 'Pay & Swap', icon: ArrowLeftRight },
+                { key: 'redotpay', label: 'Instant Swap & FX', icon: ArrowLeftRight },
                 { key: 'transfers', label: 'Account & QR Transfers', icon: QrCode },
                 { key: 'card', label: 'Virtual Cards', icon: CreditCard },
                 { key: 'packages', label: `Investments (${packages.length + startupInvestments.length + (tokenStatus?.earlyAccess?.registeredInterest ? 1 : 0)})`, icon: Package },
