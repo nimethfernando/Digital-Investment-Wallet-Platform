@@ -836,6 +836,9 @@ function DashboardContent() {
   // Balances
   const usdBalance = wallet?.balances?.find((b) => b.currency === 'USD')?.availableBalance || '0.00';
   const usdtBalance = wallet?.balances?.find((b) => b.currency === 'USDT')?.availableBalance || '0.00';
+  const usdcBalance = wallet?.balances?.find((b) => b.currency === 'USDC')?.availableBalance || '0.00';
+  const btcBalance = wallet?.balances?.find((b) => b.currency === 'BTC')?.availableBalance || '0.000000';
+  const ethBalance = wallet?.balances?.find((b) => b.currency === 'ETH')?.availableBalance || '0.000000';
   const lockedPrincipal = wallet?.totalActiveInvestmentsUsd || '0.00';
   const returnsPaid = wallet?.totalReturnsPaidUsd || '0.00';
   const pendingWth = wallet?.totalPendingWithdrawalsUsd || '0.00';
@@ -1180,17 +1183,45 @@ function DashboardContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               
               {/* Card 1: Available Balance */}
-              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+              <div
+                onClick={() => setActiveTab('redotpay')}
+                className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2 cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group"
+                title="Click to view full Multi-Currency Balances & Instant Swap"
+              >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span>Available Fiat (USD)</span>
-                  <Wallet className="w-4 h-4 text-emerald-500" />
+                  <Wallet className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black tracking-tight">
                   ${parseFloat(usdBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80">
-                  <span>Separate Crypto Vault:</span>
-                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{parseFloat(usdtBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })} USDT</span>
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80 gap-1">
+                  <span>Crypto Vault:</span>
+                  <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px] font-bold">
+                    {parseFloat(usdcBalance) > 0 && (
+                      <span className="text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">
+                        {parseFloat(usdcBalance).toFixed(2)} USDC
+                      </span>
+                    )}
+                    {parseFloat(usdtBalance) > 0 && (
+                      <span className="text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                        {parseFloat(usdtBalance).toFixed(2)} USDT
+                      </span>
+                    )}
+                    {parseFloat(btcBalance) > 0 && (
+                      <span className="text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                        {parseFloat(btcBalance).toFixed(6)} BTC
+                      </span>
+                    )}
+                    {parseFloat(ethBalance) > 0 && (
+                      <span className="text-purple-600 dark:text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20">
+                        {parseFloat(ethBalance).toFixed(6)} ETH
+                      </span>
+                    )}
+                    {parseFloat(usdtBalance) <= 0 && parseFloat(usdcBalance) <= 0 && parseFloat(btcBalance) <= 0 && parseFloat(ethBalance) <= 0 && (
+                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">0.00 USDT</span>
+                    )}
+                  </div>
                 </div>
               </div>
 
