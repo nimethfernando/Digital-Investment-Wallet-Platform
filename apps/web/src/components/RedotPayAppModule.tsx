@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { api } from '../lib/api';
 import {
   Wallet,
-  Home,
   CreditCard,
   Send,
   Globe,
@@ -38,17 +37,13 @@ import {
   X,
   AlertCircle,
   Headphones,
-  LifeBuoy,
-  BookOpen,
   Users,
   Smartphone,
-  Layers,
   Award,
   Ticket,
   HelpCircle,
   Download,
   FileText,
-  FileDown,
   ArrowLeft,
   Plus,
   Landmark,
@@ -58,11 +53,8 @@ import {
   Camera,
   Clipboard,
   Copy,
-  Maximize2,
-  Minimize2,
   QrCode,
 } from 'lucide-react';
-import { VirtualCardModule } from './VirtualCardModule';
 import { SupportTicketModule } from './SupportTicketModule';
 import { ChooseSendMethodModal } from './ChooseSendMethodModal';
 
@@ -92,33 +84,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   onRefresh,
 }) => {
   const router = useRouter();
-  // Enlarged / Expanded Desktop View State
-  const [isEnlarged, setIsEnlarged] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return localStorage.getItem('avorapay_enlarged') === 'true';
-      } catch {}
-    }
-    return false;
-  });
 
-  const toggleEnlarged = () => {
-    setIsEnlarged((prev) => {
-      const next = !prev;
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('avorapay_enlarged', String(next));
-        } catch {}
-      }
-      return next;
-    });
-  };
-
-  // Navigation active tab: 'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets' | 'buy'
-  const [navTab, setNavTab] = useState<'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets' | 'buy'>('home');
   const [showBalance, setShowBalance] = useState(true);
   const [assetsSubTab, setAssetsSubTab] = useState<'crypto' | 'fiat'>('crypto');
-  const [openChooseCardInTab, setOpenChooseCardInTab] = useState(false);
 
   // Method Selection Modal: International Transfer vs Transfer to Avora User
   const [chooseMethodModalOpen, setChooseMethodModalOpen] = useState(false);
@@ -165,15 +133,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
         } else if (/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,30}$/.test(trimmed)) {
           setIntlIban(trimmed);
           alert(`Pasted IBAN: ${trimmed}`);
-        } else if (/^\d{9}$/.test(trimmed)) {
-          setIntlRoutingNumber(trimmed);
-          alert(`Pasted ABA Routing Number: ${trimmed}`);
-        } else if (/^\d{6,20}$/.test(trimmed)) {
+        } else {
           setIntlAccountNumber(trimmed);
           alert(`Pasted Account Number: ${trimmed}`);
-        } else {
-          setIntlIban(trimmed);
-          alert(`Pasted into Account/IBAN: ${trimmed}`);
         }
       }
     } catch {
@@ -191,10 +153,6 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       setIntlAccountType('Checking');
     }
   };
-
-  // Buy Crypto Form State matching Screenshot afcfd75e
-  const [buyFiatAmount, setBuyFiatAmount] = useState('1000');
-  const [buyPaymentMethod, setBuyPaymentMethod] = useState<'CARD' | 'P2P'>('P2P');
 
   // Transactions Filter States
   const [txTypeFilter, setTxTypeFilter] = useState<string>('ALL');
@@ -278,12 +236,6 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     setScanInvoiceModalOpen(false);
   };
 
-  const fromPerUsd = livePerUsdRates[sendFromCurrency] || 1.0;
-  const toPerUsd = livePerUsdRates[sendToCurrency] || 1.0;
-  const spotRate = toPerUsd / fromPerUsd;
-  const exchangeRate = Number((spotRate * 0.99).toFixed(4)); // 1% spread matching backend ledger
-  const convertedAmount = (parseFloat(sendAmount || '0') * exchangeRate).toFixed(2);
-
   // Balances
   const usdBal = wallet?.balances?.find((b: any) => b.currency === 'USD')?.availableBalance || '0.00';
   const usdtBal = wallet?.balances?.find((b: any) => b.currency === 'USDT')?.availableBalance || '0.00';
@@ -354,7 +306,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     }
   };
 
-  // Flip / Invert Swap Currencies (Direct RedotPay Match)
+  // Flip / Invert Swap Currencies
   const handleFlipCurrencies = () => {
     const from = sendFromCurrency;
     const to = sendToCurrency;
@@ -362,7 +314,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     setSendToCurrency(from);
   };
 
-  // Client-side Instant Statement Export (Matches RedotPay Download File Icon on Top Right)
+  // Client-side Instant Statement Export
   const handleDownloadStatement = () => {
     if (!transactions || transactions.length === 0) {
       alert('No transactions recorded yet to download.');
@@ -386,7 +338,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // Filtered transactions for RedotPay Transactions View
+  // Filtered transactions for Activity View
   const filteredTxs = transactions.filter((t) => {
     if (txTypeFilter !== 'ALL') {
       if (txTypeFilter === 'DEPOSIT' && t.type !== 'DEPOSIT') return false;
@@ -401,1279 +353,610 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   });
 
   return (
-    <div className={`dark w-full mx-auto bg-slate-950 text-white rounded-[32px] sm:rounded-[36px] border border-slate-800 shadow-2xl overflow-hidden relative z-0 pb-24 font-sans select-none transition-all duration-300 ${
-      isEnlarged ? 'max-w-5xl' : 'max-w-2xl'
-    }`}>
+    <div className="w-full max-w-7xl mx-auto space-y-6 sm:space-y-8 font-sans select-none animate-in fade-in duration-300">
       
       {/* ---------------------------------------------------------------------- */}
-      {/* 0. VIEW MODE SWITCHER BAR (Compact Mobile vs Enlarged Desktop) */}
+      {/* 1. TOP EXECUTIVE HERO BANNER & PRIMARY WEB ACTIONS */}
       {/* ---------------------------------------------------------------------- */}
-      <div className="px-5 py-2 bg-zinc-950 border-b border-zinc-900/80 flex items-center justify-between text-xs text-slate-400 select-none">
-        <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${isEnlarged ? 'bg-indigo-400 animate-pulse' : 'bg-emerald-400'}`} />
-          <span className="font-semibold text-slate-300 text-[11px]">
-            {isEnlarged ? 'AvoraPay Enlarged Desktop View' : 'AvoraPay Mobile App View'}
-          </span>
-        </div>
-        <button
-          onClick={toggleEnlarged}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900 hover:bg-zinc-800 text-slate-300 hover:text-white border border-zinc-700/60 transition-all cursor-pointer font-medium text-[11px]"
-          title={isEnlarged ? "Collapse to Mobile Simulator" : "Enlarge to Wide Desktop View"}
-        >
-          {isEnlarged ? (
-            <>
-              <Minimize2 className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Compact Mobile Frame</span>
-            </>
-          ) : (
-            <>
-              <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Enlarge View</span>
-            </>
-          )}
-        </button>
-      </div>
+      <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 shadow-2xl relative overflow-hidden flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+        
+        {/* Glow Effects */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none -ml-20 -mb-20" />
 
-      {/* ---------------------------------------------------------------------- */}
-      {/* 1. TOP APP HEADER (Exact RedotPay Match) */}
-      {/* ---------------------------------------------------------------------- */}
-      <div className="px-6 pt-5 pb-3 flex items-center justify-between bg-black sticky top-0 z-40 border-b border-zinc-900/60">
-        {/* Left: User Profile Avatar */}
-        <div className="w-9 h-9 rounded-full bg-zinc-800 border border-zinc-700/60 flex items-center justify-center text-slate-300 shadow-sm">
-          <User className="w-5 h-5 text-slate-300" />
-        </div>
-
-        {/* Center: Brand Name */}
-        <div className="font-extrabold text-base tracking-wide text-white">
-          <span>AvoraPay</span>
-        </div>
-
-        {/* Right Action Icons: Enlarge/Minimize, Scan QR, Notification, Customer Support */}
-        <div className="flex items-center gap-2 text-slate-300">
-          {/* Enlarge / Minimize Button */}
-          <button
-            onClick={toggleEnlarged}
-            className={`p-1.5 rounded-full transition-colors cursor-pointer ${
-              isEnlarged
-                ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'
-                : 'hover:bg-zinc-800 text-slate-300 hover:text-white'
-            }`}
-            title={isEnlarged ? "Collapse to Compact Mobile Frame" : "Enlarge to Wide Desktop View"}
-          >
-            {isEnlarged ? (
-              <Minimize2 className="w-5 h-5" />
-            ) : (
-              <Maximize2 className="w-5 h-5" />
-            )}
-          </button>
-
-          {/* QR Code Scanner Button (Clear QR icon) */}
-          <button
-            onClick={() => {
-              if (onOpenQrScanner) {
-                onOpenQrScanner();
-              } else {
-                onOpenP2P();
-              }
-            }}
-            className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
-            title="Scan QR Code / Transfer"
-          >
-            <QrCode className="w-5 h-5" />
-          </button>
-
-          {/* Notifications */}
-          <button
-            onClick={() => alert('No unread security alerts.')}
-            className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors relative cursor-pointer"
-            title="Notifications"
-          >
-            <Bell className="w-5 h-5" />
-            <span className="w-2 h-2 rounded-full bg-rose-500 absolute top-1 right-1" />
-          </button>
-
-          {/* Customer Support */}
-          <button
-            onClick={() => setTicketCenterOpen(true)}
-            className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
-            title="Customer Support Desk"
-          >
-            <Headphones className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-
-      {/* ---------------------------------------------------------------------- */}
-      {/* 2. TAB CONTENT: HOME TAB (Exact RedotPay Screenshot Match) */}
-      {/* ---------------------------------------------------------------------- */}
-      {navTab === 'home' && (
-        <div className="p-5 sm:p-6 space-y-5 animate-in fade-in duration-200">
-          
-          {/* 1. Important On-Chain Notice Banner matching Screenshot */}
-          <div
-            onClick={() => alert('Notice: Multi-currency balances and on-chain deposits settle through real-time double-entry ledger verification.')}
-            className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800/80 flex items-center justify-between text-xs text-slate-300 hover:border-zinc-700 transition-all cursor-pointer shadow-sm"
-          >
-            <div className="flex items-center gap-2.5">
-              <Bell className="w-4 h-4 text-slate-400 shrink-0" />
-              <span className="font-medium text-slate-200 text-[11px] sm:text-xs">
-                Important on-chain transfer notice
-              </span>
-            </div>
-            <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+        {/* Left: Total Estimated Value & Info */}
+        <div className="space-y-3 relative z-10">
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Pay &amp; Swap Desk
+            </span>
+            <span className="text-xs text-slate-400 font-medium">
+              Multi-Currency Liquidity &amp; Double-Entry Settlement
+            </span>
           </div>
 
-          {/* 2. Est. Total Value & Balance Display matching Screenshot */}
-          <div className="space-y-1.5 pt-1">
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="font-medium">Est. total value</span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+          <div>
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span>Total Estimated Portfolio Value</span>
               <button
                 onClick={() => setShowBalance(!showBalance)}
-                className="p-0.5 hover:text-white transition-colors cursor-pointer ml-1"
+                className="p-1 hover:text-white transition-colors cursor-pointer"
                 title={showBalance ? 'Hide balance' : 'Show balance'}
               >
-                {showBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                {showBalance ? <Eye className="w-4 h-4 text-slate-400" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
               </button>
             </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="text-4xl sm:text-5xl font-black tracking-tight text-white font-sans">
-                {showBalance ? totalEstimatedUsd : '••••••••'}
+            <div className="flex items-baseline gap-3 mt-1">
+              <span className="text-4xl sm:text-5xl font-black text-white tracking-tight font-sans">
+                {showBalance ? `$${totalEstimatedUsd}` : '••••••••'}
               </span>
-              <div className="inline-flex items-center gap-1 text-slate-400 font-bold text-xs bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800">
-                <span>USD</span>
-                <ChevronDown className="w-3 h-3 text-slate-500" />
-              </div>
+              <span className="text-xs font-bold text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60">
+                USD Reference
+              </span>
             </div>
           </div>
 
-          {/* 3. 4 Quick Action Buttons matching Screenshot: Deposit (+), Swap (⇄), Referral (👤+), More (...) */}
-          <div className="grid grid-cols-4 gap-3 pt-1">
-            {/* Deposit */}
-            <button
-              onClick={onOpenDeposit}
-              className="flex flex-col items-center gap-2 group cursor-pointer"
-            >
-              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-white group-hover:bg-zinc-800 group-hover:border-zinc-700 transition-all shadow-md">
-                <Plus className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Deposit</span>
-            </button>
+          <p className="text-xs text-slate-400 max-w-xl leading-relaxed">
+            Execute instant double-entry OTC swaps, simulate zero-loss cross-border wires, and manage multi-currency crypto and fiat liquidity with institutional clearing.
+          </p>
+        </div>
 
-            {/* Swap */}
-            <button
-              onClick={() => setNavTab('swap')}
-              className="flex flex-col items-center gap-2 group cursor-pointer"
-            >
-              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-white group-hover:bg-zinc-800 group-hover:border-zinc-700 transition-all shadow-md">
-                <ArrowLeftRight className="w-5 h-5 text-white group-hover:rotate-180 transition-transform duration-300" />
-              </div>
-              <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Swap</span>
-            </button>
-
-            {/* Referral */}
-            <button
-              onClick={onOpenPackages}
-              className="flex flex-col items-center gap-2 group cursor-pointer"
-            >
-              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-white group-hover:bg-zinc-800 group-hover:border-zinc-700 transition-all shadow-md">
-                <UserPlus className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Referral</span>
-            </button>
-
-            {/* More */}
-            <button
-              onClick={() => setServicesModalOpen(true)}
-              className="flex flex-col items-center gap-2 group cursor-pointer"
-            >
-              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-white group-hover:bg-zinc-800 group-hover:border-zinc-700 transition-all shadow-md">
-                <MoreHorizontal className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xs font-semibold text-slate-300 group-hover:text-white">More</span>
-            </button>
-          </div>
-
-          {/* 4. Promo Voucher Banner matching Screenshot: Send crypto, receive cash / 0 fees on your first transfer */}
-          <div
-            onClick={() => setChooseMethodModalOpen(true)}
-            className="p-4 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between shadow-sm cursor-pointer hover:border-zinc-700 transition-all group"
+        {/* Right: Primary Executive Actions */}
+        <div className="flex flex-wrap items-center gap-3 relative z-10 shrink-0">
+          <button
+            onClick={onOpenDeposit}
+            className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 flex items-center gap-2 transition-all cursor-pointer active:scale-95"
           >
-            <div className="space-y-1 pr-3">
-              <span className="text-xs text-slate-400">
-                Send crypto, receive cash
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>Deposit Funds</span>
+          </button>
+
+          <button
+            onClick={() => setChooseMethodModalOpen(true)}
+            className="px-5 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-lg shadow-rose-950/40 flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+          >
+            <Send className="w-4 h-4" />
+            <span>Send Money</span>
+          </button>
+
+          <button
+            onClick={() => router.push('/p2p')}
+            className="px-4 py-3 rounded-2xl bg-slate-800/90 hover:bg-slate-700 text-white border border-slate-700 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer"
+          >
+            <Users className="w-4 h-4 text-blue-400" />
+            <span>P2P Trading</span>
+          </button>
+
+          <button
+            onClick={onOpenWithdraw}
+            className="px-4 py-3 rounded-2xl bg-slate-800/90 hover:bg-slate-700 text-white border border-slate-700 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer"
+          >
+            <ArrowUpRight className="w-4 h-4 text-slate-400" />
+            <span>Withdraw</span>
+          </button>
+
+          <button
+            onClick={handleDownloadStatement}
+            className="px-3.5 py-3 rounded-2xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors cursor-pointer"
+            title="Download Statement (.CSV)"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* ---------------------------------------------------------------------- */}
+      {/* 2. DUAL-COLUMN DESKTOP WORKSPACE */}
+      {/* ---------------------------------------------------------------------- */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8">
+        
+        {/* ==================================================================== */}
+        {/* LEFT COLUMN: SWAP TERMINAL & SEND CALCULATOR (7 COLS) */}
+        {/* ==================================================================== */}
+        <div className="lg:col-span-7 space-y-6 sm:space-y-8">
+          
+          {/* Card A: Instant Currency Swap Terminal */}
+          <div className="p-6 sm:p-7 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                  <ArrowLeftRight className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-white">Instant OTC Currency Swap</h3>
+                  <p className="text-xs text-slate-400">Direct double-entry ledger swap with zero spread loss</p>
+                </div>
+              </div>
+              <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
+                1 {sendFromCurrency} ≈ {((livePerUsdRates[sendToCurrency] || 1) / (livePerUsdRates[sendFromCurrency] || 1)).toFixed(4)} {sendToCurrency}
               </span>
-              <h4 className="text-sm font-extrabold text-white group-hover:text-rose-400 transition-colors">
-                0 fees on your first transfer
-              </h4>
-              {/* Carousel pagination dots */}
-              <div className="flex items-center gap-1.5 pt-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-white" />
-                <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
-                <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
-                <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
-                <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
-              </div>
             </div>
 
-            <div className="relative shrink-0">
-              <div className="px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-rose-600 via-rose-500 to-red-500 text-white font-black text-sm shadow-lg shadow-rose-950/40 flex items-center gap-1.5 rotate-2 group-hover:rotate-0 transition-transform">
-                <span className="text-base">🎟️</span>
-                <span>$20</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 5. Credit Section Widget matching Screenshot */}
-          <div className="p-5 rounded-3xl bg-zinc-900/90 border border-zinc-800 space-y-4 shadow-sm">
-            <div
-              onClick={() => alert('Avora Credit Facility: Active tier limit $5,000 USD. Zero interest if repaid within 30 days.')}
-              className="flex items-center justify-between cursor-pointer group"
-            >
-              <span className="font-extrabold text-sm text-white group-hover:text-rose-400 transition-colors">Credit</span>
-              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
-            </div>
-
-            <div className="space-y-1 text-center py-1">
-              <div className="text-xs text-slate-400">Available credit (USD)</div>
-              <div className="text-3xl font-black text-white tracking-tight">
-                0.00
-              </div>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 grid grid-cols-2 gap-4 text-xs">
-              <div>
-                <div className="text-slate-400 text-[11px]">Outstanding balance (USD)</div>
-                <div className="font-bold text-white text-sm mt-0.5 font-mono">
-                  0.00
+            {/* Error Banner */}
+            {swapError && (
+              <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{swapError}</span>
                 </div>
+                <button onClick={() => setSwapError(null)} className="cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <div className="text-right">
-                <div className="text-slate-400 text-[11px]">Risk score</div>
-                <div className="font-bold text-emerald-400 text-sm mt-0.5 flex items-center justify-end gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>Safe</span>
-                </div>
-              </div>
-            </div>
-          </div>
+            )}
 
-          {/* 6. Recent Transactions List matching Screenshot */}
-          <div className="space-y-3 pt-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-extrabold text-sm text-white">Transactions</span>
-              <button
-                onClick={() => setNavTab('transactions')}
-                className="p-1 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
-                title="View all transactions & statement download"
-              >
-                <MoreHorizontal className="w-5 h-5" />
-              </button>
-            </div>
-
+            {/* Swap Inputs Form */}
             <div className="space-y-2">
-              {transactions && transactions.length > 0 ? (
-                transactions.slice(0, 4).map((tx) => {
-                  const isDeposit = tx.type.includes('DEPOSIT') || tx.type.includes('BUY');
-                  const isSwap = tx.type.includes('SWAP') || (tx.notes || '').toLowerCase().includes('swap');
-                  const isPending = tx.status === 'PENDING' || tx.status === 'IN_REVIEW';
-                  const title = isSwap
-                    ? 'Swap'
-                    : isDeposit
-                    ? 'Buy Crypto'
-                    : tx.type.includes('P2P') || tx.type.includes('TRANSFER')
-                    ? 'P2P Transfer'
-                    : tx.notes || tx.type.replace(/_/g, ' ');
-
-                  return (
-                    <div
-                      key={tx.id}
-                      onClick={() => setNavTab('transactions')}
-                      className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800/80 flex items-center justify-between hover:bg-zinc-900 transition-colors cursor-pointer"
+              {/* FROM CARD */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span className="font-semibold uppercase tracking-wider text-[11px]">Pay From</span>
+                  <div className="flex items-center gap-1.5">
+                    <span>Available: <strong className="text-white font-mono">{parseFloat(currentFromBalance).toFixed(4)}</strong> {sendFromCurrency}</span>
+                    <button
+                      onClick={onOpenDeposit}
+                      className="w-4 h-4 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer"
+                      title="Deposit more funds"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${
-                            isSwap
-                              ? 'bg-blue-500/15 text-blue-400'
-                              : isDeposit
-                              ? 'bg-teal-500/15 text-teal-400'
-                              : 'bg-rose-500/15 text-rose-400'
-                          }`}>
-                            {tx.currency === 'USDT' ? '₮' : tx.currency === 'EUR' ? '€' : '$'}
-                          </div>
-                          <div className="w-4 h-4 rounded-full bg-slate-950 border border-slate-800 absolute -bottom-1 -right-1 flex items-center justify-center text-[9px]">
-                            {isSwap ? '🔄' : isDeposit ? '🇺🇸' : '↗'}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-xs font-bold text-white">
-                            {title}
-                          </div>
-                          <div className="text-[11px] text-slate-500 font-mono">
-                            {new Date(tx.createdAt).toISOString().slice(0, 10)} {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className={`text-xs font-mono font-bold ${
-                          isDeposit ? 'text-white' : 'text-slate-200'
-                        }`}>
-                          {isDeposit ? '+' : '-'}{parseFloat(tx.amount || '0').toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {tx.currency}
-                        </div>
-                        <div className={`text-[11px] font-semibold ${
-                          isPending ? 'text-amber-500' : 'text-emerald-400'
-                        }`}>
-                          {isPending ? 'Pending' : 'Completed'}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="p-5 rounded-2xl bg-zinc-900/50 border border-zinc-800 text-center text-xs text-slate-500">
-                  No recent movements recorded.
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
-              )}
+
+                <div className="flex items-center justify-between gap-4">
+                  <div className="relative">
+                    <select
+                      value={sendFromCurrency}
+                      onChange={(e) => setSendFromCurrency(e.target.value)}
+                      className="appearance-none bg-slate-900 hover:bg-slate-800 text-white font-black text-sm pl-10 pr-8 py-2.5 rounded-xl border border-slate-700 outline-none cursor-pointer transition-colors"
+                    >
+                      <option value="USDT">USDT (Crypto)</option>
+                      <option value="USD">USD (Fiat)</option>
+                      <option value="EUR">EUR (SEPA)</option>
+                      <option value="GEL">GEL (Lari)</option>
+                      <option value="INR">INR (Rupee)</option>
+                    </select>
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold pointer-events-none">
+                      {sendFromCurrency === 'USDT' ? '₮' : sendFromCurrency === 'USD' ? '$' : sendFromCurrency === 'EUR' ? '€' : sendFromCurrency === 'GEL' ? '₾' : '₹'}
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                  </div>
+
+                  <div className="flex flex-col items-end flex-1">
+                    <input
+                      type="number"
+                      value={sendAmount}
+                      onChange={(e) => setSendAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="bg-transparent text-right font-mono text-2xl sm:text-3xl font-black text-white placeholder-slate-700 outline-none w-full"
+                    />
+                    <button
+                      onClick={() => setSendAmount(parseFloat(currentFromBalance).toFixed(4))}
+                      className="text-[11px] font-bold text-slate-400 hover:text-white px-2 py-0.5 mt-1 rounded bg-slate-800/80 hover:bg-slate-700 transition-colors cursor-pointer"
+                    >
+                      Use Max
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Invert Button */}
+              <div className="relative py-1 flex items-center justify-center">
+                <div className="absolute inset-x-6 h-px bg-slate-800" />
+                <button
+                  type="button"
+                  onClick={handleFlipCurrencies}
+                  className="relative z-10 w-9 h-9 rounded-full bg-slate-800 border border-slate-700 hover:border-slate-500 hover:bg-slate-700 flex items-center justify-center text-slate-200 transition-all shadow-md active:scale-95 cursor-pointer"
+                  title="Invert swap currencies"
+                >
+                  <ArrowDown className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* TO CARD */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span className="font-semibold uppercase tracking-wider text-[11px]">Receive In</span>
+                  <span className="text-[11px]">Instant settlement</span>
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <div className="relative">
+                    <select
+                      value={sendToCurrency}
+                      onChange={(e) => setSendToCurrency(e.target.value)}
+                      className="appearance-none bg-slate-900 hover:bg-slate-800 text-white font-black text-sm pl-10 pr-8 py-2.5 rounded-xl border border-slate-700 outline-none cursor-pointer transition-colors"
+                    >
+                      <option value="USDC">USDC (Crypto)</option>
+                      <option value="USD">USD (Fiat)</option>
+                      <option value="USDT">USDT (Crypto)</option>
+                      <option value="EUR">EUR (SEPA)</option>
+                      <option value="GEL">GEL (Lari)</option>
+                      <option value="INR">INR (Rupee)</option>
+                    </select>
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px] font-bold pointer-events-none">
+                      {sendToCurrency.includes('USD') ? '$' : sendToCurrency === 'EUR' ? '€' : sendToCurrency === 'GEL' ? '₾' : sendToCurrency === 'INR' ? '₹' : '₮'}
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                  </div>
+
+                  <div className="text-right flex-1">
+                    <div className="font-mono text-2xl sm:text-3xl font-black text-emerald-400">
+                      {parseFloat(sendAmount || '0') > 0
+                        ? (
+                            (parseFloat(sendAmount || '0') * (livePerUsdRates[sendToCurrency] || 1)) /
+                            (livePerUsdRates[sendFromCurrency] || 1)
+                          ).toFixed(4)
+                        : '0.0000'}
+                    </div>
+                    <span className="text-[11px] text-slate-400 mt-1 block">
+                      ≈ ${parseFloat(sendAmount || '0') > 0
+                        ? (
+                            parseFloat(sendAmount || '0') /
+                            (livePerUsdRates[sendFromCurrency] || 1)
+                          ).toFixed(2)
+                        : '0.00'} USD
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
+
+            {/* Execute Swap Button */}
+            <button
+              onClick={handleExecuteSwap}
+              disabled={swapping || parseFloat(sendAmount || '0') <= 0}
+              className={`w-full py-4 rounded-2xl font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer ${
+                swapping || parseFloat(sendAmount || '0') <= 0
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-white hover:bg-slate-100 text-slate-950 active:scale-[0.99] shadow-slate-900/50'
+              }`}
+            >
+              {swapping ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                  <span>Settling Double-Entry Swap...</span>
+                </>
+              ) : (
+                <>
+                  <span>Execute Instant Swap</span>
+                  <ArrowRight className="w-4 h-4 text-slate-950" />
+                </>
+              )}
+            </button>
           </div>
 
-          {/* 6.5. Send calculator matching RedotPay Screenshot 3429e0d6 */}
-          <div className="p-5 rounded-3xl bg-zinc-900/90 border border-zinc-800 space-y-4 shadow-sm">
-            <div
+          {/* Card B: Global Remittance & Send Calculator */}
+          <div className="p-6 sm:p-7 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <Coins className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-white">Send &amp; Remittance Calculator</h3>
+                  <p className="text-xs text-slate-400">Live interbank rates with protected bank margin and 0% forex risk</p>
+                </div>
+              </div>
+              <label
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                title="Scan an invoice bill to auto-calculate required crypto"
+              >
+                <Camera className="w-3.5 h-3.5 text-sky-400" />
+                <span>Scan Bill</span>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={handleScanInvoiceFile}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            {/* Input & Output Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>You send</span>
+                  <div className="inline-flex items-center gap-1 text-slate-300 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <span>{calcSendCurrency}</span>
+                  </div>
+                </div>
+                <div className="text-3xl font-black text-white font-mono">
+                  {calculatorAmount.toLocaleString()}
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>Recipient gets</span>
+                  <div className="inline-flex items-center gap-1 text-slate-300 font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                    <span>{calcReceiveCurrency}</span>
+                  </div>
+                </div>
+                <div className="text-3xl font-black text-emerald-400 font-mono">
+                  {calcRecipientGets.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+
+            {/* Interactive Slider */}
+            <div className="space-y-2">
+              <input
+                type="range"
+                min="100"
+                max="50000"
+                step="100"
+                value={calculatorAmount}
+                onChange={(e) => setCalculatorAmount(Number(e.target.value))}
+                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+              />
+              <div className="flex justify-between text-[11px] text-slate-500 font-mono">
+                <span>100 {calcSendCurrency}</span>
+                <span>25,000 {calcSendCurrency}</span>
+                <span>50,000 {calcSendCurrency}</span>
+              </div>
+            </div>
+
+            {/* Competitor Price Savings Comparison */}
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <div className="flex-1 p-3 rounded-2xl bg-slate-950/80 border border-slate-800/80 text-center">
+                <div className="text-xs font-semibold text-slate-400">Currencies Direct</div>
+                <div className="text-xs font-mono font-bold text-rose-400 mt-0.5">↓ 11.71 EUR</div>
+              </div>
+              <div className="flex-1 p-3 rounded-2xl bg-slate-950/80 border border-slate-800/80 text-center">
+                <div className="text-xs font-semibold text-slate-400">CurrencyFair</div>
+                <div className="text-xs font-mono font-bold text-rose-400 mt-0.5">↓ 58.89 EUR</div>
+              </div>
+              <div className="flex-1 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center">
+                <div className="text-xs font-bold text-emerald-400">Avora Spread</div>
+                <div className="text-xs font-mono font-black text-emerald-300 mt-0.5">+{adminRemittanceMargin.toFixed(1)}% Guaranteed</div>
+              </div>
+            </div>
+
+            {/* Direct Send Action */}
+            <button
               onClick={() => {
                 setIntlCurrency(calcReceiveCurrency);
                 setIntlRecipientModalOpen(true);
               }}
-              className="flex items-center justify-between cursor-pointer group"
+              className="w-full py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer border border-slate-700 shadow-sm"
             >
+              <span>Transfer with These Quoted Rates</span>
+              <ArrowRight className="w-4 h-4 text-emerald-400" />
+            </button>
+          </div>
+
+        </div>
+
+        {/* ==================================================================== */}
+        {/* RIGHT COLUMN: WALLET ASSETS, RECENT ACTIVITY & COMMUNITY (5 COLS) */}
+        {/* ==================================================================== */}
+        <div className="lg:col-span-5 space-y-6 sm:space-y-8">
+          
+          {/* Card C: Multi-Currency Balances Hub */}
+          <div className="p-6 sm:p-7 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm text-white group-hover:text-rose-400 transition-colors">Send calculator</span>
-                <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                  🛡️ Adjustable Bank Rate
-                </span>
+                <Wallet className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-extrabold text-base text-white">Multi-Currency Balances</h3>
               </div>
-              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
-            </div>
-
-            <div className="space-y-3">
-              {/* You send */}
-              <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 flex items-center justify-between gap-3">
-                <div className="space-y-0.5 flex-1">
-                  <span className="text-[11px] text-slate-400">You send</span>
-                  <div className="flex items-center">
-                    <input
-                      type="number"
-                      value={calculatorAmount}
-                      onChange={(e) => setCalculatorAmount(Math.max(10, Number(e.target.value)))}
-                      className="text-xl font-black text-white font-mono bg-transparent outline-none w-full"
-                    />
-                  </div>
-                </div>
-                {/* Sending Currency Selector */}
-                <div className="relative shrink-0">
-                  <select
-                    value={calcSendCurrency}
-                    onChange={(e) => setCalcSendCurrency(e.target.value)}
-                    className="appearance-none bg-zinc-900 hover:bg-zinc-800 pl-7 pr-6 py-1.5 rounded-xl border border-zinc-800 text-xs font-bold text-white outline-none cursor-pointer"
-                  >
-                    <option value="USDT">USDT</option>
-                    <option value="USD">USD</option>
-                    <option value="USDC">USDC</option>
-                    <option value="EUR">EUR</option>
-                  </select>
-                  <div className="w-4 h-4 rounded-full bg-teal-500 flex items-center justify-center text-[10px] text-slate-950 font-black absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                    ₮
-                  </div>
-                  <ChevronDown className="w-3 h-3 text-slate-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* Recipient gets */}
-              <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 flex items-center justify-between gap-3">
-                <div className="space-y-0.5 flex-1">
-                  <span className="text-[11px] text-slate-400">Recipient gets</span>
-                  <div className="text-xl font-black text-white font-mono">
-                    {calcRecipientGets.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                {/* Recipient Currency Selector */}
-                <div className="relative shrink-0">
-                  <select
-                    value={calcReceiveCurrency}
-                    onChange={(e) => setCalcReceiveCurrency(e.target.value)}
-                    className="appearance-none bg-zinc-900 hover:bg-zinc-800 pl-7 pr-6 py-1.5 rounded-xl border border-zinc-800 text-xs font-bold text-white outline-none cursor-pointer"
-                  >
-                    <option value="EUR">EUR</option>
-                    <option value="USD">USD</option>
-                    <option value="GBP">GBP</option>
-                    <option value="INR">INR</option>
-                    <option value="GEL">GEL</option>
-                    <option value="AED">AED</option>
-                    <option value="CAD">CAD</option>
-                    <option value="AUD">AUD</option>
-                  </select>
-                  <div className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-[10px] text-white font-black absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                    {calcReceiveCurrency === 'EUR' ? '€' : calcReceiveCurrency === 'GBP' ? '£' : calcReceiveCurrency === 'INR' ? '₹' : calcReceiveCurrency === 'GEL' ? '₾' : '$'}
-                  </div>
-                  <ChevronDown className="w-3 h-3 text-slate-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* Range Slider */}
-              <input
-                type="range"
-                min={100}
-                max={100000}
-                step={250}
-                value={calculatorAmount}
-                onChange={(e) => setCalculatorAmount(Number(e.target.value))}
-                className="w-full accent-rose-500 bg-zinc-800 h-1.5 rounded-lg appearance-none cursor-pointer"
-              />
-
-              {/* Scan Invoice / Bill Button & Rate Transparency */}
-              <div className="flex items-center justify-between gap-2 pt-0.5">
-                <label className="flex-1 py-2 px-3 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-zinc-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors" title="Scan Invoice or Bill to calculate exact crypto needed">
-                  <Camera className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Scan bill / invoice</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={handleScanInvoiceFile}
-                  />
-                </label>
-
+              
+              {/* Crypto / Fiat Tab Switcher */}
+              <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
                 <button
-                  type="button"
-                  onClick={() => {
-                    setIntlCurrency(calcReceiveCurrency);
-                    setIntlRecipientModalOpen(true);
-                  }}
-                  className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-sm"
+                  onClick={() => setAssetsSubTab('crypto')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    assetsSubTab === 'crypto'
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
                 >
-                  <span>Continue</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  Crypto
+                </button>
+                <button
+                  onClick={() => setAssetsSubTab('fiat')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    assetsSubTab === 'fiat'
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Fiat
                 </button>
               </div>
-
-              {/* Comparison pill with competitors matching Screenshot 3429e0d6 */}
-              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 px-1">
-                <div>
-                  <span>Currencies Direct </span>
-                  <span className="text-rose-400 font-semibold font-mono">
-                    ↓ {(calcRecipientGets * 0.00027).toFixed(2)} {calcReceiveCurrency}
-                  </span>
-                </div>
-                <div>
-                  <span>CurrencyFair </span>
-                  <span className="text-rose-400 font-semibold font-mono">
-                    ↓ {(calcRecipientGets * 0.00135).toFixed(2)} {calcReceiveCurrency}
-                  </span>
-                </div>
-              </div>
-
-              {/* No-Loss Bank Protection Margin Info */}
-              <div className="text-[10px] text-slate-500 flex items-center justify-between px-1 pt-0.5">
-                <span>Bank Protected Rate: 1 {calcSendCurrency} = {calcEffectiveRate} {calcReceiveCurrency}</span>
-                <span className="text-emerald-400/90 font-medium font-mono">
-                  Spread: {adminRemittanceMargin.toFixed(1)}% (Zero-loss)
-                </span>
-              </div>
             </div>
+
+            {/* Crypto Assets List */}
+            {assetsSubTab === 'crypto' && (
+              <div className="space-y-2.5">
+                {[
+                  { name: 'USDT', sub: 'Tether USD (BEP-20 / TRC-20)', bal: `${parseFloat(usdtBal).toLocaleString()} USDT`, val: `$${parseFloat(usdtBal).toFixed(2)} USD`, icon: '₮', color: 'text-emerald-400 bg-emerald-500/10' },
+                  { name: 'USDC', sub: 'USD Coin (ERC-20 / Solana)', bal: '0.0000 USDC', val: '$0.00 USD', icon: '$', color: 'text-blue-400 bg-blue-500/10' },
+                  { name: 'BTC', sub: 'Bitcoin (Lightning & Native)', bal: '0.000000 BTC', val: '$0.00 USD', icon: '₿', color: 'text-amber-400 bg-amber-500/10' },
+                  { name: 'ETH', sub: 'Ethereum Mainnet', bal: '0.000000 ETH', val: '$0.00 USD', icon: 'Ξ', color: 'text-purple-400 bg-purple-500/10' },
+                ].map((token) => (
+                  <div
+                    key={token.name}
+                    className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800/80 flex items-center justify-between hover:border-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${token.color}`}>
+                        {token.icon}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-white">{token.name}</div>
+                        <div className="text-[10px] text-slate-400">{token.sub}</div>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-xs font-mono font-bold text-white">
+                        {showBalance ? token.bal : '••••'}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        ≈ {showBalance ? token.val : '••••'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Fiat Assets List */}
+            {assetsSubTab === 'fiat' && (
+              <div className="space-y-2.5">
+                {[
+                  { name: 'USD', sub: 'US Dollar (Federal Reserve Clearing)', bal: `$${parseFloat(usdBal).toLocaleString()}`, val: `$${parseFloat(usdBal).toFixed(2)} USD`, sym: '$' },
+                  { name: 'EUR', sub: 'Euro (SEPA Target2 Clearing)', bal: `€${parseFloat(eurBal).toLocaleString()}`, val: `$${eurInUsd.toFixed(2)} USD`, sym: '€' },
+                  { name: 'GEL', sub: 'Georgian Lari (Tbilisi OTC Counter)', bal: `₾${parseFloat(gelBal).toLocaleString()}`, val: `$${gelInUsd.toFixed(2)} USD`, sym: '₾' },
+                  { name: 'INR', sub: 'Indian Rupee (UPI / IMPS Rails)', bal: `₹${parseFloat(inrBal).toLocaleString()}`, val: `$${inrInUsd.toFixed(2)} USD`, sym: '₹' },
+                ].map((fiat) => (
+                  <div
+                    key={fiat.name}
+                    className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800/80 flex items-center justify-between hover:border-slate-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700/60 flex items-center justify-center font-bold text-sm text-slate-300">
+                        {fiat.sym}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-white">{fiat.name}</div>
+                        <div className="text-[10px] text-slate-400">{fiat.sub}</div>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-xs font-mono font-bold text-white">
+                        {showBalance ? fiat.bal : '••••'}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        ≈ {showBalance ? fiat.val : '••••'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* 6.6. Learn section matching RedotPay Screenshot 3429e0d6 */}
-          <div className="space-y-3 pt-1">
-            <h4 className="font-extrabold text-sm text-white">Learn</h4>
-            <div className="grid grid-cols-2 gap-3">
-              <div
-                onClick={() => setChooseMethodModalOpen(true)}
-                className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800/80 space-y-1.5 cursor-pointer hover:border-zinc-700 transition-all group"
-              >
-                <div className="w-8 h-8 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 text-sm">
-                  ⚡
-                </div>
-                <h5 className="font-bold text-xs text-white group-hover:text-rose-400 transition-colors">
-                  Zero-Fee Transfers
-                </h5>
-                <p className="text-[10px] text-slate-400 leading-snug">
-                  Send crypto globally and settle into local bank accounts in seconds.
-                </p>
+          {/* Card D: Official Telegram Concierge & Community */}
+          <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-950/40 to-slate-900 border border-blue-900/40 shadow-xl relative overflow-hidden flex items-center justify-between">
+            <div className="space-y-1.5 z-10">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Avora Telegram VIP</span>
               </div>
-
-              <div
-                onClick={() => setTicketCenterOpen(true)}
-                className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800/80 space-y-1.5 cursor-pointer hover:border-zinc-700 transition-all group"
-              >
-                <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 text-sm">
-                  🛡️
-                </div>
-                <h5 className="font-bold text-xs text-white group-hover:text-blue-400 transition-colors">
-                  VIP Safeguard
-                </h5>
-                <p className="text-[10px] text-slate-400 leading-snug">
-                  24/7 dedicated Telegram escrow & institutional custody protocols.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* 7. Official Telegram Channel & VIP Concierge Banner */}
-          <div className="p-4 rounded-3xl bg-gradient-to-r from-sky-950/60 via-zinc-900 to-indigo-950/40 border border-sky-500/30 flex items-center justify-between shadow-lg shadow-sky-950/20 group">
-            <div className="space-y-1 pr-3">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400">
-                  Official Telegram Community
-                </span>
-              </div>
-              <h4 className="text-sm font-black text-white flex items-center gap-1.5">
-                <span>Avora Telegram VIP Concierge</span>
-                <span className="text-sky-400 text-xs font-mono">@avorallc</span>
-              </h4>
-              <p className="text-[11px] text-slate-300">
-                Connect directly with our 24/7 Telegram settlement desk & global traders.
+              <h4 className="text-sm font-extrabold text-white">Direct Concierge (@avorallc)</h4>
+              <p className="text-xs text-slate-400 max-w-xs">
+                Connect with desk specialists, verified P2P traders, and 24/7 OTC clearing managers.
               </p>
             </div>
             <a
               href="https://t.me/avorallc"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3.5 py-2.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-xs shadow-md shadow-sky-500/25 flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
+              className="px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs shadow-lg shadow-sky-500/20 shrink-0 z-10 transition-all cursor-pointer active:scale-95"
             >
-              <Send className="w-3.5 h-3.5" />
-              <span>Join TG</span>
+              Join TG ↗
             </a>
           </div>
 
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------------------- */}
-      {/* 3. TAB CONTENT: CARDS TAB (RedotPay Card Screen) */}
-      {/* ---------------------------------------------------------------------- */}
-      {navTab === 'card' && (
-        <div className="p-6 space-y-6 animate-in fade-in duration-200">
-          <VirtualCardModule
-            cardHolderName={`${user?.firstName || 'Avora'} ${user?.lastName || 'Client'}`}
-            accountNumber={user?.accountNumber || 'AVR-8820-4190'}
-            onRefresh={onRefresh}
-            defaultOpenChooseModal={openChooseCardInTab}
-          />
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------------------- */}
-      {/* 4. TAB CONTENT: SWAP TAB (Direct RedotPay Match) */}
-      {/* ---------------------------------------------------------------------- */}
-      {(navTab === 'swap' || navTab === 'send') && (
-        <div className="p-6 space-y-6 animate-in fade-in duration-200">
-          
-          {/* Header matching RedotPay Screenshot 1: [←] Swap [📄⏱️] */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setNavTab('home')}
-              className="p-2 rounded-full hover:bg-slate-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
-              title="Back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h3 className="text-base font-extrabold text-white">Swap</h3>
-            <button
-              onClick={() => setNavTab('transactions')}
-              className="p-2 rounded-full hover:bg-slate-900 text-slate-300 hover:text-white transition-colors relative cursor-pointer"
-              title="Transaction History"
-            >
-              <FileText className="w-5 h-5" />
-              <Clock className="w-2.5 h-2.5 absolute bottom-1 right-1 text-rose-400" />
-            </button>
-          </div>
-
-          {/* Error Banner */}
-          {swapError && (
-            <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold flex items-center justify-between">
+          {/* Card E: Recent Pay & Swap Activity */}
+          <div className="p-6 sm:p-7 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
               <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{swapError}</span>
+                <Clock className="w-4 h-4 text-slate-400" />
+                <h3 className="font-extrabold text-sm text-white">Recent Transactions</h3>
               </div>
-              <button onClick={() => setSwapError(null)} className="cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* Currency Transfer Input Form */}
-          <div className="space-y-2">
-            
-            {/* FROM CARD */}
-            <div className="p-4 rounded-3xl bg-slate-900/90 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400 font-medium">From</span>
-                <div className="flex items-center gap-1.5 text-slate-400">
-                  <span>Available:{parseFloat(currentFromBalance).toFixed(4)}</span>
-                  <button
-                    onClick={onOpenDeposit}
-                    className="w-4 h-4 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer"
-                    title="Deposit more funds"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <div className="relative">
-                  <select
-                    value={sendFromCurrency}
-                    onChange={(e) => setSendFromCurrency(e.target.value)}
-                    className="appearance-none bg-slate-950 hover:bg-slate-800 text-white font-bold text-sm pl-9 pr-7 py-2 rounded-full border border-slate-700/80 outline-none cursor-pointer transition-colors"
-                  >
-                    <option value="USDT" className="bg-slate-950 text-white">USDT</option>
-                    <option value="USD" className="bg-slate-950 text-white">USD</option>
-                    <option value="EUR" className="bg-slate-950 text-white">EUR</option>
-                    <option value="GEL" className="bg-slate-950 text-white">GEL</option>
-                    <option value="INR" className="bg-slate-950 text-white">INR</option>
-                  </select>
-                  <div className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold pointer-events-none">
-                    {sendFromCurrency === 'USDT' ? '₮' : sendFromCurrency === 'USD' ? '$' : sendFromCurrency === 'EUR' ? '€' : sendFromCurrency === 'GEL' ? '₾' : '₹'}
-                  </div>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
-                </div>
-
-                <div className="flex flex-col items-end flex-1">
-                  <input
-                    type="number"
-                    value={sendAmount}
-                    onChange={(e) => setSendAmount(e.target.value)}
-                    placeholder="10.00 - 100,000.00"
-                    className="bg-transparent text-right font-sans text-xl sm:text-2xl font-semibold text-white placeholder-slate-600 outline-none w-full"
-                  />
-                  <button
-                    onClick={() => setSendAmount(parseFloat(currentFromBalance).toFixed(4))}
-                    className="text-[11px] font-bold text-slate-300 hover:text-white px-2 py-0.5 mt-1 rounded bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
-                  >
-                    Max
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Invert Currencies Button (Center Divider) */}
-            <div className="relative py-2 flex items-center justify-center">
-              <div className="absolute inset-x-4 h-px bg-slate-800/80" />
               <button
-                type="button"
-                onClick={handleFlipCurrencies}
-                className="relative z-10 w-9 h-9 rounded-full bg-slate-800 border border-slate-700 hover:border-slate-500 hover:bg-slate-700 flex items-center justify-center text-slate-200 transition-all shadow-md active:scale-95 cursor-pointer"
-                title="Invert swap currencies"
+                onClick={handleDownloadStatement}
+                className="text-xs font-bold text-slate-400 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                title="Export CSV Statement"
               >
-                <ArrowDown className="w-4 h-4" />
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV</span>
               </button>
             </div>
 
-            {/* TO CARD */}
-            <div className="p-4 rounded-3xl bg-slate-900/90 border border-slate-800 space-y-3">
-              <div className="text-xs text-slate-400 font-medium">To</div>
-
-              <div className="flex items-center justify-between gap-3">
-                <div className="relative">
-                  <select
-                    value={sendToCurrency}
-                    onChange={(e) => setSendToCurrency(e.target.value)}
-                    className="appearance-none bg-slate-950 hover:bg-slate-800 text-white font-bold text-sm pl-9 pr-7 py-2 rounded-full border border-slate-700/80 outline-none cursor-pointer transition-colors"
-                  >
-                    <option value="USDC" className="bg-slate-950 text-white">USDC</option>
-                    <option value="USD" className="bg-slate-950 text-white">USD</option>
-                    <option value="USDT" className="bg-slate-950 text-white">USDT</option>
-                    <option value="EUR" className="bg-slate-950 text-white">EUR</option>
-                    <option value="GEL" className="bg-slate-950 text-white">GEL</option>
-                    <option value="INR" className="bg-slate-950 text-white">INR</option>
-                  </select>
-                  <div className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px] font-bold pointer-events-none">
-                    {sendToCurrency.includes('USD') ? '$' : sendToCurrency === 'EUR' ? '€' : sendToCurrency === 'GEL' ? '₾' : sendToCurrency === 'INR' ? '₹' : '₮'}
-                  </div>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
-                </div>
-
-                <div className="text-right font-sans text-xl sm:text-2xl font-semibold text-slate-200">
-                  {convertedAmount && parseFloat(convertedAmount) > 0 ? convertedAmount : '10.00 - 100,000.00'}
-                </div>
-              </div>
-            </div>
-
-            {/* Rate Display matching Screenshot 1: 1 USDT = 0.99 USDC 🔄 */}
-            <div className="pt-3 pb-1 flex items-center justify-center gap-1.5 text-xs text-slate-400">
-              <span>1 {sendFromCurrency} = {exchangeRate} {sendToCurrency}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  const el = document.getElementById('swap-refresh-icon');
-                  el?.classList.add('rotate-180');
-                  setTimeout(() => el?.classList.remove('rotate-180'), 400);
-                }}
-                className="hover:text-white transition-colors cursor-pointer"
-                title="Live rate updated"
-              >
-                <RefreshCw id="swap-refresh-icon" className="w-3.5 h-3.5 transition-transform duration-300" />
-              </button>
-            </div>
-
-            {/* RedotPay Style Continue / Execute Button */}
-            <div className="pt-2">
-              <button
-                onClick={handleExecuteSwap}
-                disabled={swapping || !sendAmount || parseFloat(sendAmount) <= 0}
-                className="w-full py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md"
-              >
-                {swapping && <Loader2 className="w-5 h-5 animate-spin" />}
-                <span>{swapping ? 'Executing Ledger Swap...' : 'Continue'}</span>
-              </button>
-            </div>
-
-            {/* Send Funds Option: Transfer to Avora User or International Wire */}
-            <button
-              onClick={() => setChooseMethodModalOpen(true)}
-              className="w-full p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center justify-between hover:border-slate-700 transition-all text-xs group cursor-pointer"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded-full bg-rose-600/30 text-rose-400 flex items-center justify-center font-bold text-xs">
-                  <Send className="w-3.5 h-3.5" />
-                </div>
-                <div className="text-left flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-slate-200">
-                    Send to Avora Bank user or International
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded-full bg-rose-600/20 text-rose-400 border border-rose-500/30 text-[9px] font-black uppercase">
-                    Zero fees
-                  </span>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
-            </button>
-
-          </div>
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------------------- */}
-      {/* 4.2. TAB CONTENT: BUY CRYPTO TAB (Direct Screenshot afcfd75e Match) */}
-      {/* ---------------------------------------------------------------------- */}
-      {navTab === 'buy' && (
-        <div className="p-6 space-y-6 animate-in fade-in duration-200">
-          {/* Header matching RedotPay Screenshot afcfd75e: [←] Buy Crypto [📄⏱️] [?] */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setNavTab('home')}
-              className="p-2 rounded-full hover:bg-zinc-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
-              title="Back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h3 className="text-base font-extrabold text-white">Buy Crypto</h3>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setNavTab('transactions')}
-                className="p-2 rounded-full hover:bg-zinc-900 text-slate-300 hover:text-white transition-colors relative cursor-pointer"
-                title="Transaction History"
-              >
-                <FileText className="w-5 h-5" />
-                <Clock className="w-2.5 h-2.5 absolute bottom-1 right-1 text-rose-400" />
-              </button>
-              <button
-                onClick={() => setTicketCenterOpen(true)}
-                className="p-2 rounded-full hover:bg-zinc-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                title="Help"
-              >
-                <HelpCircle className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {/* Estimated amount (excl. tax) */}
-            <div className="space-y-1.5">
-              <label className="text-xs text-slate-400 font-medium">Estimated amount (excl. tax)</label>
-              <div className="p-4 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between">
-                <div className="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-full border border-zinc-800 text-xs font-bold text-white">
-                  <span>🇺🇸</span>
-                  <span>USD</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-                </div>
-                <input
-                  type="number"
-                  value={buyFiatAmount}
-                  onChange={(e) => setBuyFiatAmount(e.target.value)}
-                  className="bg-transparent text-right font-sans text-2xl font-black text-white placeholder-slate-600 outline-none w-1/2"
-                />
-              </div>
-            </div>
-
-            {/* You receive */}
-            <div className="space-y-1.5">
-              <label className="text-xs text-slate-400 font-medium">You receive</label>
-              <div className="p-4 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between">
-                <div className="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-full border border-zinc-800 text-xs font-bold text-white">
-                  <div className="w-4 h-4 rounded-full bg-teal-500 text-slate-950 flex items-center justify-center text-[10px] font-black">₮</div>
-                  <span>USDT</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-                </div>
-                <div className="text-right font-sans text-2xl font-black text-white">
-                  {(parseFloat(buyFiatAmount || '0')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-            </div>
-
-            {/* Rate ticker */}
-            <div className="flex items-center gap-1.5 text-xs text-slate-400 px-1">
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-              <span>1 USD ≈ 1 USDT</span>
-            </div>
-
-            {/* Payment method */}
-            <div className="space-y-2 pt-2">
-              <label className="text-xs text-slate-400 font-medium">Payment method</label>
-              <div className="space-y-2">
-                {/* Credit / Debit Card */}
-                <div
-                  onClick={() => setBuyPaymentMethod('CARD')}
-                  className={`p-4 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
-                    buyPaymentMethod === 'CARD'
-                      ? 'bg-zinc-900 border-zinc-700'
-                      : 'bg-zinc-950/60 border-zinc-900 hover:border-zinc-800'
+            {/* Filter Chips */}
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1">
+              {['ALL', 'SWAP', 'DEPOSIT', 'P2P'].map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setTxTypeFilter(filter)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer ${
+                    txTypeFilter === filter
+                      ? 'bg-slate-700 text-white'
+                      : 'bg-slate-950 text-slate-400 hover:text-white'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
-                      <CreditCard className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 font-bold text-xs text-white">
-                        <span>Credit/Debit Card</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 font-black">VISA</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-300 font-black">MC</span>
-                      </div>
-                      <span className="text-[11px] text-slate-400">Arrives instantly · Low fee</span>
-                    </div>
-                  </div>
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    buyPaymentMethod === 'CARD' ? 'border-white bg-white text-black' : 'border-zinc-600'
-                  }`}>
-                    {buyPaymentMethod === 'CARD' && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                </div>
+                  {filter}
+                </button>
+              ))}
+            </div>
 
-                {/* P2P Marketplace */}
-                <div
-                  onClick={() => setBuyPaymentMethod('P2P')}
-                  className={`p-4 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
-                    buyPaymentMethod === 'P2P'
-                      ? 'bg-zinc-900 border-zinc-700'
-                      : 'bg-zinc-950/60 border-zinc-900 hover:border-zinc-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-orange-500/20 border border-orange-500/30 flex items-center justify-center text-orange-400">
-                      <Users className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="font-bold text-xs text-white">P2P Marketplace</div>
-                      <span className="text-[11px] text-slate-400">Zero cost</span>
-                    </div>
-                  </div>
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    buyPaymentMethod === 'P2P' ? 'border-white bg-white text-black' : 'border-zinc-600'
-                  }`}>
-                    {buyPaymentMethod === 'P2P' && <Check className="w-3 h-3 stroke-[3]" />}
-                  </div>
-                </div>
+            {/* Transaction List */}
+            {filteredTxs.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-500">
+                No recent transactions matching filter.
               </div>
-            </div>
-
-            {/* Continue Button */}
-            <div className="pt-4">
-              <button
-                onClick={() => {
-                  if (buyPaymentMethod === 'CARD') {
-                    onOpenDeposit();
-                  } else {
-                    onOpenP2P();
-                  }
-                }}
-                className="w-full py-4 rounded-2xl bg-white hover:bg-slate-200 text-black font-extrabold text-sm transition-all cursor-pointer shadow-lg active:scale-[0.99]"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------------------- */}
-      {/* 4.5. TAB CONTENT: TRANSACTIONS TAB (Direct RedotPay Match with Download) */}
-      {/* ---------------------------------------------------------------------- */}
-      {navTab === 'transactions' && (
-        <div className="p-6 space-y-5 animate-in fade-in duration-200">
-          
-          {/* Header matching Screenshot 2: [←] Transactions [📄⬇️] */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setNavTab('home')}
-              className="p-2 rounded-full hover:bg-slate-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
-              title="Back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h3 className="text-base font-extrabold text-white">Transactions</h3>
-            
-            {/* Top Right Statement Download Button: [📄⬇️] */}
-            <button
-              onClick={handleDownloadStatement}
-              className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-200 hover:text-white transition-all flex items-center justify-center group shadow-sm cursor-pointer"
-              title="Download Statement (CSV)"
-            >
-              <FileDown className="w-5 h-5 text-slate-300 group-hover:text-white group-hover:scale-110 transition-all" />
-            </button>
-          </div>
-
-          {/* Filter Chips Bar matching Screenshot 2 */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none text-xs">
-            {/* Type Filter Chip */}
-            <div className="relative shrink-0">
-              <select
-                value={txTypeFilter}
-                onChange={(e) => setTxTypeFilter(e.target.value)}
-                className="appearance-none bg-slate-900 hover:bg-slate-800 text-slate-200 font-semibold px-3 py-1.5 pr-7 rounded-full border border-slate-800 outline-none cursor-pointer"
-              >
-                <option value="ALL">All types</option>
-                <option value="DEPOSIT">Buy Crypto / Deposit</option>
-                <option value="SWAP">Swap</option>
-                <option value="P2P">P2P Transfer</option>
-                <option value="WITHDRAWAL">Withdrawal</option>
-              </select>
-              <ChevronRight className="w-3 h-3 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
-            </div>
-
-            {/* Currency Filter Chip */}
-            <div className="relative shrink-0">
-              <select
-                value={txCurrencyFilter}
-                onChange={(e) => setTxCurrencyFilter(e.target.value)}
-                className="appearance-none bg-slate-900 hover:bg-slate-800 text-slate-200 font-semibold px-3 py-1.5 pr-7 rounded-full border border-slate-800 outline-none cursor-pointer"
-              >
-                <option value="ALL">All currencies</option>
-                <option value="USDT">USDT</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GEL">GEL</option>
-                <option value="INR">INR</option>
-              </select>
-              <ChevronRight className="w-3 h-3 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
-            </div>
-
-            {/* Date Chip */}
-            <div className="px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-slate-400 font-semibold shrink-0">
-              All Dates
-            </div>
-
-            {(txTypeFilter !== 'ALL' || txCurrencyFilter !== 'ALL') && (
-              <button
-                onClick={() => {
-                  setTxTypeFilter('ALL');
-                  setTxCurrencyFilter('ALL');
-                }}
-                className="px-2 py-1 rounded-full bg-rose-500/10 text-rose-400 text-[11px] font-bold hover:bg-rose-500/20 shrink-0 cursor-pointer"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-
-          {/* Grouped Transaction List matching Screenshot 2 */}
-          <div className="space-y-4 pt-1">
-            {filteredTxs.length > 0 ? (
-              (
-                Object.entries(
-                  filteredTxs.reduce((groups: Record<string, any[]>, tx) => {
-                    const dateStr = new Date(tx.createdAt).toLocaleDateString('en-US', {
-                      weekday: 'short',
-                      month: 'short',
-                      day: 'numeric',
-                    });
-                    if (!groups[dateStr]) groups[dateStr] = [];
-                    groups[dateStr].push(tx);
-                    return groups;
-                  }, {})
-                ) as [string, any[]][]
-              ).map(([dateLabel, groupTxs]) => (
-                <div key={dateLabel} className="space-y-2">
-                  <div className="text-xs font-bold text-slate-400 px-1">
-                    {dateLabel}
-                  </div>
-
-                  <div className="space-y-2">
-                    {groupTxs.map((tx) => {
-                      const isDeposit = tx.type.includes('DEPOSIT') || tx.type.includes('BUY');
-                      const isSwap = tx.type.includes('SWAP') || (tx.notes || '').toLowerCase().includes('swap');
-                      const isPending = tx.status === 'PENDING' || tx.status === 'IN_REVIEW';
-                      const title = isSwap
-                        ? 'Swap'
-                        : isDeposit
-                        ? 'Buy Crypto'
-                        : tx.type.includes('P2P') || tx.type.includes('TRANSFER')
-                        ? 'Account Transfer'
-                        : tx.notes || tx.type.replace(/_/g, ' ');
-
-                      return (
-                        <div
-                          key={tx.id}
-                          className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800/80 flex items-center justify-between hover:bg-slate-900 transition-colors"
-                        >
-                          <div className="flex items-center gap-3">
-                            {/* Token Emblem */}
-                            <div className="relative">
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${
-                                isSwap
-                                  ? 'bg-blue-500/15 text-blue-400'
-                                  : isDeposit
-                                  ? 'bg-teal-500/15 text-teal-400'
-                                  : 'bg-rose-500/15 text-rose-400'
-                              }`}>
-                                {tx.currency === 'USDT' ? '₮' : tx.currency === 'EUR' ? '€' : '$'}
-                              </div>
-                              <div className="w-4 h-4 rounded-full bg-slate-950 border border-slate-800 absolute -bottom-1 -right-1 flex items-center justify-center text-[9px]">
-                                {isSwap ? '🔄' : isDeposit ? '🇺🇸' : '↗'}
-                              </div>
-                            </div>
-
-                            <div>
-                              <div className="text-xs font-bold text-white">
-                                {title}
-                              </div>
-                              <div className="text-[11px] text-slate-500 font-mono">
-                                {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                              </div>
-                            </div>
+            ) : (
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {filteredTxs.slice(0, 6).map((tx: any) => {
+                  const isDeposit = tx.type === 'DEPOSIT';
+                  const isSwap = tx.type.includes('SWAP') || (tx.notes || '').toLowerCase().includes('swap');
+                  return (
+                    <div
+                      key={tx.id || tx.transactionCode}
+                      className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800/70 flex items-center justify-between text-xs"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-[11px] ${
+                          isDeposit ? 'bg-emerald-500/10 text-emerald-400' : isSwap ? 'bg-blue-500/10 text-blue-400' : 'bg-rose-500/10 text-rose-400'
+                        }`}>
+                          {isDeposit ? '↓' : isSwap ? '⇄' : '↑'}
+                        </div>
+                        <div>
+                          <div className="font-bold text-white truncate max-w-[130px]">
+                            {tx.type.replace(/_/g, ' ')}
                           </div>
-
-                          <div className="text-right">
-                            <div className={`text-xs font-mono font-bold ${
-                              isDeposit ? 'text-white' : 'text-slate-200'
-                            }`}>
-                              {isDeposit ? '+' : '-'}{parseFloat(tx.amount || '0').toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {tx.currency}
-                            </div>
-                            <div className={`text-[11px] font-semibold ${
-                              isPending ? 'text-amber-500' : 'text-emerald-400'
-                            }`}>
-                              {isPending ? 'Pending' : 'Completed'}
-                            </div>
+                          <div className="text-[10px] text-slate-500">
+                            {new Date(tx.createdAt).toLocaleDateString()}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="p-8 rounded-3xl bg-slate-900/40 border border-slate-800 text-center space-y-3">
-                <FileText className="w-8 h-8 text-slate-600 mx-auto" />
-                <div className="text-xs text-slate-400 font-medium">No transactions found</div>
-                {(txTypeFilter !== 'ALL' || txCurrencyFilter !== 'ALL') && (
-                  <button
-                    onClick={() => {
-                      setTxTypeFilter('ALL');
-                      setTxCurrencyFilter('ALL');
-                    }}
-                    className="text-xs text-rose-400 hover:text-rose-300 font-bold cursor-pointer"
-                  >
-                    Reset all filters
-                  </button>
-                )}
+                      </div>
+
+                      <div className="text-right">
+                        <div className={`font-mono font-bold ${isDeposit ? 'text-emerald-400' : 'text-slate-200'}`}>
+                          {isDeposit ? '+' : '-'}{parseFloat(tx.amount || '0').toFixed(2)} {tx.currency}
+                        </div>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 uppercase font-bold">
+                          {tx.status || 'COMPLETED'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* Quick statement download info footer */}
-          <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
-            <span>Audit-ready statements</span>
-            <button
-              onClick={handleDownloadStatement}
-              className="text-rose-400 hover:text-rose-300 font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download CSV</span>
-            </button>
-          </div>
-
         </div>
-      )}
 
-      {/* ---------------------------------------------------------------------- */}
-      {/* 5. TAB CONTENT: ASSETS TAB (RedotPay Assets Screen) */}
-      {/* ---------------------------------------------------------------------- */}
-      {navTab === 'assets' && (
-        <div className="p-6 space-y-6 animate-in fade-in duration-200">
-          
-          {/* Header */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span>Est. total value</span>
-              <button onClick={() => setShowBalance(!showBalance)} className="hover:text-white">
-                {showBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold tracking-tight">
-                {showBalance ? totalEstimatedUsd : '••••••••'}
-              </span>
-              <span className="text-xs font-bold text-slate-400">USD</span>
-            </div>
-          </div>
+      </div>
 
-          {/* Action Buttons: Add funds, Earn, Credit */}
-          <div className="grid grid-cols-3 gap-3">
-            <button
-              onClick={onOpenDeposit}
-              className="py-2.5 rounded-2xl bg-white text-slate-950 font-bold text-xs shadow-md hover:bg-slate-100 transition-colors"
-            >
-              Add funds
-            </button>
-            <button
-              onClick={onOpenPackages}
-              className="py-2.5 rounded-2xl bg-slate-900 border border-slate-800 text-white font-bold text-xs hover:bg-slate-800 transition-colors"
-            >
-              Earn
-            </button>
-            <button
-              onClick={() => alert('Avora Private Client Credit Line: Pre-approved based on locked investment portfolio.')}
-              className="py-2.5 rounded-2xl bg-slate-900 border border-slate-800 text-white font-bold text-xs hover:bg-slate-800 transition-colors"
-            >
-              Credit
-            </button>
-          </div>
+      {/* ====================================================================== */}
+      {/* 3. MODAL SUITE (All Preserved with z-[100] & Backdrop Isolation) */}
+      {/* ====================================================================== */}
 
-          {/* Spend while earnings Banner */}
-          <div className="p-4 rounded-3xl bg-slate-900/90 border border-slate-800 flex items-center justify-between">
-            <div>
-              <div className="text-xs font-bold text-white">Spend while earnings</div>
-              <div className="text-[11px] text-slate-400">1% Monthly yield on packages credited to ledger</div>
-            </div>
-            <div className="text-2xl">🪙</div>
-          </div>
-
-          {/* Sub-Tabs: Crypto vs Fiat */}
-          <div className="flex items-center gap-6 border-b border-slate-800 text-sm font-bold">
-            <button
-              onClick={() => setAssetsSubTab('crypto')}
-              className={`pb-2 transition-all relative ${
-                assetsSubTab === 'crypto'
-                  ? 'text-white border-b-2 border-rose-500 font-extrabold'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              Crypto
-            </button>
-
-            <button
-              onClick={() => setAssetsSubTab('fiat')}
-              className={`pb-2 transition-all relative ${
-                assetsSubTab === 'fiat'
-                  ? 'text-white border-b-2 border-rose-500 font-extrabold'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              Fiat
-            </button>
-          </div>
-
-          {/* Crypto Assets List */}
-          {assetsSubTab === 'crypto' && (
-            <div className="space-y-3">
-              {[
-                { name: 'USDT', sub: 'TetherUS (TRC-20 / ERC-20)', bal: parseFloat(usdtBal).toFixed(2), val: `${parseFloat(usdtBal).toFixed(2)} USD`, icon: '₮', color: 'text-emerald-400' },
-                { name: 'USDC', sub: 'USD Coin', bal: '0.00', val: '0.00 USD', icon: '$', color: 'text-blue-400' },
-                { name: 'BTC', sub: 'Bitcoin', bal: '0.00000', val: '0.00 USD', icon: '₿', color: 'text-amber-400' },
-                { name: 'ETH', sub: 'Ethereum', bal: '0.00000', val: '0.00 USD', icon: 'Ξ', color: 'text-purple-400' },
-                { name: 'SOL', sub: 'Solana', bal: '0.000', val: '0.00 USD', icon: '◎', color: 'text-cyan-400' },
-                { name: 'BNB', sub: 'BNB Chain', bal: '0.000', val: '0.00 USD', icon: '⬡', color: 'text-yellow-400' },
-              ].map((token) => (
-                <div
-                  key={token.name}
-                  className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/60 flex items-center justify-between hover:bg-slate-900 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center font-bold text-sm ${token.color}`}>
-                      {token.icon}
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-white">{token.name}</div>
-                      <div className="text-[10px] text-slate-400">{token.sub}</div>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-xs font-mono font-bold text-white">
-                      {showBalance ? token.bal : '••••'}
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      ≈ {showBalance ? token.val : '••••'}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Fiat Assets List */}
-          {assetsSubTab === 'fiat' && (
-            <div className="space-y-3">
-              {[
-                { name: 'USD', sub: 'US Dollar', bal: `$${parseFloat(usdBal).toLocaleString()}`, val: `${parseFloat(usdBal).toFixed(2)} USD` },
-                { name: 'EUR', sub: 'Euro (SEPA Clearing)', bal: `€${parseFloat(eurBal).toLocaleString()}`, val: `${eurInUsd.toFixed(2)} USD` },
-                { name: 'GEL', sub: 'Georgian Lari (Tbilisi Counter)', bal: `₾${parseFloat(gelBal).toLocaleString()}`, val: `${gelInUsd.toFixed(2)} USD` },
-                { name: 'INR', sub: 'Indian Rupee (UPI / IMPS)', bal: `₹${parseFloat(inrBal).toLocaleString()}`, val: `${inrInUsd.toFixed(2)} USD` },
-              ].map((fiat) => (
-                <div
-                  key={fiat.name}
-                  className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/60 flex items-center justify-between hover:bg-slate-900 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center font-bold text-xs text-rose-400">
-                      {fiat.name}
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-white">{fiat.name}</div>
-                      <div className="text-[10px] text-slate-400">{fiat.sub}</div>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-xs font-mono font-bold text-white">
-                      {showBalance ? fiat.bal : '••••'}
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      ≈ {showBalance ? fiat.val : '••••'}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------------------- */}
-      {/* 6. MODAL: REDOTPAY ALL SERVICES SCREEN (DIRECT SCREENSHOT 1 MATCH) */}
-      {/* ---------------------------------------------------------------------- */}
+      {/* Modal 1: Services Hub */}
       {servicesModalOpen && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto space-y-6 text-white shadow-2xl animate-in zoom-in-95">
-            
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <h3 className="font-extrabold text-base flex items-center gap-2">
                 <span>Avora Hub</span>
@@ -1686,103 +969,8 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </button>
             </div>
 
-            {/* GROUP 1: POPULAR (EXACT REDOTPAY SCREENSHOT MATCH) */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Popular</h4>
-              <div className="grid grid-cols-4 gap-3 text-center">
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    onOpenPackages();
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Coins className="w-5 h-5 text-amber-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Earn</span>
-                </button>
-
-                <button
-                  onClick={() => alert('Avora Credit Facility: Institutional liquidity lines available for active accounts.')}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Wallet className="w-5 h-5 text-emerald-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Credit</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    onOpenPackages();
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <UserPlus className="w-5 h-5 text-purple-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Referral</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    router.push('/p2p?tab=express');
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Users className="w-5 h-5 text-blue-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">P2P</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    router.push('/p2p?tab=lifestyle&cat=ESIM');
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Smartphone className="w-5 h-5 text-sky-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">eSIM</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    router.push('/p2p?tab=lifestyle&cat=GIFT_CARD');
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Gift className="w-5 h-5 text-rose-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Gift Card</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    router.push('/p2p?tab=lifestyle&cat=TOPUP');
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Layers className="w-5 h-5 text-indigo-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Mobile top-up</span>
-                </button>
-              </div>
-            </div>
-
-            {/* GROUP 2: TRANSACTION (EXACT REDOTPAY SCREENSHOT MATCH) */}
-            <div className="space-y-3 pt-1 border-t border-slate-900">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Transaction</h4>
+            <div className="space-y-4">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Trading &amp; Transfers</h4>
               <div className="grid grid-cols-4 gap-3 text-center">
                 <button
                   onClick={() => {
@@ -1800,20 +988,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <button
                   onClick={() => {
                     setServicesModalOpen(false);
-                    onOpenDeposit();
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Zap className="w-5 h-5 text-amber-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Buy Crypto</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    onOpenP2P();
+                    router.push('/p2p');
                   }}
                   className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
@@ -1823,18 +998,17 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   <span className="text-[10px] font-semibold text-slate-300">P2P</span>
                 </button>
 
-                {/* SEND (OPENS CHOOSE A METHOD MODAL) */}
                 <button
                   onClick={() => {
                     setServicesModalOpen(false);
                     setChooseMethodModalOpen(true);
                   }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer group"
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200 group-hover:border-rose-500/50 group-hover:text-rose-400 transition-colors">
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
                     <Send className="w-5 h-5 text-rose-500" />
                   </div>
-                  <span className="text-[10px] font-semibold text-slate-300 group-hover:text-white">Send</span>
+                  <span className="text-[10px] font-semibold text-slate-300">Send</span>
                 </button>
 
                 <button
@@ -1849,168 +1023,13 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   </div>
                   <span className="text-[10px] font-semibold text-slate-300">Withdraw</span>
                 </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    setNavTab('swap');
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <RefreshCw className="w-5 h-5 text-blue-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Swap</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    if (onOpenQrScanner) onOpenQrScanner();
-                    else onOpenP2P();
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <QrCode className="w-5 h-5 text-emerald-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Scan</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    if (onOpenQrScanner) onOpenQrScanner();
-                    else onOpenP2P();
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <ArrowDown className="w-5 h-5 text-purple-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Receive</span>
-                </button>
               </div>
             </div>
-
-            {/* GROUP 3: CARD & HUB */}
-            <div className="space-y-3 pt-1 border-t border-slate-900">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Card &amp; Hub</h4>
-              <div className="grid grid-cols-4 gap-3 text-center">
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    setOpenChooseCardInTab(true);
-                    setNavTab('card');
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <CreditCard className="w-5 h-5 text-rose-500" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Apply</span>
-                </button>
-
-                <button
-                  onClick={() => alert('Priority status: Avora Private Client Tier active.')}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Zap className="w-5 h-5 text-amber-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Priority</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    setNavTab('card');
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Shield className="w-5 h-5 text-emerald-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Security</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    setNavTab('transactions');
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Clock className="w-5 h-5 text-sky-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Statement</span>
-                </button>
-              </div>
-            </div>
-
-            {/* GROUP 4: SUPPORT (EXACT SCREENSHOT 1 MATCH) */}
-            <div className="space-y-3 pt-1 border-t border-slate-900">
-              <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider">Support</h4>
-              <div className="grid grid-cols-4 gap-3 text-center">
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    setHelpModalOpen(true);
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-sky-400">
-                    <HelpCircle className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Help</span>
-                </button>
-
-                <a
-                  href="https://t.me/avorallc"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-indigo-400">
-                    <Users className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Community</span>
-                </a>
-
-                <Link
-                  href="/how-it-works"
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-amber-400">
-                    <BookOpen className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Learn</span>
-                </Link>
-
-                {/* TICKET DESK */}
-                <button
-                  onClick={() => {
-                    setServicesModalOpen(false);
-                    setTicketCenterOpen(true);
-                  }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shadow-md">
-                    <Ticket className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-bold text-rose-400">Ticket</span>
-                </button>
-              </div>
-            </div>
-
           </div>
         </div>
       )}
 
-      {/* ---------------------------------------------------------------------- */}
-      {/* 7. MODAL: SUPPORT TICKET CENTER */}
-      {/* ---------------------------------------------------------------------- */}
+      {/* Modal 2: Support Ticket Desk */}
       {ticketCenterOpen && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-3 sm:p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-2xl w-full max-h-[92vh] overflow-y-auto space-y-4 text-white shadow-2xl relative animate-in zoom-in-95">
@@ -2031,71 +1050,12 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             <SupportTicketModule onTicketCreated={onRefresh} />
           </div>
         </div>
       )}
 
-      {/* ---------------------------------------------------------------------- */}
-      {/* 8. MODAL: HELP & FAQ CENTER */}
-      {/* ---------------------------------------------------------------------- */}
-      {helpModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-5 text-white shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center justify-between">
-              <h3 className="font-extrabold text-base flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-sky-400" />
-                <span>Frequently Asked Questions</span>
-              </h3>
-              <button
-                onClick={() => setHelpModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-slate-300">
-              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-                <div className="font-bold text-white">How do I spend crypto with my Virtual Card?</div>
-                <p className="text-slate-400 text-[11px]">
-                  Your Avora card connects to your available USD ledger balance. Authorizations convert crypto automatically.
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-                <div className="font-bold text-white">When are monthly investment returns paid?</div>
-                <p className="text-slate-400 text-[11px]">
-                  Fixed packages calculate a 1% monthly yield credited directly to your wallet on the 1st of every month.
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-                <div className="font-bold text-white">How does P2P escrow work?</div>
-                <p className="text-slate-400 text-[11px]">
-                  Crypto is locked by automated smart escrow until the seller confirms fiat receipt in their bank account.
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                setHelpModalOpen(false);
-                setTicketCenterOpen(true);
-              }}
-              className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md flex items-center justify-center gap-2"
-            >
-              <Ticket className="w-4 h-4" />
-              <span>Still need help? Open a Ticket</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------------------- */}
-      {/* 9. MODAL: SWAP RECEIPT */}
-      {/* ---------------------------------------------------------------------- */}
+      {/* Modal 3: Swap Receipt */}
       {swapReceipt && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full space-y-5 text-white shadow-2xl animate-in zoom-in-95">
@@ -2133,26 +1093,21 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Ledger Status</span>
-                <span className="font-bold text-emerald-400">COMPLETED & AUDITED</span>
+                <span className="font-bold text-emerald-400">COMPLETED &amp; AUDITED</span>
               </div>
             </div>
 
             <button
-              onClick={() => {
-                setSwapReceipt(null);
-                setNavTab('assets');
-              }}
-              className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md"
+              onClick={() => setSwapReceipt(null)}
+              className="w-full py-3 rounded-xl bg-white hover:bg-slate-100 text-slate-950 font-bold text-xs shadow-md"
             >
-              View Updated Assets
+              Done
             </button>
           </div>
         </div>
       )}
 
-      {/* ---------------------------------------------------------------------- */}
-      {/* 9.5. MODAL: CHOOSE SEND METHOD (International vs Avora User) */}
-      {/* ---------------------------------------------------------------------- */}
+      {/* Modal 4: Choose Send Method Modal */}
       <ChooseSendMethodModal
         isOpen={chooseMethodModalOpen}
         onClose={() => setChooseMethodModalOpen(false)}
@@ -2162,18 +1117,16 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
         }}
         onSelectAvoraUser={() => {
           setChooseMethodModalOpen(false);
-          onOpenP2P();
+          if (onOpenQrScanner) onOpenQrScanner();
+          else onOpenP2P();
         }}
       />
 
-      {/* ---------------------------------------------------------------------- */}
-      {/* 9.6. MODAL: REDOTPAY INTERNATIONAL BANK RECIPIENT (Screenshots a133598e & 48db6857) */}
-      {/* ---------------------------------------------------------------------- */}
+      {/* Modal 5: International Bank Recipient Form Modal */}
       {intlRecipientModalOpen && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-black border border-zinc-800 w-full max-w-lg h-[92vh] sm:h-auto sm:max-h-[88vh] rounded-t-[32px] sm:rounded-3xl p-6 flex flex-col text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
             
-            {/* Header: [←] Bank details */}
             <div className="flex items-center justify-between pb-4 border-b border-zinc-900 shrink-0">
               <button
                 onClick={() => setIntlRecipientModalOpen(false)}
@@ -2186,14 +1139,14 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               <div className="w-6" />
             </div>
 
-            {/* Scrollable Form Body */}
             <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
-              
-              {/* Quick Action Pill Toolbar matching Screenshot 43caf055: [⛶ Scan] [📷 Take photo] [📋 Paste] */}
               <div className="flex items-center gap-2 pb-1 overflow-x-auto scrollbar-none">
                 <button
                   type="button"
-                  onClick={() => onOpenP2P()}
+                  onClick={() => {
+                    if (onOpenQrScanner) onOpenQrScanner();
+                    else onOpenP2P();
+                  }}
                   className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
                   title="Scan Invoice or Bank Slip QR"
                 >
@@ -2207,9 +1160,8 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   <input
                     type="file"
                     accept="image/*"
-                    capture="environment"
-                    className="hidden"
                     onChange={handlePhotoUpload}
+                    className="hidden"
                   />
                 </label>
 
@@ -2217,57 +1169,46 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   type="button"
                   onClick={handlePasteClipboard}
                   className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                  title="Auto-fill from Clipboard"
+                  title="Paste IBAN / Account Number"
                 >
-                  <Clipboard className="w-4 h-4 text-amber-400" />
+                  <Clipboard className="w-4 h-4 text-purple-400" />
                   <span>Paste</span>
                 </button>
               </div>
 
-              {/* Currency & Rail Dropdown Pickers matching Screenshot a133598e */}
               <div className="grid grid-cols-2 gap-3">
-                {/* Currency Dropdown */}
-                <div className="relative">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-400 mb-1 block">Currency</label>
                   <select
                     value={intlCurrency}
                     onChange={(e) => setIntlCurrency(e.target.value)}
-                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-white font-bold text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-3 text-sm text-white font-bold outline-none cursor-pointer"
                   >
                     <option value="USD">🇺🇸 USD</option>
                     <option value="EUR">🇪🇺 EUR</option>
                     <option value="GBP">🇬🇧 GBP</option>
-                    <option value="AED">🇦🇪 AED</option>
-                    <option value="INR">🇮🇳 INR</option>
                     <option value="GEL">🇬🇪 GEL</option>
-                    <option value="CAD">🇨🇦 CAD</option>
-                    <option value="AUD">🇦🇺 AUD</option>
+                    <option value="INR">🇮🇳 INR</option>
                   </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
-
-                {/* Rail Dropdown (Swift vs Local Transfer) */}
-                <div className="relative">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-400 mb-1 block">Payout Rail</label>
                   <select
                     value={intlRail}
                     onChange={(e) => setIntlRail(e.target.value)}
-                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-white font-bold text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-3 text-sm text-white font-bold outline-none cursor-pointer"
                   >
-                    <option value="Swift">🌐 Swift</option>
-                    <option value="Local Transfer">🏛️ Local Transfer</option>
+                    <option value="Swift">🌐 Swift International</option>
+                    <option value="Local">🏛️ Local / Domestic</option>
                   </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
               </div>
 
-              {/* 1. Email address (optional) matching Screenshot a133598e */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <div className="flex items-center gap-1.5">
-                    <span>Email address(optional)</span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-400 font-semibold border border-emerald-500/30">
-                      Live Tracking
-                    </span>
-                  </div>
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-300">
+                    Email address <span className="text-slate-500 font-normal">(optional)</span>
+                  </label>
                   <span className="text-[10px] text-slate-500 font-mono">{intlEmail.length}/64</span>
                 </div>
                 <input
@@ -2276,240 +1217,103 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   onChange={(e) => setIntlEmail(e.target.value)}
                   placeholder="recipient@example.com"
                   maxLength={64}
-                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors"
-                />
-                <p className="text-[10px] text-slate-400 leading-snug">
-                  We'll email the recipient to let them know the funds are on the way and provide a real-time live tracking link.
-                </p>
-                {intlEmail && (
-                  <div className="p-2.5 rounded-xl bg-sky-950/40 border border-sky-500/30 text-[10px] text-sky-300 flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse shrink-0" />
-                    <span>Real-time dispatch milestones & status alerts will be emailed to <strong>{intlEmail}</strong></span>
-                  </div>
-                )}
-              </div>
-
-              {/* 2. First name */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500 font-bold">*</span> First name</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{intlFirstName.length}/64</span>
-                </div>
-                <input
-                  type="text"
-                  value={intlFirstName}
-                  onChange={(e) => setIntlFirstName(e.target.value)}
-                  placeholder="First name"
-                  maxLength={64}
-                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors"
+                  className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
                 />
               </div>
 
-              {/* 3. Last name */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500 font-bold">*</span> Last name</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{intlLastName.length}/64</span>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">
+                    <span className="text-rose-500 mr-1">*</span>First name
+                  </label>
+                  <input
+                    type="text"
+                    value={intlFirstName}
+                    onChange={(e) => setIntlFirstName(e.target.value)}
+                    placeholder="First name"
+                    maxLength={64}
+                    className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
+                  />
                 </div>
-                <input
-                  type="text"
-                  value={intlLastName}
-                  onChange={(e) => setIntlLastName(e.target.value)}
-                  placeholder="Last name"
-                  maxLength={64}
-                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors"
-                />
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">
+                    <span className="text-rose-500 mr-1">*</span>Last name
+                  </label>
+                  <input
+                    type="text"
+                    value={intlLastName}
+                    onChange={(e) => setIntlLastName(e.target.value)}
+                    placeholder="Last name"
+                    maxLength={64}
+                    className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
+                  />
+                </div>
               </div>
 
-              {/* 4. SWIFT / BIC Code (For Swift) or Local Clearing Identifier */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500 font-bold">*</span> {intlRail === 'Swift' ? 'SWIFT code' : `${intlCurrency} Clearing / BIC Code`}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{intlSwiftCode.length}/11</span>
-                </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-300">
+                  <span className="text-rose-500 mr-1">*</span>SWIFT code
+                </label>
                 <input
                   type="text"
                   value={intlSwiftCode}
                   onChange={(e) => setIntlSwiftCode(e.target.value.toUpperCase())}
-                  placeholder={intlRail === 'Swift' ? 'SWIFT code (e.g. CHASUS33)' : 'BIC or National Clearing Code'}
+                  placeholder="e.g. CHASUS33"
                   maxLength={11}
-                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono uppercase outline-none focus:border-zinc-600 transition-colors"
+                  className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono uppercase outline-none mt-1 transition-colors"
                 />
               </div>
 
-              {/* 5. IBAN / Account number */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500 font-bold">*</span> IBAN / Account number</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{intlIban.length}/32</span>
-                </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-300">
+                  <span className="text-rose-500 mr-1">*</span>IBAN / Account number
+                </label>
                 <input
                   type="text"
                   value={intlIban}
                   onChange={(e) => setIntlIban(e.target.value)}
-                  placeholder="IBAN / Account number"
-                  maxLength={32}
-                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono outline-none focus:border-zinc-600 transition-colors"
+                  placeholder="IBAN or local account number"
+                  maxLength={34}
+                  className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono outline-none mt-1 transition-colors"
                 />
               </div>
-
-              {/* 6. Bank name */}
-              <div className="space-y-1">
-                <label className="text-xs text-slate-400"><span className="text-rose-500 font-bold">*</span> Bank name</label>
-                <div className="relative">
-                  <select
-                    value={intlBankName}
-                    onChange={(e) => setIntlBankName(e.target.value)}
-                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
-                  >
-                    <option value="JPMorgan Chase & Co.">JPMorgan Chase & Co.</option>
-                    <option value="Bank of America">Bank of America</option>
-                    <option value="Citibank N.A.">Citibank N.A.</option>
-                    <option value="Wells Fargo">Wells Fargo</option>
-                    <option value="Barclays Bank PLC">Barclays Bank PLC</option>
-                    <option value="HSBC Holdings plc">HSBC Holdings plc</option>
-                    <option value="Deutsche Bank">Deutsche Bank</option>
-                    <option value="Standard Chartered">Standard Chartered</option>
-                    <option value="Emirates NBD">Emirates NBD</option>
-                    <option value="State Bank of India">State Bank of India</option>
-                    <option value="Bank of Georgia">Bank of Georgia</option>
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* 7. ABA routing number / Sort code */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>
-                    <span className="text-rose-500 font-bold">*</span> {intlCurrency === 'GBP' ? 'Sort Code' : intlCurrency === 'INR' ? 'IFSC Code' : 'ABA routing number'}
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-mono">{intlRoutingNumber.length}/9</span>
-                </div>
-                <input
-                  type="text"
-                  value={intlRoutingNumber}
-                  onChange={(e) => setIntlRoutingNumber(e.target.value)}
-                  placeholder={intlCurrency === 'GBP' ? '6-digit Sort Code' : intlCurrency === 'INR' ? '11-character IFSC' : '9-digit ABA routing number'}
-                  maxLength={intlCurrency === 'INR' ? 11 : 9}
-                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono outline-none focus:border-zinc-600 transition-colors"
-                />
-              </div>
-
-              {/* 8. Account number */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span><span className="text-rose-500 font-bold">*</span> Account number</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{intlAccountNumber.length}/32</span>
-                </div>
-                <input
-                  type="text"
-                  value={intlAccountNumber}
-                  onChange={(e) => setIntlAccountNumber(e.target.value)}
-                  placeholder="Domestic Bank Account number"
-                  maxLength={32}
-                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono outline-none focus:border-zinc-600 transition-colors"
-                />
-              </div>
-
-              {/* 9. Account type */}
-              <div className="space-y-1">
-                <label className="text-xs text-slate-400"><span className="text-rose-500 font-bold">*</span> Account type</label>
-                <div className="relative">
-                  <select
-                    value={intlAccountType}
-                    onChange={(e) => setIntlAccountType(e.target.value)}
-                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
-                  >
-                    <option value="Checking">Checking</option>
-                    <option value="Savings">Savings</option>
-                    <option value="Business / Corporate">Business / Corporate</option>
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* 10. Nationality */}
-              <div className="space-y-1">
-                <label className="text-xs text-slate-400"><span className="text-rose-500 font-bold">*</span> Nationality</label>
-                <div className="relative">
-                  <select
-                    value={intlNationality}
-                    onChange={(e) => setIntlNationality(e.target.value)}
-                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
-                  >
-                    <option value="United States">United States</option>
-                    <option value="United Kingdom">United Kingdom</option>
-                    <option value="Canada">Canada</option>
-                    <option value="Australia">Australia</option>
-                    <option value="Germany">Germany</option>
-                    <option value="United Arab Emirates">United Arab Emirates</option>
-                    <option value="Singapore">Singapore</option>
-                    <option value="India">India</option>
-                    <option value="Georgia">Georgia</option>
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* 11. Date of birth */}
-              <div className="space-y-1">
-                <label className="text-xs text-slate-400"><span className="text-rose-500 font-bold">*</span> Date of birth</label>
-                <input
-                  type="date"
-                  value={intlDob}
-                  onChange={(e) => setIntlDob(e.target.value)}
-                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
-                />
-              </div>
-
-              {intlSavedSuccess && (
-                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs space-y-2 animate-in fade-in">
-                  <div className="flex items-center gap-2 font-bold">
-                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    <span>Recipient Registered & Live Tracking Active!</span>
-                  </div>
-                  <p className="text-[11px] text-slate-300 leading-relaxed">
-                    {intlEmail
-                      ? `Real-time milestone tracking alerts will be dispatched to ${intlEmail} and your dashboard.`
-                      : 'Beneficiary registered for zero-fee international settlement.'}
-                  </p>
-                  <div className="flex items-center gap-2 pt-1">
-                    <Link
-                      href="/transfer"
-                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1.5 transition-all shadow-sm"
-                    >
-                      <Globe className="w-3.5 h-3.5" />
-                      <span>Track Live Dispatch</span>
-                    </Link>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Sticky Save Button */}
             <div className="pt-3 border-t border-zinc-900 shrink-0">
               <button
+                type="button"
                 onClick={() => {
                   setIntlSaving(true);
                   setTimeout(() => {
                     setIntlSaving(false);
                     setIntlSavedSuccess(true);
                     setTimeout(() => {
+                      setIntlSavedSuccess(false);
                       setIntlRecipientModalOpen(false);
                       if (onOpenInternationalTransfer) {
                         onOpenInternationalTransfer();
                       } else {
                         router.push('/transfer');
                       }
-                    }, 1000);
+                    }, 800);
                   }, 600);
                 }}
-                disabled={intlSaving}
+                disabled={intlSaving || intlSavedSuccess}
                 className="w-full py-4 rounded-2xl bg-white hover:bg-slate-200 text-black font-extrabold text-sm transition-all cursor-pointer shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
               >
-                {intlSaving && <Loader2 className="w-4 h-4 animate-spin text-black" />}
-                <span>{intlSaving ? 'Saving Recipient...' : 'Save'}</span>
+                {intlSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-black" />
+                    <span>Verifying Bank Corridor...</span>
+                  </>
+                ) : intlSavedSuccess ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>Recipient Saved! Proceeding...</span>
+                  </>
+                ) : (
+                  <span>Continue to Transfer</span>
+                )}
               </button>
             </div>
 
@@ -2517,21 +1321,17 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
         </div>
       )}
 
-      {/* ---------------------------------------------------------------------- */}
-      {/* 9.7. MODAL: SCAN & CALCULATE INVOICE BILL */}
-      {/* ---------------------------------------------------------------------- */}
+      {/* Modal 6: Scan & Calculate Bill Modal */}
       {scanInvoiceModalOpen && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-zinc-950 border border-zinc-800 w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
-            
-            {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-900">
+            <div className="flex items-center justify-between pb-3 border-zinc-900">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
                   <Camera className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-sm text-white">Scan & Calculate Bill</h3>
+                  <h3 className="font-extrabold text-sm text-white">Scan &amp; Calculate Bill</h3>
                   <p className="text-[10px] text-slate-400">Auto-detected invoice settlement amount</p>
                 </div>
               </div>
@@ -2543,10 +1343,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </button>
             </div>
 
-            {/* Bill Amount Extracted */}
             <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
               <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Invoice / Bill Total Detected</span>
+                <span>Invoice Total Detected</span>
                 <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
                   OCR Verified
                 </span>
@@ -2565,14 +1364,13 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </div>
             </div>
 
-            {/* Crypto Needed Breakdown with Bank Protection */}
             <div className="p-4 rounded-2xl bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 space-y-2 text-xs">
               <div className="flex items-center justify-between text-slate-400">
-                <span>Avora Bank Rate (Guaranteed No Loss):</span>
+                <span>Avora Bank Rate:</span>
                 <span className="font-mono text-white">1 {calcSendCurrency} = {calcEffectiveRate} {calcReceiveCurrency}</span>
               </div>
               <div className="flex items-center justify-between text-slate-400">
-                <span>Bank Safety Spread:</span>
+                <span>Bank Safety Margin:</span>
                 <span className="font-mono text-emerald-400">+{adminRemittanceMargin.toFixed(1)}%</span>
               </div>
               <div className="flex items-center justify-between text-slate-400 border-t border-zinc-800/80 pt-2">
@@ -2583,7 +1381,6 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </div>
             </div>
 
-            {/* Action Buttons */}
             <div className="flex items-center gap-3 pt-1">
               <button
                 type="button"
@@ -2601,96 +1398,12 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 }}
                 className="flex-1 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors cursor-pointer shadow-lg shadow-rose-950/40"
               >
-                Apply & Pay Bill
+                Apply &amp; Pay Bill
               </button>
             </div>
-
           </div>
         </div>
       )}
-
-      {/* ---------------------------------------------------------------------- */}
-      {/* 10. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Send, Assets) */}
-      {/* ---------------------------------------------------------------------- */}
-      <div className={`absolute bottom-0 left-0 right-0 h-20 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 px-6 flex items-center justify-around z-30 transition-all duration-200 ${
-        chooseMethodModalOpen || intlRecipientModalOpen || servicesModalOpen || helpModalOpen || ticketCenterOpen || scanInvoiceModalOpen || !!swapReceipt || openChooseCardInTab
-          ? 'opacity-0 pointer-events-none'
-          : 'opacity-100'
-      }`}>
-        
-        {/* Dock Item: Home */}
-        <button
-          onClick={() => setNavTab('home')}
-          className="flex flex-col items-center gap-1 cursor-pointer transition-all group"
-        >
-          <div className={`px-4 py-1 rounded-full flex items-center justify-center transition-all ${
-            navTab === 'home'
-              ? 'bg-rose-500/20 text-rose-500 ring-1 ring-rose-500/30'
-              : 'text-zinc-400 group-hover:text-white'
-          }`}>
-            <Home className={`w-5 h-5 ${navTab === 'home' ? 'fill-rose-500 text-rose-500' : 'text-zinc-400 group-hover:text-white'}`} />
-          </div>
-          <span className={`text-[10px] ${
-            navTab === 'home' ? 'font-bold text-rose-500' : 'font-medium text-zinc-400 group-hover:text-white'
-          }`}>
-            Home
-          </span>
-        </button>
-
-        {/* Dock Item: Card */}
-        <button
-          onClick={() => setNavTab('card')}
-          className="flex flex-col items-center gap-1 cursor-pointer transition-all group"
-        >
-          <div className={`px-4 py-1 rounded-full flex items-center justify-center transition-all ${
-            navTab === 'card'
-              ? 'bg-rose-500/20 text-rose-500 ring-1 ring-rose-500/30'
-              : 'text-zinc-400 group-hover:text-white'
-          }`}>
-            <CreditCard className="w-5 h-5" />
-          </div>
-          <span className={`text-[10px] ${
-            navTab === 'card' ? 'font-bold text-rose-500' : 'font-medium text-zinc-400 group-hover:text-white'
-          }`}>
-            Card
-          </span>
-        </button>
-
-        {/* Dock Item: Send (Triggers "Choose a method" bottom sheet) */}
-        <button
-          onClick={() => setChooseMethodModalOpen(true)}
-          className="flex flex-col items-center gap-1 cursor-pointer transition-all group"
-          title="Send Money"
-        >
-          <div className="px-4 py-1 rounded-full flex items-center justify-center text-zinc-400 group-hover:text-white transition-all">
-            <div className="w-5 h-5 rounded-[5px] border-2 border-current flex items-center justify-center">
-              <ArrowRight className="w-3 h-3 stroke-[2.5]" />
-            </div>
-          </div>
-          <span className="text-[10px] font-medium text-zinc-400 group-hover:text-white">
-            Send
-          </span>
-        </button>
-
-        {/* Dock Item: Assets */}
-        <button
-          onClick={() => setNavTab('assets')}
-          className="flex flex-col items-center gap-1 cursor-pointer transition-all group"
-        >
-          <div className={`px-4 py-1 rounded-full flex items-center justify-center transition-all ${
-            navTab === 'assets'
-              ? 'bg-rose-500/20 text-rose-500 ring-1 ring-rose-500/30'
-              : 'text-zinc-400 group-hover:text-white'
-          }`}>
-            <Wallet className="w-5 h-5" />
-          </div>
-          <span className={`text-[10px] ${
-            navTab === 'assets' ? 'font-bold text-rose-500' : 'font-medium text-zinc-400 group-hover:text-white'
-          }`}>
-            Assets
-          </span>
-        </button>
-      </div>
 
     </div>
   );
