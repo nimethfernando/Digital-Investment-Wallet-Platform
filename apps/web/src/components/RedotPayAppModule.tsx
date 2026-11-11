@@ -9,6 +9,7 @@ import {
   Home,
   CreditCard,
   Send,
+  Globe,
   Coins,
   ArrowDownLeft,
   ArrowUpRight,
@@ -83,14 +84,39 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   onRefresh,
 }) => {
   const router = useRouter();
-  // Navigation active tab: 'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets'
-  const [navTab, setNavTab] = useState<'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets'>('home');
+  // Navigation active tab: 'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets' | 'buy'
+  const [navTab, setNavTab] = useState<'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets' | 'buy'>('home');
   const [showBalance, setShowBalance] = useState(true);
   const [assetsSubTab, setAssetsSubTab] = useState<'crypto' | 'fiat'>('crypto');
   const [openChooseCardInTab, setOpenChooseCardInTab] = useState(false);
 
   // Method Selection Modal: International Transfer vs Transfer to Avora User
   const [chooseMethodModalOpen, setChooseMethodModalOpen] = useState(false);
+
+  // Send Calculator State matching RedotPay Screenshot 3429e0d6
+  const [calculatorAmount, setCalculatorAmount] = useState<number>(49015);
+
+  // International Bank Recipient Form Modal matching Screenshots a133598e & 48db6857
+  const [intlRecipientModalOpen, setIntlRecipientModalOpen] = useState(false);
+  const [intlCurrency, setIntlCurrency] = useState('USD');
+  const [intlRail, setIntlRail] = useState('Swift');
+  const [intlEmail, setIntlEmail] = useState('');
+  const [intlFirstName, setIntlFirstName] = useState('');
+  const [intlLastName, setIntlLastName] = useState('');
+  const [intlSwiftCode, setIntlSwiftCode] = useState('');
+  const [intlIban, setIntlIban] = useState('');
+  const [intlBankName, setIntlBankName] = useState('JPMorgan Chase & Co.');
+  const [intlRoutingNumber, setIntlRoutingNumber] = useState('');
+  const [intlAccountNumber, setIntlAccountNumber] = useState('');
+  const [intlAccountType, setIntlAccountType] = useState('Checking');
+  const [intlNationality, setIntlNationality] = useState('United States');
+  const [intlDob, setIntlDob] = useState('1990-01-01');
+  const [intlSaving, setIntlSaving] = useState(false);
+  const [intlSavedSuccess, setIntlSavedSuccess] = useState(false);
+
+  // Buy Crypto Form State matching Screenshot afcfd75e
+  const [buyFiatAmount, setBuyFiatAmount] = useState('1000');
+  const [buyPaymentMethod, setBuyPaymentMethod] = useState<'CARD' | 'P2P'>('P2P');
 
   // Transactions Filter States
   const [txTypeFilter, setTxTypeFilter] = useState<string>('ALL');
@@ -544,6 +570,102 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             </div>
           </div>
 
+          {/* 6.5. Send calculator matching RedotPay Screenshot 3429e0d6 */}
+          <div className="p-5 rounded-3xl bg-zinc-900/90 border border-zinc-800 space-y-4 shadow-sm">
+            <div
+              onClick={() => setChooseMethodModalOpen(true)}
+              className="flex items-center justify-between cursor-pointer group"
+            >
+              <span className="font-extrabold text-sm text-white group-hover:text-rose-400 transition-colors">Send calculator</span>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+            </div>
+
+            <div className="space-y-3">
+              {/* You send */}
+              <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <span className="text-[11px] text-slate-400">You send</span>
+                  <div className="text-xl font-black text-white font-mono">{calculatorAmount.toLocaleString()}</div>
+                </div>
+                <div className="flex items-center gap-1.5 bg-zinc-900 px-2.5 py-1.5 rounded-xl border border-zinc-800 text-xs font-bold text-white">
+                  <div className="w-4 h-4 rounded-full bg-teal-500 flex items-center justify-center text-[10px] text-slate-950 font-black">₮</div>
+                  <span>USDT</span>
+                </div>
+              </div>
+
+              {/* Recipient gets */}
+              <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <span className="text-[11px] text-slate-400">Recipient gets</span>
+                  <div className="text-xl font-black text-white font-mono">{(calculatorAmount * 0.893).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                </div>
+                <div className="flex items-center gap-1.5 bg-zinc-900 px-2.5 py-1.5 rounded-xl border border-zinc-800 text-xs font-bold text-white">
+                  <div className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-[10px] text-white font-black">€</div>
+                  <span>EUR</span>
+                </div>
+              </div>
+
+              {/* Range Slider */}
+              <input
+                type="range"
+                min={100}
+                max={100000}
+                step={500}
+                value={calculatorAmount}
+                onChange={(e) => setCalculatorAmount(Number(e.target.value))}
+                className="w-full accent-rose-500 bg-zinc-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+              />
+
+              {/* Comparison pill with competitors */}
+              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 px-1">
+                <div>
+                  <span>Currencies Direct </span>
+                  <span className="text-rose-400 font-semibold font-mono">↓ 11.71 EUR</span>
+                </div>
+                <div>
+                  <span>CurrencyFair </span>
+                  <span className="text-rose-400 font-semibold font-mono">↓ 58.89 EUR</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 6.6. Learn section matching RedotPay Screenshot 3429e0d6 */}
+          <div className="space-y-3 pt-1">
+            <h4 className="font-extrabold text-sm text-white">Learn</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <div
+                onClick={() => setChooseMethodModalOpen(true)}
+                className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800/80 space-y-1.5 cursor-pointer hover:border-zinc-700 transition-all group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 text-sm">
+                  ⚡
+                </div>
+                <h5 className="font-bold text-xs text-white group-hover:text-rose-400 transition-colors">
+                  Zero-Fee Transfers
+                </h5>
+                <p className="text-[10px] text-slate-400 leading-snug">
+                  Send crypto globally and settle into local bank accounts in seconds.
+                </p>
+              </div>
+
+              <div
+                onClick={() => setTicketCenterOpen(true)}
+                className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800/80 space-y-1.5 cursor-pointer hover:border-zinc-700 transition-all group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 text-sm">
+                  🛡️
+                </div>
+                <h5 className="font-bold text-xs text-white group-hover:text-blue-400 transition-colors">
+                  VIP Safeguard
+                </h5>
+                <p className="text-[10px] text-slate-400 leading-snug">
+                  24/7 dedicated Telegram escrow & institutional custody protocols.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* 7. Official Telegram Channel & VIP Concierge Banner */}
           <div className="p-4 rounded-3xl bg-gradient-to-r from-sky-950/60 via-zinc-900 to-indigo-950/40 border border-sky-500/30 flex items-center justify-between shadow-lg shadow-sky-950/20 group">
             <div className="space-y-1 pr-3">
@@ -777,6 +899,159 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
             </button>
 
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------------- */}
+      {/* 4.2. TAB CONTENT: BUY CRYPTO TAB (Direct Screenshot afcfd75e Match) */}
+      {/* ---------------------------------------------------------------------- */}
+      {navTab === 'buy' && (
+        <div className="p-6 space-y-6 animate-in fade-in duration-200">
+          {/* Header matching RedotPay Screenshot afcfd75e: [←] Buy Crypto [📄⏱️] [?] */}
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setNavTab('home')}
+              className="p-2 rounded-full hover:bg-zinc-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              title="Back"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h3 className="text-base font-extrabold text-white">Buy Crypto</h3>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setNavTab('transactions')}
+                className="p-2 rounded-full hover:bg-zinc-900 text-slate-300 hover:text-white transition-colors relative cursor-pointer"
+                title="Transaction History"
+              >
+                <FileText className="w-5 h-5" />
+                <Clock className="w-2.5 h-2.5 absolute bottom-1 right-1 text-rose-400" />
+              </button>
+              <button
+                onClick={() => setTicketCenterOpen(true)}
+                className="p-2 rounded-full hover:bg-zinc-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="Help"
+              >
+                <HelpCircle className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Estimated amount (excl. tax) */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-slate-400 font-medium">Estimated amount (excl. tax)</label>
+              <div className="p-4 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between">
+                <div className="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-full border border-zinc-800 text-xs font-bold text-white">
+                  <span>🇺🇸</span>
+                  <span>USD</span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                </div>
+                <input
+                  type="number"
+                  value={buyFiatAmount}
+                  onChange={(e) => setBuyFiatAmount(e.target.value)}
+                  className="bg-transparent text-right font-sans text-2xl font-black text-white placeholder-slate-600 outline-none w-1/2"
+                />
+              </div>
+            </div>
+
+            {/* You receive */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-slate-400 font-medium">You receive</label>
+              <div className="p-4 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between">
+                <div className="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-full border border-zinc-800 text-xs font-bold text-white">
+                  <div className="w-4 h-4 rounded-full bg-teal-500 text-slate-950 flex items-center justify-center text-[10px] font-black">₮</div>
+                  <span>USDT</span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                </div>
+                <div className="text-right font-sans text-2xl font-black text-white">
+                  {(parseFloat(buyFiatAmount || '0')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+
+            {/* Rate ticker */}
+            <div className="flex items-center gap-1.5 text-xs text-slate-400 px-1">
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+              <span>1 USD ≈ 1 USDT</span>
+            </div>
+
+            {/* Payment method */}
+            <div className="space-y-2 pt-2">
+              <label className="text-xs text-slate-400 font-medium">Payment method</label>
+              <div className="space-y-2">
+                {/* Credit / Debit Card */}
+                <div
+                  onClick={() => setBuyPaymentMethod('CARD')}
+                  className={`p-4 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
+                    buyPaymentMethod === 'CARD'
+                      ? 'bg-zinc-900 border-zinc-700'
+                      : 'bg-zinc-950/60 border-zinc-900 hover:border-zinc-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                      <CreditCard className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 font-bold text-xs text-white">
+                        <span>Credit/Debit Card</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 font-black">VISA</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-300 font-black">MC</span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">Arrives instantly · Low fee</span>
+                    </div>
+                  </div>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    buyPaymentMethod === 'CARD' ? 'border-white bg-white text-black' : 'border-zinc-600'
+                  }`}>
+                    {buyPaymentMethod === 'CARD' && <Check className="w-3 h-3 stroke-[3]" />}
+                  </div>
+                </div>
+
+                {/* P2P Marketplace */}
+                <div
+                  onClick={() => setBuyPaymentMethod('P2P')}
+                  className={`p-4 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
+                    buyPaymentMethod === 'P2P'
+                      ? 'bg-zinc-900 border-zinc-700'
+                      : 'bg-zinc-950/60 border-zinc-900 hover:border-zinc-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-orange-500/20 border border-orange-500/30 flex items-center justify-center text-orange-400">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-xs text-white">P2P Marketplace</div>
+                      <span className="text-[11px] text-slate-400">Zero cost</span>
+                    </div>
+                  </div>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    buyPaymentMethod === 'P2P' ? 'border-white bg-white text-black' : 'border-zinc-600'
+                  }`}>
+                    {buyPaymentMethod === 'P2P' && <Check className="w-3 h-3 stroke-[3]" />}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Continue Button */}
+            <div className="pt-4">
+              <button
+                onClick={() => {
+                  if (buyPaymentMethod === 'CARD') {
+                    onOpenDeposit();
+                  } else {
+                    onOpenP2P();
+                  }
+                }}
+                className="w-full py-4 rounded-2xl bg-white hover:bg-slate-200 text-black font-extrabold text-sm transition-all cursor-pointer shadow-lg active:scale-[0.99]"
+              >
+                Continue
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1614,16 +1889,266 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
         isOpen={chooseMethodModalOpen}
         onClose={() => setChooseMethodModalOpen(false)}
         onSelectInternational={() => {
-          if (onOpenInternationalTransfer) {
-            onOpenInternationalTransfer();
-          } else {
-            router.push('/transfer');
-          }
+          setChooseMethodModalOpen(false);
+          setIntlRecipientModalOpen(true);
         }}
         onSelectAvoraUser={() => {
+          setChooseMethodModalOpen(false);
           onOpenP2P();
         }}
       />
+
+      {/* ---------------------------------------------------------------------- */}
+      {/* 9.6. MODAL: REDOTPAY INTERNATIONAL BANK RECIPIENT (Screenshots a133598e & 48db6857) */}
+      {/* ---------------------------------------------------------------------- */}
+      {intlRecipientModalOpen && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-black border border-zinc-800 w-full max-w-lg h-[92vh] sm:h-auto sm:max-h-[88vh] rounded-t-[32px] sm:rounded-3xl p-6 flex flex-col text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
+            
+            {/* Header: [←] Bank details */}
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-900 shrink-0">
+              <button
+                onClick={() => setIntlRecipientModalOpen(false)}
+                className="p-1.5 -ml-1.5 rounded-full hover:bg-zinc-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="Back"
+              >
+                <ArrowLeft className="w-6 h-6" />
+              </button>
+              <h3 className="font-extrabold text-base text-white">Bank details</h3>
+              <div className="w-6" />
+            </div>
+
+            {/* Scrollable Form Body */}
+            <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+              
+              {/* Currency & Rail Pickers matching Screenshot a133598e: [🇺🇸 USD ▾] [🌐 Swift ▾] */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🇺🇸</span>
+                    <span className="font-bold text-xs text-white">{intlCurrency}</span>
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-emerald-400" />
+                    <span className="font-bold text-xs text-white">{intlRail}</span>
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                </div>
+              </div>
+
+              {/* Email address (optional) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>Email address(optional)</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{intlEmail.length}/64</span>
+                </div>
+                <input
+                  type="email"
+                  value={intlEmail}
+                  onChange={(e) => setIntlEmail(e.target.value)}
+                  placeholder="recipient@example.com"
+                  maxLength={64}
+                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors"
+                />
+                <p className="text-[10px] text-slate-500 leading-snug">
+                  We'll email the recipient to let them know the funds are on the way.
+                </p>
+              </div>
+
+              {/* First name */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span><span className="text-rose-500">*</span> First name</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{intlFirstName.length}/64</span>
+                </div>
+                <input
+                  type="text"
+                  value={intlFirstName}
+                  onChange={(e) => setIntlFirstName(e.target.value)}
+                  placeholder="First name"
+                  maxLength={64}
+                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors"
+                />
+              </div>
+
+              {/* Last name */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span><span className="text-rose-500">*</span> Last name</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{intlLastName.length}/64</span>
+                </div>
+                <input
+                  type="text"
+                  value={intlLastName}
+                  onChange={(e) => setIntlLastName(e.target.value)}
+                  placeholder="Last name"
+                  maxLength={64}
+                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors"
+                />
+              </div>
+
+              {/* SWIFT code */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span><span className="text-rose-500">*</span> SWIFT code</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{intlSwiftCode.length}/11</span>
+                </div>
+                <input
+                  type="text"
+                  value={intlSwiftCode}
+                  onChange={(e) => setIntlSwiftCode(e.target.value.toUpperCase())}
+                  placeholder="SWIFT code (e.g. CHASUS33)"
+                  maxLength={11}
+                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono uppercase outline-none focus:border-zinc-600 transition-colors"
+                />
+              </div>
+
+              {/* IBAN / Account number */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span><span className="text-rose-500">*</span> IBAN / Account number</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{intlIban.length}/32</span>
+                </div>
+                <input
+                  type="text"
+                  value={intlIban}
+                  onChange={(e) => setIntlIban(e.target.value)}
+                  placeholder="IBAN / Account number"
+                  maxLength={32}
+                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono outline-none focus:border-zinc-600 transition-colors"
+                />
+              </div>
+
+              {/* Bank name */}
+              <div className="space-y-1">
+                <label className="text-xs text-slate-400"><span className="text-rose-500">*</span> Bank name</label>
+                <div className="relative">
+                  <select
+                    value={intlBankName}
+                    onChange={(e) => setIntlBankName(e.target.value)}
+                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
+                  >
+                    <option value="JPMorgan Chase & Co.">JPMorgan Chase & Co.</option>
+                    <option value="Bank of America">Bank of America</option>
+                    <option value="Citibank N.A.">Citibank N.A.</option>
+                    <option value="Wells Fargo">Wells Fargo</option>
+                    <option value="Barclays Bank PLC">Barclays Bank PLC</option>
+                    <option value="HSBC Holdings plc">HSBC Holdings plc</option>
+                    <option value="Deutsche Bank">Deutsche Bank</option>
+                    <option value="Standard Chartered">Standard Chartered</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* ABA routing number */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span><span className="text-rose-500">*</span> ABA routing number</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{intlRoutingNumber.length}/9</span>
+                </div>
+                <input
+                  type="text"
+                  value={intlRoutingNumber}
+                  onChange={(e) => setIntlRoutingNumber(e.target.value)}
+                  placeholder="ABA routing number"
+                  maxLength={9}
+                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs font-mono outline-none focus:border-zinc-600 transition-colors"
+                />
+              </div>
+
+              {/* Account type */}
+              <div className="space-y-1">
+                <label className="text-xs text-slate-400"><span className="text-rose-500">*</span> Account type</label>
+                <div className="relative">
+                  <select
+                    value={intlAccountType}
+                    onChange={(e) => setIntlAccountType(e.target.value)}
+                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
+                  >
+                    <option value="Checking">Checking</option>
+                    <option value="Savings">Savings</option>
+                    <option value="Business / Corporate">Business / Corporate</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Nationality */}
+              <div className="space-y-1">
+                <label className="text-xs text-slate-400"><span className="text-rose-500">*</span> Nationality</label>
+                <div className="relative">
+                  <select
+                    value={intlNationality}
+                    onChange={(e) => setIntlNationality(e.target.value)}
+                    className="w-full appearance-none p-3.5 pr-8 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
+                  >
+                    <option value="United States">United States</option>
+                    <option value="United Kingdom">United Kingdom</option>
+                    <option value="Canada">Canada</option>
+                    <option value="Australia">Australia</option>
+                    <option value="Germany">Germany</option>
+                    <option value="United Arab Emirates">United Arab Emirates</option>
+                    <option value="Singapore">Singapore</option>
+                    <option value="India">India</option>
+                    <option value="Georgia">Georgia</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Date of birth */}
+              <div className="space-y-1">
+                <label className="text-xs text-slate-400"><span className="text-rose-500">*</span> Date of birth</label>
+                <input
+                  type="date"
+                  value={intlDob}
+                  onChange={(e) => setIntlDob(e.target.value)}
+                  className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors cursor-pointer"
+                />
+              </div>
+
+              {intlSavedSuccess && (
+                <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>Recipient bank details verified and registered for zero-fee dispatch!</span>
+                </div>
+              )}
+            </div>
+
+            {/* Sticky Save Button */}
+            <div className="pt-3 border-t border-zinc-900 shrink-0">
+              <button
+                onClick={() => {
+                  setIntlSaving(true);
+                  setTimeout(() => {
+                    setIntlSaving(false);
+                    setIntlSavedSuccess(true);
+                    setTimeout(() => {
+                      setIntlRecipientModalOpen(false);
+                      if (onOpenInternationalTransfer) {
+                        onOpenInternationalTransfer();
+                      } else {
+                        router.push('/transfer');
+                      }
+                    }, 1000);
+                  }, 600);
+                }}
+                disabled={intlSaving}
+                className="w-full py-4 rounded-2xl bg-white hover:bg-slate-200 text-black font-extrabold text-sm transition-all cursor-pointer shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
+              >
+                {intlSaving && <Loader2 className="w-4 h-4 animate-spin text-black" />}
+                <span>{intlSaving ? 'Saving Recipient...' : 'Save'}</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* ---------------------------------------------------------------------- */}
       {/* 10. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Send, Assets) */}
