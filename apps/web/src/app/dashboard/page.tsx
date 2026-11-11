@@ -977,10 +977,11 @@ function DashboardContent() {
               transactions={transactions}
               onOpenDeposit={() => setDepositModalOpen(true)}
               onOpenWithdraw={() => setWithdrawModalOpen(true)}
-              onOpenP2P={() => {
-                setQrModalTab('SEND');
+              onOpenQrScanner={() => {
+                setQrModalTab('RECEIVE');
                 setQrModalOpen(true);
               }}
+              onOpenP2P={() => router.push('/p2p')}
               onOpenPackages={() => setActiveTab('packages')}
               onOpenInternationalTransfer={() => router.push('/transfer')}
               onRefresh={fetchDashboardData}

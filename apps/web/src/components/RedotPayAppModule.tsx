@@ -58,6 +58,9 @@ import {
   Camera,
   Clipboard,
   Copy,
+  Maximize2,
+  Minimize2,
+  QrCode,
 } from 'lucide-react';
 import { VirtualCardModule } from './VirtualCardModule';
 import { SupportTicketModule } from './SupportTicketModule';
@@ -72,6 +75,7 @@ interface RedotPayAppModuleProps {
   onOpenP2P: () => void;
   onOpenPackages: () => void;
   onOpenInternationalTransfer?: () => void;
+  onOpenQrScanner?: () => void;
   onRefresh?: () => void;
 }
 
@@ -84,9 +88,32 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   onOpenP2P,
   onOpenPackages,
   onOpenInternationalTransfer,
+  onOpenQrScanner,
   onRefresh,
 }) => {
   const router = useRouter();
+  // Enlarged / Expanded Desktop View State
+  const [isEnlarged, setIsEnlarged] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('avorapay_enlarged') === 'true';
+      } catch {}
+    }
+    return false;
+  });
+
+  const toggleEnlarged = () => {
+    setIsEnlarged((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('avorapay_enlarged', String(next));
+        } catch {}
+      }
+      return next;
+    });
+  };
+
   // Navigation active tab: 'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets' | 'buy'
   const [navTab, setNavTab] = useState<'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets' | 'buy'>('home');
   const [showBalance, setShowBalance] = useState(true);
@@ -374,8 +401,39 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   });
 
   return (
-    <div className="dark w-full max-w-2xl mx-auto bg-slate-950 text-white rounded-[36px] border border-slate-800 shadow-2xl overflow-hidden relative pb-24 font-sans select-none">
+    <div className={`dark w-full mx-auto bg-slate-950 text-white rounded-[32px] sm:rounded-[36px] border border-slate-800 shadow-2xl overflow-hidden relative pb-24 font-sans select-none transition-all duration-300 ${
+      isEnlarged ? 'max-w-5xl' : 'max-w-2xl'
+    }`}>
       
+      {/* ---------------------------------------------------------------------- */}
+      {/* 0. VIEW MODE SWITCHER BAR (Compact Mobile vs Enlarged Desktop) */}
+      {/* ---------------------------------------------------------------------- */}
+      <div className="px-5 py-2 bg-zinc-950 border-b border-zinc-900/80 flex items-center justify-between text-xs text-slate-400 select-none">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${isEnlarged ? 'bg-indigo-400 animate-pulse' : 'bg-emerald-400'}`} />
+          <span className="font-semibold text-slate-300 text-[11px]">
+            {isEnlarged ? 'AvoraPay Enlarged Desktop View' : 'AvoraPay Mobile App View'}
+          </span>
+        </div>
+        <button
+          onClick={toggleEnlarged}
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900 hover:bg-zinc-800 text-slate-300 hover:text-white border border-zinc-700/60 transition-all cursor-pointer font-medium text-[11px]"
+          title={isEnlarged ? "Collapse to Mobile Simulator" : "Enlarge to Wide Desktop View"}
+        >
+          {isEnlarged ? (
+            <>
+              <Minimize2 className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Compact Mobile Frame</span>
+            </>
+          ) : (
+            <>
+              <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Enlarge View</span>
+            </>
+          )}
+        </button>
+      </div>
+
       {/* ---------------------------------------------------------------------- */}
       {/* 1. TOP APP HEADER (Exact RedotPay Match) */}
       {/* ---------------------------------------------------------------------- */}
@@ -390,15 +448,41 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           <span>AvoraPay</span>
         </div>
 
-        {/* Right Action Icons: Scan, Notification, Customer Support */}
-        <div className="flex items-center gap-2.5 text-slate-300">
+        {/* Right Action Icons: Enlarge/Minimize, Scan QR, Notification, Customer Support */}
+        <div className="flex items-center gap-2 text-slate-300">
+          {/* Enlarge / Minimize Button */}
           <button
-            onClick={() => onOpenP2P()}
-            className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
-            title="Scan QR Code"
+            onClick={toggleEnlarged}
+            className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+              isEnlarged
+                ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'
+                : 'hover:bg-zinc-800 text-slate-300 hover:text-white'
+            }`}
+            title={isEnlarged ? "Collapse to Compact Mobile Frame" : "Enlarge to Wide Desktop View"}
           >
-            <Scan className="w-5 h-5" />
+            {isEnlarged ? (
+              <Minimize2 className="w-5 h-5" />
+            ) : (
+              <Maximize2 className="w-5 h-5" />
+            )}
           </button>
+
+          {/* QR Code Scanner Button (Clear QR icon) */}
+          <button
+            onClick={() => {
+              if (onOpenQrScanner) {
+                onOpenQrScanner();
+              } else {
+                onOpenP2P();
+              }
+            }}
+            className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+            title="Scan QR Code / Transfer"
+          >
+            <QrCode className="w-5 h-5" />
+          </button>
+
+          {/* Notifications */}
           <button
             onClick={() => alert('No unread security alerts.')}
             className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors relative cursor-pointer"
@@ -407,6 +491,8 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             <Bell className="w-5 h-5" />
             <span className="w-2 h-2 rounded-full bg-rose-500 absolute top-1 right-1" />
           </button>
+
+          {/* Customer Support */}
           <button
             onClick={() => setTicketCenterOpen(true)}
             className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
@@ -1780,12 +1866,13 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <button
                   onClick={() => {
                     setServicesModalOpen(false);
-                    onOpenP2P();
+                    if (onOpenQrScanner) onOpenQrScanner();
+                    else onOpenP2P();
                   }}
                   className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
                   <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Scan className="w-5 h-5 text-emerald-400" />
+                    <QrCode className="w-5 h-5 text-emerald-400" />
                   </div>
                   <span className="text-[10px] font-semibold text-slate-300">Scan</span>
                 </button>
@@ -1793,7 +1880,8 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <button
                   onClick={() => {
                     setServicesModalOpen(false);
-                    onOpenP2P();
+                    if (onOpenQrScanner) onOpenQrScanner();
+                    else onOpenP2P();
                   }}
                   className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
