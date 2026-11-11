@@ -77,6 +77,41 @@ export class GlobalMoneyTransferController {
   }
 
   /**
+   * GET /api/v1/gmt/track/:code
+   * Public live tracking for recipients and senders (No login required)
+   */
+  async trackTransferPublic(req: Request, res: Response, next: NextFunction) {
+    try {
+      const code = Array.isArray(req.params.code) ? req.params.code[0] : String(req.params.code);
+      const transfer = await globalMoneyTransferService.getTransfer(code);
+      // Return public-safe tracking view
+      res.json({
+        success: true,
+        data: {
+          transferCode: transfer.transferCode,
+          senderName: transfer.senderName,
+          sendingCurrency: transfer.sendingCurrency,
+          sendingAmount: transfer.sendingAmount,
+          destinationCountry: transfer.destinationCountry,
+          destinationCountryCode: transfer.destinationCountryCode,
+          recipientCurrency: transfer.recipientCurrency,
+          recipientAmount: transfer.recipientAmount,
+          recipientName: transfer.recipientName,
+          recipientBankName: transfer.recipientBankName,
+          recipientAccountMasked: `****${transfer.recipientAccount.slice(-4)}`,
+          effectiveRate: transfer.effectiveRate,
+          status: transfer.status,
+          estimatedDeliveryDate: transfer.estimatedDeliveryDate,
+          trackingTimeline: transfer.trackingTimeline,
+          createdAt: transfer.createdAt,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * GET /api/v1/gmt/admin/transfers
    * Admin: List all transfers
    */

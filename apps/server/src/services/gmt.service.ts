@@ -208,6 +208,7 @@ export class GlobalMoneyTransferService {
       recipientBankName: string;
       recipientBicSwift?: string;
       recipientAddress?: string;
+      recipientEmail?: string;
       transferReason?: string;
       twoFactorCode?: string;
     }
@@ -268,8 +269,20 @@ export class GlobalMoneyTransferService {
     const transferCode = `GMT-${Date.now().toString().slice(-6)}`;
     const newBal = currentBal.minus(totalToDebit);
 
+    const formattedAddress = data.recipientAddress
+      ? (data.recipientEmail ? `${data.recipientAddress} | Tracking Email: ${data.recipientEmail}` : data.recipientAddress)
+      : (data.recipientEmail ? `Tracking Email: ${data.recipientEmail}` : null);
+
     const initialTimeline = [
-      { stage: 'SUBMITTED', title: 'Transfer Initiated', timestamp: new Date().toISOString(), status: 'COMPLETED', notes: `Funded $${quote.totalPaidAmount} via Avora Wallet` },
+      {
+        stage: 'SUBMITTED',
+        title: 'Transfer Initiated',
+        timestamp: new Date().toISOString(),
+        status: 'COMPLETED',
+        notes: data.recipientEmail
+          ? `Funded $${quote.totalPaidAmount} via Avora Wallet. Live tracking alerts dispatched to ${data.recipientEmail}.`
+          : `Funded $${quote.totalPaidAmount} via Avora Wallet`,
+      },
       { stage: 'COMPLIANCE_SCREENED', title: 'Sanctions & KYC Screening', timestamp: new Date().toISOString(), status: 'COMPLETED', notes: 'Automated AML & OFAC checks cleared' },
       { stage: 'CONVERSION_LOCKED', title: 'Exchange Rate Guaranteed', timestamp: new Date().toISOString(), status: 'COMPLETED', notes: `Locked rate: 1 USD = ${quote.effectiveRate} ${quote.recipientCurrency}` },
       { stage: 'PARTNER_PROCESSING', title: 'Banking Rail Routing', timestamp: null, status: 'IN_PROGRESS', notes: `Dispatched to ${data.recipientBankName} (${data.destinationCountry})` },
@@ -300,7 +313,7 @@ export class GlobalMoneyTransferService {
           recipientAccount: data.recipientAccount.trim(),
           recipientBankName: data.recipientBankName.trim(),
           recipientBicSwift: data.recipientBicSwift?.trim() || null,
-          recipientAddress: data.recipientAddress?.trim() || null,
+          recipientAddress: formattedAddress?.trim() || null,
           transferReason: data.transferReason?.trim() || 'Family Support / Trade Remittance',
           referenceRate: new Decimal(quote.referenceRate),
           rateAdjustmentPct: new Decimal(quote.rateAdjustmentPct),

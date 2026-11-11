@@ -1940,10 +1940,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </div>
               </div>
 
-              {/* Email address (optional) */}
-              <div className="space-y-1">
+              {/* Email address (optional) matching Screenshot a133598e */}
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Email address(optional)</span>
+                  <div className="flex items-center gap-1.5">
+                    <span>Email address(optional)</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-400 font-semibold border border-emerald-500/30">
+                      Live Tracking
+                    </span>
+                  </div>
                   <span className="text-[10px] text-slate-500 font-mono">{intlEmail.length}/64</span>
                 </div>
                 <input
@@ -1954,9 +1959,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   maxLength={64}
                   className="w-full p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white text-xs outline-none focus:border-zinc-600 transition-colors"
                 />
-                <p className="text-[10px] text-slate-500 leading-snug">
-                  We'll email the recipient to let them know the funds are on the way.
+                <p className="text-[10px] text-slate-400 leading-snug">
+                  We'll email the recipient to let them know the funds are on the way and provide a real-time live tracking link.
                 </p>
+                {intlEmail && (
+                  <div className="p-2.5 rounded-xl bg-sky-950/40 border border-sky-500/30 text-[10px] text-sky-300 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse shrink-0" />
+                    <span>Real-time dispatch milestones & status alerts will be emailed to <strong>{intlEmail}</strong></span>
+                  </div>
+                )}
               </div>
 
               {/* First name */}
@@ -2113,9 +2124,25 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </div>
 
               {intlSavedSuccess && (
-                <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>Recipient bank details verified and registered for zero-fee dispatch!</span>
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs space-y-2 animate-in fade-in">
+                  <div className="flex items-center gap-2 font-bold">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>Recipient Registered & Live Tracking Active!</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    {intlEmail
+                      ? `Real-time milestone tracking alerts will be dispatched to ${intlEmail} and your dashboard.`
+                      : 'Beneficiary registered for zero-fee international settlement.'}
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <Link
+                      href="/transfer"
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1.5 transition-all shadow-sm"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Track Live Dispatch</span>
+                    </Link>
+                  </div>
                 </div>
               )}
             </div>

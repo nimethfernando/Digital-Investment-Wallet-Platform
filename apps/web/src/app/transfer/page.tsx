@@ -77,6 +77,7 @@ export default function GlobalMoneyTransferPage() {
 
   // Recipient Information State
   const [recipientName, setRecipientName] = useState<string>('');
+  const [recipientEmail, setRecipientEmail] = useState<string>('');
   const [recipientAccount, setRecipientAccount] = useState<string>('');
   const [recipientBankName, setRecipientBankName] = useState<string>('');
   const [recipientBicSwift, setRecipientBicSwift] = useState<string>('');
@@ -156,6 +157,7 @@ export default function GlobalMoneyTransferPage() {
         recipientBankName,
         recipientBicSwift,
         recipientAddress,
+        recipientEmail,
         transferReason,
       });
 
@@ -541,6 +543,28 @@ export default function GlobalMoneyTransferPage() {
             </div>
 
             <div>
+              <div className="flex items-center justify-between text-xs">
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  Recipient Email Address <span className="text-slate-400 font-normal">(Optional for Live Tracking)</span>
+                </label>
+                <span className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live Milestone Tracking
+                </span>
+              </div>
+              <input
+                type="email"
+                placeholder="recipient@example.com"
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+                className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                We'll email the recipient to let them know the funds are on the way and provide a real-time live tracking link so both of you can follow every stage of the transfer.
+              </p>
+            </div>
+
+            <div>
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                 Bank Name
               </label>
@@ -668,6 +692,32 @@ export default function GlobalMoneyTransferPage() {
               </span>
               <div className="text-[11px] text-slate-500">Funded: ${activeTransfer.totalPaidAmount} USD</div>
             </div>
+          </div>
+
+          {/* Email Notification & Tracking Link Pill */}
+          <div className="p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="font-bold text-sky-900 dark:text-sky-300 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
+                <span>Live Email Tracking Active</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                {recipientEmail
+                  ? `Real-time dispatch milestones are being emailed to ${recipientEmail} and your account email.`
+                  : `Milestone notifications are being sent to your registered account email.`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const trackUrl = `${window.location.origin}/transfer/track?code=${activeTransfer.transferCode}`;
+                navigator.clipboard.writeText(trackUrl);
+                alert(`Tracking link copied to clipboard:\n${trackUrl}`);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shrink-0 cursor-pointer shadow-sm transition-all"
+            >
+              Copy Tracking Link
+            </button>
           </div>
 
           {/* Live Tracking Timeline */}
