@@ -401,7 +401,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   });
 
   return (
-    <div className={`dark w-full mx-auto bg-slate-950 text-white rounded-[32px] sm:rounded-[36px] border border-slate-800 shadow-2xl overflow-hidden relative pb-24 font-sans select-none transition-all duration-300 ${
+    <div className={`dark w-full mx-auto bg-slate-950 text-white rounded-[32px] sm:rounded-[36px] border border-slate-800 shadow-2xl overflow-hidden relative z-0 pb-24 font-sans select-none transition-all duration-300 ${
       isEnlarged ? 'max-w-5xl' : 'max-w-2xl'
     }`}>
       
@@ -1671,7 +1671,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       {/* 6. MODAL: REDOTPAY ALL SERVICES SCREEN (DIRECT SCREENSHOT 1 MATCH) */}
       {/* ---------------------------------------------------------------------- */}
       {servicesModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto space-y-6 text-white shadow-2xl animate-in zoom-in-95">
             
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
@@ -2012,7 +2012,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       {/* 7. MODAL: SUPPORT TICKET CENTER */}
       {/* ---------------------------------------------------------------------- */}
       {ticketCenterOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-3 sm:p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-2xl w-full max-h-[92vh] overflow-y-auto space-y-4 text-white shadow-2xl relative animate-in zoom-in-95">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
@@ -2041,7 +2041,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       {/* 8. MODAL: HELP & FAQ CENTER */}
       {/* ---------------------------------------------------------------------- */}
       {helpModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-5 text-white shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between">
               <h3 className="font-extrabold text-base flex items-center gap-2">
@@ -2097,7 +2097,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       {/* 9. MODAL: SWAP RECEIPT */}
       {/* ---------------------------------------------------------------------- */}
       {swapReceipt && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full space-y-5 text-white shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -2170,7 +2170,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       {/* 9.6. MODAL: REDOTPAY INTERNATIONAL BANK RECIPIENT (Screenshots a133598e & 48db6857) */}
       {/* ---------------------------------------------------------------------- */}
       {intlRecipientModalOpen && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-black border border-zinc-800 w-full max-w-lg h-[92vh] sm:h-auto sm:max-h-[88vh] rounded-t-[32px] sm:rounded-3xl p-6 flex flex-col text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
             
             {/* Header: [←] Bank details */}
@@ -2521,7 +2521,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       {/* 9.7. MODAL: SCAN & CALCULATE INVOICE BILL */}
       {/* ---------------------------------------------------------------------- */}
       {scanInvoiceModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-zinc-950 border border-zinc-800 w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
             
             {/* Header */}
@@ -2612,7 +2612,11 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       {/* ---------------------------------------------------------------------- */}
       {/* 10. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Send, Assets) */}
       {/* ---------------------------------------------------------------------- */}
-      <div className="absolute bottom-0 left-0 right-0 h-20 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 px-6 flex items-center justify-around z-50">
+      <div className={`absolute bottom-0 left-0 right-0 h-20 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 px-6 flex items-center justify-around z-30 transition-all duration-200 ${
+        chooseMethodModalOpen || intlRecipientModalOpen || servicesModalOpen || helpModalOpen || ticketCenterOpen || scanInvoiceModalOpen || !!swapReceipt || openChooseCardInTab
+          ? 'opacity-0 pointer-events-none'
+          : 'opacity-100'
+      }`}>
         
         {/* Dock Item: Home */}
         <button

@@ -27,8 +27,13 @@ export const ChooseSendMethodModal: React.FC<ChooseSendMethodModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-slate-950 border border-slate-800 w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom sm:zoom-in-95 duration-200 select-none">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200"
+    >
+      <div className="bg-slate-950 border border-slate-800 w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 pb-8 sm:pb-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom sm:zoom-in-95 duration-200 select-none">
         
         {/* Mobile Pull Indicator */}
         <div className="w-12 h-1 bg-slate-800 rounded-full mx-auto -mt-2 mb-2 sm:hidden" />
