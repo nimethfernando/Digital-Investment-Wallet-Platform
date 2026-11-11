@@ -717,6 +717,38 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </div>
             </div>
 
+            {/* Bank Adjustable Spread Controls (Zero Forex Loss to Bank) */}
+            <div className="p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800/90 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-slate-300">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Adjustable Bank Spread Margin:</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30 text-[11px]">
+                    +{adminRemittanceMargin.toFixed(1)}% Spread
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">Zero Bank Loss Guarantee</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {[1.0, 1.5, 2.0, 2.5, 3.5, 5.0].map((margin) => (
+                  <button
+                    key={margin}
+                    type="button"
+                    onClick={() => setAdminRemittanceMargin(margin)}
+                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold font-mono transition-all cursor-pointer ${
+                      adminRemittanceMargin === margin
+                        ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400'
+                        : 'bg-slate-900 hover:bg-slate-850 text-slate-400 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    {margin.toFixed(1)}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Direct Send Action */}
             <button
               onClick={() => {
@@ -1204,79 +1236,241 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300">
-                    Email address <span className="text-slate-500 font-normal">(optional)</span>
-                  </label>
-                  <span className="text-[10px] text-slate-500 font-mono">{intlEmail.length}/64</span>
-                </div>
-                <input
-                  type="email"
-                  value={intlEmail}
-                  onChange={(e) => setIntlEmail(e.target.value)}
-                  placeholder="recipient@example.com"
-                  maxLength={64}
-                  className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
-                />
-              </div>
+              {intlRail === 'Local' ? (
+                /* LOCAL / DOMESTIC TRANSFER FIELDS (MATCHING SCREENSHOT 43caf055) */
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-300">
+                          <span className="text-rose-500 mr-1">*</span>First name
+                        </label>
+                        <span className="text-[10px] text-slate-500 font-mono">{intlFirstName.length}/64</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={intlFirstName}
+                        onChange={(e) => setIntlFirstName(e.target.value)}
+                        placeholder="First name"
+                        maxLength={64}
+                        className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-300">
+                          <span className="text-rose-500 mr-1">*</span>Last name
+                        </label>
+                        <span className="text-[10px] text-slate-500 font-mono">{intlLastName.length}/64</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={intlLastName}
+                        onChange={(e) => setIntlLastName(e.target.value)}
+                        placeholder="Last name"
+                        maxLength={64}
+                        className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
+                      />
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-300">
-                    <span className="text-rose-500 mr-1">*</span>First name
-                  </label>
-                  <input
-                    type="text"
-                    value={intlFirstName}
-                    onChange={(e) => setIntlFirstName(e.target.value)}
-                    placeholder="First name"
-                    maxLength={64}
-                    className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-300">
-                    <span className="text-rose-500 mr-1">*</span>Last name
-                  </label>
-                  <input
-                    type="text"
-                    value={intlLastName}
-                    onChange={(e) => setIntlLastName(e.target.value)}
-                    placeholder="Last name"
-                    maxLength={64}
-                    className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
-                  />
-                </div>
-              </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1">
+                      <span className="text-rose-500 mr-1">*</span>Bank name
+                    </label>
+                    <select
+                      value={intlBankName}
+                      onChange={(e) => setIntlBankName(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-3 text-sm text-white font-semibold outline-none cursor-pointer"
+                    >
+                      <option value="JPMorgan Chase & Co.">JPMorgan Chase & Co.</option>
+                      <option value="Bank of America">Bank of America</option>
+                      <option value="Wells Fargo Bank">Wells Fargo Bank</option>
+                      <option value="Citibank N.A.">Citibank N.A.</option>
+                      <option value="U.S. Bank">U.S. Bank</option>
+                      <option value="PNC Bank">PNC Bank</option>
+                      <option value="Truist Bank">Truist Bank</option>
+                      <option value="Capital One">Capital One</option>
+                      <option value="TD Bank">TD Bank</option>
+                      <option value="Other Domestic Clearing Bank">Other Domestic Clearing Bank</option>
+                    </select>
+                  </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-300">
-                  <span className="text-rose-500 mr-1">*</span>SWIFT code
-                </label>
-                <input
-                  type="text"
-                  value={intlSwiftCode}
-                  onChange={(e) => setIntlSwiftCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. CHASUS33"
-                  maxLength={11}
-                  className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono uppercase outline-none mt-1 transition-colors"
-                />
-              </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-300">
+                        <span className="text-rose-500 mr-1">*</span>ABA routing number
+                      </label>
+                      <span className="text-[10px] text-slate-500 font-mono">{intlRoutingNumber.length}/9</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={intlRoutingNumber}
+                      onChange={(e) => setIntlRoutingNumber(e.target.value.replace(/\D/g, '').slice(0, 9))}
+                      placeholder="9-digit ABA routing number"
+                      maxLength={9}
+                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono outline-none mt-1 transition-colors"
+                    />
+                  </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-300">
-                  <span className="text-rose-500 mr-1">*</span>IBAN / Account number
-                </label>
-                <input
-                  type="text"
-                  value={intlIban}
-                  onChange={(e) => setIntlIban(e.target.value)}
-                  placeholder="IBAN or local account number"
-                  maxLength={34}
-                  className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono outline-none mt-1 transition-colors"
-                />
-              </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-300">
+                        <span className="text-rose-500 mr-1">*</span>Account number
+                      </label>
+                      <span className="text-[10px] text-slate-500 font-mono">{intlAccountNumber.length}/32</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={intlAccountNumber}
+                      onChange={(e) => setIntlAccountNumber(e.target.value.slice(0, 32))}
+                      placeholder="Account number"
+                      maxLength={32}
+                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono outline-none mt-1 transition-colors"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1">
+                      <span className="text-rose-500 mr-1">*</span>Account type
+                    </label>
+                    <select
+                      value={intlAccountType}
+                      onChange={(e) => setIntlAccountType(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-3 text-sm text-white font-semibold outline-none cursor-pointer"
+                    >
+                      <option value="Checking">Checking</option>
+                      <option value="Savings">Savings</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1">
+                      <span className="text-rose-500 mr-1">*</span>Nationality
+                    </label>
+                    <select
+                      value={intlNationality}
+                      onChange={(e) => setIntlNationality(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-3 text-sm text-white font-semibold outline-none cursor-pointer"
+                    >
+                      <option value="United States">🇺🇸 United States</option>
+                      <option value="United Kingdom">🇬🇧 United Kingdom</option>
+                      <option value="Canada">🇨🇦 Canada</option>
+                      <option value="Australia">🇦🇺 Australia</option>
+                      <option value="Germany">🇩🇪 Germany</option>
+                      <option value="France">🇫🇷 France</option>
+                      <option value="India">🇮🇳 India</option>
+                      <option value="United Arab Emirates">🇦🇪 United Arab Emirates</option>
+                      <option value="Georgia">🇬🇪 Georgia</option>
+                      <option value="Other">🌍 Other</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1">
+                      <span className="text-rose-500 mr-1">*</span>Date of birth
+                    </label>
+                    <input
+                      type="date"
+                      value={intlDob}
+                      onChange={(e) => setIntlDob(e.target.value)}
+                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+              ) : (
+                /* SWIFT INTERNATIONAL WIRE TRANSFER FIELDS (MATCHING SCREENSHOT 48db6857) */
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-300">
+                        Email address <span className="text-slate-500 font-normal">(optional)</span>
+                      </label>
+                      <span className="text-[10px] text-slate-500 font-mono">{intlEmail.length}/64</span>
+                    </div>
+                    <input
+                      type="email"
+                      value={intlEmail}
+                      onChange={(e) => setIntlEmail(e.target.value)}
+                      placeholder="recipient@example.com"
+                      maxLength={64}
+                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                      We&apos;ll email the recipient to let them know the funds are on the way.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-300">
+                          <span className="text-rose-500 mr-1">*</span>First name
+                        </label>
+                        <span className="text-[10px] text-slate-500 font-mono">{intlFirstName.length}/64</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={intlFirstName}
+                        onChange={(e) => setIntlFirstName(e.target.value)}
+                        placeholder="First name"
+                        maxLength={64}
+                        className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-300">
+                          <span className="text-rose-500 mr-1">*</span>Last name
+                        </label>
+                        <span className="text-[10px] text-slate-500 font-mono">{intlLastName.length}/64</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={intlLastName}
+                        onChange={(e) => setIntlLastName(e.target.value)}
+                        placeholder="Last name"
+                        maxLength={64}
+                        className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white outline-none mt-1 transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-300">
+                        <span className="text-rose-500 mr-1">*</span>SWIFT code
+                      </label>
+                      <span className="text-[10px] text-slate-500 font-mono">{intlSwiftCode.length}/11</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={intlSwiftCode}
+                      onChange={(e) => setIntlSwiftCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. CHASUS33"
+                      maxLength={11}
+                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono uppercase outline-none mt-1 transition-colors"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-300">
+                        <span className="text-rose-500 mr-1">*</span>IBAN / Account number
+                      </label>
+                      <span className="text-[10px] text-slate-500 font-mono">{intlIban.length}/34</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={intlIban}
+                      onChange={(e) => setIntlIban(e.target.value)}
+                      placeholder="IBAN or local account number"
+                      maxLength={34}
+                      className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-white font-mono outline-none mt-1 transition-colors"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="pt-3 border-t border-zinc-900 shrink-0">
