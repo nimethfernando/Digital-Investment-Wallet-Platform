@@ -12,6 +12,7 @@ import { KycVerificationModal } from '../../components/KycVerificationModal';
 import { QrTransferModal } from '../../components/QrTransferModal';
 import { DepositModal } from '../../components/DepositModal';
 import { ChooseSendMethodModal } from '../../components/ChooseSendMethodModal';
+import { BankAccountsModule, UserBankAccount } from '../../components/BankAccountsModule';
 import { getExplorerInfo } from '../../lib/blockchain';
 import {
   Wallet,
@@ -36,6 +37,7 @@ import {
   CreditCard,
   Headphones,
   MessageSquare,
+  Plus,
   PlusCircle,
   Copy,
   Check,
@@ -215,7 +217,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const { user, token, isLoading: authLoading, refreshUser } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'redotpay'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'redotpay' | 'bank_details'>('overview');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [startupInvestments, setStartupInvestments] = useState<StartupInvestmentItem[]>([]);
@@ -290,6 +292,9 @@ function DashboardContent() {
   const [wthLoading, setWthLoading] = useState(false);
   const [wthSuccess, setWthSuccess] = useState<string | null>(null);
   const [wthError, setWthError] = useState<string | null>(null);
+  const [savedBankAccounts, setSavedBankAccounts] = useState<UserBankAccount[]>([]);
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
+  const [saveBankOnWithdraw, setSaveBankOnWithdraw] = useState<boolean>(true);
 
   // P2P Transfer Form State
   const [p2pRecipientInput, setP2PRecipientInput] = useState('');
@@ -387,8 +392,10 @@ function DashboardContent() {
       setActiveTab('card');
     } else if (tab === 'support' || tab === 'inquiry' || tab === 'inquiries' || tab === 'chat') {
       setActiveTab('support');
-    } else if (tab === 'redotpay') {
+    } else if (tab === 'redotpay' || tab === 'swap' || tab === 'fx') {
       setActiveTab('redotpay');
+    } else if (tab === 'bank' || tab === 'bank_details' || tab === 'bank-details' || tab === 'accounts' || tab === 'bankdetails' || tab === 'linked-accounts') {
+      setActiveTab('bank_details');
     }
   }, [searchParams]);
 
@@ -421,6 +428,71 @@ function DashboardContent() {
       // ignore
     }
   }, []);
+
+  // Load Saved Real Bank Accounts from localStorage for Withdrawals
+  const loadSavedBankAccounts = () => {
+    try {
+      const stored = localStorage.getItem('avora_user_bank_accounts');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setSavedBankAccounts(parsed);
+          const def = parsed.find((a: any) => a.isDefault) || parsed[0];
+          setSelectedBankAccountId(def.id);
+          setWthBankName(def.bankName);
+          setWthIban(def.iban || def.accountNumber);
+          setWthSwift(def.swiftCode || def.routingNumber || '');
+          return;
+        }
+      }
+      const defaultAccounts: UserBankAccount[] = [
+        {
+          id: 'bank-1',
+          bankName: 'JPMorgan Chase & Co.',
+          accountHolder: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Alex Morgan' : 'Alex Morgan',
+          accountNumber: '4829104829',
+          accountType: 'Checking',
+          currency: 'USD',
+          payoutRail: 'LOCAL',
+          routingNumber: '021000021',
+          bankCountry: 'United States',
+          nationality: 'United States',
+          dateOfBirth: '1990-05-14',
+          nickname: 'Primary US Checking',
+          isDefault: true,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'bank-2',
+          bankName: 'Barclays Bank UK',
+          accountHolder: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Alex Morgan' : 'Alex Morgan',
+          accountNumber: '38491029',
+          iban: 'GB29BARC20041538491029',
+          swiftCode: 'BARCGB22',
+          accountType: 'Business',
+          currency: 'GBP',
+          payoutRail: 'SWIFT',
+          bankCountry: 'United Kingdom',
+          recipientEmail: user?.email || 'alex.morgan@treasury.co',
+          nickname: 'London Treasury Wire',
+          isDefault: false,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+      setSavedBankAccounts(defaultAccounts);
+      setSelectedBankAccountId(defaultAccounts[0].id);
+      setWthBankName(defaultAccounts[0].bankName);
+      setWthIban(defaultAccounts[0].accountNumber);
+      setWthSwift(defaultAccounts[0].routingNumber || '');
+      localStorage.setItem('avora_user_bank_accounts', JSON.stringify(defaultAccounts));
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    loadSavedBankAccounts();
+  }, [user, activeTab, withdrawModalOpen]);
 
   // Fetch Dashboard Data
   const fetchDashboardData = async () => {
@@ -649,7 +721,46 @@ function DashboardContent() {
     if (wthMethod === 'USDT_WALLET') {
       payoutDetails = { address: wthWalletAddress, network: 'TRC-20' };
     } else if (wthMethod === 'BANK_TRANSFER') {
-      payoutDetails = { bankName: wthBankName, iban: wthIban, swift: wthSwift };
+      payoutDetails = {
+        bankName: wthBankName,
+        iban: wthIban,
+        swift: wthSwift,
+        accountHolder: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : undefined,
+      };
+
+      // Save new bank account to linked accounts for future 1-click withdrawals
+      if (saveBankOnWithdraw && wthBankName && wthIban) {
+        try {
+          const stored = localStorage.getItem('avora_user_bank_accounts');
+          const existingList: UserBankAccount[] = stored ? JSON.parse(stored) : [];
+          const alreadyExists = existingList.some(
+            (b) => b.bankName.toLowerCase() === wthBankName.toLowerCase() && (b.accountNumber === wthIban || b.iban === wthIban)
+          );
+          if (!alreadyExists) {
+            const newAcc: UserBankAccount = {
+              id: `bank-${Date.now()}`,
+              bankName: wthBankName,
+              accountHolder: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Beneficiary' : 'Beneficiary',
+              accountNumber: wthIban,
+              iban: wthIban,
+              swiftCode: wthSwift,
+              routingNumber: wthSwift.length === 9 ? wthSwift : undefined,
+              accountType: 'Checking',
+              currency: wthCurrency || 'USD',
+              payoutRail: wthSwift.length === 9 ? 'LOCAL' : 'SWIFT',
+              bankCountry: 'United States',
+              nickname: `${wthBankName} (${wthCurrency})`,
+              isDefault: existingList.length === 0,
+              createdAt: new Date().toISOString(),
+            };
+            const updated = [newAcc, ...existingList];
+            localStorage.setItem('avora_user_bank_accounts', JSON.stringify(updated));
+            setSavedBankAccounts(updated);
+          }
+        } catch {
+          // ignore
+        }
+      }
     }
 
     try {
@@ -901,6 +1012,15 @@ function DashboardContent() {
                 <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>Global Remittance</span>
               </Link>
+
+              <button
+                onClick={() => setActiveTab('bank_details')}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Manage your linked bank accounts and withdrawal settlement rails"
+              >
+                <Landmark className="w-4 h-4 text-emerald-500" />
+                <span>Bank Details</span>
+              </button>
             </div>
           </div>
 
@@ -926,6 +1046,7 @@ function DashboardContent() {
                 { key: 'overview', label: 'Overview', icon: Wallet },
                 { key: 'redotpay', label: 'Instant Swap & FX', icon: ArrowLeftRight },
                 { key: 'transfers', label: 'Account & QR Transfers', icon: QrCode },
+                { key: 'bank_details', label: 'Bank Details', icon: Landmark },
                 { key: 'card', label: 'Virtual Cards', icon: CreditCard },
                 { key: 'packages', label: `Investments (${packages.length + startupInvestments.length + (tokenStatus?.earlyAccess?.registeredInterest ? 1 : 0)})`, icon: Package },
                 { key: 'withdrawals', label: `Withdrawals (${withdrawals.length})`, icon: ArrowUpRight },
@@ -1390,6 +1511,27 @@ function DashboardContent() {
               </button>
             </div>
 
+            {/* Quick Banner: Linked Bank Accounts for Withdrawals */}
+            <div className="p-6 rounded-3xl bg-gradient-to-r from-slate-900 via-slate-950 to-emerald-950 text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-6 border border-slate-800">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
+                  <Landmark className="w-3 h-3" />
+                  <span>Settlement &amp; Withdrawal Rails</span>
+                </div>
+                <h3 className="text-lg font-black">Link Real Bank Accounts for Direct Withdrawal</h3>
+                <p className="text-xs text-slate-400">
+                  Register your domestic checking, savings, or international SWIFT bank details to withdraw money directly to your real bank account.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setActiveTab('bank_details')}
+                className="px-5 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all shrink-0 cursor-pointer"
+              >
+                Manage Bank Details →
+              </button>
+            </div>
+
             {/* Recent Ledger Entries */}
             <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
@@ -1483,6 +1625,21 @@ function DashboardContent() {
               )}
             </div>
           </div>
+        )}
+
+        {/* LINKED REAL BANK ACCOUNTS & WITHDRAWAL DESTINATIONS */}
+        {activeTab === 'bank_details' && (
+          <BankAccountsModule
+            user={user}
+            onOpenWithdrawWithAccount={(acc) => {
+              setWthMethod('BANK_TRANSFER');
+              setWthBankName(acc.bankName);
+              setWthIban(acc.iban || acc.accountNumber);
+              setWthSwift(acc.swiftCode || acc.routingNumber || '');
+              setSelectedBankAccountId(acc.id);
+              setWithdrawModalOpen(true);
+            }}
+          />
         )}
 
         {/* VIRTUAL CARD TAB */}
@@ -2135,16 +2292,105 @@ function DashboardContent() {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-bold">Withdrawal Queue & Settlement</h3>
+                <h3 className="text-xl font-bold">Withdrawal Queue &amp; Settlement</h3>
                 <p className="text-xs text-slate-500">Submitted on the 1st of each month with 15-day administrative processing</p>
               </div>
               <button
                 onClick={() => setWithdrawModalOpen(true)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-emerald-600 text-white shadow-md flex items-center gap-1.5"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-emerald-600 text-white shadow-md flex items-center gap-1.5 cursor-pointer"
               >
                 <ArrowUpRight className="w-4 h-4" />
                 Request Settlement
               </button>
+            </div>
+
+            {/* Linked Real Bank Accounts for Direct Fiat Settlement */}
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                    <Landmark className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                      Linked Real Bank Accounts ({savedBankAccounts.length})
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Withdraw your money directly to your domestic checking, savings, or international SWIFT bank account
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('bank_details')}
+                  className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Link / Manage Real Bank Accounts</span>
+                </button>
+              </div>
+
+              {savedBankAccounts.length === 0 ? (
+                <div className="py-6 text-center space-y-2">
+                  <p className="text-xs text-slate-500">No real bank accounts linked yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('bank_details')}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-sm cursor-pointer"
+                  >
+                    + Add Your Real Bank Account
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {savedBankAccounts.map((acc) => (
+                    <div
+                      key={acc.id}
+                      className={`p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3 ${
+                        acc.isDefault
+                          ? 'border-emerald-500/50 bg-emerald-500/5 ring-1 ring-emerald-500/20'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950'
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-black text-xs text-slate-900 dark:text-white truncate">
+                            {acc.bankName}
+                          </span>
+                          {acc.isDefault && (
+                            <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">
+                              Default
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          {acc.iban ? acc.iban.slice(-4) : acc.accountNumber.slice(-4)} • {acc.currency} {acc.accountType}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          {acc.payoutRail === 'LOCAL' ? `ABA Routing: ${acc.routingNumber || 'N/A'}` : `SWIFT: ${acc.swiftCode || 'N/A'}`}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWthMethod('BANK_TRANSFER');
+                          setWthBankName(acc.bankName);
+                          setWthIban(acc.iban || acc.accountNumber);
+                          setWthSwift(acc.swiftCode || acc.routingNumber || '');
+                          setSelectedBankAccountId(acc.id);
+                          setWithdrawModalOpen(true);
+                        }}
+                        className="w-full py-2 rounded-xl bg-slate-900 dark:bg-emerald-600 hover:bg-black text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-[0.98]"
+                      >
+                        <span>Withdraw to This Account</span>
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {withdrawals.length === 0 ? (
@@ -2814,6 +3060,106 @@ function DashboardContent() {
                     onChange={(e) => setWthWalletAddress(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
                   />
+                </div>
+              )}
+
+              {wthMethod === 'BANK_TRANSFER' && (
+                <div className="space-y-3.5 p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 dark:text-slate-200">Real Bank Account Destination</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWithdrawModalOpen(false);
+                        setActiveTab('bank_details');
+                      }}
+                      className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
+                    >
+                      + Manage Accounts
+                    </button>
+                  </div>
+
+                  {savedBankAccounts.length > 0 && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">Select Linked Bank Account</label>
+                      <select
+                        value={selectedBankAccountId}
+                        onChange={(e) => {
+                          setSelectedBankAccountId(e.target.value);
+                          if (e.target.value === 'custom') {
+                            setWthBankName('');
+                            setWthIban('');
+                            setWthSwift('');
+                          } else {
+                            const acc = savedBankAccounts.find((a: any) => a.id === e.target.value);
+                            if (acc) {
+                              setWthBankName(acc.bankName);
+                              setWthIban(acc.iban || acc.accountNumber);
+                              setWthSwift(acc.swiftCode || acc.routingNumber || '');
+                            }
+                          }
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none cursor-pointer"
+                      >
+                        {savedBankAccounts.map((acc: any) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.bankName} ({acc.currency}) • {acc.iban ? acc.iban.slice(-4) : acc.accountNumber.slice(-4)} {acc.isDefault ? '★' : ''}
+                          </option>
+                        ))}
+                        <option value="custom">Other / Enter Manual Details...</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">Bank Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. JPMorgan Chase & Co."
+                      value={wthBankName}
+                      onChange={(e) => setWthBankName(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">IBAN / Account Number</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Account or IBAN"
+                        value={wthIban}
+                        onChange={(e) => setWthIban(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl text-xs font-mono border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">SWIFT / Routing (ABA)</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="SWIFT BIC or ABA"
+                        value={wthSwift}
+                        onChange={(e) => setWthSwift(e.target.value.toUpperCase())}
+                        className="w-full px-3 py-2 rounded-xl text-xs font-mono uppercase border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="saveWithdrawBank"
+                      checked={saveBankOnWithdraw}
+                      onChange={(e) => setSaveBankOnWithdraw(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <label htmlFor="saveWithdrawBank" className="text-[11px] text-slate-500 cursor-pointer">
+                      Save this bank account to my linked accounts for future 1-click withdrawals
+                    </label>
+                  </div>
                 </div>
               )}
 
