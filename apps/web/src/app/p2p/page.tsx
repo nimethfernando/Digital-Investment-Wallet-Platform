@@ -279,6 +279,20 @@ const LIFESTYLE_GIFT_CARDS = [
 ];
 
 export default function P2PPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-500 text-sm">
+          Loading Avora P2P &amp; Lifestyle Engine...
+        </div>
+      }
+    >
+      <P2PPageContent />
+    </Suspense>
+  );
+}
+
+function P2PPageContent() {
   const { user } = useAuth();
 
   // Modern P2P Top & Bottom Navigation matching Screenshot 3177171f
