@@ -10,6 +10,7 @@ import {
   Coins,
   ArrowDownLeft,
   ArrowUpRight,
+  ArrowDown,
   RefreshCw,
   Eye,
   EyeOff,
@@ -42,6 +43,11 @@ import {
   Award,
   Ticket,
   HelpCircle,
+  Download,
+  FileText,
+  FileDown,
+  ArrowLeft,
+  Plus,
 } from 'lucide-react';
 import { VirtualCardModule } from './VirtualCardModule';
 import { SupportTicketModule } from './SupportTicketModule';
@@ -67,20 +73,24 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   onOpenPackages,
   onRefresh,
 }) => {
-  // Navigation active tab: 'home' | 'card' | 'send' | 'assets'
-  const [navTab, setNavTab] = useState<'home' | 'card' | 'send' | 'assets'>('home');
+  // Navigation active tab: 'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets'
+  const [navTab, setNavTab] = useState<'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets'>('home');
   const [showBalance, setShowBalance] = useState(true);
   const [assetsSubTab, setAssetsSubTab] = useState<'crypto' | 'fiat'>('crypto');
   const [openChooseCardInTab, setOpenChooseCardInTab] = useState(false);
+
+  // Transactions Filter States
+  const [txTypeFilter, setTxTypeFilter] = useState<string>('ALL');
+  const [txCurrencyFilter, setTxCurrencyFilter] = useState<string>('ALL');
 
   // Support & Services Modals
   const [ticketCenterOpen, setTicketCenterOpen] = useState(false);
   const [servicesModalOpen, setServicesModalOpen] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
 
-  // Send Screen Form State
+  // Send / Swap Screen Form State
   const [sendFromCurrency, setSendFromCurrency] = useState('USDT');
-  const [sendToCurrency, setSendToCurrency] = useState('USD');
+  const [sendToCurrency, setSendToCurrency] = useState('USDC');
   const [sendAmount, setSendAmount] = useState('100');
 
   // Swap execution state
@@ -193,6 +203,52 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     }
   };
 
+  // Flip / Invert Swap Currencies (Direct RedotPay Match)
+  const handleFlipCurrencies = () => {
+    const from = sendFromCurrency;
+    const to = sendToCurrency;
+    setSendFromCurrency(to);
+    setSendToCurrency(from);
+  };
+
+  // Client-side Instant Statement Export (Matches RedotPay Download File Icon on Top Right)
+  const handleDownloadStatement = () => {
+    if (!transactions || transactions.length === 0) {
+      alert('No transactions recorded yet to download.');
+      return;
+    }
+    let csv = 'Transaction Code,Date,Time,Type,Amount,Currency,Status,Balance Before,Balance After,Reference,Notes\n';
+    for (const t of transactions) {
+      const dt = new Date(t.createdAt);
+      const dateStr = dt.toISOString().split('T')[0];
+      const timeStr = dt.toLocaleTimeString();
+      csv += `"${t.transactionCode || t.id}","${dateStr}","${timeStr}","${t.type}","${parseFloat(t.amount || '0').toFixed(2)}","${t.currency}","${t.status}","${parseFloat(t.balanceBefore || '0').toFixed(2)}","${parseFloat(t.balanceAfter || '0').toFixed(2)}","${t.settlementReference || ''}","${(t.notes || '').replace(/"/g, '""')}"\n`;
+    }
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `AvoraBank-Statement-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Filtered transactions for RedotPay Transactions View
+  const filteredTxs = transactions.filter((t) => {
+    if (txTypeFilter !== 'ALL') {
+      if (txTypeFilter === 'DEPOSIT' && t.type !== 'DEPOSIT') return false;
+      if (txTypeFilter === 'WITHDRAWAL' && t.type !== 'WITHDRAWAL_REQUEST') return false;
+      if (txTypeFilter === 'P2P' && !t.type.includes('P2P') && !t.type.includes('TRANSFER')) return false;
+      if (txTypeFilter === 'SWAP' && !t.type.includes('SWAP') && !(t.notes || '').toLowerCase().includes('swap')) return false;
+    }
+    if (txCurrencyFilter !== 'ALL') {
+      if (t.currency !== txCurrencyFilter) return false;
+    }
+    return true;
+  });
+
   return (
     <div className="dark w-full max-w-2xl mx-auto bg-slate-950 text-white rounded-[36px] border border-slate-800 shadow-2xl overflow-hidden relative pb-24 font-sans select-none">
       
@@ -280,11 +336,11 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
 
             {/* Swap */}
             <button
-              onClick={() => setNavTab('send')}
+              onClick={() => setNavTab('swap')}
               className="flex flex-col items-center gap-2 group cursor-pointer"
             >
               <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-white group-hover:bg-slate-800 group-hover:border-rose-500 transition-all shadow-md">
-                <RefreshCw className="w-5 h-5 text-blue-400" />
+                <RefreshCw className="w-5 h-5 text-blue-400 group-hover:rotate-180 transition-transform duration-500" />
               </div>
               <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Swap</span>
             </button>
@@ -310,6 +366,34 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </div>
               <span className="text-xs font-semibold text-slate-300 group-hover:text-white">More</span>
             </button>
+          </div>
+
+          {/* OFFICIAL TELEGRAM CHANNEL & VIP CONCIERGE BANNER */}
+          <div className="p-4 rounded-3xl bg-gradient-to-r from-sky-950/60 via-slate-900 to-indigo-950/40 border border-sky-500/30 flex items-center justify-between shadow-lg shadow-sky-950/20 group">
+            <div className="space-y-1 pr-3">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400">
+                  Official Telegram Community
+                </span>
+              </div>
+              <h4 className="text-sm font-black text-white flex items-center gap-1.5">
+                <span>Avora Telegram VIP Concierge</span>
+                <span className="text-sky-400 text-xs font-mono">@avorallc</span>
+              </h4>
+              <p className="text-[11px] text-slate-300">
+                Connect directly with our 24/7 Telegram settlement desk & global traders.
+              </p>
+            </div>
+            <a
+              href="https://t.me/avorallc"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-2.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-xs shadow-md shadow-sky-500/25 flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Join TG</span>
+            </a>
           </div>
 
           {/* Points Draw Promo Banner (RedotPay Match) */}
@@ -422,9 +506,12 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-slate-300">Transactions</span>
-              <Link href="/dashboard?tab=transactions" className="text-rose-400 hover:text-rose-300 text-[11px] font-semibold">
+              <button
+                onClick={() => setNavTab('transactions')}
+                className="text-rose-400 hover:text-rose-300 text-[11px] font-semibold cursor-pointer"
+              >
                 See all
-              </Link>
+              </button>
             </div>
 
             <div className="space-y-2">
@@ -493,18 +580,29 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       )}
 
       {/* ---------------------------------------------------------------------- */}
-      {/* 4. TAB CONTENT: SEND TAB (RedotPay Instant Swap & Send Screen) */}
+      {/* 4. TAB CONTENT: SWAP TAB (Direct RedotPay Match) */}
       {/* ---------------------------------------------------------------------- */}
-      {navTab === 'send' && (
+      {(navTab === 'swap' || navTab === 'send') && (
         <div className="p-6 space-y-6 animate-in fade-in duration-200">
           
+          {/* Header matching RedotPay Screenshot 1: [←] Swap [📄⏱️] */}
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-extrabold text-white">Instant Swap & Send</h3>
-            
-            {/* Live Exchange Rate Pill */}
-            <div className="px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-1.5">
-              <span>1 {sendFromCurrency} = {exchangeRate} {sendToCurrency}</span>
-            </div>
+            <button
+              onClick={() => setNavTab('home')}
+              className="p-2 rounded-full hover:bg-slate-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              title="Back"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h3 className="text-base font-extrabold text-white">Swap</h3>
+            <button
+              onClick={() => setNavTab('transactions')}
+              className="p-2 rounded-full hover:bg-slate-900 text-slate-300 hover:text-white transition-colors relative cursor-pointer"
+              title="Transaction History"
+            >
+              <FileText className="w-5 h-5" />
+              <Clock className="w-2.5 h-2.5 absolute bottom-1 right-1 text-rose-400" />
+            </button>
           </div>
 
           {/* Error Banner */}
@@ -514,122 +612,359 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{swapError}</span>
               </div>
-              <button onClick={() => setSwapError(null)}>
+              <button onClick={() => setSwapError(null)} className="cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
           )}
 
           {/* Currency Transfer Input Form */}
-          <div className="space-y-4">
+          <div className="space-y-2">
             
-            {/* You Send Card */}
-            <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-2">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>You swap / send</span>
-                <div className="flex items-center gap-1.5">
-                  <span>Avail: {parseFloat(currentFromBalance).toFixed(2)} {sendFromCurrency}</span>
+            {/* FROM CARD */}
+            <div className="p-4 rounded-3xl bg-slate-900/90 border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400 font-medium">From</span>
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <span>Available:{parseFloat(currentFromBalance).toFixed(4)}</span>
                   <button
-                    onClick={() => setSendAmount(parseFloat(currentFromBalance).toFixed(2))}
-                    className="text-[10px] font-bold text-rose-400 hover:text-rose-300 uppercase px-1.5 py-0.5 rounded bg-rose-500/10"
+                    onClick={onOpenDeposit}
+                    className="w-4 h-4 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    title="Deposit more funds"
                   >
-                    MAX
+                    <Plus className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
               <div className="flex items-center justify-between gap-3">
-                <select
-                  value={sendFromCurrency}
-                  onChange={(e) => setSendFromCurrency(e.target.value)}
-                  className="bg-slate-800 text-white font-bold text-sm px-3 py-2 rounded-2xl border border-slate-700 outline-none"
-                >
-                  <option value="USDT" className="bg-slate-900 text-white">USDT</option>
-                  <option value="USD" className="bg-slate-900 text-white">USD</option>
-                  <option value="EUR" className="bg-slate-900 text-white">EUR</option>
-                  <option value="GEL" className="bg-slate-900 text-white">GEL</option>
-                  <option value="INR" className="bg-slate-900 text-white">INR</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={sendFromCurrency}
+                    onChange={(e) => setSendFromCurrency(e.target.value)}
+                    className="appearance-none bg-slate-950 hover:bg-slate-800 text-white font-bold text-sm pl-9 pr-7 py-2 rounded-full border border-slate-700/80 outline-none cursor-pointer transition-colors"
+                  >
+                    <option value="USDT" className="bg-slate-950 text-white">USDT</option>
+                    <option value="USD" className="bg-slate-950 text-white">USD</option>
+                    <option value="EUR" className="bg-slate-950 text-white">EUR</option>
+                    <option value="GEL" className="bg-slate-950 text-white">GEL</option>
+                    <option value="INR" className="bg-slate-950 text-white">INR</option>
+                  </select>
+                  <div className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold pointer-events-none">
+                    {sendFromCurrency === 'USDT' ? '₮' : sendFromCurrency === 'USD' ? '$' : sendFromCurrency === 'EUR' ? '€' : sendFromCurrency === 'GEL' ? '₾' : '₹'}
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                </div>
 
-                <input
-                  type="number"
-                  value={sendAmount}
-                  onChange={(e) => setSendAmount(e.target.value)}
-                  placeholder="0.00"
-                  className="bg-transparent text-right font-mono text-2xl font-black text-white outline-none w-full"
-                />
+                <div className="flex flex-col items-end flex-1">
+                  <input
+                    type="number"
+                    value={sendAmount}
+                    onChange={(e) => setSendAmount(e.target.value)}
+                    placeholder="10.00 - 100,000.00"
+                    className="bg-transparent text-right font-sans text-xl sm:text-2xl font-semibold text-white placeholder-slate-600 outline-none w-full"
+                  />
+                  <button
+                    onClick={() => setSendAmount(parseFloat(currentFromBalance).toFixed(4))}
+                    className="text-[11px] font-bold text-slate-300 hover:text-white px-2 py-0.5 mt-1 rounded bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
+                  >
+                    Max
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Recipient Gets Card */}
-            <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-2">
-              <div className="text-xs text-slate-400">Wallet receives</div>
+            {/* Invert Currencies Button (Center Divider) */}
+            <div className="relative py-2 flex items-center justify-center">
+              <div className="absolute inset-x-4 h-px bg-slate-800/80" />
+              <button
+                type="button"
+                onClick={handleFlipCurrencies}
+                className="relative z-10 w-9 h-9 rounded-full bg-slate-800 border border-slate-700 hover:border-slate-500 hover:bg-slate-700 flex items-center justify-center text-slate-200 transition-all shadow-md active:scale-95 cursor-pointer"
+                title="Invert swap currencies"
+              >
+                <ArrowDown className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* TO CARD */}
+            <div className="p-4 rounded-3xl bg-slate-900/90 border border-slate-800 space-y-3">
+              <div className="text-xs text-slate-400 font-medium">To</div>
 
               <div className="flex items-center justify-between gap-3">
-                <select
-                  value={sendToCurrency}
-                  onChange={(e) => setSendToCurrency(e.target.value)}
-                  className="bg-slate-800 text-white font-bold text-sm px-3 py-2 rounded-2xl border border-slate-700 outline-none"
-                >
-                  <option value="USD" className="bg-slate-900 text-white">USD</option>
-                  <option value="USDT" className="bg-slate-900 text-white">USDT</option>
-                  <option value="EUR" className="bg-slate-900 text-white">EUR</option>
-                  <option value="GEL" className="bg-slate-900 text-white">GEL</option>
-                  <option value="INR" className="bg-slate-900 text-white">INR</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={sendToCurrency}
+                    onChange={(e) => setSendToCurrency(e.target.value)}
+                    className="appearance-none bg-slate-950 hover:bg-slate-800 text-white font-bold text-sm pl-9 pr-7 py-2 rounded-full border border-slate-700/80 outline-none cursor-pointer transition-colors"
+                  >
+                    <option value="USDC" className="bg-slate-950 text-white">USDC</option>
+                    <option value="USD" className="bg-slate-950 text-white">USD</option>
+                    <option value="USDT" className="bg-slate-950 text-white">USDT</option>
+                    <option value="EUR" className="bg-slate-950 text-white">EUR</option>
+                    <option value="GEL" className="bg-slate-950 text-white">GEL</option>
+                    <option value="INR" className="bg-slate-950 text-white">INR</option>
+                  </select>
+                  <div className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px] font-bold pointer-events-none">
+                    {sendToCurrency.includes('USD') ? '$' : sendToCurrency === 'EUR' ? '€' : sendToCurrency === 'GEL' ? '₾' : sendToCurrency === 'INR' ? '₹' : '₮'}
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                </div>
 
-                <div className="text-right font-mono text-2xl font-black text-emerald-400">
-                  {convertedAmount}
+                <div className="text-right font-sans text-xl sm:text-2xl font-semibold text-slate-200">
+                  {convertedAmount && parseFloat(convertedAmount) > 0 ? convertedAmount : '10.00 - 100,000.00'}
                 </div>
               </div>
             </div>
 
-            {/* Fee & Arrival Box */}
-            <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/60 space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400">Execution rate</span>
-                <span className="font-mono font-bold text-white">1 {sendFromCurrency} = {exchangeRate} {sendToCurrency}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400">Estimated desk spread</span>
-                <span className="font-bold text-rose-400">1.0% (Automated Ledger)</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400">Settlement</span>
-                <span className="font-bold text-emerald-400">Instant Double-Entry Journal</span>
-              </div>
+            {/* Rate Display matching Screenshot 1: 1 USDT = 0.99 USDC 🔄 */}
+            <div className="pt-3 pb-1 flex items-center justify-center gap-1.5 text-xs text-slate-400">
+              <span>1 {sendFromCurrency} = {exchangeRate} {sendToCurrency}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.getElementById('swap-refresh-icon');
+                  el?.classList.add('rotate-180');
+                  setTimeout(() => el?.classList.remove('rotate-180'), 400);
+                }}
+                className="hover:text-white transition-colors cursor-pointer"
+                title="Live rate updated"
+              >
+                <RefreshCw id="swap-refresh-icon" className="w-3.5 h-3.5 transition-transform duration-300" />
+              </button>
             </div>
 
-            {/* Primary Swap Button */}
-            <button
-              onClick={handleExecuteSwap}
-              disabled={swapping}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-extrabold text-sm shadow-lg shadow-rose-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {swapping && <Loader2 className="w-5 h-5 animate-spin" />}
-              <span>{swapping ? 'Recording Ledger Transaction...' : `Swap ${sendFromCurrency} for ${sendToCurrency}`}</span>
-            </button>
+            {/* RedotPay Style Continue / Execute Button */}
+            <div className="pt-2">
+              <button
+                onClick={handleExecuteSwap}
+                disabled={swapping || !sendAmount || parseFloat(sendAmount) <= 0}
+                className="w-full py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md"
+              >
+                {swapping && <Loader2 className="w-5 h-5 animate-spin" />}
+                <span>{swapping ? 'Executing Ledger Swap...' : 'Continue'}</span>
+              </button>
+            </div>
 
-            {/* REDOTPAY SPECIAL: Send to Avora Bank user (No fees) */}
+            {/* Zero-fee P2P Option */}
             <button
               onClick={onOpenP2P}
-              className="w-full p-4 rounded-2xl bg-gradient-to-r from-rose-950/40 to-slate-900 border border-rose-500/30 flex items-center justify-between hover:border-rose-500/60 transition-all text-xs group"
+              className="w-full p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center justify-between hover:border-slate-700 transition-all text-xs group cursor-pointer"
             >
               <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded-full bg-rose-600 flex items-center justify-center font-bold text-white text-xs">
+                <div className="w-6 h-6 rounded-full bg-rose-600/30 text-rose-400 flex items-center justify-center font-bold text-xs">
                   A
                 </div>
-                <span className="font-bold text-white">
+                <span className="font-bold text-slate-200">
                   Send to Avora Bank user
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-rose-600 text-[10px] font-black text-white">
+                <span className="px-2 py-0.5 rounded-full bg-rose-600/20 text-rose-400 border border-rose-500/30 text-[10px] font-black">
                   No fees
                 </span>
               </div>
-              <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-white" />
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
             </button>
 
           </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------------- */}
+      {/* 4.5. TAB CONTENT: TRANSACTIONS TAB (Direct RedotPay Match with Download) */}
+      {/* ---------------------------------------------------------------------- */}
+      {navTab === 'transactions' && (
+        <div className="p-6 space-y-5 animate-in fade-in duration-200">
+          
+          {/* Header matching Screenshot 2: [←] Transactions [📄⬇️] */}
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setNavTab('home')}
+              className="p-2 rounded-full hover:bg-slate-900 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              title="Back"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h3 className="text-base font-extrabold text-white">Transactions</h3>
+            
+            {/* Top Right Statement Download Button: [📄⬇️] */}
+            <button
+              onClick={handleDownloadStatement}
+              className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-200 hover:text-white transition-all flex items-center justify-center group shadow-sm cursor-pointer"
+              title="Download Statement (CSV)"
+            >
+              <FileDown className="w-5 h-5 text-slate-300 group-hover:text-white group-hover:scale-110 transition-all" />
+            </button>
+          </div>
+
+          {/* Filter Chips Bar matching Screenshot 2 */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none text-xs">
+            {/* Type Filter Chip */}
+            <div className="relative shrink-0">
+              <select
+                value={txTypeFilter}
+                onChange={(e) => setTxTypeFilter(e.target.value)}
+                className="appearance-none bg-slate-900 hover:bg-slate-800 text-slate-200 font-semibold px-3 py-1.5 pr-7 rounded-full border border-slate-800 outline-none cursor-pointer"
+              >
+                <option value="ALL">All types</option>
+                <option value="DEPOSIT">Buy Crypto / Deposit</option>
+                <option value="SWAP">Swap</option>
+                <option value="P2P">P2P Transfer</option>
+                <option value="WITHDRAWAL">Withdrawal</option>
+              </select>
+              <ChevronRight className="w-3 h-3 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+            </div>
+
+            {/* Currency Filter Chip */}
+            <div className="relative shrink-0">
+              <select
+                value={txCurrencyFilter}
+                onChange={(e) => setTxCurrencyFilter(e.target.value)}
+                className="appearance-none bg-slate-900 hover:bg-slate-800 text-slate-200 font-semibold px-3 py-1.5 pr-7 rounded-full border border-slate-800 outline-none cursor-pointer"
+              >
+                <option value="ALL">All currencies</option>
+                <option value="USDT">USDT</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="GEL">GEL</option>
+                <option value="INR">INR</option>
+              </select>
+              <ChevronRight className="w-3 h-3 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+            </div>
+
+            {/* Date Chip */}
+            <div className="px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-slate-400 font-semibold shrink-0">
+              All Dates
+            </div>
+
+            {(txTypeFilter !== 'ALL' || txCurrencyFilter !== 'ALL') && (
+              <button
+                onClick={() => {
+                  setTxTypeFilter('ALL');
+                  setTxCurrencyFilter('ALL');
+                }}
+                className="px-2 py-1 rounded-full bg-rose-500/10 text-rose-400 text-[11px] font-bold hover:bg-rose-500/20 shrink-0 cursor-pointer"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
+          {/* Grouped Transaction List matching Screenshot 2 */}
+          <div className="space-y-4 pt-1">
+            {filteredTxs.length > 0 ? (
+              (
+                Object.entries(
+                  filteredTxs.reduce((groups: Record<string, any[]>, tx) => {
+                    const dateStr = new Date(tx.createdAt).toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                    });
+                    if (!groups[dateStr]) groups[dateStr] = [];
+                    groups[dateStr].push(tx);
+                    return groups;
+                  }, {})
+                ) as [string, any[]][]
+              ).map(([dateLabel, groupTxs]) => (
+                <div key={dateLabel} className="space-y-2">
+                  <div className="text-xs font-bold text-slate-400 px-1">
+                    {dateLabel}
+                  </div>
+
+                  <div className="space-y-2">
+                    {groupTxs.map((tx) => {
+                      const isDeposit = tx.type.includes('DEPOSIT') || tx.type.includes('BUY');
+                      const isSwap = tx.type.includes('SWAP') || (tx.notes || '').toLowerCase().includes('swap');
+                      const isPending = tx.status === 'PENDING' || tx.status === 'IN_REVIEW';
+                      const title = isSwap
+                        ? 'Swap'
+                        : isDeposit
+                        ? 'Buy Crypto'
+                        : tx.type.includes('P2P') || tx.type.includes('TRANSFER')
+                        ? 'Account Transfer'
+                        : tx.notes || tx.type.replace(/_/g, ' ');
+
+                      return (
+                        <div
+                          key={tx.id}
+                          className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800/80 flex items-center justify-between hover:bg-slate-900 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            {/* Token Emblem */}
+                            <div className="relative">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${
+                                isSwap
+                                  ? 'bg-blue-500/15 text-blue-400'
+                                  : isDeposit
+                                  ? 'bg-teal-500/15 text-teal-400'
+                                  : 'bg-rose-500/15 text-rose-400'
+                              }`}>
+                                {tx.currency === 'USDT' ? '₮' : tx.currency === 'EUR' ? '€' : '$'}
+                              </div>
+                              <div className="w-4 h-4 rounded-full bg-slate-950 border border-slate-800 absolute -bottom-1 -right-1 flex items-center justify-center text-[9px]">
+                                {isSwap ? '🔄' : isDeposit ? '🇺🇸' : '↗'}
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="text-xs font-bold text-white">
+                                {title}
+                              </div>
+                              <div className="text-[11px] text-slate-500 font-mono">
+                                {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className={`text-xs font-mono font-bold ${
+                              isDeposit ? 'text-white' : 'text-slate-200'
+                            }`}>
+                              {isDeposit ? '+' : '-'}{parseFloat(tx.amount || '0').toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {tx.currency}
+                            </div>
+                            <div className={`text-[11px] font-semibold ${
+                              isPending ? 'text-amber-500' : 'text-emerald-400'
+                            }`}>
+                              {isPending ? 'Pending' : 'Completed'}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="p-8 rounded-3xl bg-slate-900/40 border border-slate-800 text-center space-y-3">
+                <FileText className="w-8 h-8 text-slate-600 mx-auto" />
+                <div className="text-xs text-slate-400 font-medium">No transactions found</div>
+                {(txTypeFilter !== 'ALL' || txCurrencyFilter !== 'ALL') && (
+                  <button
+                    onClick={() => {
+                      setTxTypeFilter('ALL');
+                      setTxCurrencyFilter('ALL');
+                    }}
+                    className="text-xs text-rose-400 hover:text-rose-300 font-bold cursor-pointer"
+                  >
+                    Reset all filters
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Quick statement download info footer */}
+          <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
+            <span>Audit-ready statements</span>
+            <button
+              onClick={handleDownloadStatement}
+              className="text-rose-400 hover:text-rose-300 font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download CSV</span>
+            </button>
+          </div>
+
         </div>
       )}
 
@@ -1147,14 +1482,14 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       )}
 
       {/* ---------------------------------------------------------------------- */}
-      {/* 10. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Send, Assets) */}
+      {/* 10. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Swap, Activity, Assets) */}
       {/* ---------------------------------------------------------------------- */}
-      <div className="absolute bottom-0 left-0 right-0 h-20 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/80 px-6 flex items-center justify-around z-50">
+      <div className="absolute bottom-0 left-0 right-0 h-20 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/80 px-4 flex items-center justify-around z-50">
         
         {/* Dock Item: Home */}
         <button
           onClick={() => setNavTab('home')}
-          className={`flex flex-col items-center gap-1 transition-all ${
+          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
             navTab === 'home' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
           }`}
         >
@@ -1167,7 +1502,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
         {/* Dock Item: Card */}
         <button
           onClick={() => setNavTab('card')}
-          className={`flex flex-col items-center gap-1 transition-all ${
+          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
             navTab === 'card' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
           }`}
         >
@@ -1177,23 +1512,36 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           <span className="text-[10px] font-bold">Card</span>
         </button>
 
-        {/* Dock Item: Send */}
+        {/* Dock Item: Swap (Direct RedotPay Match) */}
         <button
-          onClick={() => setNavTab('send')}
-          className={`flex flex-col items-center gap-1 transition-all ${
-            navTab === 'send' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
+          onClick={() => setNavTab('swap')}
+          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
+            navTab === 'swap' || navTab === 'send' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
           }`}
         >
-          <div className={`p-1 rounded-xl ${navTab === 'send' ? 'bg-rose-500/10' : ''}`}>
-            <Send className="w-5 h-5" />
+          <div className={`p-1 rounded-xl ${navTab === 'swap' || navTab === 'send' ? 'bg-rose-500/10' : ''}`}>
+            <RefreshCw className="w-5 h-5" />
           </div>
-          <span className="text-[10px] font-bold">Send</span>
+          <span className="text-[10px] font-bold">Swap</span>
+        </button>
+
+        {/* Dock Item: Activity / Transactions (Direct RedotPay Match) */}
+        <button
+          onClick={() => setNavTab('transactions')}
+          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
+            navTab === 'transactions' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          <div className={`p-1 rounded-xl ${navTab === 'transactions' ? 'bg-rose-500/10' : ''}`}>
+            <FileText className="w-5 h-5" />
+          </div>
+          <span className="text-[10px] font-bold">Activity</span>
         </button>
 
         {/* Dock Item: Assets */}
         <button
           onClick={() => setNavTab('assets')}
-          className={`flex flex-col items-center gap-1 transition-all ${
+          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
             navTab === 'assets' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
           }`}
         >

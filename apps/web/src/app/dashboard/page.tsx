@@ -49,6 +49,7 @@ import {
   Rocket,
   Award,
   ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 
 interface WalletSummary {
@@ -227,6 +228,30 @@ function DashboardContent() {
   const [txTypeFilter, setTxTypeFilter] = useState('');
   const [txCurrencyFilter, setTxCurrencyFilter] = useState('');
   const [txSearch, setTxSearch] = useState('');
+
+  // Instant Statement Export
+  const handleExportStatementCsv = () => {
+    if (!transactions || transactions.length === 0) {
+      alert('No ledger transactions recorded yet to export.');
+      return;
+    }
+    let csv = 'Transaction Code,Date,Time,Type,Amount,Currency,Status,Balance Before,Balance After,Reference,Notes\n';
+    for (const t of transactions) {
+      const dt = new Date(t.createdAt);
+      const dateStr = dt.toISOString().split('T')[0];
+      const timeStr = dt.toLocaleTimeString();
+      csv += `"${t.transactionCode || t.id}","${dateStr}","${timeStr}","${t.type}","${parseFloat(t.amount || '0').toFixed(2)}","${t.currency}","${t.status}","${parseFloat(t.balanceBefore || '0').toFixed(2)}","${parseFloat(t.balanceAfter || '0').toFixed(2)}","${t.settlementReference || ''}","${(t.notes || '').replace(/"/g, '""')}"\n`;
+    }
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `AvoraBank-Statement-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   // Modals
   const [depositModalOpen, setDepositModalOpen] = useState(false);
@@ -842,6 +867,17 @@ function DashboardContent() {
               >
                 <ArrowUpRight className="w-4 h-4 text-slate-500" />
                 Withdraw
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('redotpay');
+                  window.scrollTo({ top: 320, behavior: 'smooth' });
+                }}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4 text-blue-500" />
+                <span>Instant Swap</span>
               </button>
 
               <Link
@@ -1941,14 +1977,14 @@ function DashboardContent() {
                 <p className="text-xs text-slate-500">Permanent and audited double-entry transaction records</p>
               </div>
 
-              <a
-                href="/api/v1/wallet/transactions?format=csv"
-                download
-                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors shadow-sm"
+              <button
+                onClick={handleExportStatementCsv}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                title="Download complete transaction statement"
               >
                 <Download className="w-3.5 h-3.5" />
                 Export CSV
-              </a>
+              </button>
             </div>
 
             {/* Filter Bar */}
