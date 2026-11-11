@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '../lib/api';
 import {
   Wallet,
+  Home,
   CreditCard,
   Send,
   Coins,
@@ -50,6 +51,9 @@ import {
   ArrowLeft,
   Plus,
   Landmark,
+  ChevronDown,
+  ArrowLeftRight,
+  User,
 } from 'lucide-react';
 import { VirtualCardModule } from './VirtualCardModule';
 import { SupportTicketModule } from './SupportTicketModule';
@@ -262,96 +266,102 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     <div className="dark w-full max-w-2xl mx-auto bg-slate-950 text-white rounded-[36px] border border-slate-800 shadow-2xl overflow-hidden relative pb-24 font-sans select-none">
       
       {/* ---------------------------------------------------------------------- */}
-      {/* 1. TOP APP HEADER (RedotPay / iOS Mobile Style) */}
+      {/* 1. TOP APP HEADER (Exact RedotPay Match) */}
       {/* ---------------------------------------------------------------------- */}
-      <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-rose-600 to-red-500 flex items-center justify-center font-bold text-sm text-white shadow-md">
-            {user?.firstName?.slice(0, 1) || 'A'}
-          </div>
-          <div>
-            <div className="font-extrabold text-base tracking-wide flex items-center gap-1.5">
-              <span>Avora</span>
-              <span className="text-rose-500 font-black">Pay</span>
-            </div>
-            <div className="text-[10px] text-slate-400 font-mono">
-              {user?.accountNumber || 'AVR-8820-4190'}
-            </div>
-          </div>
+      <div className="px-6 pt-5 pb-3 flex items-center justify-between bg-black sticky top-0 z-40 border-b border-zinc-900/60">
+        {/* Left: User Profile Avatar */}
+        <div className="w-9 h-9 rounded-full bg-zinc-800 border border-zinc-700/60 flex items-center justify-center text-slate-300 shadow-sm">
+          <User className="w-5 h-5 text-slate-300" />
         </div>
 
-        {/* Right Action Icons: Scan, Ticket Desk, Notification */}
-        <div className="flex items-center gap-2 text-slate-400">
+        {/* Center: Brand Name */}
+        <div className="font-extrabold text-base tracking-wide text-white">
+          <span>AvoraPay</span>
+        </div>
+
+        {/* Right Action Icons: Scan, Notification, Customer Support */}
+        <div className="flex items-center gap-2.5 text-slate-300">
           <button
-            onClick={() => setTicketCenterOpen(true)}
-            className="p-2 rounded-full hover:bg-slate-900 hover:text-rose-400 transition-colors"
-            title="Helpdesk & Tickets"
-          >
-            <Headphones className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => alert('Camera QR scanner ready for merchant POS payments.')}
-            className="p-2 rounded-full hover:bg-slate-900 hover:text-white transition-colors"
+            onClick={() => onOpenP2P()}
+            className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
             title="Scan QR Code"
           >
             <Scan className="w-5 h-5" />
           </button>
           <button
             onClick={() => alert('No unread security alerts.')}
-            className="p-2 rounded-full hover:bg-slate-900 hover:text-white transition-colors relative"
+            className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors relative cursor-pointer"
             title="Notifications"
           >
             <Bell className="w-5 h-5" />
-            <span className="w-2 h-2 rounded-full bg-rose-500 absolute top-1.5 right-1.5" />
+            <span className="w-2 h-2 rounded-full bg-rose-500 absolute top-1 right-1" />
+          </button>
+          <button
+            onClick={() => setTicketCenterOpen(true)}
+            className="p-1.5 rounded-full hover:bg-zinc-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+            title="Customer Support Desk"
+          >
+            <Headphones className="w-5 h-5" />
           </button>
         </div>
       </div>
 
       {/* ---------------------------------------------------------------------- */}
-      {/* 2. TAB CONTENT: HOME TAB */}
+      {/* 2. TAB CONTENT: HOME TAB (Exact RedotPay Screenshot Match) */}
       {/* ---------------------------------------------------------------------- */}
       {navTab === 'home' && (
-        <div className="p-6 space-y-6 animate-in fade-in duration-200">
+        <div className="p-5 sm:p-6 space-y-5 animate-in fade-in duration-200">
           
-          {/* Estimated Total Value Header */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span>Est. total value</span>
-              <button onClick={() => setShowBalance(!showBalance)} className="hover:text-white">
+          {/* 1. Important On-Chain Notice Banner matching Screenshot */}
+          <div
+            onClick={() => alert('Notice: Multi-currency balances and on-chain deposits settle through real-time double-entry ledger verification.')}
+            className="p-3 rounded-2xl bg-zinc-900 border border-zinc-800/80 flex items-center justify-between text-xs text-slate-300 hover:border-zinc-700 transition-all cursor-pointer shadow-sm"
+          >
+            <div className="flex items-center gap-2.5">
+              <Bell className="w-4 h-4 text-slate-400 shrink-0" />
+              <span className="font-medium text-slate-200 text-[11px] sm:text-xs">
+                Important on-chain transfer notice
+              </span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+          </div>
+
+          {/* 2. Est. Total Value & Balance Display matching Screenshot */}
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="font-medium">Est. total value</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+              <button
+                onClick={() => setShowBalance(!showBalance)}
+                className="p-0.5 hover:text-white transition-colors cursor-pointer ml-1"
+                title={showBalance ? 'Hide balance' : 'Show balance'}
+              >
                 {showBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
               </button>
             </div>
+
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-extrabold tracking-tight">
+              <span className="text-4xl sm:text-5xl font-black tracking-tight text-white font-sans">
                 {showBalance ? totalEstimatedUsd : '••••••••'}
               </span>
-              <span className="text-sm font-bold text-slate-400">USD</span>
+              <div className="inline-flex items-center gap-1 text-slate-400 font-bold text-xs bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800">
+                <span>USD</span>
+                <ChevronDown className="w-3 h-3 text-slate-500" />
+              </div>
             </div>
           </div>
 
-          {/* 4 Quick Action Buttons (Direct RedotPay Match: Deposit, Send, Swap, More) */}
-          <div className="grid grid-cols-4 gap-3 pt-2">
-            
+          {/* 3. 4 Quick Action Buttons matching Screenshot: Deposit (+), Swap (⇄), Referral (👤+), More (...) */}
+          <div className="grid grid-cols-4 gap-3 pt-1">
             {/* Deposit */}
             <button
               onClick={onOpenDeposit}
               className="flex flex-col items-center gap-2 group cursor-pointer"
             >
-              <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-white group-hover:bg-slate-800 group-hover:border-rose-500 transition-all shadow-md">
-                <ArrowDownLeft className="w-6 h-6 text-emerald-400" />
+              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-white group-hover:bg-zinc-800 group-hover:border-zinc-700 transition-all shadow-md">
+                <Plus className="w-6 h-6 text-white" />
               </div>
               <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Deposit</span>
-            </button>
-
-            {/* Send (Opens Choose a method modal: International vs Avora User) */}
-            <button
-              onClick={() => setChooseMethodModalOpen(true)}
-              className="flex flex-col items-center gap-2 group cursor-pointer"
-            >
-              <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-white group-hover:bg-slate-800 group-hover:border-rose-500 transition-all shadow-md">
-                <Send className="w-5 h-5 text-rose-400" />
-              </div>
-              <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Send</span>
             </button>
 
             {/* Swap */}
@@ -359,26 +369,183 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               onClick={() => setNavTab('swap')}
               className="flex flex-col items-center gap-2 group cursor-pointer"
             >
-              <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-white group-hover:bg-slate-800 group-hover:border-rose-500 transition-all shadow-md">
-                <RefreshCw className="w-5 h-5 text-blue-400 group-hover:rotate-180 transition-transform duration-500" />
+              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-white group-hover:bg-zinc-800 group-hover:border-zinc-700 transition-all shadow-md">
+                <ArrowLeftRight className="w-5 h-5 text-white group-hover:rotate-180 transition-transform duration-300" />
               </div>
               <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Swap</span>
             </button>
 
-            {/* More -> Opens Full Services & Support Drawer */}
+            {/* Referral */}
+            <button
+              onClick={onOpenPackages}
+              className="flex flex-col items-center gap-2 group cursor-pointer"
+            >
+              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-white group-hover:bg-zinc-800 group-hover:border-zinc-700 transition-all shadow-md">
+                <UserPlus className="w-5 h-5 text-white" />
+              </div>
+              <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Referral</span>
+            </button>
+
+            {/* More */}
             <button
               onClick={() => setServicesModalOpen(true)}
               className="flex flex-col items-center gap-2 group cursor-pointer"
             >
-              <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-white group-hover:bg-slate-800 group-hover:border-rose-500 transition-all shadow-md">
-                <MoreHorizontal className="w-6 h-6 text-slate-400" />
+              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-white group-hover:bg-zinc-800 group-hover:border-zinc-700 transition-all shadow-md">
+                <MoreHorizontal className="w-6 h-6 text-white" />
               </div>
               <span className="text-xs font-semibold text-slate-300 group-hover:text-white">More</span>
             </button>
           </div>
 
-          {/* OFFICIAL TELEGRAM CHANNEL & VIP CONCIERGE BANNER */}
-          <div className="p-4 rounded-3xl bg-gradient-to-r from-sky-950/60 via-slate-900 to-indigo-950/40 border border-sky-500/30 flex items-center justify-between shadow-lg shadow-sky-950/20 group">
+          {/* 4. Promo Voucher Banner matching Screenshot: Send crypto, receive cash / 0 fees on your first transfer */}
+          <div
+            onClick={() => setChooseMethodModalOpen(true)}
+            className="p-4 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between shadow-sm cursor-pointer hover:border-zinc-700 transition-all group"
+          >
+            <div className="space-y-1 pr-3">
+              <span className="text-xs text-slate-400">
+                Send crypto, receive cash
+              </span>
+              <h4 className="text-sm font-extrabold text-white group-hover:text-rose-400 transition-colors">
+                0 fees on your first transfer
+              </h4>
+              {/* Carousel pagination dots */}
+              <div className="flex items-center gap-1.5 pt-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+              </div>
+            </div>
+
+            <div className="relative shrink-0">
+              <div className="px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-rose-600 via-rose-500 to-red-500 text-white font-black text-sm shadow-lg shadow-rose-950/40 flex items-center gap-1.5 rotate-2 group-hover:rotate-0 transition-transform">
+                <span className="text-base">🎟️</span>
+                <span>$20</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 5. Credit Section Widget matching Screenshot */}
+          <div className="p-5 rounded-3xl bg-zinc-900/90 border border-zinc-800 space-y-4 shadow-sm">
+            <div
+              onClick={() => alert('Avora Credit Facility: Active tier limit $5,000 USD. Zero interest if repaid within 30 days.')}
+              className="flex items-center justify-between cursor-pointer group"
+            >
+              <span className="font-extrabold text-sm text-white group-hover:text-rose-400 transition-colors">Credit</span>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+            </div>
+
+            <div className="space-y-1 text-center py-1">
+              <div className="text-xs text-slate-400">Available credit (USD)</div>
+              <div className="text-3xl font-black text-white tracking-tight">
+                0.00
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <div className="text-slate-400 text-[11px]">Outstanding balance (USD)</div>
+                <div className="font-bold text-white text-sm mt-0.5 font-mono">
+                  0.00
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-slate-400 text-[11px]">Risk score</div>
+                <div className="font-bold text-emerald-400 text-sm mt-0.5 flex items-center justify-end gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Safe</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 6. Recent Transactions List matching Screenshot */}
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-extrabold text-sm text-white">Transactions</span>
+              <button
+                onClick={() => setNavTab('transactions')}
+                className="p-1 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+                title="View all transactions & statement download"
+              >
+                <MoreHorizontal className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {transactions && transactions.length > 0 ? (
+                transactions.slice(0, 4).map((tx) => {
+                  const isDeposit = tx.type.includes('DEPOSIT') || tx.type.includes('BUY');
+                  const isSwap = tx.type.includes('SWAP') || (tx.notes || '').toLowerCase().includes('swap');
+                  const isPending = tx.status === 'PENDING' || tx.status === 'IN_REVIEW';
+                  const title = isSwap
+                    ? 'Swap'
+                    : isDeposit
+                    ? 'Buy Crypto'
+                    : tx.type.includes('P2P') || tx.type.includes('TRANSFER')
+                    ? 'P2P Transfer'
+                    : tx.notes || tx.type.replace(/_/g, ' ');
+
+                  return (
+                    <div
+                      key={tx.id}
+                      onClick={() => setNavTab('transactions')}
+                      className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800/80 flex items-center justify-between hover:bg-zinc-900 transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${
+                            isSwap
+                              ? 'bg-blue-500/15 text-blue-400'
+                              : isDeposit
+                              ? 'bg-teal-500/15 text-teal-400'
+                              : 'bg-rose-500/15 text-rose-400'
+                          }`}>
+                            {tx.currency === 'USDT' ? '₮' : tx.currency === 'EUR' ? '€' : '$'}
+                          </div>
+                          <div className="w-4 h-4 rounded-full bg-slate-950 border border-slate-800 absolute -bottom-1 -right-1 flex items-center justify-center text-[9px]">
+                            {isSwap ? '🔄' : isDeposit ? '🇺🇸' : '↗'}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs font-bold text-white">
+                            {title}
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-mono">
+                            {new Date(tx.createdAt).toISOString().slice(0, 10)} {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className={`text-xs font-mono font-bold ${
+                          isDeposit ? 'text-white' : 'text-slate-200'
+                        }`}>
+                          {isDeposit ? '+' : '-'}{parseFloat(tx.amount || '0').toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {tx.currency}
+                        </div>
+                        <div className={`text-[11px] font-semibold ${
+                          isPending ? 'text-amber-500' : 'text-emerald-400'
+                        }`}>
+                          {isPending ? 'Pending' : 'Completed'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-5 rounded-2xl bg-zinc-900/50 border border-zinc-800 text-center text-xs text-slate-500">
+                  No recent movements recorded.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 7. Official Telegram Channel & VIP Concierge Banner */}
+          <div className="p-4 rounded-3xl bg-gradient-to-r from-sky-950/60 via-zinc-900 to-indigo-950/40 border border-sky-500/30 flex items-center justify-between shadow-lg shadow-sky-950/20 group">
             <div className="space-y-1 pr-3">
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
@@ -403,172 +570,6 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               <Send className="w-3.5 h-3.5" />
               <span>Join TG</span>
             </a>
-          </div>
-
-          {/* Points Draw Promo Banner (RedotPay Match) */}
-          <div className="p-4 rounded-3xl bg-gradient-to-r from-amber-950/40 via-slate-900 to-rose-950/40 border border-amber-500/20 flex items-center justify-between shadow-sm">
-            <div className="space-y-1">
-              <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wider">
-                Points draw
-              </span>
-              <h4 className="text-sm font-extrabold text-white">1 Point, Elite Rewards</h4>
-              <p className="text-[11px] text-slate-400">Spend with Avora Card to earn weekly mystery boxes</p>
-            </div>
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-2xl shadow-inner shrink-0">
-              🎁
-            </div>
-          </div>
-
-          {/* REDOTPAY SCREENSHOT 1 MATCH: SUPPORT HUB DIRECT ROW */}
-          <div className="p-4 rounded-3xl bg-slate-900/90 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Headphones className="w-4 h-4 text-rose-500" />
-                <span className="text-xs font-bold text-white">Client Support Desk</span>
-              </div>
-              <button
-                onClick={() => setServicesModalOpen(true)}
-                className="text-[11px] text-slate-400 hover:text-white flex items-center"
-              >
-                All Services <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-4 gap-2 pt-1 text-center">
-              {/* Support 1: Help */}
-              <button
-                onClick={() => setHelpModalOpen(true)}
-                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-800 transition-colors group cursor-pointer"
-              >
-                <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-300 group-hover:text-white group-hover:border-rose-500 transition-all">
-                  <HelpCircle className="w-5 h-5 text-sky-400" />
-                </div>
-                <span className="text-[11px] font-bold text-slate-300 group-hover:text-white">Help</span>
-              </button>
-
-              {/* Support 2: Community */}
-              <a
-                href="https://t.me/avorallc"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-800 transition-colors group cursor-pointer"
-              >
-                <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-300 group-hover:text-white group-hover:border-rose-500 transition-all">
-                  <Users className="w-5 h-5 text-indigo-400" />
-                </div>
-                <span className="text-[11px] font-bold text-slate-300 group-hover:text-white">Community</span>
-              </a>
-
-              {/* Support 3: Learn */}
-              <Link
-                href="/how-it-works"
-                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-800 transition-colors group cursor-pointer"
-              >
-                <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-300 group-hover:text-white group-hover:border-rose-500 transition-all">
-                  <BookOpen className="w-5 h-5 text-amber-400" />
-                </div>
-                <span className="text-[11px] font-bold text-slate-300 group-hover:text-white">Learn</span>
-              </Link>
-
-              {/* Support 4: Ticket (RedotPay Match) */}
-              <button
-                onClick={() => setTicketCenterOpen(true)}
-                className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-800 transition-colors group cursor-pointer"
-              >
-                <div className="w-11 h-11 rounded-full bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-rose-400 group-hover:bg-rose-600 group-hover:text-white transition-all shadow-md">
-                  <Ticket className="w-5 h-5 text-rose-500 group-hover:text-white" />
-                </div>
-                <span className="text-[11px] font-bold text-rose-400 group-hover:text-white">Ticket</span>
-              </button>
-            </div>
-          </div>
-
-          {/* RedotPay Credit Line Widget */}
-          <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800/80 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-300">Credit</span>
-              <ChevronRight className="w-4 h-4 text-slate-500" />
-            </div>
-
-            <div className="text-center py-1">
-              <div className="text-[11px] text-slate-400">Available credit (USD)</div>
-              <div className="text-3xl font-extrabold text-white pt-0.5">0.00</div>
-            </div>
-
-            <div className="grid grid-cols-2 pt-2 border-t border-slate-800 text-xs">
-              <div className="space-y-0.5">
-                <div className="text-[10px] text-slate-400">Outstanding balance (USD)</div>
-                <div className="font-mono font-bold text-slate-200">0.00</div>
-              </div>
-
-              <div className="space-y-0.5 text-right">
-                <div className="text-[10px] text-slate-400">Risk score</div>
-                <div className="flex items-center justify-end gap-1.5 font-bold text-emerald-400">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span>Safe</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent Transactions List (Live Ledger Match) */}
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-300">Transactions</span>
-              <button
-                onClick={() => setNavTab('transactions')}
-                className="text-rose-400 hover:text-rose-300 text-[11px] font-semibold cursor-pointer"
-              >
-                See all
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              {transactions && transactions.length > 0 ? (
-                transactions.slice(0, 4).map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 flex items-center justify-between hover:bg-slate-900 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${
-                        tx.type.includes('DEPOSIT')
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : tx.type.includes('EXCHANGE') || tx.type.includes('SWAP')
-                          ? 'bg-blue-500/10 text-blue-400'
-                          : 'bg-rose-500/10 text-rose-500'
-                      }`}>
-                        {tx.type.includes('DEPOSIT') ? 'DEP' : tx.type.includes('SWAP') ? 'SWP' : 'P2P'}
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-white">
-                          {tx.notes || tx.type.replace(/_/g, ' ')}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {new Date(tx.createdAt).toLocaleDateString()} • {tx.transactionCode}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <div className={`text-xs font-mono font-bold ${
-                        tx.type.includes('DEPOSIT') || tx.type.includes('IN') ? 'text-emerald-400' : 'text-white'
-                      }`}>
-                        {tx.type.includes('DEPOSIT') || tx.type.includes('IN') ? '+' : ''}
-                        {parseFloat(tx.amount).toFixed(2)} {tx.currency}
-                      </div>
-                      <div className="text-[10px] font-semibold text-emerald-400">
-                        {tx.status}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="p-4 rounded-2xl bg-slate-900/50 border border-slate-800 text-center text-xs text-slate-500">
-                  No recent movements recorded.
-                </div>
-              )}
-            </div>
           </div>
 
         </div>
@@ -1625,73 +1626,81 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       />
 
       {/* ---------------------------------------------------------------------- */}
-      {/* 10. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Swap, Activity, Assets) */}
+      {/* 10. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Send, Assets) */}
       {/* ---------------------------------------------------------------------- */}
-      <div className="absolute bottom-0 left-0 right-0 h-20 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/80 px-4 flex items-center justify-around z-50">
+      <div className="absolute bottom-0 left-0 right-0 h-20 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 px-6 flex items-center justify-around z-50">
         
         {/* Dock Item: Home */}
         <button
           onClick={() => setNavTab('home')}
-          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
-            navTab === 'home' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
-          }`}
+          className="flex flex-col items-center gap-1 cursor-pointer transition-all group"
         >
-          <div className={`p-1 rounded-xl ${navTab === 'home' ? 'bg-rose-500/10' : ''}`}>
-            <span className="text-xl">⌂</span>
+          <div className={`px-4 py-1 rounded-full flex items-center justify-center transition-all ${
+            navTab === 'home'
+              ? 'bg-rose-500/20 text-rose-500 ring-1 ring-rose-500/30'
+              : 'text-zinc-400 group-hover:text-white'
+          }`}>
+            <Home className={`w-5 h-5 ${navTab === 'home' ? 'fill-rose-500 text-rose-500' : 'text-zinc-400 group-hover:text-white'}`} />
           </div>
-          <span className="text-[10px] font-bold">Home</span>
+          <span className={`text-[10px] ${
+            navTab === 'home' ? 'font-bold text-rose-500' : 'font-medium text-zinc-400 group-hover:text-white'
+          }`}>
+            Home
+          </span>
         </button>
 
         {/* Dock Item: Card */}
         <button
           onClick={() => setNavTab('card')}
-          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
-            navTab === 'card' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
-          }`}
+          className="flex flex-col items-center gap-1 cursor-pointer transition-all group"
         >
-          <div className={`p-1 rounded-xl ${navTab === 'card' ? 'bg-rose-500/10' : ''}`}>
+          <div className={`px-4 py-1 rounded-full flex items-center justify-center transition-all ${
+            navTab === 'card'
+              ? 'bg-rose-500/20 text-rose-500 ring-1 ring-rose-500/30'
+              : 'text-zinc-400 group-hover:text-white'
+          }`}>
             <CreditCard className="w-5 h-5" />
           </div>
-          <span className="text-[10px] font-bold">Card</span>
+          <span className={`text-[10px] ${
+            navTab === 'card' ? 'font-bold text-rose-500' : 'font-medium text-zinc-400 group-hover:text-white'
+          }`}>
+            Card
+          </span>
         </button>
 
-        {/* Dock Item: Swap (Direct RedotPay Match) */}
+        {/* Dock Item: Send (Triggers "Choose a method" bottom sheet) */}
         <button
-          onClick={() => setNavTab('swap')}
-          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
-            navTab === 'swap' || navTab === 'send' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
-          }`}
+          onClick={() => setChooseMethodModalOpen(true)}
+          className="flex flex-col items-center gap-1 cursor-pointer transition-all group"
+          title="Send Money"
         >
-          <div className={`p-1 rounded-xl ${navTab === 'swap' || navTab === 'send' ? 'bg-rose-500/10' : ''}`}>
-            <RefreshCw className="w-5 h-5" />
+          <div className="px-4 py-1 rounded-full flex items-center justify-center text-zinc-400 group-hover:text-white transition-all">
+            <div className="w-5 h-5 rounded-[5px] border-2 border-current flex items-center justify-center">
+              <ArrowRight className="w-3 h-3 stroke-[2.5]" />
+            </div>
           </div>
-          <span className="text-[10px] font-bold">Swap</span>
-        </button>
-
-        {/* Dock Item: Activity / Transactions (Direct RedotPay Match) */}
-        <button
-          onClick={() => setNavTab('transactions')}
-          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
-            navTab === 'transactions' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
-          }`}
-        >
-          <div className={`p-1 rounded-xl ${navTab === 'transactions' ? 'bg-rose-500/10' : ''}`}>
-            <FileText className="w-5 h-5" />
-          </div>
-          <span className="text-[10px] font-bold">Activity</span>
+          <span className="text-[10px] font-medium text-zinc-400 group-hover:text-white">
+            Send
+          </span>
         </button>
 
         {/* Dock Item: Assets */}
         <button
           onClick={() => setNavTab('assets')}
-          className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
-            navTab === 'assets' ? 'text-rose-500 scale-105' : 'text-slate-500 hover:text-slate-300'
-          }`}
+          className="flex flex-col items-center gap-1 cursor-pointer transition-all group"
         >
-          <div className={`p-1 rounded-xl ${navTab === 'assets' ? 'bg-rose-500/10' : ''}`}>
-            <Coins className="w-5 h-5" />
+          <div className={`px-4 py-1 rounded-full flex items-center justify-center transition-all ${
+            navTab === 'assets'
+              ? 'bg-rose-500/20 text-rose-500 ring-1 ring-rose-500/30'
+              : 'text-zinc-400 group-hover:text-white'
+          }`}>
+            <Wallet className="w-5 h-5" />
           </div>
-          <span className="text-[10px] font-bold">Assets</span>
+          <span className={`text-[10px] ${
+            navTab === 'assets' ? 'font-bold text-rose-500' : 'font-medium text-zinc-400 group-hover:text-white'
+          }`}>
+            Assets
+          </span>
         </button>
       </div>
 
