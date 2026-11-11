@@ -1234,9 +1234,12 @@ export default function AdminPortalPage() {
                       <p className="text-[10px] text-slate-500">Gross transaction fee deducted on transfers (Default: 3.0%)</p>
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
-                        Remittance FX Corridor Spread Margin (%)
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono flex items-center justify-between">
+                        <span>Remittance FX Corridor Spread Margin (%)</span>
+                        <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                          🛡️ Zero-Loss Guarantee
+                        </span>
                       </label>
                       <div className="relative">
                         <input
@@ -1248,7 +1251,34 @@ export default function AdminPortalPage() {
                         />
                         <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
                       </div>
-                      <p className="text-[10px] text-slate-500">Exchange rate spread applied (Default: 2.0%)</p>
+                      
+                      {/* Quick Margin Presets & Live Profit Preview */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-[10px] text-slate-500">Presets:</span>
+                        {[1.5, 2.0, 2.5, 3.5, 5.0].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setPlatformConfig({ ...platformConfig, remittance_margin_percent: String(preset) })}
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                              parseFloat(platformConfig.remittance_margin_percent || '2.0') === preset
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                            }`}
+                          >
+                            {preset}%
+                          </button>
+                        ))}
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-[10px] text-slate-400 space-y-1">
+                        <p className="text-slate-300 font-semibold flex items-center gap-1.5">
+                          <span>Bank Margin Revenue Simulator:</span>
+                        </p>
+                        <p className="text-slate-400">
+                          On a <span className="text-white font-mono">$10,000</span> transfer to EUR/INR:
+                          Bank retains <span className="text-emerald-400 font-mono font-bold">${((10000 * parseFloat(platformConfig.remittance_margin_percent || '2.0')) / 100).toFixed(2)}</span> FX spread + <span className="text-emerald-400 font-mono font-bold">${((10000 * parseFloat(platformConfig.remittance_fee_percent || '3.0')) / 100).toFixed(2)}</span> transfer fee = <span className="text-white font-mono font-bold">${(((10000 * parseFloat(platformConfig.remittance_margin_percent || '2.0')) / 100) + ((10000 * parseFloat(platformConfig.remittance_fee_percent || '3.0')) / 100)).toFixed(2)}</span> total gross profit with <strong className="text-emerald-400">0% forex loss risk</strong>.
+                        </p>
+                      </div>
                     </div>
 
                     <div className="space-y-1">

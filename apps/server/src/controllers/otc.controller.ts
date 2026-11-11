@@ -1,19 +1,29 @@
 import { Request, Response, NextFunction } from 'express';
 import { otcService } from '../services/otc.service';
 import { rateService } from '../services/rate.service';
+import { prisma } from '../lib/prisma';
 
 export class OtcController {
   /**
    * GET /api/v1/otc/rates
-   * Real-time benchmark exchange rates from original live market source
+   * Real-time benchmark exchange rates from original live market source with admin margin
    */
   async getRates(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await rateService.getLiveRates();
+      const [data, marginSetting, feeSetting] = await Promise.all([
+        rateService.getLiveRates(),
+        prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
+        prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
+      ]);
+      const marginPercent = parseFloat(marginSetting?.value || '2.0');
+      const feePercent = parseFloat(feeSetting?.value || '3.0');
+
       res.json({
         success: true,
         source: data.source,
         lastUpdated: data.lastUpdated,
+        marginPercent,
+        feePercent,
         rates: data.rates,
       });
     } catch (err) {

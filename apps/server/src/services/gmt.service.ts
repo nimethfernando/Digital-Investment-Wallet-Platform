@@ -155,12 +155,18 @@ export class GlobalMoneyTransferService {
     const toPerUsd = live.rates[toCur] || 1.0;
     const refRate = new Decimal(toPerUsd).dividedBy(new Decimal(fromPerUsd));
 
-    // 2.0% Admin Exchange Rate Adjustment (reduction to recipient currency rate)
-    const rateAdjustmentPct = new Decimal('2.00'); // 2%
+    // Dynamic Admin Exchange Rate Margin & Platform Fee from database (No-loss protection)
+    const [marginSetting, feeSetting] = await Promise.all([
+      prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
+      prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
+    ]);
+
+    // Admin Exchange Rate Adjustment (reduction to recipient currency rate so bank never incurs forex loss)
+    const rateAdjustmentPct = new Decimal(marginSetting?.value || '2.00');
     const effectiveRate = refRate.times(new Decimal(1).minus(rateAdjustmentPct.dividedBy(100)));
 
-    // 3.0% Transfer Fee
-    const transferFeePct = new Decimal('3.00'); // 3%
+    // Platform Transfer Fee % (deducted on total send)
+    const transferFeePct = new Decimal(feeSetting?.value || '3.00');
     const sendAmtDec = new Decimal(sendingAmount);
     const transferFeeAmount = sendAmtDec.times(transferFeePct.dividedBy(100));
     const totalPaidAmount = sendAmtDec.plus(transferFeeAmount);
@@ -262,7 +268,7 @@ export class GlobalMoneyTransferService {
       currentBal = usdtAvail;
     } else {
       throw new Error(
-        `Insufficient funds. Transfer requires $${quote.totalPaidAmount} (including 3% fee of $${quote.transferFeeAmount}). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
+        `Insufficient funds. Transfer requires $${quote.totalPaidAmount} (including ${quote.transferFeePct}% fee of $${quote.transferFeeAmount}). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
       );
     }
 
