@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import QRCode from 'qrcode';
 import { api, extractErrorMessage } from '../lib/api';
 import {
@@ -21,6 +22,7 @@ import {
   Clipboard,
   Camera,
   Upload,
+  Globe,
 } from 'lucide-react';
 
 interface QrTransferModalProps {
@@ -716,6 +718,24 @@ export function QrTransferModal({
             <Send className="w-4 h-4 text-blue-500" />
             <span>Account Transfer (Send)</span>
           </button>
+        </div>
+
+        {/* Clean Switcher to International Wire / Remittance */}
+        <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+            <Globe className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span className="text-[11px] leading-snug">
+              Need to send funds to an external bank or e-wallet abroad?
+            </span>
+          </div>
+          <Link
+            href="/transfer"
+            onClick={onClose}
+            className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-[11px] flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+          >
+            <span>International</span>
+            <ExternalLink className="w-3 h-3" />
+          </Link>
         </div>
 
         {/* ===================================================================== */}

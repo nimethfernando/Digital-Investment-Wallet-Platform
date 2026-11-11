@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api } from '../lib/api';
 import {
   Wallet,
@@ -48,9 +49,11 @@ import {
   FileDown,
   ArrowLeft,
   Plus,
+  Landmark,
 } from 'lucide-react';
 import { VirtualCardModule } from './VirtualCardModule';
 import { SupportTicketModule } from './SupportTicketModule';
+import { ChooseSendMethodModal } from './ChooseSendMethodModal';
 
 interface RedotPayAppModuleProps {
   user: any;
@@ -60,6 +63,7 @@ interface RedotPayAppModuleProps {
   onOpenWithdraw: () => void;
   onOpenP2P: () => void;
   onOpenPackages: () => void;
+  onOpenInternationalTransfer?: () => void;
   onRefresh?: () => void;
 }
 
@@ -71,13 +75,18 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   onOpenWithdraw,
   onOpenP2P,
   onOpenPackages,
+  onOpenInternationalTransfer,
   onRefresh,
 }) => {
+  const router = useRouter();
   // Navigation active tab: 'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets'
   const [navTab, setNavTab] = useState<'home' | 'card' | 'swap' | 'send' | 'transactions' | 'assets'>('home');
   const [showBalance, setShowBalance] = useState(true);
   const [assetsSubTab, setAssetsSubTab] = useState<'crypto' | 'fiat'>('crypto');
   const [openChooseCardInTab, setOpenChooseCardInTab] = useState(false);
+
+  // Method Selection Modal: International Transfer vs Transfer to Avora User
+  const [chooseMethodModalOpen, setChooseMethodModalOpen] = useState(false);
 
   // Transactions Filter States
   const [txTypeFilter, setTxTypeFilter] = useState<string>('ALL');
@@ -320,7 +329,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             </div>
           </div>
 
-          {/* 4 Quick Action Buttons (Direct RedotPay Match) */}
+          {/* 4 Quick Action Buttons (Direct RedotPay Match: Deposit, Send, Swap, More) */}
           <div className="grid grid-cols-4 gap-3 pt-2">
             
             {/* Deposit */}
@@ -334,6 +343,17 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Deposit</span>
             </button>
 
+            {/* Send (Opens Choose a method modal: International vs Avora User) */}
+            <button
+              onClick={() => setChooseMethodModalOpen(true)}
+              className="flex flex-col items-center gap-2 group cursor-pointer"
+            >
+              <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-white group-hover:bg-slate-800 group-hover:border-rose-500 transition-all shadow-md">
+                <Send className="w-5 h-5 text-rose-400" />
+              </div>
+              <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Send</span>
+            </button>
+
             {/* Swap */}
             <button
               onClick={() => setNavTab('swap')}
@@ -343,17 +363,6 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <RefreshCw className="w-5 h-5 text-blue-400 group-hover:rotate-180 transition-transform duration-500" />
               </div>
               <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Swap</span>
-            </button>
-
-            {/* Referral / Earn */}
-            <button
-              onClick={onOpenPackages}
-              className="flex flex-col items-center gap-2 group cursor-pointer"
-            >
-              <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-white group-hover:bg-slate-800 group-hover:border-rose-500 transition-all shadow-md">
-                <UserPlus className="w-5 h-5 text-purple-400" />
-              </div>
-              <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Referral</span>
             </button>
 
             {/* More -> Opens Full Services & Support Drawer */}
@@ -746,21 +755,23 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </button>
             </div>
 
-            {/* Zero-fee P2P Option */}
+            {/* Send Funds Option: Transfer to Avora User or International Wire */}
             <button
-              onClick={onOpenP2P}
+              onClick={() => setChooseMethodModalOpen(true)}
               className="w-full p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex items-center justify-between hover:border-slate-700 transition-all text-xs group cursor-pointer"
             >
               <div className="flex items-center gap-2.5">
                 <div className="w-6 h-6 rounded-full bg-rose-600/30 text-rose-400 flex items-center justify-center font-bold text-xs">
-                  A
+                  <Send className="w-3.5 h-3.5" />
                 </div>
-                <span className="font-bold text-slate-200">
-                  Send to Avora Bank user
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-rose-600/20 text-rose-400 border border-rose-500/30 text-[10px] font-black">
-                  No fees
-                </span>
+                <div className="text-left flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-slate-200">
+                    Send to Avora Bank user or International
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-rose-600/20 text-rose-400 border border-rose-500/30 text-[9px] font-black uppercase">
+                    Zero fees
+                  </span>
+                </div>
               </div>
               <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
             </button>
@@ -1142,9 +1153,205 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </button>
             </div>
 
-            {/* GROUP 1: CARD */}
+            {/* GROUP 1: POPULAR (EXACT REDOTPAY SCREENSHOT MATCH) */}
             <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Card</h4>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Popular</h4>
+              <div className="grid grid-cols-4 gap-3 text-center">
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenPackages();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Coins className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Earn</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Avora Credit Facility: Institutional liquidity lines available for active accounts.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Wallet className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Credit</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenPackages();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <UserPlus className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Referral</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenP2P();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Users className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">P2P</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Avora eSIM: International roaming data connected to crypto wallet.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Smartphone className="w-5 h-5 text-sky-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">eSIM</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Gift Cards: Purchase retail vouchers using USDT.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Gift className="w-5 h-5 text-rose-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Gift Card</span>
+                </button>
+
+                <button
+                  onClick={() => alert('Mobile top-up available for 140+ countries.')}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Layers className="w-5 h-5 text-indigo-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Mobile top-up</span>
+                </button>
+              </div>
+            </div>
+
+            {/* GROUP 2: TRANSACTION (EXACT REDOTPAY SCREENSHOT MATCH) */}
+            <div className="space-y-3 pt-1 border-t border-slate-900">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Transaction</h4>
+              <div className="grid grid-cols-4 gap-3 text-center">
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenDeposit();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <ArrowDownLeft className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Deposit</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenDeposit();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Zap className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Buy Crypto</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenP2P();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Users className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">P2P</span>
+                </button>
+
+                {/* SEND (OPENS CHOOSE A METHOD MODAL) */}
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    setChooseMethodModalOpen(true);
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer group"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200 group-hover:border-rose-500/50 group-hover:text-rose-400 transition-colors">
+                    <Send className="w-5 h-5 text-rose-500" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300 group-hover:text-white">Send</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenWithdraw();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <ArrowUpRight className="w-5 h-5 text-slate-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Withdraw</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    setNavTab('swap');
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <RefreshCw className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Swap</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenP2P();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <Scan className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Scan</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setServicesModalOpen(false);
+                    onOpenP2P();
+                  }}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
+                    <ArrowDown className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">Receive</span>
+                </button>
+              </div>
+            </div>
+
+            {/* GROUP 3: CARD & HUB */}
+            <div className="space-y-3 pt-1 border-t border-slate-900">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Card &amp; Hub</h4>
               <div className="grid grid-cols-4 gap-3 text-center">
                 <button
                   onClick={() => {
@@ -1162,10 +1369,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
 
                 <button
                   onClick={() => alert('Priority status: Avora Private Client Tier active.')}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
                   <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Zap className="w-5 h-5" />
+                    <Zap className="w-5 h-5 text-amber-400" />
                   </div>
                   <span className="text-[10px] font-semibold text-slate-300">Priority</span>
                 </button>
@@ -1175,107 +1382,25 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                     setServicesModalOpen(false);
                     setNavTab('card');
                   }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
                   <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Shield className="w-5 h-5" />
+                    <Shield className="w-5 h-5 text-emerald-400" />
                   </div>
                   <span className="text-[10px] font-semibold text-slate-300">Security</span>
                 </button>
 
-                <Link
-                  href="/dashboard?tab=transactions"
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Clock className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Statement</span>
-                </Link>
-              </div>
-            </div>
-
-            {/* GROUP 2: LIFESTYLE */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lifestyle</h4>
-              <div className="grid grid-cols-4 gap-3 text-center">
-                <button
-                  onClick={() => alert('Avora eSIM: International roaming data connected to crypto wallet.')}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Smartphone className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">eSIM</span>
-                </button>
-
-                <button
-                  onClick={() => alert('Gift Cards: Purchase retail vouchers using USDT.')}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Gift className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Gift Card</span>
-                </button>
-
-                <button
-                  onClick={() => alert('Mobile top-up available for 140+ countries.')}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Layers className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Mobile top-up</span>
-                </button>
-              </div>
-            </div>
-
-            {/* GROUP 3: REWARDS */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Rewards</h4>
-              <div className="grid grid-cols-4 gap-3 text-center">
                 <button
                   onClick={() => {
                     setServicesModalOpen(false);
-                    onOpenPackages();
+                    setNavTab('transactions');
                   }}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors cursor-pointer"
                 >
                   <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <UserPlus className="w-5 h-5 text-purple-400" />
+                    <Clock className="w-5 h-5 text-sky-400" />
                   </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Referral</span>
-                </button>
-
-                <button
-                  onClick={() => alert('Mystery Gift box awarded weekly.')}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Award className="w-5 h-5 text-amber-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Gift</span>
-                </button>
-
-                <button
-                  onClick={() => alert('Benefits: 3% Cashback on Visa Card transactions.')}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Sparkles className="w-5 h-5 text-emerald-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Benefits</span>
-                </button>
-
-                <button
-                  onClick={() => alert('Vouchers: 0% P2P trading fee coupons active.')}
-                  className="flex flex-col items-center gap-1.5 p-2 rounded-2xl hover:bg-slate-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-200">
-                    <Ticket className="w-5 h-5 text-cyan-400" />
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">Vouchers</span>
+                  <span className="text-[10px] font-semibold text-slate-300">Statement</span>
                 </button>
               </div>
             </div>
@@ -1480,6 +1605,24 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           </div>
         </div>
       )}
+
+      {/* ---------------------------------------------------------------------- */}
+      {/* 9.5. MODAL: CHOOSE SEND METHOD (International vs Avora User) */}
+      {/* ---------------------------------------------------------------------- */}
+      <ChooseSendMethodModal
+        isOpen={chooseMethodModalOpen}
+        onClose={() => setChooseMethodModalOpen(false)}
+        onSelectInternational={() => {
+          if (onOpenInternationalTransfer) {
+            onOpenInternationalTransfer();
+          } else {
+            router.push('/transfer');
+          }
+        }}
+        onSelectAvoraUser={() => {
+          onOpenP2P();
+        }}
+      />
 
       {/* ---------------------------------------------------------------------- */}
       {/* 10. REDOTPAY FIXED BOTTOM DOCK (Home, Card, Swap, Activity, Assets) */}

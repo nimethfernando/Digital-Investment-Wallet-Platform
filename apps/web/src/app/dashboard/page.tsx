@@ -11,6 +11,7 @@ import { SupportTicketModule } from '../../components/SupportTicketModule';
 import { KycVerificationModal } from '../../components/KycVerificationModal';
 import { QrTransferModal } from '../../components/QrTransferModal';
 import { DepositModal } from '../../components/DepositModal';
+import { ChooseSendMethodModal } from '../../components/ChooseSendMethodModal';
 import { getExplorerInfo } from '../../lib/blockchain';
 import {
   Wallet,
@@ -259,6 +260,7 @@ function DashboardContent() {
   const [p2pModalOpen, setP2PModalOpen] = useState(false);
   const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
   const [inquiryChatOpen, setInquiryChatOpen] = useState(false);
+  const [sendMethodModalOpen, setSendMethodModalOpen] = useState(false);
 
   // Deposit Form State
   const [depositAmount, setDepositAmount] = useState('');
@@ -850,15 +852,26 @@ function DashboardContent() {
                 Deposit Funds
               </button>
 
+              {/* Clean Send Option (Opens Choose a Method: International vs Avora User) */}
+              <button
+                onClick={() => setSendMethodModalOpen(true)}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 text-white shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Send money internationally or to another Avora Bank account"
+              >
+                <Send className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+                <span>Send Money</span>
+              </button>
+
               <button
                 onClick={() => {
                   setQrModalTab('RECEIVE');
                   setQrModalOpen(true);
                 }}
-                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 text-white shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                title="View your personal Avora Account Number & QR Code"
               >
-                <QrCode className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
-                <span>Account & QR Transfer</span>
+                <QrCode className="w-4 h-4 text-slate-500" />
+                <span>Receive / QR</span>
               </button>
 
               <button
@@ -969,6 +982,7 @@ function DashboardContent() {
                 setQrModalOpen(true);
               }}
               onOpenPackages={() => setActiveTab('packages')}
+              onOpenInternationalTransfer={() => router.push('/transfer')}
               onRefresh={fetchDashboardData}
             />
           </div>
@@ -2915,6 +2929,19 @@ function DashboardContent() {
         onVerified={() => {
           fetchDashboardData();
           refreshUser().catch(() => {});
+        }}
+      />
+
+      {/* Choose Send Method Modal (International vs Avora User) */}
+      <ChooseSendMethodModal
+        isOpen={sendMethodModalOpen}
+        onClose={() => setSendMethodModalOpen(false)}
+        onSelectInternational={() => {
+          router.push('/transfer');
+        }}
+        onSelectAvoraUser={() => {
+          setQrModalTab('SEND');
+          setQrModalOpen(true);
         }}
       />
 
