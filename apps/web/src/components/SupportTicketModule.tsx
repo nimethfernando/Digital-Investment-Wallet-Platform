@@ -67,6 +67,7 @@ export const INQUIRY_CATEGORIES = [
   { id: 'CARD_ISSUE', label: 'Virtual & Physical Cards', icon: CreditCard, color: 'text-rose-500' },
   { id: 'TOKEN_INVESTMENT', label: 'AVR Tokens & Treasury', icon: Coins, color: 'text-amber-500' },
   { id: 'KYC_VERIFICATION', label: 'KYC & Verification', icon: UserCheck, color: 'text-purple-500' },
+  { id: 'P2P_DESK', label: 'P2P Settlement Desk', icon: Building2, color: 'text-emerald-500' },
   { id: 'P2P_DISPUTE', label: 'P2P Trades & Escrow', icon: Building2, color: 'text-indigo-500' },
   { id: 'SECURITY', label: 'Account Security & 2FA', icon: Lock, color: 'text-red-500' },
 ];

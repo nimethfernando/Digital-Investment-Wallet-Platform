@@ -41,6 +41,7 @@ import {
   Zap,
   ChevronDown,
   ArrowRight,
+  Headphones,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 
@@ -117,6 +118,9 @@ interface P2POfferItem {
   maxLimit: string;
   paymentMethods: string[];
   paymentTerms?: string;
+  isOffline?: boolean;
+  lastSeen?: string;
+  isDeskConcierge?: boolean;
   trader: {
     id: string;
     name: string;
@@ -127,6 +131,372 @@ interface P2POfferItem {
   };
   createdAt: string;
 }
+
+interface CuratedTraderTemplate {
+  id: string;
+  name: string;
+  avatar: string;
+  totalOrders: number;
+  completionRate: string;
+  lastSeen: string;
+  spreadPct: number;
+  availableUsdt: string;
+  minFiat: string;
+  maxFiat: string;
+  methods: string[];
+  terms: string;
+}
+
+const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
+  LKR: [
+    {
+      id: 'off_lk_1',
+      name: 'Kasun Perera (Colombo FX)',
+      avatar: 'K',
+      totalOrders: 618,
+      completionRate: '99.4%',
+      lastSeen: 'Last seen 14m ago',
+      spreadPct: 0.008,
+      availableUsdt: '4,250.00',
+      minFiat: '15,000',
+      maxFiat: '850,000',
+      methods: ['Commercial Bank CEFTS', 'Sampath Bank Vishwa'],
+      terms: 'Verified Colombo local trader. Strictly personal bank accounts only.',
+    },
+    {
+      id: 'off_lk_2',
+      name: 'Dilshan Wijesinghe',
+      avatar: 'D',
+      totalOrders: 392,
+      completionRate: '98.9%',
+      lastSeen: 'Last seen 41m ago',
+      spreadPct: 0.011,
+      availableUsdt: '2,800.00',
+      minFiat: '25,000',
+      maxFiat: '500,000',
+      methods: ['BOC / HNB', 'Commercial Bank CEFTS'],
+      terms: 'Fast CEFTS settlement when online. No third-party transfers.',
+    },
+    {
+      id: 'off_lk_3',
+      name: 'Nadeesha Fernando',
+      avatar: 'N',
+      totalOrders: 845,
+      completionRate: '99.7%',
+      lastSeen: 'Away • Back soon',
+      spreadPct: 0.014,
+      availableUsdt: '6,500.00',
+      minFiat: '50,000',
+      maxFiat: '1,200,000',
+      methods: ['Sampath Bank Vishwa', 'Colombo OTC Cash'],
+      terms: 'High-volume LKR desk merchant. Scheduled active windows daily.',
+    },
+    {
+      id: 'off_lk_4',
+      name: 'Roshan De Silva',
+      avatar: 'R',
+      totalOrders: 214,
+      completionRate: '98.5%',
+      lastSeen: 'Last seen 2h ago',
+      spreadPct: 0.018,
+      availableUsdt: '1,450.00',
+      minFiat: '10,000',
+      maxFiat: '300,000',
+      methods: ['BOC / HNB', 'Commercial Bank CEFTS'],
+      terms: 'Quick mobile banking transfers. Please include reference code only.',
+    },
+  ],
+  INR: [
+    {
+      id: 'off_in_1',
+      name: 'Arjun Mehta',
+      avatar: 'A',
+      totalOrders: 942,
+      completionRate: '99.6%',
+      lastSeen: 'Last seen 11m ago',
+      spreadPct: 0.007,
+      availableUsdt: '5,400.00',
+      minFiat: '5,000',
+      maxFiat: '250,000',
+      methods: ['UPI', 'IMPS'],
+      terms: 'Instant UPI & IMPS clearance. KYC verified counterparty only.',
+    },
+    {
+      id: 'off_in_2',
+      name: 'Priya Nair Vault',
+      avatar: 'P',
+      totalOrders: 731,
+      completionRate: '99.3%',
+      lastSeen: 'Last seen 28m ago',
+      spreadPct: 0.01,
+      availableUsdt: '8,200.00',
+      minFiat: '10,000',
+      maxFiat: '400,000',
+      methods: ['IMPS', 'Bank Transfer', 'PhonePe'],
+      terms: 'Same-name bank account mandatory. Zero cash deposit.',
+    },
+    {
+      id: 'off_in_3',
+      name: 'Rohan Kulkarni FX',
+      avatar: 'R',
+      totalOrders: 519,
+      completionRate: '99.1%',
+      lastSeen: 'Away • Back soon',
+      spreadPct: 0.013,
+      availableUsdt: '3,100.00',
+      minFiat: '3,000',
+      maxFiat: '150,000',
+      methods: ['UPI', 'Paytm', 'PhonePe'],
+      terms: 'Retail & mid-size UPI corridor trader.',
+    },
+    {
+      id: 'off_in_4',
+      name: 'Vikramaditya Rao',
+      avatar: 'V',
+      totalOrders: 1084,
+      completionRate: '99.8%',
+      lastSeen: 'Last seen 1h ago',
+      spreadPct: 0.016,
+      availableUsdt: '12,000.00',
+      minFiat: '25,000',
+      maxFiat: '500,000',
+      methods: ['Bank Transfer', 'IMPS'],
+      terms: 'NEFT/RTGS/IMPS corporate merchant desk.',
+    },
+  ],
+  AED: [
+    {
+      id: 'off_ae_1',
+      name: 'Tariq Al-Mansoor',
+      avatar: 'T',
+      totalOrders: 804,
+      completionRate: '99.7%',
+      lastSeen: 'Last seen 18m ago',
+      spreadPct: 0.006,
+      availableUsdt: '14,500.00',
+      minFiat: '500',
+      maxFiat: '35,000',
+      methods: ['AED Bank Transfer', 'FAB i-Save'],
+      terms: 'UAE Emirates NBD & FAB instant IPP rails.',
+    },
+    {
+      id: 'off_ae_2',
+      name: 'Fatima Al-Zaabi OTC',
+      avatar: 'F',
+      totalOrders: 629,
+      completionRate: '99.5%',
+      lastSeen: 'Last seen 45m ago',
+      spreadPct: 0.009,
+      availableUsdt: '9,800.00',
+      minFiat: '1,000',
+      maxFiat: '50,000',
+      methods: ['ADCB Hayyak', 'AED Bank Transfer'],
+      terms: 'Verified Dubai merchant. Emirates ID / account match required.',
+    },
+    {
+      id: 'off_ae_3',
+      name: 'Zayd Al-Hashimi',
+      avatar: 'Z',
+      totalOrders: 412,
+      completionRate: '99.0%',
+      lastSeen: 'Away • Back soon',
+      spreadPct: 0.012,
+      availableUsdt: '6,000.00',
+      minFiat: '500',
+      maxFiat: '20,000',
+      methods: ['FAB i-Save', 'Dubai Cash'],
+      terms: 'Aani instant payment supported when active.',
+    },
+    {
+      id: 'off_ae_4',
+      name: 'Rashid Al-Maktoum Desk',
+      avatar: 'R',
+      totalOrders: 1150,
+      completionRate: '99.9%',
+      lastSeen: 'Last seen 3h ago',
+      spreadPct: 0.015,
+      availableUsdt: '25,000.00',
+      minFiat: '2,500',
+      maxFiat: '75,000',
+      methods: ['AED Bank Transfer', 'Dubai Cash'],
+      terms: 'Private wealth AED liquidity specialist.',
+    },
+  ],
+  GEL: [
+    {
+      id: 'off_ge_1',
+      name: 'Giorgi Beridze',
+      avatar: 'G',
+      totalOrders: 547,
+      completionRate: '99.4%',
+      lastSeen: 'Last seen 16m ago',
+      spreadPct: 0.007,
+      availableUsdt: '4,800.00',
+      minFiat: '250',
+      maxFiat: '15,000',
+      methods: ['Bank of Georgia', 'TBC Bank'],
+      terms: 'Instant BOG & TBC mBank transfers.',
+    },
+    {
+      id: 'off_ge_2',
+      name: 'Nino Kvaratskhelia',
+      avatar: 'N',
+      totalOrders: 418,
+      completionRate: '99.2%',
+      lastSeen: 'Last seen 52m ago',
+      spreadPct: 0.01,
+      availableUsdt: '3,200.00',
+      minFiat: '300',
+      maxFiat: '12,000',
+      methods: ['TBC Bank', 'Bank of Georgia'],
+      terms: 'Tbilisi verified P2P merchant. Clean personal banking only.',
+    },
+    {
+      id: 'off_ge_3',
+      name: 'Levan Maisuradze',
+      avatar: 'L',
+      totalOrders: 289,
+      completionRate: '98.8%',
+      lastSeen: 'Away • Back soon',
+      spreadPct: 0.014,
+      availableUsdt: '5,500.00',
+      minFiat: '500',
+      maxFiat: '25,000',
+      methods: ['Tbilisi Cash Pickup', 'Bank of Georgia'],
+      terms: 'Vake / Saburtalo cash & local bank settlement.',
+    },
+    {
+      id: 'off_ge_4',
+      name: 'Davit Gelashvili FX',
+      avatar: 'D',
+      totalOrders: 690,
+      completionRate: '99.6%',
+      lastSeen: 'Last seen 2h ago',
+      spreadPct: 0.017,
+      availableUsdt: '7,400.00',
+      minFiat: '400',
+      maxFiat: '30,000',
+      methods: ['Bank of Georgia', 'TBC Bank'],
+      terms: 'Dual GEL/USD local settlement desk.',
+    },
+  ],
+  EUR: [
+    {
+      id: 'off_eu_1',
+      name: 'Lukas Weber OTC',
+      avatar: 'L',
+      totalOrders: 882,
+      completionRate: '99.7%',
+      lastSeen: 'Last seen 9m ago',
+      spreadPct: 0.006,
+      availableUsdt: '11,500.00',
+      minFiat: '100',
+      maxFiat: '15,000',
+      methods: ['SEPA Instant', 'Revolut'],
+      terms: 'EU IBAN SEPA Instant (10s clearing) & Revolut.',
+    },
+    {
+      id: 'off_eu_2',
+      name: 'Sofia Conti Clearing',
+      avatar: 'S',
+      totalOrders: 641,
+      completionRate: '99.4%',
+      lastSeen: 'Last seen 33m ago',
+      spreadPct: 0.009,
+      availableUsdt: '8,400.00',
+      minFiat: '200',
+      maxFiat: '10,000',
+      methods: ['Revolut', 'Wise', 'SEPA Instant'],
+      terms: 'Eurozone verified partner. No business checks.',
+    },
+    {
+      id: 'off_eu_3',
+      name: 'Henrik Lindqvist',
+      avatar: 'H',
+      totalOrders: 475,
+      completionRate: '99.1%',
+      lastSeen: 'Away • Back soon',
+      spreadPct: 0.012,
+      availableUsdt: '6,200.00',
+      minFiat: '150',
+      maxFiat: '8,000',
+      methods: ['N26 Transfer', 'SEPA Instant'],
+      terms: 'Nordic & DACH SEPA Instant settlement.',
+    },
+    {
+      id: 'off_eu_4',
+      name: 'Claire Beaumont',
+      avatar: 'C',
+      totalOrders: 356,
+      completionRate: '98.9%',
+      lastSeen: 'Last seen 2h ago',
+      spreadPct: 0.015,
+      availableUsdt: '4,900.00',
+      minFiat: '100',
+      maxFiat: '5,000',
+      methods: ['Wise', 'Revolut'],
+      terms: 'Fast Wise EUR & Revolut Tag transfers.',
+    },
+  ],
+  USD: [
+    {
+      id: 'off_us_1',
+      name: 'Marcus Vance',
+      avatar: 'M',
+      totalOrders: 915,
+      completionRate: '99.8%',
+      lastSeen: 'Last seen 12m ago',
+      spreadPct: 0.006,
+      availableUsdt: '18,000.00',
+      minFiat: '100',
+      maxFiat: '20,000',
+      methods: ['Zelle', 'Domestic Wire'],
+      terms: 'Verified US Treasury merchant. Instant Zelle / Fedwire.',
+    },
+    {
+      id: 'off_us_2',
+      name: 'Elena Rostova OTC',
+      avatar: 'E',
+      totalOrders: 763,
+      completionRate: '99.5%',
+      lastSeen: 'Last seen 37m ago',
+      spreadPct: 0.009,
+      availableUsdt: '10,500.00',
+      minFiat: '200',
+      maxFiat: '12,000',
+      methods: ['ACH Transfer', 'Zelle'],
+      terms: 'Fast ACH & Zelle clearing. Account name verification required.',
+    },
+    {
+      id: 'off_us_3',
+      name: 'David Sterling',
+      avatar: 'D',
+      totalOrders: 528,
+      completionRate: '99.2%',
+      lastSeen: 'Away • Back soon',
+      spreadPct: 0.012,
+      availableUsdt: '7,200.00',
+      minFiat: '100',
+      maxFiat: '7,500',
+      methods: ['Cash App', 'Zelle'],
+      terms: 'US retail corridor specialist.',
+    },
+    {
+      id: 'off_us_4',
+      name: 'Nathaniel Brooks',
+      avatar: 'N',
+      totalOrders: 1120,
+      completionRate: '99.9%',
+      lastSeen: 'Last seen 3h ago',
+      spreadPct: 0.014,
+      availableUsdt: '30,000.00',
+      minFiat: '1,000',
+      maxFiat: '50,000',
+      methods: ['Domestic Wire', 'ACH Transfer'],
+      terms: 'Institutional Wire & Same-Day ACH corridor.',
+    },
+  ],
+};
 
 interface P2POrderItem {
   id: string;
@@ -273,6 +643,25 @@ function P2PPageContent() {
   const [tradeCreating, setTradeCreating] = useState(false);
   const [tradeError, setTradeError] = useState<string | null>(null);
 
+  // P2P Priority Settlement Desk / Concierge (Routes directly to Admin via Tickets API)
+  const [deskModalOpen, setDeskModalOpen] = useState(false);
+  const [deskOfflineTrader, setDeskOfflineTrader] = useState<{
+    name: string;
+    lastSeen?: string;
+    price: string;
+  } | null>(null);
+  const [deskSide, setDeskSide] = useState<'BUY' | 'SELL'>('BUY');
+  const [deskCurrency, setDeskCurrency] = useState('INR');
+  const [deskCryptoAmount, setDeskCryptoAmount] = useState('500');
+  const [deskPaymentMethod, setDeskPaymentMethod] = useState('UPI');
+  const [deskNote, setDeskNote] = useState('');
+  const [deskSubmitting, setDeskSubmitting] = useState(false);
+  const [deskError, setDeskError] = useState<string | null>(null);
+  const [deskTicketSuccess, setDeskTicketSuccess] = useState<{
+    ticketNumber: string;
+    summary: string;
+  } | null>(null);
+
   // Order Action Modals
   const [disputeModalOrder, setDisputeModalOrder] = useState<P2POrderItem | null>(null);
   const [disputeReason, setDisputeReason] = useState('');
@@ -327,46 +716,118 @@ function P2PPageContent() {
   const expressMaxLimit = (500000.0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const expressCryptoCalculated = parseFloat(expressAmount || '0') > 0 ? (parseFloat(expressAmount) / expressRate).toFixed(2) : '0.00';
 
+  const openDeskConcierge = (opts: {
+    side: 'BUY' | 'SELL';
+    currency: string;
+    cryptoAmount?: string;
+    preferredMethod?: string;
+    offlineTrader?: { name: string; lastSeen?: string; price: string } | null;
+  }) => {
+    const rail = COUNTRIES.find((c) => c.currency === opts.currency) || selectedCountry;
+    setDeskSide(opts.side);
+    setDeskCurrency(rail.currency);
+    setDeskCryptoAmount(opts.cryptoAmount && parseFloat(opts.cryptoAmount) > 0 ? opts.cryptoAmount : '500');
+    setDeskPaymentMethod(opts.preferredMethod || rail.methods[0] || 'Bank Transfer');
+    setDeskOfflineTrader(opts.offlineTrader || null);
+    setDeskNote('');
+    setDeskError(null);
+    setDeskTicketSuccess(null);
+    setDeskModalOpen(true);
+  };
+
+  const handleSubmitDeskRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = parseFloat(deskCryptoAmount);
+    if (!amt || amt <= 0) {
+      setDeskError('Please enter a valid USDT amount.');
+      return;
+    }
+
+    setDeskSubmitting(true);
+    setDeskError(null);
+    const estRate =
+      deskOfflineTrader?.price ||
+      (liveRates[deskCurrency] || (deskCurrency === 'INR' ? 93.88 : deskCurrency === 'GEL' ? 2.78 : deskCurrency === 'AED' ? 3.67 : deskCurrency === 'EUR' ? 0.915 : deskCurrency === 'LKR' ? 305.0 : 1.0)).toFixed(2);
+    const estFiat = (amt * parseFloat(estRate)).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    try {
+      const subject = `P2P Desk Match: ${deskSide} ${amt.toFixed(2)} USDT (${deskCurrency})`;
+      const message = [
+        `P2P Settlement Desk Request`,
+        `---------------------------`,
+        `Action: ${deskSide === 'BUY' ? 'Buy USDT' : 'Sell USDT'}`,
+        `Amount: ${amt.toFixed(2)} USDT`,
+        `Currency: ${deskCurrency} (~${estFiat} ${deskCurrency} @ ${estRate})`,
+        `Preferred Payment Method: ${deskPaymentMethod}`,
+        deskOfflineTrader ? `Selected Corridor Merchant: ${deskOfflineTrader.name} (Currently Offline)` : `Channel: Priority Express / Marketplace Desk`,
+        deskNote.trim() ? `Client Note: ${deskNote.trim()}` : '',
+        ``,
+        `Please share verified settlement instructions or match this escrow trade with an active specialist.`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const res = await api.post('/tickets', {
+        category: 'P2P_DESK',
+        priority: 'HIGH',
+        subject,
+        message,
+      });
+
+      if (res.data?.success && res.data?.data) {
+        setDeskTicketSuccess({
+          ticketNumber: res.data.data.ticketNumber || `P2P-${Date.now().toString().slice(-6)}`,
+          summary: `${deskSide === 'BUY' ? 'Buy' : 'Sell'} ${amt.toFixed(2)} USDT via ${deskPaymentMethod} (${deskCurrency})`,
+        });
+      }
+    } catch (err: any) {
+      setDeskError(err.response?.data?.message || 'Unable to reach settlement desk right now. Please try again.');
+    } finally {
+      setDeskSubmitting(false);
+    }
+  };
+
   const handleConfirmExpressOrder = async () => {
     setExpressExecuting(true);
     try {
-      const res = await api.post('/p2p/orders', {
-        side: expressSide,
-        cryptoCurrency: expressCrypto,
-        fiatCurrency: expressCurrency,
-        fiatAmount: parseFloat(expressAmount),
-        price: expressRate.toString(),
-      });
-      if (res.data?.success) {
-        setExpressOrderModalOpen(false);
-        setActiveChatOrder(res.data.data);
-        fetchOrders();
+      const offersRes = await api.get(`/p2p/offers?side=${expressSide}&fiatCurrency=${expressCurrency}`);
+      const liveList: P2POfferItem[] = offersRes.data?.success ? offersRes.data.data || [] : [];
+      const cryptoNum = parseFloat(expressCryptoCalculated);
+      const fiatNum = parseFloat(expressAmount);
+
+      if (liveList.length > 0 && cryptoNum > 0) {
+        const res = await api.post('/p2p/orders', {
+          offerId: liveList[0].id,
+          cryptoAmount: cryptoNum,
+          fiatAmount: fiatNum,
+        });
+        if (res.data?.success) {
+          setExpressOrderModalOpen(false);
+          setActiveChatOrder(res.data.data);
+          fetchOrders();
+          return;
+        }
       }
-    } catch {
-      // Offline/simulation trade order with full real-time escrow lock & chat
+
+      // Route seamlessly to Avora Priority Settlement Desk when peers are offline or off-hours
       setExpressOrderModalOpen(false);
-      setActiveChatOrder({
-        id: `ord_${Date.now()}`,
-        orderCode: `P2P-EXP-${Date.now().toString().slice(-6)}`,
-        side: expressSide === 'BUY' ? 'Buy' : 'Sell',
-        cryptoCurrency: expressCrypto,
-        fiatCurrency: expressCurrency,
-        fiatSymbol: expressCurrency === 'INR' ? '₹' : expressCurrency === 'EUR' ? '€' : '$',
-        fiatAmount: expressAmount,
-        price: expressRate.toFixed(2),
-        cryptoAmount: expressCryptoCalculated,
-        status: 'PENDING_PAYMENT',
-        statusBadge: expressSide === 'BUY' ? 'Please pay seller' : 'Waiting for buyer payment',
-        isSeller: expressSide === 'SELL',
-        counterparty: {
-          id: 'cp_express',
-          name: 'Avora Express Instant Liquidity Desk',
-          avatar: 'A',
-          bankName: expressCurrency === 'INR' ? 'State Bank of India (UPI: avora.bank@okhdfc)' : 'JPMorgan Chase & Co.',
-          accountNumber: '99281726351',
-          accountName: 'Avora P2P Escrow Clearing',
-        },
-        createdAt: new Date().toISOString(),
+      openDeskConcierge({
+        side: expressSide,
+        currency: expressCurrency,
+        cryptoAmount: cryptoNum > 0 ? cryptoNum.toFixed(2) : '100',
+        preferredMethod:
+          COUNTRIES.find((c) => c.currency === expressCurrency)?.methods[0] ||
+          (expressCurrency === 'INR' ? 'UPI' : 'Bank Transfer'),
+      });
+    } catch {
+      setExpressOrderModalOpen(false);
+      openDeskConcierge({
+        side: expressSide,
+        currency: expressCurrency,
+        cryptoAmount: parseFloat(expressCryptoCalculated) > 0 ? expressCryptoCalculated : '100',
       });
     } finally {
       setExpressExecuting(false);
@@ -447,6 +908,84 @@ function P2PPageContent() {
   useEffect(() => {
     fetchOffers();
   }, [marketSide, selectedCountry]);
+
+  const getCorridorSpotRate = (currency: string) =>
+    liveRates[currency] ||
+    (currency === 'INR'
+      ? 93.88
+      : currency === 'GEL'
+      ? 2.78
+      : currency === 'AED'
+      ? 3.67
+      : currency === 'EUR'
+      ? 0.915
+      : currency === 'LKR'
+      ? 305.0
+      : 1.0);
+
+  const displayedOffers: P2POfferItem[] = (() => {
+    const cur = selectedCountry.currency;
+    const spot = getCorridorSpotRate(cur);
+    const deskSpread = marketSide === 'BUY' ? 1.004 : 0.996;
+
+    const deskListing: P2POfferItem = {
+      id: `desk_${cur}_${marketSide}`,
+      offerCode: `AVORA-DESK-${cur}`,
+      side: marketSide,
+      cryptoCurrency: 'USDT',
+      fiatCurrency: cur,
+      price: (spot * deskSpread).toFixed(2),
+      totalAmount: '50,000.00',
+      availableAmount: '50,000.00',
+      minLimit: cur === 'LKR' ? '10,000' : cur === 'INR' ? '2,500' : '100',
+      maxLimit: cur === 'LKR' ? '5,000,000' : cur === 'INR' ? '1,000,000' : '50,000',
+      paymentMethods: [...selectedCountry.methods.slice(0, 3)],
+      paymentTerms: 'Official 24/7 Avora Clearing Desk. Connect directly with a specialist for guaranteed settlement.',
+      isOffline: false,
+      isDeskConcierge: true,
+      trader: {
+        id: 'avora_desk_specialist',
+        name: 'Avora Priority P2P Desk',
+        avatar: 'A',
+        isVerified: true,
+        completionRate: '100.0%',
+        totalOrders: 2480,
+      },
+      createdAt: new Date().toISOString(),
+    };
+
+    const offlineTemplates = CURATED_OFFLINE_TRADERS[cur] || [];
+    const curatedOfflineListings: P2POfferItem[] = offlineTemplates.map((tpl) => {
+      const mult = marketSide === 'BUY' ? 1 + tpl.spreadPct : 1 - tpl.spreadPct;
+      return {
+        id: `${tpl.id}_${marketSide}`,
+        offerCode: `P2P-${tpl.id.toUpperCase()}`,
+        side: marketSide,
+        cryptoCurrency: 'USDT',
+        fiatCurrency: cur,
+        price: (spot * mult).toFixed(2),
+        totalAmount: tpl.availableUsdt,
+        availableAmount: tpl.availableUsdt,
+        minLimit: tpl.minFiat,
+        maxLimit: tpl.maxFiat,
+        paymentMethods: tpl.methods,
+        paymentTerms: tpl.terms,
+        isOffline: true,
+        lastSeen: tpl.lastSeen,
+        trader: {
+          id: tpl.id,
+          name: tpl.name,
+          avatar: tpl.avatar,
+          isVerified: true,
+          completionRate: tpl.completionRate,
+          totalOrders: tpl.totalOrders,
+        },
+        createdAt: new Date().toISOString(),
+      };
+    });
+
+    return [...offers, deskListing, ...curatedOfflineListings];
+  })();
 
   // Load Orders
   const fetchOrders = async () => {
@@ -1147,6 +1686,21 @@ function P2PPageContent() {
             {expressSide === 'BUY' ? 'Buy with 0 Fee' : 'Sell with 0 Fee'}
           </button>
 
+          <button
+            type="button"
+            onClick={() =>
+              openDeskConcierge({
+                side: expressSide,
+                currency: expressCurrency,
+                cryptoAmount: parseFloat(expressCryptoCalculated) > 0 ? expressCryptoCalculated : '100',
+              })
+            }
+            className="w-full py-2.5 rounded-xl bg-zinc-900/70 hover:bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+          >
+            <Headphones className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Need direct assistance? Connect with Avora P2P Desk</span>
+          </button>
+
         </div>
       )}
 
@@ -1233,63 +1787,97 @@ function P2PPageContent() {
 
           {/* Offers Table */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                Active Listings in {selectedCountry.name} ({selectedCountry.currency})
-              </h3>
-              <button onClick={fetchOffers} className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh Listings">
-                <RefreshCw className="w-4 h-4" />
-              </button>
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  Corridor Order Book — {selectedCountry.name} ({selectedCountry.currency})
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Verified regional merchants &amp; 24/7 Avora Priority Settlement Desk
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    openDeskConcierge({
+                      side: marketSide,
+                      currency: selectedCountry.currency,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Headphones className="w-3.5 h-3.5" />
+                  <span>Contact P2P Desk</span>
+                </button>
+                <button onClick={fetchOffers} className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer" title="Refresh Listings">
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {loadingOffers ? (
               <div className="py-20 text-center text-xs text-slate-400 space-y-2">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto text-emerald-500" />
-                <span>Loading live marketplace listings...</span>
-              </div>
-            ) : offers.length === 0 ? (
-              <div className="py-20 text-center text-xs text-slate-400 space-y-3">
-                <Users className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700" />
-                <p>No listings currently available in {selectedCountry.currency}.</p>
-                {merchantStatus?.isP2pMerchant ? (
-                  <button
-                    onClick={() => setActiveNav('post-ad')}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold"
-                  >
-                    Post First Listing in {selectedCountry.currency}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setActiveNav('member')}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold"
-                  >
-                    Become Member &amp; Post First Ad
-                  </button>
-                )}
+                <span>Loading marketplace corridor...</span>
               </div>
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {offers.map((offer) => (
+                {displayedOffers.map((offer) => (
                   <div
                     key={offer.id}
-                    className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+                    className={`p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors ${
+                      offer.isDeskConcierge
+                        ? 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                        : offer.isOffline
+                        ? 'opacity-90 hover:bg-slate-50 dark:hover:bg-slate-800/30'
+                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                    }`}
                   >
                     {/* Column 1: Trader Info */}
-                    <div className="flex items-center gap-3.5 min-w-[220px]">
-                      <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center justify-center text-sm">
-                        {offer.trader.avatar}
+                    <div className="flex items-center gap-3.5 min-w-[240px]">
+                      <div className="relative shrink-0">
+                        <div
+                          className={`w-10 h-10 rounded-2xl border font-extrabold flex items-center justify-center text-sm ${
+                            offer.isDeskConcierge
+                              ? 'bg-gradient-to-br from-emerald-500 to-teal-600 border-emerald-400/50 text-white shadow-sm'
+                              : offer.isOffline
+                              ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+                              : 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
+                          {offer.trader.avatar}
+                        </div>
+                        <span
+                          title={offer.isOffline ? 'Currently Offline' : 'Online Now'}
+                          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${
+                            offer.isOffline ? 'bg-slate-400' : 'bg-emerald-500'
+                          }`}
+                        />
                       </div>
                       <div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-bold text-sm text-slate-900 dark:text-white">
                             {offer.trader.name}
                           </span>
-                          <span title="Verified $50 Bond Member">
+                          <span title="Verified Merchant">
                             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
                           </span>
+                          {offer.isDeskConcierge ? (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
+                              Online • 24/7 Desk
+                            </span>
+                          ) : offer.isOffline ? (
+                            <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-[10px] font-semibold">
+                              Offline • {offer.lastSeen}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
+                              Online
+                            </span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                          <span>{offer.trader.totalOrders} orders</span>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                          <span>{offer.trader.totalOrders.toLocaleString()} orders</span>
                           <span>•</span>
                           <span className="text-emerald-600 dark:text-emerald-400 font-bold">{offer.trader.completionRate} completion</span>
                         </div>
@@ -1329,16 +1917,54 @@ function P2PPageContent() {
                     </div>
 
                     {/* Column 5: Trade Action Button */}
-                    <button
-                      onClick={() => setSelectedOfferForTrade(offer)}
-                      className={`px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all shrink-0 cursor-pointer ${
-                        marketSide === 'BUY'
-                          ? 'bg-emerald-600 hover:bg-emerald-500'
-                          : 'bg-rose-600 hover:bg-rose-500'
-                      }`}
-                    >
-                      {marketSide === 'BUY' ? 'Buy USDT' : 'Sell USDT'}
-                    </button>
+                    {offer.isDeskConcierge ? (
+                      <button
+                        onClick={() =>
+                          openDeskConcierge({
+                            side: marketSide,
+                            currency: offer.fiatCurrency,
+                            preferredMethod: offer.paymentMethods[0],
+                          })
+                        }
+                        className={`px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                          marketSide === 'BUY'
+                            ? 'bg-emerald-600 hover:bg-emerald-500'
+                            : 'bg-rose-600 hover:bg-rose-500'
+                        }`}
+                      >
+                        <Headphones className="w-3.5 h-3.5" />
+                        <span>{marketSide === 'BUY' ? 'Buy via Desk' : 'Sell via Desk'}</span>
+                      </button>
+                    ) : offer.isOffline ? (
+                      <button
+                        onClick={() =>
+                          openDeskConcierge({
+                            side: marketSide,
+                            currency: offer.fiatCurrency,
+                            preferredMethod: offer.paymentMethods[0],
+                            offlineTrader: {
+                              name: offer.trader.name,
+                              lastSeen: offer.lastSeen,
+                              price: offer.price,
+                            },
+                          })
+                        }
+                        className="px-4 py-2.5 rounded-xl font-bold text-xs bg-slate-100 dark:bg-slate-800 hover:bg-emerald-600 hover:text-white text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 transition-all shrink-0 cursor-pointer"
+                      >
+                        Request via Desk
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setSelectedOfferForTrade(offer)}
+                        className={`px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all shrink-0 cursor-pointer ${
+                          marketSide === 'BUY'
+                            ? 'bg-emerald-600 hover:bg-emerald-500'
+                            : 'bg-rose-600 hover:bg-rose-500'
+                        }`}
+                      >
+                        {marketSide === 'BUY' ? 'Buy USDT' : 'Sell USDT'}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1801,6 +2427,200 @@ function P2PPageContent() {
 
       {/* RELEASE CONFIRM MODAL */}
       {renderReleaseConfirmModal()}
+
+      {/* -------------------------------------------------------------------- */}
+      {/* AVORA P2P PRIORITY SETTLEMENT DESK MODAL (Routes to Admin) */}
+      {/* -------------------------------------------------------------------- */}
+      {deskModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[120] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-zinc-950 border border-zinc-800 w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-900">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                  <Headphones className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-white">Avora P2P Settlement Desk</h3>
+                  <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>24/7 Priority Clearing Specialist Online</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeskModalOpen(false)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-zinc-900 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {deskTicketSuccess ? (
+              <div className="space-y-4 py-2 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs font-mono text-emerald-400 font-bold">
+                    Reference: {deskTicketSuccess.ticketNumber}
+                  </div>
+                  <h4 className="text-base font-extrabold text-white">Request Routed to Clearing Desk</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed max-w-xs mx-auto">
+                    Your {deskTicketSuccess.summary} request is now with an Avora P2P Desk Specialist. Our admin desk will reply directly with live settlement details.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2.5 pt-2">
+                  <Link
+                    href="/dashboard?tab=support"
+                    className="flex-1 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs text-center transition-colors"
+                  >
+                    View Live Reply in Inquiries
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setDeskModalOpen(false)}
+                    className="px-4 py-3 rounded-2xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-slate-300 font-bold text-xs cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitDeskRequest} className="space-y-4 text-xs">
+                {deskOfflineTrader && (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-200 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                      <Clock className="w-3.5 h-3.5 shrink-0" />
+                      <span>{deskOfflineTrader.name} is currently offline</span>
+                    </div>
+                    <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                      {deskOfflineTrader.lastSeen ? `${deskOfflineTrader.lastSeen}. ` : ''}
+                      Route this trade directly to our 24/7 Settlement Desk to execute immediately at a comparable corridor rate (~{deskOfflineTrader.price} {deskCurrency}).
+                    </p>
+                  </div>
+                )}
+
+                {deskError && (
+                  <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
+                    {deskError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-zinc-900 border border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setDeskSide('BUY')}
+                    className={`py-2 rounded-lg font-bold transition-all cursor-pointer ${
+                      deskSide === 'BUY' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    Buy USDT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeskSide('SELL')}
+                    className={`py-2 rounded-lg font-bold transition-all cursor-pointer ${
+                      deskSide === 'SELL' ? 'bg-rose-600 text-white' : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    Sell USDT
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 font-bold mb-1">Fiat Corridor</label>
+                    <select
+                      value={deskCurrency}
+                      onChange={(e) => {
+                        const nextCur = e.target.value;
+                        setDeskCurrency(nextCur);
+                        const rail = COUNTRIES.find((c) => c.currency === nextCur);
+                        if (rail && rail.methods.length > 0) setDeskPaymentMethod(rail.methods[0]);
+                      }}
+                      className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-bold outline-none"
+                    >
+                      {COUNTRIES.map((c) => (
+                        <option key={c.id} value={c.currency}>
+                          {c.flag} {c.currency} ({c.name})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-bold mb-1">Amount (USDT)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="5"
+                      required
+                      value={deskCryptoAmount}
+                      onChange={(e) => setDeskCryptoAmount(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono font-bold outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">Preferred Payment Method</label>
+                  <select
+                    value={deskPaymentMethod}
+                    onChange={(e) => setDeskPaymentMethod(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-semibold outline-none"
+                  >
+                    {(COUNTRIES.find((c) => c.currency === deskCurrency)?.methods || ['Bank Transfer']).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-bold mb-1">Notes for Clearing Specialist (Optional)</label>
+                  <textarea
+                    rows={2}
+                    value={deskNote}
+                    onChange={(e) => setDeskNote(e.target.value)}
+                    placeholder="e.g. Ready to transfer via IMPS / CEFTS immediately, need settlement instructions..."
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 outline-none resize-none"
+                  />
+                </div>
+
+                <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400">Estimated Corridor Total:</span>
+                  <span className="font-mono font-black text-emerald-400 text-sm">
+                    {(
+                      (parseFloat(deskCryptoAmount || '0') || 0) *
+                      parseFloat(deskOfflineTrader?.price || String(getCorridorSpotRate(deskCurrency)))
+                    ).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                    {deskCurrency}
+                  </span>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={deskSubmitting}
+                  className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {deskSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Connecting to Desk Specialist...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Submit Priority Desk Request</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* -------------------------------------------------------------------- */}
       {/* MODAL 1: EXPRESS ORDER CONFIRMATION MODAL */}
