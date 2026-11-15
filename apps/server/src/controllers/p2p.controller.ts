@@ -117,7 +117,7 @@ export class P2PController {
   async createOrder(req: Request, res: Response, next: NextFunction) {
     try {
       const buyerId = (req as any).user.id;
-      const { offerId, cryptoAmount, fiatAmount } = req.body;
+      const { offerId, cryptoAmount, fiatAmount, takerSide } = req.body;
 
       if (!offerId || !cryptoAmount) {
         return res.status(400).json({
@@ -130,11 +130,31 @@ export class P2PController {
         offerId,
         cryptoAmount,
         fiatAmount,
+        takerSide,
       });
 
       res.status(201).json({
         success: true,
         message: 'Order created successfully. Escrow funds locked.',
+        data: order,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Cancel an unpaid P2P order and unlock escrowed crypto back to seller
+   */
+  async cancelOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const orderId = req.params.orderId as string;
+
+      const order = await p2pService.cancelOrder(orderId, userId);
+      res.json({
+        success: true,
+        message: 'Order cancelled and escrowed crypto returned to seller.',
         data: order,
       });
     } catch (err) {

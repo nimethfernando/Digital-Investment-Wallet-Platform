@@ -1778,15 +1778,80 @@ export class AdminController {
       }
 
       const nextStatus = resolution === 'RELEASE_TO_BUYER' ? P2POrderStatus.COMPLETED : P2POrderStatus.CANCELLED;
+      const shouldSettleEscrow =
+        order.status !== P2POrderStatus.COMPLETED && order.status !== P2POrderStatus.CANCELLED;
 
-      await prisma.p2POrder.update({
-        where: { id },
-        data: {
-          status: nextStatus,
-          disputeResolvedBy: adminUserId,
-          disputeReason: reason ? `[Admin ${resolution}]: ${reason}` : `Resolved by admin via ${resolution}`,
-        },
-      });
+      if (shouldSettleEscrow) {
+        const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
+        const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
+        const buyerWallet = await ledgerService.ensureWallet(order.buyerId);
+
+        await prisma.$transaction(
+          async (tx) => {
+            const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+            const currentSellerLocked = new Decimal(sellerBal.lockedPrincipal.toString());
+            const settleAmt = Decimal.min(currentSellerLocked, cryptoAmountDec);
+            const nextSellerLocked = currentSellerLocked.minus(settleAmt);
+
+            if (resolution === 'RELEASE_TO_BUYER') {
+              await tx.walletBalance.update({
+                where: { id: sellerBal.id },
+                data: { lockedPrincipal: nextSellerLocked.toFixed(8) },
+              });
+
+              const buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
+              await tx.walletBalance.update({
+                where: { id: buyerBal.id },
+                data: {
+                  availableBalance: new Decimal(buyerBal.availableBalance.toString())
+                    .plus(cryptoAmountDec)
+                    .toFixed(8),
+                },
+              });
+            } else {
+              await tx.walletBalance.update({
+                where: { id: sellerBal.id },
+                data: {
+                  lockedPrincipal: nextSellerLocked.toFixed(8),
+                  availableBalance: new Decimal(sellerBal.availableBalance.toString())
+                    .plus(settleAmt)
+                    .toFixed(8),
+                },
+              });
+            }
+
+            await tx.p2POrder.update({
+              where: { id },
+              data: {
+                status: nextStatus,
+                disputeResolvedBy: adminUserId,
+                disputeReason: reason ? `[Admin ${resolution}]: ${reason}` : `Resolved by admin via ${resolution}`,
+              },
+            });
+
+            await tx.p2PMessage.create({
+              data: {
+                orderId: id,
+                senderId: 'SYSTEM',
+                message:
+                  resolution === 'RELEASE_TO_BUYER'
+                    ? `[System] Dispute resolved by Avora Compliance (${resolution}). ${cryptoAmountDec.toFixed(2)} USDT released from escrow to the buyer's wallet. Note: ${reason || 'N/A'}`
+                    : `[System] Dispute resolved by Avora Compliance (${resolution}). ${settleAmt.toFixed(2)} USDT unlocked back to the seller's available balance. Note: ${reason || 'N/A'}`,
+              },
+            });
+          },
+          { timeout: 30000, maxWait: 10000 }
+        );
+      } else {
+        await prisma.p2POrder.update({
+          where: { id },
+          data: {
+            status: nextStatus,
+            disputeResolvedBy: adminUserId,
+            disputeReason: reason ? `[Admin ${resolution}]: ${reason}` : `Resolved by admin via ${resolution}`,
+          },
+        });
+      }
 
       await prisma.adminAuditLog.create({
         data: {

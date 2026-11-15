@@ -40,6 +40,7 @@ router.get('/orders', (req, res, next) => p2pController.getUserOrders(req, res, 
 router.get('/orders/:orderId', (req, res, next) => p2pController.getOrderById(req, res, next));
 router.post('/orders/:orderId/paid', (req, res, next) => p2pController.markPaymentSent(req, res, next));
 router.post('/orders/:orderId/release', (req, res, next) => p2pController.releaseEscrow(req, res, next));
+router.post('/orders/:orderId/cancel', (req, res, next) => p2pController.cancelOrder(req, res, next));
 router.post('/orders/:orderId/dispute', (req, res, next) => p2pController.disputeOrder(req, res, next));
 
 /**
