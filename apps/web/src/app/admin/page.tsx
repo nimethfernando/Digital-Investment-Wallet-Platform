@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
@@ -182,6 +182,13 @@ export default function AdminPortalPage() {
   const [adminPackages, setAdminPackages] = useState<any[]>([]);
   const [packagesLoading, setPackagesLoading] = useState(false);
   const [returnsResult, setReturnsResult] = useState<any>(null);
+
+  // FD Maturity Horizon, Filters & Sort State
+  const [pkgHorizonFilter, setPkgHorizonFilter] = useState<string>('ALL');
+  const [pkgStatusFilter, setPkgStatusFilter] = useState<string>('ALL');
+  const [pkgTenureFilter, setPkgTenureFilter] = useState<string>('ALL');
+  const [pkgSortBy, setPkgSortBy] = useState<string>('MATURITY_ASC');
+  const [pkgSearch, setPkgSearch] = useState<string>('');
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [adminReplyText, setAdminReplyText] = useState('');
   const [replyLoading, setReplyLoading] = useState(false);
@@ -830,6 +837,150 @@ export default function AdminPortalPage() {
       setPurgingDemo(false);
     }
   };
+
+  const packageAnalytics = useMemo(() => {
+    const activePkgs = adminPackages.filter(
+      (p) => p.status === 'ACTIVE' || p.status === 'WITHDRAWAL_REQUESTED'
+    );
+    const pendingPkgs = adminPackages.filter((p) => p.status === 'PENDING_PAYMENT');
+    const settledPkgs = adminPackages.filter(
+      (p) => p.status === 'MATURED' || p.status === 'SETTLED' || p.status === 'CANCELLED'
+    );
+
+    const activePrincipal = activePkgs.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+    const monthlyYieldObligation = activePkgs.reduce(
+      (s, p) => s + parseFloat(p.monthlyYield ?? (parseFloat(p.amount || 0) * 0.01)),
+      0
+    );
+    const totalYieldPaidAll = adminPackages.reduce(
+      (s, p) => s + parseFloat(p.totalYieldPaid || 0),
+      0
+    );
+    const totalActiveLiability = activePkgs.reduce(
+      (s, p) => s + parseFloat(p.outstandingLiability ?? p.amount ?? 0),
+      0
+    );
+
+    const due30Pkgs = activePkgs.filter(
+      (p) => p.daysRemaining !== null && p.daysRemaining !== undefined && p.daysRemaining <= 30
+    );
+    const due30Amount = due30Pkgs.reduce(
+      (s, p) => s + parseFloat(p.outstandingLiability ?? p.amount ?? 0),
+      0
+    );
+
+    const due31To90Pkgs = activePkgs.filter(
+      (p) =>
+        p.daysRemaining !== null &&
+        p.daysRemaining !== undefined &&
+        p.daysRemaining > 30 &&
+        p.daysRemaining <= 90
+    );
+    const due31To90Amount = due31To90Pkgs.reduce(
+      (s, p) => s + parseFloat(p.outstandingLiability ?? p.amount ?? 0),
+      0
+    );
+
+    return {
+      activeCount: activePkgs.length,
+      pendingCount: pendingPkgs.length,
+      settledCount: settledPkgs.length,
+      activePrincipal,
+      monthlyYieldObligation,
+      totalYieldPaidAll,
+      totalActiveLiability,
+      due30Count: due30Pkgs.length,
+      due30Amount,
+      due31To90Count: due31To90Pkgs.length,
+      due31To90Amount,
+    };
+  }, [adminPackages]);
+
+  const filteredPackages = useMemo(() => {
+    const q = pkgSearch.trim().toLowerCase();
+    const list = adminPackages.filter((pkg) => {
+      const isActiveLike = pkg.status === 'ACTIVE' || pkg.status === 'WITHDRAWAL_REQUESTED';
+      const isSettledLike =
+        pkg.status === 'MATURED' || pkg.status === 'SETTLED' || pkg.status === 'CANCELLED';
+
+      if (pkgStatusFilter !== 'ALL' && pkg.status !== pkgStatusFilter) return false;
+      if (pkgTenureFilter !== 'ALL' && String(pkg.lockInMonths || 6) !== pkgTenureFilter)
+        return false;
+
+      if (pkgHorizonFilter === 'DUE_NOW') {
+        if (!isActiveLike || pkg.daysRemaining === null || pkg.daysRemaining > 0) return false;
+      } else if (pkgHorizonFilter === 'ENDING_7D') {
+        if (!isActiveLike || pkg.daysRemaining === null || pkg.daysRemaining > 7) return false;
+      } else if (pkgHorizonFilter === 'ENDING_15D') {
+        if (!isActiveLike || pkg.daysRemaining === null || pkg.daysRemaining > 15) return false;
+      } else if (pkgHorizonFilter === 'ENDING_30D') {
+        if (!isActiveLike || pkg.daysRemaining === null || pkg.daysRemaining > 30) return false;
+      } else if (pkgHorizonFilter === 'ENDING_60D') {
+        if (!isActiveLike || pkg.daysRemaining === null || pkg.daysRemaining > 60) return false;
+      } else if (pkgHorizonFilter === 'ENDING_90D') {
+        if (!isActiveLike || pkg.daysRemaining === null || pkg.daysRemaining > 90) return false;
+      } else if (pkgHorizonFilter === 'ENDING_180D') {
+        if (!isActiveLike || pkg.daysRemaining === null || pkg.daysRemaining > 180) return false;
+      } else if (pkgHorizonFilter === 'PENDING_START') {
+        if (pkg.status !== 'PENDING_PAYMENT') return false;
+      } else if (pkgHorizonFilter === 'COMPLETED') {
+        if (!isSettledLike) return false;
+      }
+
+      if (q) {
+        const hay = `${pkg.packageCode || ''} ${pkg.user?.email || ''} ${pkg.user?.firstName || ''} ${pkg.user?.lastName || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const sorted = [...list].sort((a, b) => {
+      if (pkgSortBy === 'MATURITY_ASC') {
+        const rank = (p: any) =>
+          p.status === 'ACTIVE' || p.status === 'WITHDRAWAL_REQUESTED'
+            ? 0
+            : p.status === 'PENDING_PAYMENT'
+            ? 1
+            : 2;
+        const ra = rank(a);
+        const rb = rank(b);
+        if (ra !== rb) return ra - rb;
+        if (ra === 0) {
+          const da = a.daysRemaining ?? 999999;
+          const db = b.daysRemaining ?? 999999;
+          return da - db;
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      if (pkgSortBy === 'AMOUNT_DESC') {
+        return (
+          parseFloat(b.outstandingLiability ?? b.amount ?? 0) -
+          parseFloat(a.outstandingLiability ?? a.amount ?? 0)
+        );
+      }
+      if (pkgSortBy === 'START_ASC') {
+        const sa = new Date(a.lockInStart || a.createdAt).getTime();
+        const sb = new Date(b.lockInStart || b.createdAt).getTime();
+        return sa - sb;
+      }
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+    return sorted;
+  }, [adminPackages, pkgHorizonFilter, pkgStatusFilter, pkgTenureFilter, pkgSortBy, pkgSearch]);
+
+  const filteredCohortTotals = useMemo(() => {
+    const principal = filteredPackages.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+    const monthly = filteredPackages.reduce(
+      (s, p) => s + parseFloat(p.monthlyYield ?? (parseFloat(p.amount || 0) * 0.01)),
+      0
+    );
+    const remainingLiability = filteredPackages.reduce(
+      (s, p) => s + parseFloat(p.outstandingLiability ?? 0),
+      0
+    );
+    return { principal, monthly, remainingLiability };
+  }, [filteredPackages]);
 
   if (isLoading || !isAdmin) {
     return (
@@ -1529,34 +1680,89 @@ export default function AdminPortalPage() {
         {/* TAB: PACKAGES & FIXED DEPOSIT YIELDS */}
         {activeTab === 'packages' && (
           <div className="space-y-6">
-            {/* Header Stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            {/* Treasury Maturity & Future Liability Risk Dashboard (6 Institutional KPI Cards) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-semibold">Active Fixed Deposit Capital</span>
+                <span className="text-xs text-slate-400 font-semibold">Active FD Principal Locked</span>
                 <div className="text-2xl font-black text-white font-mono">
-                  ${adminPackages
-                    .filter((p) => p.status === 'ACTIVE')
-                    .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0)
-                    .toLocaleString('en-US', { minimumFractionDigits: 2 })}{' '}
-                  USD
+                  ${packageAnalytics.activePrincipal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                 </div>
                 <p className="text-[11px] text-emerald-400 font-semibold">
-                  {adminPackages.filter((p) => p.status === 'ACTIVE').length} Active Client Packages (1% Monthly Yield)
+                  {packageAnalytics.activeCount} Active Client Packages
                 </p>
               </div>
 
               <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-semibold">Pending Admin Approval</span>
-                <div className="text-2xl font-black text-amber-400 font-mono">
-                  {adminPackages.filter((p) => p.status === 'PENDING_PAYMENT').length} Packages
+                <span className="text-xs text-slate-400 font-semibold">Monthly Yield Obligation</span>
+                <div className="text-2xl font-black text-emerald-400 font-mono">
+                  ${packageAnalytics.monthlyYieldObligation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                  <span className="text-sm font-bold text-slate-400">/ mo</span>
                 </div>
-                <p className="text-[11px] text-slate-500">Awaiting wire / deposit verification</p>
+                <p className="text-[11px] text-slate-400 font-mono">
+                  Total Yield Paid to Date: ${packageAnalytics.totalYieldPaidAll.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
               </div>
 
+              <div className="p-5 rounded-3xl bg-slate-900 border border-rose-500/30 space-y-1">
+                <span className="text-xs text-slate-400 font-semibold">Total Active Liability (Principal + Rem. Yield)</span>
+                <div className="text-2xl font-black text-rose-400 font-mono">
+                  ${packageAnalytics.totalActiveLiability.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Total treasury liquidity required through full maturity
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPkgHorizonFilter('ENDING_30D');
+                  setPkgStatusFilter('ACTIVE');
+                }}
+                className="p-5 rounded-3xl bg-slate-900 hover:bg-slate-800/70 border border-amber-500/40 text-left space-y-1 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-amber-300 font-semibold">Maturing Within 30 Days (Urgent)</span>
+                  <span className="text-[10px] font-bold text-amber-400 group-hover:underline">Filter →</span>
+                </div>
+                <div className="text-2xl font-black text-amber-400 font-mono">
+                  {packageAnalytics.due30Count} FDs · ${packageAnalytics.due30Amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Near-term principal + yield payout liability
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPkgHorizonFilter('ENDING_90D');
+                  setPkgStatusFilter('ACTIVE');
+                }}
+                className="p-5 rounded-3xl bg-slate-900 hover:bg-slate-800/70 border border-sky-500/30 text-left space-y-1 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-sky-300 font-semibold">Maturing in 31–90 Days (Upcoming)</span>
+                  <span className="text-[10px] font-bold text-sky-400 group-hover:underline">Filter →</span>
+                </div>
+                <div className="text-2xl font-black text-sky-400 font-mono">
+                  {packageAnalytics.due31To90Count} FDs · ${packageAnalytics.due31To90Amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Medium-term maturity runway liability
+                </p>
+              </button>
+
               <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-semibold">Scheduled Yield Run</span>
-                <div className="text-2xl font-black text-emerald-400">00:05 UTC (1st of Month)</div>
-                <p className="text-[11px] text-slate-500 font-mono">Autonomous double-entry credit cron</p>
+                <span className="text-xs text-slate-400 font-semibold">Pending Activation vs. Settled</span>
+                <div className="text-2xl font-black text-white font-mono">
+                  <span className="text-amber-400">{packageAnalytics.pendingCount} Pending</span>
+                  <span className="text-slate-600 mx-2">/</span>
+                  <span className="text-purple-400">{packageAnalytics.settledCount} Settled</span>
+                </div>
+                <p className="text-[11px] text-slate-500 font-mono">
+                  Cron Schedule: 00:05 UTC (1st of Month)
+                </p>
               </div>
             </div>
 
@@ -1568,7 +1774,7 @@ export default function AdminPortalPage() {
                   <h3 className="font-extrabold text-base text-white">Trigger Batch Monthly Yield Run</h3>
                 </div>
                 <p className="text-xs text-slate-400 max-w-xl">
-                  Credits 1% target return to each customer's available wallet balance simultaneously, generates atomic double-entry ledger entries, and logs investor transaction records.
+                  Credits target monthly returns to each customer's available wallet balance simultaneously, generates atomic double-entry ledger entries, and logs investor transaction records.
                 </p>
               </div>
 
@@ -1615,12 +1821,16 @@ export default function AdminPortalPage() {
               </div>
             )}
 
-            {/* Customer Investment Packages Table */}
-            <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+            {/* Customer Investment Packages Table & Maturity Horizon Filters */}
+            <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-extrabold text-base text-white">Client Investment Packages ({adminPackages.length})</h3>
-                  <p className="text-xs text-slate-400">All customer capital deployments, lock-in terms & yield payout statuses</p>
+                  <h3 className="font-extrabold text-base text-white">
+                    Client Fixed Deposit Packages ({filteredPackages.length} of {adminPackages.length})
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Full FD lifecycle tracking: Start Date, Maturity / End Date, Maturity Horizon Filter &amp; Liability Forecast
+                  </p>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <button
@@ -1636,111 +1846,402 @@ export default function AdminPortalPage() {
                 </div>
               </div>
 
+              {/* Filter & Maturity Horizon Dropdown Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-amber-400 mb-1">
+                    Ending / Maturity Horizon
+                  </label>
+                  <select
+                    value={pkgHorizonFilter}
+                    onChange={(e) => setPkgHorizonFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold outline-none focus:border-amber-500"
+                  >
+                    <option value="ALL">All Maturity Horizons</option>
+                    <option value="DUE_NOW">🚨 Matured / Due Now (≤ 0 Days)</option>
+                    <option value="ENDING_7D">⚠️ Ending Within 7 Days</option>
+                    <option value="ENDING_15D">⚠️ Ending Within 15 Days</option>
+                    <option value="ENDING_30D">📅 Ending Within 30 Days (1 Month)</option>
+                    <option value="ENDING_60D">📅 Ending Within 60 Days (2 Months)</option>
+                    <option value="ENDING_90D">📅 Ending Within 90 Days (3 Months)</option>
+                    <option value="ENDING_180D">📆 Ending Within 180 Days (6 Months)</option>
+                    <option value="PENDING_START">⏳ Not Started (Pending Activation)</option>
+                    <option value="COMPLETED">✅ Already Settled &amp; Released</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                    FD Status
+                  </label>
+                  <select
+                    value={pkgStatusFilter}
+                    onChange={(e) => setPkgStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="ALL">All Statuses</option>
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="PENDING_PAYMENT">PENDING_PAYMENT</option>
+                    <option value="MATURED">MATURED / SETTLED</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                    FD Tenure
+                  </label>
+                  <select
+                    value={pkgTenureFilter}
+                    onChange={(e) => setPkgTenureFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="ALL">All Tenures</option>
+                    <option value="3">3 Months FD</option>
+                    <option value="6">6 Months FD</option>
+                    <option value="12">12 Months FD</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                    Sort Priority
+                  </label>
+                  <select
+                    value={pkgSortBy}
+                    onChange={(e) => setPkgSortBy(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="MATURITY_ASC">Soonest End Date First (Risk Priority)</option>
+                    <option value="CREATED_DESC">Latest Deployed / Created First</option>
+                    <option value="AMOUNT_DESC">Highest Principal / Liability First</option>
+                    <option value="START_ASC">Earliest Start Date First</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                    Search Client / Code
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={pkgSearch}
+                      onChange={(e) => setPkgSearch(e.target.value)}
+                      placeholder="PKG code, email or name..."
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Filtered Cohort Live Total Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-2xl bg-slate-950/60 border border-slate-800/80 text-xs">
+                <div className="flex flex-wrap items-center gap-4 text-slate-300">
+                  <span>
+                    Showing <strong className="text-white">{filteredPackages.length}</strong> of{' '}
+                    <strong className="text-white">{adminPackages.length}</strong> FDs
+                  </span>
+                  <span className="text-slate-600">•</span>
+                  <span>
+                    Cohort Principal:{' '}
+                    <strong className="font-mono text-white">
+                      ${filteredCohortTotals.principal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </strong>
+                  </span>
+                  <span className="text-slate-600">•</span>
+                  <span>
+                    Cohort Monthly Yield:{' '}
+                    <strong className="font-mono text-emerald-400">
+                      +${filteredCohortTotals.monthly.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo
+                    </strong>
+                  </span>
+                  <span className="text-slate-600">•</span>
+                  <span>
+                    Remaining Liability:{' '}
+                    <strong className="font-mono text-rose-400">
+                      ${filteredCohortTotals.remainingLiability.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </strong>
+                  </span>
+                </div>
+
+                {(pkgHorizonFilter !== 'ALL' ||
+                  pkgStatusFilter !== 'ALL' ||
+                  pkgTenureFilter !== 'ALL' ||
+                  pkgSearch.trim() !== '') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPkgHorizonFilter('ALL');
+                      setPkgStatusFilter('ALL');
+                      setPkgTenureFilter('ALL');
+                      setPkgSearch('');
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-400 font-bold text-[11px] cursor-pointer"
+                  >
+                    Reset Filters
+                  </button>
+                )}
+              </div>
+
               {packagesLoading ? (
                 <div className="p-12 text-center text-slate-500">
                   <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500" />
                 </div>
-              ) : adminPackages.length === 0 ? (
+              ) : filteredPackages.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 text-xs">
-                  No investment packages found in the database.
+                  No investment packages match your selected maturity horizon or filter criteria.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead className="border-b border-slate-800 text-slate-400 uppercase font-bold text-[10px]">
                       <tr>
-                        <th className="pb-3">Package Code</th>
-                        <th className="pb-3">Client Email</th>
-                        <th className="pb-3">Principal Amount</th>
-                        <th className="pb-3">Monthly Yield (1%)</th>
-                        <th className="pb-3">Term & Lock-In</th>
-                        <th className="pb-3">Returns Credited</th>
-                        <th className="pb-3">Status</th>
+                        <th className="pb-3 pr-3">Package &amp; Client</th>
+                        <th className="pb-3 pr-3">Principal &amp; Monthly Yield</th>
+                        <th className="pb-3 pr-3">Start Date</th>
+                        <th className="pb-3 pr-3">End / Maturity Date</th>
+                        <th className="pb-3 pr-3">Tenure &amp; Countdown</th>
+                        <th className="pb-3 pr-3">Yield Paid &amp; Liability</th>
+                        <th className="pb-3 pr-3">Status</th>
                         <th className="pb-3 text-right">Settlement Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
-                      {adminPackages.map((pkg) => (
-                        <tr key={pkg.id} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3 font-mono font-bold text-rose-400">{pkg.packageCode}</td>
-                          <td className="py-3 font-semibold text-slate-200">
-                            {pkg.user?.email || 'investor@avorabank.com'}
-                          </td>
-                          <td className="py-3 font-mono font-black text-white">
-                            ${parseFloat(pkg.amount).toLocaleString()} USD
-                          </td>
-                          <td className="py-3 font-mono text-emerald-400 font-bold">
-                            +${(parseFloat(pkg.amount) * 0.01).toFixed(2)} / mo ({pkg.returnRateSnapshot || '1.0%'})
-                          </td>
-                          <td className="py-3 text-slate-300">
-                            <div>{pkg.lockInMonths || 6} Months FD</div>
-                            {pkg.daysRemaining !== undefined && (
-                              <div className="text-[10px] text-emerald-400 font-mono font-bold">
-                                {pkg.daysRemaining > 0 ? `${pkg.daysRemaining}d remaining` : 'Matured'}
+                      {filteredPackages.map((pkg) => {
+                        const isSettled = ['MATURED', 'SETTLED', 'CANCELLED'].includes(pkg.status);
+                        const isPending = pkg.status === 'PENDING_PAYMENT';
+                        const isDueNow =
+                          !isPending &&
+                          !isSettled &&
+                          pkg.daysRemaining !== null &&
+                          pkg.daysRemaining !== undefined &&
+                          pkg.daysRemaining <= 0;
+                        const isUrgent =
+                          !isPending &&
+                          !isSettled &&
+                          pkg.daysRemaining !== null &&
+                          pkg.daysRemaining !== undefined &&
+                          pkg.daysRemaining > 0 &&
+                          pkg.daysRemaining <= 30;
+
+                        const monthlyYieldVal = parseFloat(
+                          pkg.monthlyYield ?? (parseFloat(pkg.amount || 0) * 0.01).toFixed(2)
+                        );
+                        const startRaw = pkg.lockInStart || pkg.purchaseDate;
+
+                        return (
+                          <tr key={pkg.id} className="hover:bg-slate-800/40 transition-colors align-top">
+                            <td className="py-3.5 pr-3">
+                              <div className="font-mono font-bold text-rose-400">{pkg.packageCode}</div>
+                              <div className="font-semibold text-slate-200 mt-0.5">
+                                {pkg.user?.firstName || pkg.user?.lastName
+                                  ? `${pkg.user?.firstName || ''} ${pkg.user?.lastName || ''}`.trim()
+                                  : pkg.user?.email || 'investor@avorabank.com'}
                               </div>
-                            )}
-                          </td>
-                          <td className="py-3 font-mono text-slate-300">
-                            {pkg.returnsCount !== undefined ? `${pkg.returnsCount} months` : 'Active'}
-                          </td>
-                          <td className="py-3">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                                pkg.status === 'ACTIVE'
-                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                  : pkg.status === 'PENDING_PAYMENT'
-                                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                  : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                              }`}
-                            >
-                              {pkg.status}
-                            </span>
-                          </td>
-                          <td className="py-3 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => {
-                                  setSelectedPackage(pkg);
-                                  setEditLockMonths(pkg.lockInMonths || 6);
-                                  setCustomMaturityDate(pkg.lockInEnd ? new Date(pkg.lockInEnd).toISOString().split('T')[0] : '');
-                                  setTenureNotes('');
-                                  setTenureModalOpen(true);
-                                }}
-                                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white font-bold text-[11px] border border-slate-700 hover:border-amber-500/50 flex items-center gap-1 transition-all cursor-pointer"
-                                title="Change FD Lock-In Tenure and Maturity Date"
-                              >
-                                <Clock className="w-3.5 h-3.5 text-amber-400" />
-                                <span>Edit FD Tenure</span>
-                              </button>
-
-                              {pkg.status === 'PENDING_PAYMENT' && (
-                                <button
-                                  onClick={() => handleApprovePackage(pkg.id)}
-                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow-sm transition-all"
-                                >
-                                  Approve & Activate
-                                </button>
-                              )}
-
-                              {pkg.status === 'ACTIVE' && (
-                                <button
-                                  onClick={() => handleSettleFullPackage(pkg.id, pkg.packageCode)}
-                                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/90 text-white font-bold text-[11px] border border-slate-700 hover:border-rose-500 transition-all"
-                                  title="Calculates all remaining monthly returns and releases the principal together"
-                                >
-                                  Process Full Settlement (Returns + Principal)
-                                </button>
-                              )}
-
-                              {pkg.status === 'MATURED' && (
-                                <span className="text-[11px] text-slate-500 font-semibold">
-                                  Fully Settled & Released
+                              <div className="text-[11px] text-slate-400">
+                                {pkg.user?.email || 'investor@avorabank.com'}
+                              </div>
+                              {pkg.depositMethod && (
+                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-slate-800 text-[9px] font-mono text-slate-400 border border-slate-700">
+                                  {pkg.depositMethod}
                                 </span>
                               )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+
+                            <td className="py-3.5 pr-3">
+                              <div className="font-mono font-black text-white">
+                                ${parseFloat(pkg.amount).toLocaleString()} USD
+                              </div>
+                              <div className="font-mono text-emerald-400 font-bold text-[11px] mt-0.5">
+                                +${monthlyYieldVal.toFixed(2)} / mo ({pkg.returnRateSnapshot || '1.0%'})
+                              </div>
+                            </td>
+
+                            <td className="py-3.5 pr-3 whitespace-nowrap">
+                              {!isPending && startRaw ? (
+                                <div>
+                                  <div className="font-mono font-bold text-slate-200">
+                                    {new Date(startRaw).toLocaleDateString('en-GB', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric',
+                                    })}
+                                  </div>
+                                  <div className="text-[10px] font-mono text-slate-500">
+                                    {new Date(startRaw).toLocaleTimeString('en-GB', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div>
+                                  <div className="text-[11px] font-bold text-amber-400">Not Started</div>
+                                  <div className="text-[10px] font-mono text-slate-500">
+                                    Req: {new Date(pkg.createdAt).toLocaleDateString('en-GB', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric',
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 pr-3 whitespace-nowrap">
+                              {!isPending && pkg.lockInEnd ? (
+                                <div>
+                                  <div
+                                    className={`font-mono font-bold ${
+                                      isDueNow
+                                        ? 'text-rose-400'
+                                        : isUrgent
+                                        ? 'text-amber-400'
+                                        : 'text-white'
+                                    }`}
+                                  >
+                                    {new Date(pkg.lockInEnd).toLocaleDateString('en-GB', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric',
+                                    })}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500">
+                                    {isSettled ? 'Settled' : 'Contract Maturity'}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div>
+                                  <div className="text-[11px] text-slate-400 font-semibold">
+                                    +{pkg.lockInMonths || 6}m on Approval
+                                  </div>
+                                  <div className="text-[10px] text-slate-500">Clock starts when activated</div>
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 pr-3 min-w-[140px]">
+                              <div className="font-semibold text-slate-200">
+                                {pkg.lockInMonths || 6} Months FD
+                              </div>
+                              <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden my-1.5">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    isDueNow
+                                      ? 'bg-rose-500'
+                                      : isUrgent
+                                      ? 'bg-amber-400'
+                                      : isSettled
+                                      ? 'bg-purple-500'
+                                      : 'bg-emerald-500'
+                                  }`}
+                                  style={{ width: `${Math.min(100, Math.max(0, pkg.progressPercent || 0))}%` }}
+                                />
+                              </div>
+                              {isPending ? (
+                                <span className="text-[10px] font-mono font-bold text-amber-400">
+                                  ⏳ Awaiting Activation
+                                </span>
+                              ) : isSettled ? (
+                                <span className="text-[10px] font-mono font-bold text-purple-300">
+                                  ✅ Settled &amp; Released
+                                </span>
+                              ) : isDueNow ? (
+                                <span className="text-[10px] font-mono font-bold text-rose-400">
+                                  🚨 Due / Matured Now
+                                </span>
+                              ) : isUrgent ? (
+                                <span className="text-[10px] font-mono font-bold text-amber-400">
+                                  ⚠️ {pkg.daysRemaining}d remaining
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-mono font-bold text-emerald-400">
+                                  {pkg.daysRemaining}d remaining
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 pr-3 whitespace-nowrap">
+                              <div className="font-mono text-slate-200 font-bold">
+                                {pkg.returnsCount ?? 0} / {pkg.lockInMonths || 6} mos
+                              </div>
+                              <div className="text-[10px] font-mono text-emerald-400">
+                                Paid: ${parseFloat(pkg.totalYieldPaid || 0).toFixed(2)}
+                              </div>
+                              {!isSettled && (
+                                <div className="text-[10px] font-mono text-rose-400">
+                                  Rem. Yield: ${parseFloat(pkg.remainingYieldLiability || 0).toFixed(2)} · Total Due: $
+                                  {parseFloat(pkg.outstandingLiability ?? pkg.amount ?? 0).toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 pr-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                  pkg.status === 'ACTIVE'
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : pkg.status === 'PENDING_PAYMENT'
+                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                    : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                                }`}
+                              >
+                                {pkg.status}
+                              </span>
+                            </td>
+
+                            <td className="py-3.5 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => {
+                                    setSelectedPackage(pkg);
+                                    setEditLockMonths(pkg.lockInMonths || 6);
+                                    setCustomMaturityDate(
+                                      pkg.lockInEnd ? new Date(pkg.lockInEnd).toISOString().split('T')[0] : ''
+                                    );
+                                    setTenureNotes('');
+                                    setTenureModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white font-bold text-[11px] border border-slate-700 hover:border-amber-500/50 flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
+                                  title="Change FD Lock-In Tenure and Maturity Date"
+                                >
+                                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>Edit FD Tenure</span>
+                                </button>
+
+                                {pkg.status === 'PENDING_PAYMENT' && (
+                                  <button
+                                    onClick={() => handleApprovePackage(pkg.id)}
+                                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow-sm transition-all cursor-pointer whitespace-nowrap"
+                                  >
+                                    Approve &amp; Activate
+                                  </button>
+                                )}
+
+                                {pkg.status === 'ACTIVE' && (
+                                  <button
+                                    onClick={() => handleSettleFullPackage(pkg.id, pkg.packageCode)}
+                                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/90 text-white font-bold text-[11px] border border-slate-700 hover:border-rose-500 transition-all cursor-pointer whitespace-nowrap"
+                                    title="Calculates all remaining monthly returns and releases the principal together"
+                                  >
+                                    Process Full Settlement (Returns + Principal)
+                                  </button>
+                                )}
+
+                                {isSettled && (
+                                  <span className="text-[11px] text-slate-500 font-semibold whitespace-nowrap">
+                                    Fully Settled &amp; Released
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

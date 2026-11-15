@@ -422,11 +422,11 @@ class PackageService {
         });
     }
     /**
-     * Admin: List all investment packages with filters
+     * Admin: List all investment packages with filters, dates & liability metrics
      */
     async getAllPackages(filters) {
         const page = filters.page || 1;
-        const limit = filters.limit || 20;
+        const limit = filters.limit || 500;
         const skip = (page - 1) * limit;
         const where = {};
         if (filters.status)
@@ -444,7 +444,9 @@ class PackageService {
                 where,
                 include: {
                     user: { select: { id: true, email: true, firstName: true, lastName: true } },
-                    returns: true,
+                    returns: {
+                        orderBy: { payoutDate: 'desc' },
+                    },
                 },
                 orderBy: { createdAt: 'desc' },
                 skip,
@@ -452,29 +454,65 @@ class PackageService {
             }),
             prisma_1.prisma.investmentPackage.count({ where }),
         ]);
+        const nowMs = Date.now();
         return {
             packages: packages.map((pkg) => {
+                const amountDec = new decimal_js_1.default(pkg.amount.toString());
+                const monthlyRateDecimal = new decimal_js_1.default(pkg.returnRateSnapshot.toString());
+                const lockMonths = pkg.lockInMonths || 6;
+                const returnsCount = pkg.returns.length;
+                const isSettled = pkg.status === 'MATURED' ||
+                    pkg.status === 'SETTLED' ||
+                    pkg.status === 'CANCELLED';
+                const totalYieldPaidDec = pkg.returns.reduce((sum, r) => sum.plus(new decimal_js_1.default(r.returnAmount.toString())), new decimal_js_1.default(0));
+                const monthlyYieldDec = amountDec.times(monthlyRateDecimal);
+                const remainingMonths = isSettled ? 0 : Math.max(0, lockMonths - returnsCount);
+                const remainingYieldLiabilityDec = monthlyYieldDec.times(remainingMonths);
+                const totalExpectedYieldDec = monthlyYieldDec.times(lockMonths);
+                const outstandingLiabilityDec = pkg.status === 'ACTIVE' || pkg.status === 'WITHDRAWAL_REQUESTED'
+                    ? amountDec.plus(remainingYieldLiabilityDec)
+                    : pkg.status === 'PENDING_PAYMENT'
+                        ? amountDec
+                        : new decimal_js_1.default(0);
                 let daysRemaining = 0;
                 let progressPercent = 0;
-                if (pkg.lockInStart && pkg.lockInEnd) {
+                if (pkg.status === 'PENDING_PAYMENT') {
+                    daysRemaining = null;
+                    progressPercent = 0;
+                }
+                else if (isSettled) {
+                    daysRemaining = 0;
+                    progressPercent = 100;
+                }
+                else if (pkg.lockInStart && pkg.lockInEnd) {
                     const start = pkg.lockInStart.getTime();
                     const end = pkg.lockInEnd.getTime();
-                    const nowMs = Date.now();
-                    const current = Math.min(Math.max(nowMs, start), end);
                     const totalDuration = end - start;
-                    const elapsed = current - start;
-                    progressPercent = totalDuration > 0 ? Math.min(100, Math.round((elapsed / totalDuration) * 100)) : 0;
-                    const msRemaining = Math.max(0, end - nowMs);
-                    daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
+                    const elapsed = nowMs - start;
+                    progressPercent =
+                        totalDuration > 0
+                            ? Math.min(100, Math.max(0, Math.round((elapsed / totalDuration) * 100)))
+                            : 0;
+                    daysRemaining = Math.ceil((end - nowMs) / (1000 * 60 * 60 * 24));
                 }
+                const lastPayoutDate = pkg.returns.length > 0 ? pkg.returns[0].payoutDate : null;
                 return {
                     id: pkg.id,
                     packageCode: pkg.packageCode,
                     user: pkg.user,
-                    amount: new decimal_js_1.default(pkg.amount.toString()).toFixed(2),
+                    amount: amountDec.toFixed(2),
+                    amountNum: parseFloat(amountDec.toFixed(2)),
                     currency: pkg.currency,
-                    returnRateSnapshot: new decimal_js_1.default(pkg.returnRateSnapshot.toString()).times(100).toFixed(1) + '%',
-                    lockInMonths: pkg.lockInMonths,
+                    monthlyRateDecimal: monthlyRateDecimal.toNumber(),
+                    returnRateSnapshot: monthlyRateDecimal.times(100).toFixed(2).replace(/\.00$/, '.0') + '%',
+                    monthlyYield: monthlyYieldDec.toFixed(2),
+                    totalYieldPaid: totalYieldPaidDec.toFixed(2),
+                    remainingMonths,
+                    remainingYieldLiability: remainingYieldLiabilityDec.toFixed(2),
+                    totalExpectedYield: totalExpectedYieldDec.toFixed(2),
+                    outstandingLiability: outstandingLiabilityDec.toFixed(2),
+                    lastPayoutDate,
+                    lockInMonths: lockMonths,
                     status: pkg.status,
                     purchaseDate: pkg.purchaseDate,
                     lockInStart: pkg.lockInStart,
@@ -485,7 +523,7 @@ class PackageService {
                     depositMethod: pkg.depositMethod,
                     depositProofUrl: pkg.depositProofUrl,
                     adminNotes: pkg.adminNotes,
-                    returnsCount: pkg.returns.length,
+                    returnsCount,
                     createdAt: pkg.createdAt,
                 };
             }),
