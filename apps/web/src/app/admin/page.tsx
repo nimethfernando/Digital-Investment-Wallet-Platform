@@ -103,6 +103,7 @@ export default function AdminPortalPage() {
     announcementMessage: '',
     announcementType: 'info',
     registrationsEnabled: true,
+    enabledLanguages: ['en', 'ka'],
   });
   const [systemLoading, setSystemLoading] = useState(false);
 
@@ -802,6 +803,11 @@ export default function AdminPortalPage() {
     const res = await api.post('/admin/system/settings', newStatus, { headers: code ? { 'x-admin-2fa': code } : {} });
     if (res.data?.success) {
       setSystemStatus(newStatus);
+      if (newStatus?.enabledLanguages && typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('avora_languages_updated', { detail: newStatus.enabledLanguages })
+        );
+      }
     }
   };
 

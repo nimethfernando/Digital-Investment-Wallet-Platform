@@ -1851,7 +1851,7 @@ export class AdminController {
   }
 
   /**
-   * Get platform system status & broadcast announcement
+   * Get platform system status, enabled languages & broadcast announcement
    */
   async getSystemStatus(req: Request, res: Response, next: NextFunction) {
     try {
@@ -1860,6 +1860,13 @@ export class AdminController {
       });
       const map: Record<string, string> = {};
       settings.forEach((s) => (map[s.key] = s.value));
+
+      const rawLangs = map['system_enabled_languages'] || 'en,ka';
+      const parsedLangs = rawLangs
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => ['en', 'ka', 'hi'].includes(s));
+      if (!parsedLangs.includes('en')) parsedLangs.unshift('en');
 
       res.json({
         success: true,
@@ -1871,6 +1878,7 @@ export class AdminController {
           announcementMessage: map['system_announcement_message'] || '',
           announcementType: map['system_announcement_type'] || 'info',
           registrationsEnabled: map['system_registrations_enabled'] !== 'false',
+          enabledLanguages: Array.from(new Set(parsedLangs)),
         },
       });
     } catch (err) {
@@ -1879,7 +1887,7 @@ export class AdminController {
   }
 
   /**
-   * Update platform system status & broadcast announcement
+   * Update platform system status, enabled languages & broadcast announcement
    */
   async updateSystemStatus(req: Request, res: Response, next: NextFunction) {
     try {
@@ -1892,6 +1900,7 @@ export class AdminController {
         announcementMessage,
         announcementType,
         registrationsEnabled,
+        enabledLanguages,
       } = req.body;
 
       const pairs: Record<string, string> = {};
@@ -1902,6 +1911,16 @@ export class AdminController {
       if (announcementMessage !== undefined) pairs['system_announcement_message'] = String(announcementMessage);
       if (announcementType !== undefined) pairs['system_announcement_type'] = String(announcementType);
       if (registrationsEnabled !== undefined) pairs['system_registrations_enabled'] = String(registrationsEnabled);
+      if (enabledLanguages !== undefined) {
+        const list = (Array.isArray(enabledLanguages)
+          ? enabledLanguages
+          : String(enabledLanguages).split(',')
+        )
+          .map((s) => String(s).trim().toLowerCase())
+          .filter((s) => ['en', 'ka', 'hi'].includes(s));
+        if (!list.includes('en')) list.unshift('en');
+        pairs['system_enabled_languages'] = Array.from(new Set(list)).join(',');
+      }
 
       for (const [key, value] of Object.entries(pairs)) {
         await prisma.cmsSetting.upsert({

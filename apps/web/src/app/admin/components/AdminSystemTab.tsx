@@ -1,19 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Settings,
   AlertTriangle,
   Radio,
   Save,
   Trash2,
-  Lock,
-  Unlock,
-  CheckCircle2,
+  Globe,
   Loader2,
-  ShieldAlert,
 } from 'lucide-react';
-import { api } from '../../../lib/api';
+import { allLanguageNames, Language } from '../../../context/LanguageContext';
 
 interface SystemTabProps {
   systemStatus: {
@@ -24,6 +21,7 @@ interface SystemTabProps {
     announcementMessage: string;
     announcementType: string;
     registrationsEnabled: boolean;
+    enabledLanguages?: string[];
   };
   onUpdateSystemStatus: (newStatus: any) => Promise<void>;
   onPurgeDemo: () => void;
@@ -38,8 +36,28 @@ export default function AdminSystemTab({
   purgingDemo,
   onFeedback,
 }: SystemTabProps) {
-  const [formData, setFormData] = useState({ ...systemStatus });
+  const [formData, setFormData] = useState({
+    ...systemStatus,
+    enabledLanguages: systemStatus.enabledLanguages || ['en', 'ka'],
+  });
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setFormData({
+      ...systemStatus,
+      enabledLanguages: systemStatus.enabledLanguages || ['en', 'ka'],
+    });
+  }, [systemStatus]);
+
+  const toggleLanguage = (code: Language) => {
+    if (code === 'en') return; // English is required default fallback
+    const current = formData.enabledLanguages || ['en', 'ka'];
+    const next = current.includes(code)
+      ? current.filter((c) => c !== code)
+      : [...current, code];
+    if (!next.includes('en')) next.unshift('en');
+    setFormData({ ...formData, enabledLanguages: next });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,6 +216,69 @@ export default function AdminSystemTab({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Header Language Selection Governance */}
+      <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+              <Globe className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="font-black text-white text-sm">Header Language Selection Governance</h4>
+              <p className="text-[11px] text-slate-400">
+                Enable or disable installed language packs visible in the top header dropdown (saved to live CMS settings).
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-xl">
+            {(formData.enabledLanguages || ['en', 'ka']).length} Active
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {(Object.keys(allLanguageNames) as Language[]).map((code) => {
+            const meta = allLanguageNames[code];
+            const isEnabled = (formData.enabledLanguages || ['en', 'ka']).includes(code);
+            const isDefault = code === 'en';
+            return (
+              <button
+                key={code}
+                type="button"
+                disabled={isDefault}
+                onClick={() => toggleLanguage(code)}
+                className={`p-3.5 rounded-2xl border flex items-center justify-between transition-all ${
+                  isEnabled
+                    ? 'bg-emerald-950/30 border-emerald-500/40 text-white'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                } ${isDefault ? 'opacity-90 cursor-default' : 'cursor-pointer'}`}
+              >
+                <div className="flex items-center gap-2.5 text-left">
+                  <span className="text-xl">{meta.flag}</span>
+                  <div>
+                    <div className="text-xs font-bold">{meta.label}</div>
+                    <div className="text-[10px] font-mono text-slate-400 uppercase">
+                      {code} {isDefault ? '• Default Fallback' : ''}
+                    </div>
+                  </div>
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
+                    isEnabled
+                      ? 'bg-emerald-500/20 text-emerald-400'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {isEnabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Click any non-default language card to toggle availability, then click <strong className="text-slate-300">Save System Settings</strong> above to apply across all client views. Adding brand-new languages also requires adding a translation JSON dictionary in <code className="text-slate-300">apps/web/src/locales/</code>.
+        </p>
       </div>
 
       {/* Database Lifecycle & Demo Purge */}
