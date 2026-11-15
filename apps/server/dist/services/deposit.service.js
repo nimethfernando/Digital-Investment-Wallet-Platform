@@ -718,11 +718,11 @@ class DepositService {
         return updated;
     }
     /**
-     * Admin: List all deposit requests with filters
+     * Admin: List all deposit requests with enriched user & core ledger transaction audit metadata
      */
     async getAllDeposits(filters) {
         const page = filters.page || 1;
-        const limit = filters.limit || 20;
+        const limit = filters.limit || 500;
         const skip = (page - 1) * limit;
         const where = {};
         if (filters.status)
@@ -738,7 +738,18 @@ class DepositService {
             prisma_1.prisma.depositRequest.findMany({
                 where,
                 include: {
-                    user: { select: { id: true, email: true, firstName: true, lastName: true } },
+                    user: {
+                        select: {
+                            id: true,
+                            email: true,
+                            firstName: true,
+                            lastName: true,
+                            phone: true,
+                            country: true,
+                            signupLocation: true,
+                            kycStatus: true,
+                        },
+                    },
                 },
                 orderBy: { createdAt: 'desc' },
                 skip,
@@ -746,22 +757,53 @@ class DepositService {
             }),
             prisma_1.prisma.depositRequest.count({ where }),
         ]);
+        const idempotencyKeys = deposits.map((d) => `DEP-APPROVAL-${d.depositCode}`);
+        const depositCodes = deposits.map((d) => d.depositCode);
+        const txHashRefs = deposits
+            .map((d) => d.txHashOrRef)
+            .filter((v) => Boolean(v && v.trim() && v.trim() !== 'None'));
+        const ledgerTxs = deposits.length > 0
+            ? await prisma_1.prisma.transaction.findMany({
+                where: {
+                    type: 'DEPOSIT',
+                    OR: [
+                        { idempotencyKey: { in: idempotencyKeys } },
+                        { settlementReference: { in: depositCodes } },
+                        ...(txHashRefs.length > 0 ? [{ settlementReference: { in: txHashRefs } }] : []),
+                    ],
+                },
+                orderBy: { createdAt: 'desc' },
+            }).catch(() => [])
+            : [];
         return {
-            deposits: deposits.map((d) => ({
-                id: d.id,
-                depositCode: d.depositCode,
-                user: d.user,
-                amount: new decimal_js_1.default(d.amount.toString()).toFixed(2),
-                currency: d.currency,
-                depositMethod: d.depositMethod,
-                proofUrl: d.proofUrl,
-                txHashOrRef: d.txHashOrRef,
-                status: d.status,
-                adminNotes: d.adminNotes,
-                reviewedBy: d.reviewedBy,
-                reviewedAt: d.reviewedAt,
-                createdAt: d.createdAt,
-            })),
+            deposits: deposits.map((d) => {
+                const matchedTx = ledgerTxs.find((t) => t.idempotencyKey === `DEP-APPROVAL-${d.depositCode}` ||
+                    t.settlementReference === d.depositCode ||
+                    (d.txHashOrRef && t.settlementReference === d.txHashOrRef && t.userId === d.userId));
+                return {
+                    id: d.id,
+                    userId: d.userId,
+                    depositCode: d.depositCode,
+                    user: d.user,
+                    amount: new decimal_js_1.default(d.amount.toString()).toFixed(2),
+                    currency: d.currency,
+                    depositMethod: d.depositMethod,
+                    proofUrl: d.proofUrl,
+                    txHashOrRef: d.txHashOrRef,
+                    status: d.status,
+                    adminNotes: d.adminNotes,
+                    reviewedBy: d.reviewedBy,
+                    reviewedAt: d.reviewedAt,
+                    createdAt: d.createdAt,
+                    updatedAt: d.updatedAt,
+                    ledgerTransactionCode: matchedTx?.transactionCode || null,
+                    ledgerTransactionId: matchedTx?.id || null,
+                    settlementReference: matchedTx?.settlementReference || d.txHashOrRef || null,
+                    balanceBefore: matchedTx?.balanceBefore ? new decimal_js_1.default(matchedTx.balanceBefore.toString()).toFixed(2) : null,
+                    balanceAfter: matchedTx?.balanceAfter ? new decimal_js_1.default(matchedTx.balanceAfter.toString()).toFixed(2) : null,
+                    ledgerNotes: matchedTx?.notes || null,
+                };
+            }),
             total,
             page,
             totalPages: Math.ceil(total / limit),

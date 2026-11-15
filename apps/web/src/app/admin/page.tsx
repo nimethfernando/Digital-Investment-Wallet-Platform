@@ -168,6 +168,14 @@ export default function AdminPortalPage() {
   const [deposits, setDeposits] = useState<any[]>([]);
   const [depositsLoading, setDepositsLoading] = useState(false);
   const [approvingDepId, setApprovingDepId] = useState<string | null>(null);
+  const [depDatePreset, setDepDatePreset] = useState<string>('ALL'); // 'ALL' | 'TODAY' | 'YESTERDAY' | 'THIS_WEEK' | 'THIS_MONTH' | 'LAST_90D' | 'SPECIFIC_DATE' | 'CUSTOM_RANGE'
+  const [depSpecificDate, setDepSpecificDate] = useState<string>('');
+  const [depFromDate, setDepFromDate] = useState<string>('');
+  const [depToDate, setDepToDate] = useState<string>('');
+  const [depStatusFilter, setDepStatusFilter] = useState<string>('ALL');
+  const [depMethodFilter, setDepMethodFilter] = useState<string>('ALL');
+  const [depSortBy, setDepSortBy] = useState<string>('DATE_DESC');
+  const [depSearch, setDepSearch] = useState<string>('');
 
   // Withdrawals State
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
@@ -981,6 +989,224 @@ export default function AdminPortalPage() {
     );
     return { principal, monthly, remainingLiability };
   }, [filteredPackages]);
+
+  const toLocalYmd = (dateInput: string | Date) => {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const formatDepDateTime = (dateInput?: string | Date | null) => {
+    if (!dateInput) return null;
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return null;
+    const datePart = d.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+    const timePart = d.toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const diffMs = Date.now() - d.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    let relative = 'Just now';
+    if (diffMins >= 1 && diffMins < 60) relative = `${diffMins}m ago`;
+    else if (diffHours >= 1 && diffHours < 24) relative = `${diffHours}h ago`;
+    else if (diffDays === 1) relative = 'Yesterday';
+    else if (diffDays > 1) relative = `${diffDays}d ago`;
+    return { datePart, timePart, full: `${datePart}, ${timePart}`, relative, ymd: toLocalYmd(d) };
+  };
+
+  const handleCopyDepValue = (key: string, value: string) => {
+    if (!value) return;
+    navigator.clipboard?.writeText(value);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey((prev) => (prev === key ? null : prev)), 1500);
+  };
+
+  const parseDepositNotes = (notes?: string | null) => {
+    if (!notes) return { pkgCode: null as string | null, feeBreakdown: null as string | null, raw: null as string | null };
+    const pkgMatch = notes.match(/PKG-[A-Z0-9-]+/i);
+    const pkgCode = pkgMatch ? pkgMatch[0].toUpperCase() : null;
+    const hasFeeDetails = /Gross Charged:|Commission:|Net Wallet Credit:/i.test(notes);
+    return {
+      pkgCode,
+      feeBreakdown: hasFeeDetails ? notes : null,
+      raw: notes,
+    };
+  };
+
+  const depPeriodLabel = useMemo(() => {
+    switch (depDatePreset) {
+      case 'TODAY':
+        return `Today (${toLocalYmd(new Date())})`;
+      case 'YESTERDAY': {
+        const y = new Date();
+        y.setDate(y.getDate() - 1);
+        return `Yesterday (${toLocalYmd(y)})`;
+      }
+      case 'THIS_WEEK':
+        return 'This Week (Last 7 Days)';
+      case 'THIS_MONTH':
+        return 'This Month (Last 30 Days)';
+      case 'LAST_90D':
+        return 'Last 90 Days';
+      case 'SPECIFIC_DATE':
+        return depSpecificDate ? `Date: ${depSpecificDate}` : 'Specific Date';
+      case 'CUSTOM_RANGE':
+        if (depFromDate && depToDate) return `${depFromDate} → ${depToDate}`;
+        if (depFromDate) return `From ${depFromDate}`;
+        if (depToDate) return `Until ${depToDate}`;
+        return 'Custom Range';
+      default:
+        return 'All Dates';
+    }
+  }, [depDatePreset, depSpecificDate, depFromDate, depToDate]);
+
+  const filteredDeposits = useMemo(() => {
+    const list = Array.isArray(deposits) ? deposits : [];
+    const now = new Date();
+    const todayYmd = toLocalYmd(now);
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayYmd = toLocalYmd(yesterdayDate);
+
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const weekStart = startOfToday - 6 * 86400000;
+    const monthStart = startOfToday - 29 * 86400000;
+    const last90Start = startOfToday - 89 * 86400000;
+    const q = depSearch.trim().toLowerCase();
+
+    const filtered = list.filter((dep) => {
+      if (depStatusFilter !== 'ALL' && dep.status !== depStatusFilter) return false;
+
+      const method = (dep.depositMethod || '').toUpperCase();
+      const currency = (dep.currency || '').toUpperCase();
+      if (depMethodFilter === 'RAZORPAY' && method !== 'RAZORPAY') return false;
+      if (depMethodFilter === 'BANK_WIRE' && !['BANK_WIRE', 'SWIFT_WIRE', 'BANK_TRANSFER'].includes(method)) return false;
+      if (
+        depMethodFilter === 'CRYPTO' &&
+        !method.includes('USDT') &&
+        !method.includes('CRYPTO') &&
+        !method.includes('BEP20') &&
+        !method.includes('TRC20') &&
+        !method.includes('ERC20') &&
+        currency !== 'USDT'
+      ) {
+        return false;
+      }
+      if (
+        depMethodFilter === 'MANUAL' &&
+        (method === 'RAZORPAY' ||
+          ['BANK_WIRE', 'SWIFT_WIRE', 'BANK_TRANSFER'].includes(method) ||
+          method.includes('USDT') ||
+          method.includes('CRYPTO') ||
+          method.includes('BEP20') ||
+          method.includes('TRC20') ||
+          method.includes('ERC20'))
+      ) {
+        return false;
+      }
+
+      if (depDatePreset !== 'ALL') {
+        const created = new Date(dep.createdAt);
+        if (isNaN(created.getTime())) return false;
+        const createdTime = created.getTime();
+        const createdYmd = toLocalYmd(created);
+
+        if (depDatePreset === 'TODAY' && createdYmd !== todayYmd) return false;
+        if (depDatePreset === 'YESTERDAY' && createdYmd !== yesterdayYmd) return false;
+        if (depDatePreset === 'THIS_WEEK' && createdTime < weekStart) return false;
+        if (depDatePreset === 'THIS_MONTH' && createdTime < monthStart) return false;
+        if (depDatePreset === 'LAST_90D' && createdTime < last90Start) return false;
+        if (depDatePreset === 'SPECIFIC_DATE' && depSpecificDate && createdYmd !== depSpecificDate) return false;
+        if (depDatePreset === 'CUSTOM_RANGE') {
+          if (depFromDate) {
+            const fromMs = new Date(`${depFromDate}T00:00:00`).getTime();
+            if (createdTime < fromMs) return false;
+          }
+          if (depToDate) {
+            const toMs = new Date(`${depToDate}T23:59:59.999`).getTime();
+            if (createdTime > toMs) return false;
+          }
+        }
+      }
+
+      if (q) {
+        const hay = `${dep.id || ''} ${dep.depositCode || ''} ${dep.ledgerTransactionCode || ''} ${dep.txHashOrRef || ''} ${dep.settlementReference || ''} ${dep.depositMethod || ''} ${dep.currency || ''} ${dep.user?.email || ''} ${dep.user?.firstName || ''} ${dep.user?.lastName || ''} ${dep.user?.phone || ''} ${dep.adminNotes || ''} ${dep.reviewedBy || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+
+      return true;
+    });
+
+    return [...filtered].sort((a, b) => {
+      if (depSortBy === 'DATE_ASC') {
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      }
+      if (depSortBy === 'AMOUNT_DESC') {
+        return parseFloat(b.amount || 0) - parseFloat(a.amount || 0);
+      }
+      if (depSortBy === 'AMOUNT_ASC') {
+        return parseFloat(a.amount || 0) - parseFloat(b.amount || 0);
+      }
+      if (depSortBy === 'PENDING_FIRST') {
+        const rank = (s: string) => (s === 'PENDING' ? 0 : s === 'APPROVED' ? 1 : 2);
+        const diff = rank(a.status) - rank(b.status);
+        if (diff !== 0) return diff;
+      }
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [
+    deposits,
+    depDatePreset,
+    depSpecificDate,
+    depFromDate,
+    depToDate,
+    depStatusFilter,
+    depMethodFilter,
+    depSortBy,
+    depSearch,
+  ]);
+
+  const depositAuditStats = useMemo(() => {
+    const list = Array.isArray(deposits) ? deposits : [];
+    const approved = list.filter((d) => d.status === 'APPROVED');
+    const pending = list.filter((d) => d.status === 'PENDING');
+    const rejected = list.filter((d) => d.status === 'REJECTED');
+    const missingRef = list.filter(
+      (d) => !d.txHashOrRef || d.txHashOrRef.trim() === '' || d.txHashOrRef.trim().toLowerCase() === 'none'
+    );
+
+    const sumAmount = (arr: any[]) => arr.reduce((s, d) => s + parseFloat(d.amount || 0), 0);
+
+    const filteredApproved = filteredDeposits.filter((d) => d.status === 'APPROVED');
+    const filteredPending = filteredDeposits.filter((d) => d.status === 'PENDING');
+
+    return {
+      totalCount: list.length,
+      approvedCount: approved.length,
+      approvedVolume: sumAmount(approved),
+      pendingCount: pending.length,
+      pendingVolume: sumAmount(pending),
+      rejectedCount: rejected.length,
+      rejectedVolume: sumAmount(rejected),
+      missingRefCount: missingRef.length,
+      filteredCount: filteredDeposits.length,
+      filteredVolume: sumAmount(filteredDeposits),
+      filteredApprovedVolume: sumAmount(filteredApproved),
+      filteredPendingCount: filteredPending.length,
+    };
+  }, [deposits, filteredDeposits]);
 
   if (isLoading || !isAdmin) {
     return (
@@ -2273,11 +2499,19 @@ export default function AdminPortalPage() {
 
         {/* TAB 3: DEPOSITS AUDIT */}
         {activeTab === 'deposits' && (
-          <div className="space-y-4">
+          <div className="space-y-5">
+            {/* Header & Quick Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="font-extrabold text-base text-white">Deposit Requests ({Array.isArray(deposits) ? deposits.length : 0})</h3>
-                <p className="text-xs text-slate-400">Review pending crypto &amp; wire transfers or credit manual institutional deposits</p>
+                <h3 className="font-extrabold text-base text-white flex items-center gap-2">
+                  <span>Deposit Audit &amp; Reconciliation Ledger</span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                    {filteredDeposits.length} of {depositAuditStats.totalCount}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Full deposit timestamps, Deposit &amp; Core Ledger Transaction IDs, investor KYC details, gateway/on-chain references, and date-range audit filters
+                </p>
               </div>
               <div className="flex items-center gap-2.5">
                 <button
@@ -2293,106 +2527,555 @@ export default function AdminPortalPage() {
               </div>
             </div>
 
+            {/* 4 Top KPI Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                <p className="text-[11px] font-bold uppercase text-emerald-400 flex items-center justify-between">
+                  <span>Total Approved Deposits</span>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                </p>
+                <p className="text-xl font-black font-mono text-white mt-1">
+                  ${depositAuditStats.approvedVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {depositAuditStats.approvedCount} verified inflow{depositAuditStats.approvedCount === 1 ? '' : 's'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDepStatusFilter((prev) => (prev === 'PENDING' ? 'ALL' : 'PENDING'))}
+                className={`p-4 rounded-2xl bg-slate-900 border text-left transition-all cursor-pointer ${
+                  depStatusFilter === 'PENDING' ? 'border-amber-500/60 bg-amber-950/15' : 'border-slate-800 hover:border-amber-500/40'
+                }`}
+              >
+                <p className="text-[11px] font-bold uppercase text-amber-400 flex items-center justify-between">
+                  <span>Pending Clearance Queue</span>
+                  <Clock className="w-3.5 h-3.5" />
+                </p>
+                <p className="text-xl font-black font-mono text-amber-300 mt-1">
+                  ${depositAuditStats.pendingVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {depositAuditStats.pendingCount} request{depositAuditStats.pendingCount === 1 ? '' : 's'} awaiting review (click to filter)
+                </p>
+              </button>
+
+              <div className="p-4 rounded-2xl bg-slate-900 border border-indigo-500/25">
+                <p className="text-[11px] font-bold uppercase text-indigo-400 flex items-center justify-between">
+                  <span>Selected Period Volume</span>
+                  <Calendar className="w-3.5 h-3.5" />
+                </p>
+                <p className="text-xl font-black font-mono text-white mt-1">
+                  ${depositAuditStats.filteredVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1 truncate" title={depPeriodLabel}>
+                  {depPeriodLabel} • {depositAuditStats.filteredCount} record{depositAuditStats.filteredCount === 1 ? '' : 's'} ($
+                  {depositAuditStats.filteredApprovedVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} approved)
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                <p className="text-[11px] font-bold uppercase text-rose-400 flex items-center justify-between">
+                  <span>Rejected &amp; Missing Ref</span>
+                  <AlertCircle className="w-3.5 h-3.5" />
+                </p>
+                <p className="text-xl font-black font-mono text-white mt-1">
+                  {depositAuditStats.rejectedCount} Rejected
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  ${depositAuditStats.rejectedVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} rejected • {depositAuditStats.missingRefCount} missing gateway ref
+                </p>
+              </div>
+            </div>
+
+            {/* Top Date Selection & Filter Bar */}
+            <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3">
+              {/* Row 1: Quick Date Presets & Particular Date / Custom Range Pickers */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
+                    <Calendar className="w-3 h-3 text-rose-400" />
+                    Period:
+                  </span>
+                  {[
+                    { key: 'ALL', label: 'All Dates' },
+                    { key: 'TODAY', label: 'Today' },
+                    { key: 'YESTERDAY', label: 'Yesterday' },
+                    { key: 'THIS_WEEK', label: 'This Week (7D)' },
+                    { key: 'THIS_MONTH', label: 'This Month (30D)' },
+                    { key: 'LAST_90D', label: 'Last 90 Days' },
+                    { key: 'SPECIFIC_DATE', label: 'Particular Date' },
+                    { key: 'CUSTOM_RANGE', label: 'Custom Range' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => {
+                        setDepDatePreset(preset.key);
+                        if (preset.key === 'SPECIFIC_DATE' && !depSpecificDate) {
+                          setDepSpecificDate(toLocalYmd(new Date()));
+                        }
+                      }}
+                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                        depDatePreset === preset.key
+                          ? 'bg-rose-600 text-white border-rose-500 shadow-sm'
+                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Direct Date Pickers */}
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1">
+                    <span className="text-[10px] font-bold uppercase text-amber-400 whitespace-nowrap">Pick Date:</span>
+                    <input
+                      type="date"
+                      value={depSpecificDate}
+                      onChange={(e) => {
+                        setDepSpecificDate(e.target.value);
+                        setDepDatePreset(e.target.value ? 'SPECIFIC_DATE' : 'ALL');
+                      }}
+                      className="bg-transparent text-white text-xs font-mono outline-none cursor-pointer"
+                    />
+                  </div>
+
+                  {depDatePreset === 'CUSTOM_RANGE' && (
+                    <div className="flex flex-wrap items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1">
+                      <span className="text-[10px] font-bold uppercase text-indigo-400">From:</span>
+                      <input
+                        type="date"
+                        value={depFromDate}
+                        onChange={(e) => setDepFromDate(e.target.value)}
+                        className="bg-transparent text-white text-xs font-mono outline-none cursor-pointer"
+                      />
+                      <span className="text-slate-600">→</span>
+                      <span className="text-[10px] font-bold uppercase text-indigo-400">To:</span>
+                      <input
+                        type="date"
+                        value={depToDate}
+                        onChange={(e) => setDepToDate(e.target.value)}
+                        className="bg-transparent text-white text-xs font-mono outline-none cursor-pointer"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Row 2: Search, Status, Method & Sort */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
+                <div className="lg:col-span-2">
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                    Search Deposit ID / Ledger Tx / Gateway Ref / Client
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={depSearch}
+                      onChange={(e) => setDepSearch(e.target.value)}
+                      placeholder="DEP-..., TX-DEP-..., order_..., 0x..., PKG-..., email, name..."
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Status</label>
+                  <select
+                    value={depStatusFilter}
+                    onChange={(e) => setDepStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="ALL">All Statuses</option>
+                    <option value="PENDING">PENDING</option>
+                    <option value="APPROVED">APPROVED</option>
+                    <option value="REJECTED">REJECTED</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Payment Method</label>
+                  <select
+                    value={depMethodFilter}
+                    onChange={(e) => setDepMethodFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="ALL">All Methods</option>
+                    <option value="RAZORPAY">RAZORPAY Gateway</option>
+                    <option value="BANK_WIRE">BANK WIRE / SWIFT</option>
+                    <option value="CRYPTO">CRYPTO / USDT</option>
+                    <option value="MANUAL">MANUAL / INSTITUTIONAL</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Sort Order</label>
+                  <select
+                    value={depSortBy}
+                    onChange={(e) => setDepSortBy(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="DATE_DESC">Newest First (Date ↓)</option>
+                    <option value="DATE_ASC">Oldest First (Date ↑)</option>
+                    <option value="AMOUNT_DESC">Amount: High → Low</option>
+                    <option value="AMOUNT_ASC">Amount: Low → High</option>
+                    <option value="PENDING_FIRST">Pending Queue First</option>
+                  </select>
+                </div>
+              </div>
+
+              {(depDatePreset !== 'ALL' ||
+                depStatusFilter !== 'ALL' ||
+                depMethodFilter !== 'ALL' ||
+                depSearch.trim() !== '') && (
+                <div className="flex items-center justify-between pt-1 text-[11px]">
+                  <span className="text-slate-400">
+                    Active view: <strong className="text-white">{depPeriodLabel}</strong> • Status:{' '}
+                    <strong className="text-white">{depStatusFilter}</strong> • Method:{' '}
+                    <strong className="text-white">{depMethodFilter}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDepDatePreset('ALL');
+                      setDepSpecificDate('');
+                      setDepFromDate('');
+                      setDepToDate('');
+                      setDepStatusFilter('ALL');
+                      setDepMethodFilter('ALL');
+                      setDepSearch('');
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-400 font-bold cursor-pointer"
+                  >
+                    Clear All Filters
+                  </button>
+                </div>
+              )}
+            </div>
+
             {depositsLoading ? (
               <div className="p-12 text-center text-slate-500">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500" />
               </div>
-            ) : (!Array.isArray(deposits) || deposits.length === 0) ? (
-              <div className="p-12 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
-                No deposit requests awaiting clearance.
+            ) : filteredDeposits.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl text-xs">
+                No deposit records match your selected date window, status, or search criteria.
               </div>
             ) : (
               <div className="space-y-3">
-                {(Array.isArray(deposits) ? deposits : []).map((dep) => (
-                  <div
-                    key={dep.id}
-                    className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3"
-                  >
-                    <div className="space-y-1 text-xs">
-                      <div className="font-bold text-white text-sm flex items-center gap-2">
-                        <span>{parseFloat(dep.amount || '0').toFixed(2)} {dep.currency || 'USDT'}</span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          dep.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'
-                        }`}>
-                          {dep.status}
-                        </span>
+                {filteredDeposits.map((dep) => {
+                  const createdDt = formatDepDateTime(dep.createdAt);
+                  const reviewedDt = formatDepDateTime(dep.reviewedAt);
+                  const explorer = getExplorerInfo(dep.txHashOrRef, dep.currency, dep.depositMethod);
+                  const noteInfo = parseDepositNotes(dep.adminNotes || dep.ledgerNotes);
+                  const fullName = `${dep.user?.firstName || ''} ${dep.user?.lastName || ''}`.trim();
+                  const missingGatewayRef =
+                    !dep.txHashOrRef || dep.txHashOrRef.trim() === '' || dep.txHashOrRef.trim().toLowerCase() === 'none';
+
+                  return (
+                    <div
+                      key={dep.id}
+                      className={`p-4 sm:p-5 rounded-2xl bg-slate-900 border transition-all space-y-3 ${
+                        dep.status === 'PENDING'
+                          ? 'border-amber-500/30 hover:border-amber-500/50'
+                          : dep.status === 'REJECTED'
+                          ? 'border-rose-500/25 hover:border-rose-500/40'
+                          : 'border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      {/* Top Header Bar: Amount, Status, Method, Deposit Code, Ledger Tx Code, Actions */}
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <span className="text-lg font-black font-mono text-white">
+                            {parseFloat(dep.amount || '0').toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}{' '}
+                            <span className="text-xs font-bold text-slate-400">{dep.currency || 'USD'}</span>
+                          </span>
+
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                              dep.status === 'APPROVED'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : dep.status === 'REJECTED'
+                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            }`}
+                          >
+                            {dep.status}
+                          </span>
+
+                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase bg-slate-800 text-slate-200 border border-slate-700">
+                            {dep.depositMethod || 'UNKNOWN'}
+                          </span>
+
+                          {dep.depositCode && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopyDepValue(`code-${dep.id}`, dep.depositCode)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25 cursor-pointer"
+                              title="Click to copy Deposit Code"
+                            >
+                              <span>Deposit ID: {dep.depositCode}</span>
+                              {copiedKey === `code-${dep.id}` ? (
+                                <Check className="w-3 h-3 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3 h-3 opacity-75" />
+                              )}
+                            </button>
+                          )}
+
+                          {noteInfo.pkgCode && (
+                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              Linked FD: {noteInfo.pkgCode}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          {dep.status === 'PENDING' ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleRejectDeposit(dep.id)}
+                                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-400 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                              <button
+                                type="button"
+                                disabled={approvingDepId === dep.id}
+                                onClick={() => handleApproveDeposit(dep.id)}
+                                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs cursor-pointer shadow-sm flex items-center gap-1.5"
+                              >
+                                {approvingDepId === dep.id ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Approving...</span>
+                                  </>
+                                ) : (
+                                  <span>Approve &amp; Credit Balance</span>
+                                )}
+                              </button>
+                            </>
+                          ) : dep.status === 'APPROVED' ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-xl">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Settled in Ledger</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-xl">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              <span>Rejected Request</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-slate-400">
-                        Method: {dep.depositMethod} • User: {dep.user?.email || dep.userId}
-                      </div>
-                      {(() => {
-                        const explorer = getExplorerInfo(dep.txHashOrRef, dep.currency, dep.depositMethod);
-                        if (explorer?.isCrypto) {
-                          return (
-                            <div className="flex items-center gap-2 pt-1 font-mono text-xs">
-                              <span className="text-slate-400">On-Chain Tx:</span>
+
+                      {/* 4-Column Institutional Audit Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
+                        {/* Column 1: Deposit & Clearance Timestamps */}
+                        <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-rose-400" />
+                            <span>Date &amp; Audit Timeline</span>
+                          </p>
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Deposit Date &amp; Time</span>
+                            {createdDt ? (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-mono font-bold text-white">{createdDt.datePart}</span>
+                                <span className="font-mono text-slate-300">{createdDt.timePart}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                                  {createdDt.relative}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-500 font-mono">N/A</span>
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">
+                              {dep.status === 'REJECTED' ? 'Rejected At' : 'Reviewed / Approved At'}
+                            </span>
+                            {reviewedDt ? (
+                              <span className="font-mono text-emerald-300 text-[11px]">
+                                {reviewedDt.datePart}, {reviewedDt.timePart}
+                              </span>
+                            ) : (
+                              <span className="text-amber-300/80 text-[11px] italic">Pending admin review</span>
+                            )}
+                          </div>
+                          {dep.reviewedBy && (
+                            <div className="text-[10px] text-slate-400 truncate" title={dep.reviewedBy}>
+                              Reviewer: <span className="font-mono text-slate-300">{dep.reviewedBy}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Column 2: Transaction IDs & Payment References */}
+                        <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
+                            <FileText className="w-3 h-3 text-indigo-400" />
+                            <span>Transaction &amp; Gateway IDs</span>
+                          </p>
+
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Core Ledger Transaction ID</span>
+                            {dep.ledgerTransactionCode ? (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyDepValue(`tx-${dep.id}`, dep.ledgerTransactionCode)}
+                                className="inline-flex items-center gap-1 font-mono font-bold text-emerald-300 hover:text-emerald-200 cursor-pointer text-[11px]"
+                                title="Copy Core Ledger Transaction Code"
+                              >
+                                <span>{dep.ledgerTransactionCode}</span>
+                                {copiedKey === `tx-${dep.id}` ? (
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3 h-3 opacity-70" />
+                                )}
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 font-mono">
+                                {dep.status === 'APPROVED' ? 'Ledger Ref Matched via Record ID' : 'Awaiting Approval'}
+                              </span>
+                            )}
+                          </div>
+
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Gateway / Bank / Blockchain Ref</span>
+                            {explorer?.isCrypto ? (
                               <a
                                 href={explorer.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-all cursor-pointer shadow-sm group"
+                                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20"
                                 title={`Open in ${explorer.name}: ${explorer.hash}`}
                               >
                                 <span>{explorer.shortHash}</span>
-                                <span className="text-[9px] uppercase font-sans font-extrabold px-1 rounded bg-amber-500/20">{explorer.name}</span>
-                                <ExternalLink className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                                <span className="text-[9px] uppercase px-1 rounded bg-amber-500/20">{explorer.name}</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : missingGatewayRef ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded">
+                                No Gateway Reference Logged
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyDepValue(`ref-${dep.id}`, dep.txHashOrRef)}
+                                className="inline-flex items-center gap-1 font-mono text-slate-200 hover:text-white cursor-pointer text-[11px] break-all text-left"
+                                title="Click to copy Gateway/Bank Reference"
+                              >
+                                <span>{dep.txHashOrRef}</span>
+                                {copiedKey === `ref-${dep.id}` ? (
+                                  <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                                ) : (
+                                  <Copy className="w-3 h-3 opacity-60 shrink-0" />
+                                )}
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            Record UUID: #{String(dep.id || '').slice(0, 12)}
+                          </div>
+                        </div>
+
+                        {/* Column 3: Investor Identity & KYC */}
+                        <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
+                            <UserCheck className="w-3 h-3 text-emerald-400" />
+                            <span>Investor Account &amp; KYC</span>
+                          </p>
+                          <div className="font-bold text-white text-xs">
+                            {fullName || 'Client Account'}
+                          </div>
+                          <div className="text-slate-300 font-mono text-[11px] break-all">
+                            {dep.user?.email || dep.userId}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                            {dep.user?.kycStatus && (
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                  dep.user.kycStatus === 'APPROVED'
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                                    : dep.user.kycStatus === 'PENDING'
+                                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25'
+                                    : 'bg-slate-800 text-slate-400 border border-slate-700'
+                                }`}
+                              >
+                                KYC: {dep.user.kycStatus}
+                              </span>
+                            )}
+                            {(dep.user?.country || dep.user?.signupLocation) && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 truncate max-w-[160px]">
+                                {dep.user.country || dep.user.signupLocation}
+                              </span>
+                            )}
+                          </div>
+                          {dep.user?.phone && (
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              Tel: {dep.user.phone}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Column 4: Wallet Impact, Audit Notes & Proof */}
+                        <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1.5">
+                          <p className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
+                            <Landmark className="w-3 h-3 text-amber-400" />
+                            <span>Wallet Impact &amp; Audit Notes</span>
+                          </p>
+
+                          {dep.balanceBefore !== null && dep.balanceAfter !== null ? (
+                            <div className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 font-mono text-[11px] text-emerald-300">
+                              Wallet: ${parseFloat(dep.balanceBefore).toLocaleString()} → $
+                              {parseFloat(dep.balanceAfter).toLocaleString()} {dep.currency}
+                            </div>
+                          ) : (
+                            <div className="text-[11px] text-slate-500">
+                              {dep.status === 'PENDING'
+                                ? 'No wallet credit posted yet'
+                                : 'Balance snapshot unavailable'}
+                            </div>
+                          )}
+
+                          {noteInfo.raw ? (
+                            <p className="text-[11px] text-slate-300 leading-relaxed break-words line-clamp-3" title={noteInfo.raw}>
+                              {noteInfo.raw}
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-slate-500 italic">No additional audit notes recorded.</p>
+                          )}
+
+                          {dep.proofUrl && (
+                            <div className="pt-0.5">
+                              <a
+                                href={dep.proofUrl.startsWith('http') ? dep.proofUrl : `https://${dep.proofUrl}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all cursor-pointer"
+                                title={dep.proofUrl}
+                              >
+                                <span className="truncate max-w-[190px]">
+                                  {dep.proofUrl.includes('bscscan.com') ? 'Open BscScan Proof' : 'View Proof Link'}
+                                </span>
+                                <ExternalLink className="w-3 h-3 shrink-0" />
                               </a>
                             </div>
-                          );
-                        }
-                        return (
-                          <div className="text-slate-500 font-mono text-[11px]">
-                            Ref/Hash: {dep.txHashOrRef || 'None'}
-                          </div>
-                        );
-                      })()}
-                      {dep.proofUrl && (
-                        <div className="pt-1 flex items-center gap-2">
-                          <span className="text-slate-400 font-mono text-xs">Proof Link:</span>
-                          <a
-                            href={dep.proofUrl.startsWith('http') ? dep.proofUrl : `https://${dep.proofUrl}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all cursor-pointer shadow-sm group"
-                            title={dep.proofUrl}
-                          >
-                            <span className="truncate max-w-[280px]">
-                              {dep.proofUrl.includes('bscscan.com') ? 'Open BscScan Proof' : dep.proofUrl}
-                            </span>
-                            <ExternalLink className="w-3 h-3 text-emerald-400 shrink-0 group-hover:translate-x-0.5 transition-transform" />
-                          </a>
-                        </div>
-                      )}
-                    </div>
-
-                    {dep.status === 'PENDING' && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleRejectDeposit(dep.id)}
-                          className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-400 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
-                        >
-                          Reject
-                        </button>
-                        <button
-                          type="button"
-                          disabled={approvingDepId === dep.id}
-                          onClick={() => handleApproveDeposit(dep.id)}
-                          className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs cursor-pointer shadow-sm flex items-center gap-1.5"
-                        >
-                          {approvingDepId === dep.id ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>Approving...</span>
-                            </>
-                          ) : (
-                            <span>Approve &amp; Credit Balance</span>
                           )}
-                        </button>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
