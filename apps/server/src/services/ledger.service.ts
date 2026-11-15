@@ -1,6 +1,5 @@
-import { EntryDirection, JournalReferenceType, TransactionType, TransactionStatus } from '@prisma/client';
+import { EntryDirection, JournalReferenceType, TransactionType, TransactionStatus, DepositStatus, PackageStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
-import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { rateService } from './rate.service';
 
@@ -53,6 +52,56 @@ export class LedgerService {
     }
 
     return wallet;
+  }
+
+  /**
+   * Ensure a user-supplied transaction hash / bank reference is valid and not replayed
+   * across another active/approved deposit or credited deposit transaction.
+   */
+  async assertUniqueTxReference(txHashOrRef?: string | null, excludeDepositId?: string) {
+    if (!txHashOrRef) return;
+    const cleanRef = txHashOrRef.trim();
+    if (!cleanRef) return;
+
+    const systemPrefixes = ['REF-', 'DEP-', 'MAN-', 'PKG-', 'order_'];
+    if (systemPrefixes.some((prefix) => cleanRef.startsWith(prefix))) {
+      return;
+    }
+
+    if (
+      cleanRef.length < 6 ||
+      cleanRef.toLowerCase() === 'none' ||
+      cleanRef.toLowerCase() === 'test'
+    ) {
+      throw new Error(
+        'Please provide a valid transaction reference or blockchain TX hash (minimum 6 characters).'
+      );
+    }
+
+    const existingDeposit = await prisma.depositRequest.findFirst({
+      where: {
+        txHashOrRef: cleanRef,
+        status: { in: [DepositStatus.PENDING, DepositStatus.APPROVED] },
+        ...(excludeDepositId ? { id: { not: excludeDepositId } } : {}),
+      },
+    });
+    if (existingDeposit) {
+      throw new Error(
+        `Duplicate transaction reference/hash detected (${cleanRef}). This reference has already been submitted or credited on deposit ${existingDeposit.depositCode}.`
+      );
+    }
+
+    const existingTx = await prisma.transaction.findFirst({
+      where: {
+        type: TransactionType.DEPOSIT,
+        settlementReference: cleanRef,
+      },
+    });
+    if (existingTx) {
+      throw new Error(
+        `Duplicate transaction reference/hash detected (${cleanRef}). This reference was already credited in transaction ${existingTx.transactionCode}.`
+      );
+    }
   }
 
   /**
@@ -197,32 +246,73 @@ export class LedgerService {
   }) {
     const amountDec = new Decimal(params.amount.toString());
     const idempotencyKey = `DEP-APPROVAL-${params.depositCode}`;
+    const wallet = await this.ensureWallet(params.userId);
 
     return await prisma.$transaction(async (tx) => {
-      // Check if already approved
-      const deposit = await tx.depositRequest.findUnique({
+      // Lock user's wallet first to serialize concurrent approvals
+      const lockedBalance = await this.lockWalletBalance(tx, wallet.id, params.currency);
+
+      // Re-fetch deposit inside locked transaction and verify status
+      const freshDeposit = await tx.depositRequest.findUnique({
         where: { id: params.depositId },
       });
-      if (!deposit || deposit.status !== 'PENDING') {
+      if (!freshDeposit || freshDeposit.status !== DepositStatus.PENDING) {
         throw new Error('Deposit is either not found or already processed');
       }
 
-      // Determine on-chain transaction hash or reference
-      let settlementReference = (params.txHash || deposit.txHashOrRef || params.depositCode).trim();
-      const isUsdtOrBsc = params.currency === 'USDT' || deposit.depositMethod?.includes('BEP20') || deposit.depositMethod?.includes('CRYPTO');
-      if (isUsdtOrBsc) {
-        if (!settlementReference || settlementReference.startsWith('REF-') || settlementReference.startsWith('DEP-') || !settlementReference.startsWith('0x')) {
-          if (settlementReference && /^[0-9a-fA-F]{64}$/.test(settlementReference)) {
-            settlementReference = `0x${settlementReference}`;
-          } else {
-            settlementReference = `0x${crypto.randomBytes(32).toString('hex')}`;
-          }
+      // Guard against double-crediting an FD package whose deposit was already activated directly
+      const pkgCodeMatch = freshDeposit.adminNotes?.match(/PKG-[A-Z0-9-]+/);
+      if (pkgCodeMatch) {
+        const linkedPkg = await tx.investmentPackage.findUnique({
+          where: { packageCode: pkgCodeMatch[0] },
+        });
+        if (linkedPkg && linkedPkg.status !== PackageStatus.PENDING_PAYMENT) {
+          throw new Error(
+            `This deposit is linked to FD package ${linkedPkg.packageCode} which is already ${linkedPkg.status}. Approving this deposit separately would double-credit the customer.`
+          );
         }
       }
 
-      // Lock user's wallet
-      const wallet = await this.ensureWallet(params.userId);
-      const lockedBalance = await this.lockWalletBalance(tx, wallet.id, params.currency);
+      // Determine actual transaction hash or reference without fabricating random hashes
+      let settlementReference = (params.txHash || freshDeposit.txHashOrRef || params.depositCode).trim();
+      if (
+        settlementReference &&
+        /^[0-9a-fA-F]{64}$/.test(settlementReference) &&
+        params.currency === 'USDT' &&
+        (freshDeposit.depositMethod?.includes('BEP20') || freshDeposit.depositMethod?.includes('ERC20'))
+      ) {
+        settlementReference = `0x${settlementReference}`;
+      }
+
+      const systemPrefixes = ['REF-', 'DEP-', 'MAN-', 'PKG-', 'order_'];
+      const isExternalRef = settlementReference && !systemPrefixes.some((p) => settlementReference.startsWith(p));
+      if (isExternalRef) {
+        const dupApprovedDeposit = await tx.depositRequest.findFirst({
+          where: {
+            txHashOrRef: settlementReference,
+            status: DepositStatus.APPROVED,
+            id: { not: params.depositId },
+          },
+        });
+        if (dupApprovedDeposit) {
+          throw new Error(
+            `Duplicate settlement reference (${settlementReference}) already approved on deposit ${dupApprovedDeposit.depositCode}.`
+          );
+        }
+
+        const dupTx = await tx.transaction.findFirst({
+          where: {
+            type: TransactionType.DEPOSIT,
+            settlementReference,
+            idempotencyKey: { not: idempotencyKey },
+          },
+        });
+        if (dupTx) {
+          throw new Error(
+            `Duplicate settlement reference (${settlementReference}) already credited on transaction ${dupTx.transactionCode}.`
+          );
+        }
+      }
 
       const balBefore = new Decimal(lockedBalance.availableBalance.toString());
       const balAfter = balBefore.plus(amountDec);
@@ -283,7 +373,7 @@ export class LedgerService {
       const updatedDeposit = await tx.depositRequest.update({
         where: { id: params.depositId },
         data: {
-          status: 'APPROVED',
+          status: DepositStatus.APPROVED,
           reviewedBy: params.reviewedBy,
           reviewedAt: new Date(),
           adminNotes: params.notes,
@@ -520,12 +610,23 @@ export class LedgerService {
    * Release principal when package has matured (past lock-in end date)
    */
   async releaseMaturedPrincipal(packageId: string, adminUserId: string = 'SYSTEM', force: boolean = false) {
+    const pkgMeta = await prisma.investmentPackage.findUnique({
+      where: { id: packageId },
+      select: { userId: true, currency: true },
+    });
+    if (!pkgMeta) throw new Error('Package not found');
+    const wallet = await this.ensureWallet(pkgMeta.userId);
+
     return await prisma.$transaction(async (tx) => {
+      // Lock user wallet balance first to serialize concurrent releases
+      const lockedBal = await this.lockWalletBalance(tx, wallet.id, pkgMeta.currency);
+
+      // Re-fetch package inside locked transaction
       const pkg = await tx.investmentPackage.findUnique({
         where: { id: packageId },
       });
       if (!pkg) throw new Error('Package not found');
-      if (pkg.status !== 'ACTIVE') {
+      if (pkg.status !== PackageStatus.ACTIVE) {
         throw new Error(`Package status is ${pkg.status}, cannot release principal`);
       }
 
@@ -537,12 +638,14 @@ export class LedgerService {
       const amountDec = new Decimal(pkg.amount.toString());
       const idempotencyKey = `PRINCIPAL-RELEASE-${pkg.packageCode}`;
 
-      // Lock user wallet balance
-      const wallet = await this.ensureWallet(pkg.userId);
-      const lockedBal = await this.lockWalletBalance(tx, wallet.id, pkg.currency);
-
       const availBal = new Decimal(lockedBal.availableBalance.toString());
       const lockedPrinc = new Decimal(lockedBal.lockedPrincipal.toString());
+
+      if (lockedPrinc.lessThan(amountDec)) {
+        throw new Error(
+          `Insufficient locked principal (${lockedPrinc.toFixed(2)} ${pkg.currency}) to release ${amountDec.toFixed(2)} ${pkg.currency} for package ${pkg.packageCode}`
+        );
+      }
 
       const newAvailBal = availBal.plus(amountDec);
       const newLockedPrinc = lockedPrinc.minus(amountDec);
@@ -551,7 +654,7 @@ export class LedgerService {
         where: { id: lockedBal.id },
         data: {
           availableBalance: newAvailBal.toFixed(8),
-          lockedPrincipal: newLockedPrinc.greaterThanOrEqualTo(0) ? newLockedPrinc.toFixed(8) : '0.00000000',
+          lockedPrincipal: newLockedPrinc.toFixed(8),
         },
       });
 
@@ -692,26 +795,36 @@ export class LedgerService {
    */
   async getUserWalletSummary(userId: string) {
     const wallet = await this.ensureWallet(userId);
-    const balances = await prisma.walletBalance.findMany({
-      where: { walletId: wallet.id },
-    });
+    const [balances, liveRates, returnsAgg] = await Promise.all([
+      prisma.walletBalance.findMany({
+        where: { walletId: wallet.id },
+      }),
+      rateService.getLiveRates(),
+      prisma.packageReturn.aggregate({
+        where: { userId, status: 'CREDITED' },
+        _sum: { returnAmount: true },
+      }),
+    ]);
 
-    const usdBal = balances.find((b) => b.currency === 'USD') || {
-      availableBalance: new Decimal(0),
-      lockedPrincipal: new Decimal(0),
-      pendingSettlement: new Decimal(0),
+    const toUsd = (amt: Decimal, currency: string): Decimal => {
+      const upper = (currency || 'USD').toUpperCase();
+      if (upper === 'USD' || upper === 'USDT' || upper === 'USDC') return amt;
+      const rate = liveRates.rates[upper];
+      if (!rate || rate <= 0) return amt;
+      return amt.dividedBy(new Decimal(rate));
     };
 
-    const available = new Decimal(usdBal.availableBalance.toString());
-    const locked = new Decimal(usdBal.lockedPrincipal.toString());
-    const pending = new Decimal(usdBal.pendingSettlement.toString());
-    const total = available.plus(locked).plus(pending);
+    let available = new Decimal(0);
+    let locked = new Decimal(0);
+    let pending = new Decimal(0);
 
-    // Accumulated returns count
-    const returnsAgg = await prisma.packageReturn.aggregate({
-      where: { userId, status: 'CREDITED' },
-      _sum: { returnAmount: true },
-    });
+    for (const b of balances) {
+      available = available.plus(toUsd(new Decimal(b.availableBalance.toString()), b.currency));
+      locked = locked.plus(toUsd(new Decimal(b.lockedPrincipal.toString()), b.currency));
+      pending = pending.plus(toUsd(new Decimal(b.pendingSettlement.toString()), b.currency));
+    }
+
+    const total = available.plus(locked).plus(pending);
     const accumulatedReturns = new Decimal(returnsAgg._sum.returnAmount?.toString() || '0');
 
     return {

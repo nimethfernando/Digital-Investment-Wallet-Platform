@@ -15,6 +15,7 @@ const ledger_service_1 = require("../services/ledger.service");
 const withdrawal_service_1 = require("../services/withdrawal.service");
 const kyc_service_1 = require("../services/kyc.service");
 const p2p_service_1 = require("../services/p2p.service");
+const gmt_service_1 = require("../services/gmt.service");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class AdminController {
     /**
@@ -1456,26 +1457,14 @@ class AdminController {
             if (!existing) {
                 return res.status(404).json({ success: false, message: 'Transfer not found' });
             }
-            const updateData = {};
-            if (status)
-                updateData.status = status;
-            if (complianceNotes !== undefined)
-                updateData.complianceNotes = complianceNotes;
-            if (rejectionReason !== undefined)
-                updateData.rejectionReason = rejectionReason;
-            if (status === 'COMPLETED')
-                updateData.completedAt = new Date();
-            const updated = await prisma_1.prisma.globalTransfer.update({
-                where: { id },
-                data: updateData,
-            });
+            const updated = await gmt_service_1.globalMoneyTransferService.updateTransferStatusAdmin(id, status || existing.status, complianceNotes, { rejectionReason, adminUserId });
             await prisma_1.prisma.adminAuditLog.create({
                 data: {
                     userId: adminUserId,
                     action: 'REMITTANCE_TRANSFER_UPDATE',
                     entity: 'GlobalTransfer',
                     entityId: id,
-                    details: `Updated transfer ${updated.transferCode} status to ${status}. Compliance: ${complianceNotes || 'N/A'}`,
+                    details: `Updated transfer ${updated.transferCode} status to ${updated.status}. Compliance: ${complianceNotes || 'N/A'}`,
                 },
             });
             res.json({
@@ -1681,22 +1670,73 @@ class AdminController {
                 const sellerWallet = await ledger_service_1.ledgerService.ensureWallet(order.sellerId);
                 const buyerWallet = await ledger_service_1.ledgerService.ensureWallet(order.buyerId);
                 await prisma_1.prisma.$transaction(async (tx) => {
-                    const sellerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+                    // Lock wallets in deterministic sorted ID order to prevent deadlocks
+                    let sellerBal;
+                    let buyerBal;
+                    if (sellerWallet.id <= buyerWallet.id) {
+                        sellerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+                        buyerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
+                    }
+                    else {
+                        buyerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
+                        sellerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+                    }
+                    // Re-verify order status inside locked transaction
+                    const freshOrder = await tx.p2POrder.findUnique({ where: { id } });
+                    if (!freshOrder ||
+                        freshOrder.status === client_1.P2POrderStatus.COMPLETED ||
+                        freshOrder.status === client_1.P2POrderStatus.CANCELLED) {
+                        throw new Error(`Order ${order.orderCode} has already been finalized (${freshOrder?.status || 'NOT_FOUND'}).`);
+                    }
                     const currentSellerLocked = new decimal_js_1.default(sellerBal.lockedPrincipal.toString());
-                    const settleAmt = decimal_js_1.default.min(currentSellerLocked, cryptoAmountDec);
-                    const nextSellerLocked = currentSellerLocked.minus(settleAmt);
+                    if (currentSellerLocked.lessThan(cryptoAmountDec)) {
+                        throw new Error(`Insufficient escrowed USDT in seller locked balance (${currentSellerLocked.toFixed(2)} USDT locked, ${cryptoAmountDec.toFixed(2)} required) to resolve dispute for order ${order.orderCode}.`);
+                    }
+                    const nextSellerLocked = currentSellerLocked.minus(cryptoAmountDec);
                     if (resolution === 'RELEASE_TO_BUYER') {
                         await tx.walletBalance.update({
                             where: { id: sellerBal.id },
                             data: { lockedPrincipal: nextSellerLocked.toFixed(8) },
                         });
-                        const buyerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
+                        const sellerAvailBefore = new decimal_js_1.default(sellerBal.availableBalance.toString());
+                        const buyerAvailBefore = new decimal_js_1.default(buyerBal.availableBalance.toString());
+                        const nextBuyerAvail = buyerAvailBefore.plus(cryptoAmountDec);
                         await tx.walletBalance.update({
                             where: { id: buyerBal.id },
                             data: {
-                                availableBalance: new decimal_js_1.default(buyerBal.availableBalance.toString())
-                                    .plus(cryptoAmountDec)
-                                    .toFixed(8),
+                                availableBalance: nextBuyerAvail.toFixed(8),
+                            },
+                        });
+                        await tx.transaction.create({
+                            data: {
+                                transactionCode: `TX-DO-${order.orderCode}`,
+                                userId: order.sellerId,
+                                type: client_1.TransactionType.P2P_TRANSFER_OUT,
+                                amount: cryptoAmountDec.toFixed(8),
+                                currency: 'USDT',
+                                status: client_1.TransactionStatus.COMPLETED,
+                                balanceBefore: sellerAvailBefore.toFixed(8),
+                                balanceAfter: sellerAvailBefore.toFixed(8),
+                                settlementReference: order.orderCode,
+                                createdBy: adminUserId,
+                                idempotencyKey: `P2P-DISP-REL-${order.orderCode}-OUT`,
+                                notes: `P2P dispute resolved (${resolution}) — escrowed ${cryptoAmountDec.toFixed(2)} USDT released to buyer on ${order.orderCode}`,
+                            },
+                        });
+                        await tx.transaction.create({
+                            data: {
+                                transactionCode: `TX-DI-${order.orderCode}`,
+                                userId: order.buyerId,
+                                type: client_1.TransactionType.P2P_TRANSFER_IN,
+                                amount: cryptoAmountDec.toFixed(8),
+                                currency: 'USDT',
+                                status: client_1.TransactionStatus.COMPLETED,
+                                balanceBefore: buyerAvailBefore.toFixed(8),
+                                balanceAfter: nextBuyerAvail.toFixed(8),
+                                settlementReference: order.orderCode,
+                                createdBy: adminUserId,
+                                idempotencyKey: `P2P-DISP-REL-${order.orderCode}-IN`,
+                                notes: `P2P dispute resolved (${resolution}) — ${cryptoAmountDec.toFixed(2)} USDT credited from escrow on ${order.orderCode}`,
                             },
                         });
                     }
@@ -1706,7 +1746,7 @@ class AdminController {
                             data: {
                                 lockedPrincipal: nextSellerLocked.toFixed(8),
                                 availableBalance: new decimal_js_1.default(sellerBal.availableBalance.toString())
-                                    .plus(settleAmt)
+                                    .plus(cryptoAmountDec)
                                     .toFixed(8),
                             },
                         });
@@ -1725,20 +1765,13 @@ class AdminController {
                             senderId: 'SYSTEM',
                             message: resolution === 'RELEASE_TO_BUYER'
                                 ? `[System] Dispute resolved by Avora Compliance (${resolution}). ${cryptoAmountDec.toFixed(2)} USDT released from escrow to the buyer's wallet. Note: ${reason || 'N/A'}`
-                                : `[System] Dispute resolved by Avora Compliance (${resolution}). ${settleAmt.toFixed(2)} USDT unlocked back to the seller's available balance. Note: ${reason || 'N/A'}`,
+                                : `[System] Dispute resolved by Avora Compliance (${resolution}). ${cryptoAmountDec.toFixed(2)} USDT unlocked back to the seller's available balance. Note: ${reason || 'N/A'}`,
                         },
                     });
                 }, { timeout: 30000, maxWait: 10000 });
             }
             else {
-                await prisma_1.prisma.p2POrder.update({
-                    where: { id },
-                    data: {
-                        status: nextStatus,
-                        disputeResolvedBy: adminUserId,
-                        disputeReason: reason ? `[Admin ${resolution}]: ${reason}` : `Resolved by admin via ${resolution}`,
-                    },
-                });
+                throw new Error(`Order ${order.orderCode} is already ${order.status} and cannot be resolved again.`);
             }
             await prisma_1.prisma.adminAuditLog.create({
                 data: {
@@ -2738,15 +2771,11 @@ class AdminController {
             }
             const depositCode = `DEP-MAN-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
             const amountDec = new decimal_js_1.default(amount.toString());
-            // If USDT and no custom tx hash provided, auto-generate valid 66-character BSC hash
-            let finalHash = txHashOrRef?.trim() || null;
-            if (!finalHash && (currency === 'USDT' || depositMethod.includes('CRYPTO'))) {
-                const randHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-                finalHash = `0x${randHex}`;
+            const customRef = txHashOrRef?.trim();
+            if (customRef) {
+                await ledger_service_1.ledgerService.assertUniqueTxReference(customRef);
             }
-            else if (!finalHash) {
-                finalHash = `REF-${depositCode}`;
-            }
+            const finalHash = customRef || `MAN-${depositCode}`;
             // Create Deposit Request in PENDING state
             const deposit = await prisma_1.prisma.depositRequest.create({
                 data: {

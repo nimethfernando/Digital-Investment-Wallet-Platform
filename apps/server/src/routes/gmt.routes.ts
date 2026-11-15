@@ -1,6 +1,7 @@
 import { Router } from 'express';
+import { Role } from '@prisma/client';
 import { gmtController } from '../controllers/gmt.controller';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireRole } from '../middleware/auth';
 
 const router = Router();
 
@@ -17,8 +18,8 @@ router.get('/transfers', (req, res, next) => gmtController.listUserTransfers(req
 router.get('/transfers/:code', (req, res, next) => gmtController.getTransfer(req, res, next));
 
 // Admin routes
-router.get('/admin/transfers', (req, res, next) => gmtController.listAllTransfersAdmin(req, res, next));
-router.patch('/admin/transfers/:id', (req, res, next) => gmtController.updateTransferStatusAdmin(req, res, next));
+router.get('/admin/transfers', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => gmtController.listAllTransfersAdmin(req, res, next));
+router.patch('/admin/transfers/:id', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => gmtController.updateTransferStatusAdmin(req, res, next));
 
 export default router;
 

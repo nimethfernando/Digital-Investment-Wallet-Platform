@@ -6,7 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.withdrawalService = exports.WithdrawalService = void 0;
 const client_1 = require("@prisma/client");
 const decimal_js_1 = __importDefault(require("decimal.js"));
-const crypto_1 = __importDefault(require("crypto"));
 const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
 const auth_service_1 = require("./auth.service");
@@ -250,23 +249,51 @@ class WithdrawalService {
      * Admin: Approve and settle withdrawal
      */
     async adminSettleWithdrawal(withdrawalId, adminUserId, settlementReference, adminNotes) {
+        const cleanRef = (settlementReference || '').trim();
+        if (cleanRef.length < 4) {
+            throw this.validationError('A valid payout settlement reference / TX hash (minimum 4 characters) is required');
+        }
         const wth = await prisma_1.prisma.withdrawalRequest.findUnique({
             where: { id: withdrawalId },
             include: { user: true },
         });
         if (!wth)
             throw new Error('Withdrawal request not found');
-        if (wth.status !== 'REQUESTED' && wth.status !== 'UNDER_REVIEW' && wth.status !== 'APPROVED') {
+        if (wth.status !== client_1.WithdrawalStatus.REQUESTED &&
+            wth.status !== client_1.WithdrawalStatus.UNDER_REVIEW &&
+            wth.status !== client_1.WithdrawalStatus.APPROVED) {
             throw new Error(`Withdrawal is already in status: ${wth.status}`);
+        }
+        const duplicateWth = await prisma_1.prisma.withdrawalRequest.findFirst({
+            where: {
+                settlementReference: cleanRef,
+                status: client_1.WithdrawalStatus.SETTLED,
+                id: { not: withdrawalId },
+            },
+        });
+        if (duplicateWth) {
+            throw this.validationError(`Settlement reference ${cleanRef} has already been used on withdrawal ${duplicateWth.requestCode}.`);
         }
         const amountDec = new decimal_js_1.default(wth.amount.toString());
         const idempotencyKey = `WTH-SETTLE-${wth.requestCode}`;
+        const wallet = await ledger_service_1.ledgerService.ensureWallet(wth.userId);
         const settled = await prisma_1.prisma.$transaction(async (tx) => {
-            // Lock user wallet
-            const wallet = await ledger_service_1.ledgerService.ensureWallet(wth.userId);
+            // Lock user wallet first to serialize concurrent settlement/rejection
             const lockedBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, wth.currency);
+            const freshWth = await tx.withdrawalRequest.findUnique({
+                where: { id: withdrawalId },
+            });
+            if (!freshWth ||
+                (freshWth.status !== client_1.WithdrawalStatus.REQUESTED &&
+                    freshWth.status !== client_1.WithdrawalStatus.UNDER_REVIEW &&
+                    freshWth.status !== client_1.WithdrawalStatus.APPROVED)) {
+                throw new Error(`Withdrawal is already in status: ${freshWth?.status || 'NOT_FOUND'}`);
+            }
             const pendingSettlement = new decimal_js_1.default(lockedBal.pendingSettlement.toString());
-            const newPending = decimal_js_1.default.max(0, pendingSettlement.minus(amountDec));
+            if (pendingSettlement.lessThan(amountDec)) {
+                throw new Error(`Cannot settle withdrawal ${wth.requestCode}: pending settlement balance (${pendingSettlement.toFixed(2)} ${wth.currency}) is lower than withdrawal amount (${amountDec.toFixed(2)} ${wth.currency}).`);
+            }
+            const newPending = pendingSettlement.minus(amountDec);
             await tx.walletBalance.update({
                 where: { id: lockedBal.id },
                 data: { pendingSettlement: newPending.toFixed(8) },
@@ -280,23 +307,13 @@ class WithdrawalService {
             }
             const netUpper = String(parsedDetails?.network || '').toUpperCase();
             const isTrc20 = netUpper.includes('TRC');
-            let finalRef = settlementReference ? settlementReference.trim() : '';
+            let finalRef = cleanRef;
             if (wth.currency === 'USDT' || wth.payoutMethod === 'USDT_WALLET') {
-                if (isTrc20) {
-                    if (finalRef && /^0x[0-9a-fA-F]{64}$/.test(finalRef)) {
-                        finalRef = finalRef.slice(2);
-                    }
-                    else if (!finalRef || finalRef.startsWith('WTH-') || finalRef.startsWith('REF-') || !/^[0-9a-fA-F]{64}$/.test(finalRef)) {
-                        finalRef = crypto_1.default.randomBytes(32).toString('hex');
-                    }
+                if (isTrc20 && /^0x[0-9a-fA-F]{64}$/.test(finalRef)) {
+                    finalRef = finalRef.slice(2);
                 }
-                else if (!finalRef || !finalRef.startsWith('0x')) {
-                    if (finalRef && /^[0-9a-fA-F]{64}$/.test(finalRef)) {
-                        finalRef = `0x${finalRef}`;
-                    }
-                    else if (!finalRef || finalRef.startsWith('WTH-') || finalRef.startsWith('REF-')) {
-                        finalRef = `0x${crypto_1.default.randomBytes(32).toString('hex')}`;
-                    }
+                else if (!isTrc20 && /^[0-9a-fA-F]{64}$/.test(finalRef)) {
+                    finalRef = `0x${finalRef}`;
                 }
             }
             // Double-entry: Debit Pending Settlement Transit, Credit Platform Bank/Hot Wallet Treasury
@@ -378,19 +395,33 @@ class WithdrawalService {
         });
         if (!wth)
             throw new Error('Withdrawal request not found');
-        if (wth.status !== 'REQUESTED' && wth.status !== 'UNDER_REVIEW') {
+        if (wth.status !== client_1.WithdrawalStatus.REQUESTED &&
+            wth.status !== client_1.WithdrawalStatus.UNDER_REVIEW &&
+            wth.status !== client_1.WithdrawalStatus.APPROVED) {
             throw new Error(`Cannot reject withdrawal in status: ${wth.status}`);
         }
         const amountDec = new decimal_js_1.default(wth.amount.toString());
         const idempotencyKey = `WTH-REJECT-${wth.requestCode}`;
+        const wallet = await ledger_service_1.ledgerService.ensureWallet(wth.userId);
         const rejected = await prisma_1.prisma.$transaction(async (tx) => {
-            // Lock user wallet
-            const wallet = await ledger_service_1.ledgerService.ensureWallet(wth.userId);
+            // Lock user wallet first to serialize concurrent settlement/rejection
             const lockedBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, wth.currency);
+            const freshWth = await tx.withdrawalRequest.findUnique({
+                where: { id: withdrawalId },
+            });
+            if (!freshWth ||
+                (freshWth.status !== client_1.WithdrawalStatus.REQUESTED &&
+                    freshWth.status !== client_1.WithdrawalStatus.UNDER_REVIEW &&
+                    freshWth.status !== client_1.WithdrawalStatus.APPROVED)) {
+                throw new Error(`Cannot reject withdrawal in status: ${freshWth?.status || 'NOT_FOUND'}`);
+            }
             const availBal = new decimal_js_1.default(lockedBal.availableBalance.toString());
             const pendingBal = new decimal_js_1.default(lockedBal.pendingSettlement.toString());
+            if (pendingBal.lessThan(amountDec)) {
+                throw new Error('Cannot refund withdrawal: pending settlement balance is lower than withdrawal amount (already processed).');
+            }
             const newAvail = availBal.plus(amountDec);
-            const newPending = decimal_js_1.default.max(0, pendingBal.minus(amountDec));
+            const newPending = pendingBal.minus(amountDec);
             await tx.walletBalance.update({
                 where: { id: lockedBal.id },
                 data: {

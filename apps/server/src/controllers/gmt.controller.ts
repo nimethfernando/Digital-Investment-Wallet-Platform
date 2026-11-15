@@ -131,10 +131,16 @@ export class GlobalMoneyTransferController {
    */
   async updateTransferStatusAdmin(req: Request, res: Response, next: NextFunction) {
     try {
-      const { status, notes } = req.body;
+      const adminUserId = (req as any).user?.id || (req as any).user?.userId || 'ADMIN';
+      const { status, notes, complianceNotes, rejectionReason } = req.body;
       const id = Array.isArray(req.params.id) ? req.params.id[0] : String(req.params.id);
-      const updated = await globalMoneyTransferService.updateTransferStatusAdmin(id, status, notes);
-      res.json({ success: true, message: `Transfer status updated to ${status}`, data: updated });
+      const updated = await globalMoneyTransferService.updateTransferStatusAdmin(
+        id,
+        status,
+        complianceNotes ?? notes,
+        { rejectionReason, adminUserId }
+      );
+      res.json({ success: true, message: `Transfer status updated to ${updated.status}`, data: updated });
     } catch (err) {
       next(err);
     }

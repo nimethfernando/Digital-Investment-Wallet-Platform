@@ -396,9 +396,16 @@ export class P2PService {
     // 5. Execute Atomic Double-Entry Ledger Transfer
     const result = await prisma.$transaction(
       async (tx) => {
-        // Row-level lock balances
-        const senderLockedBal = await ledgerService.lockWalletBalance(tx, senderWallet.id, currency);
-        const recLockedBal = await ledgerService.lockWalletBalance(tx, recipientWallet.id, currency);
+        // Row-level lock balances in deterministic wallet ID order to prevent deadlocks
+        let senderLockedBal: any;
+        let recLockedBal: any;
+        if (senderWallet.id <= recipientWallet.id) {
+          senderLockedBal = await ledgerService.lockWalletBalance(tx, senderWallet.id, currency);
+          recLockedBal = await ledgerService.lockWalletBalance(tx, recipientWallet.id, currency);
+        } else {
+          recLockedBal = await ledgerService.lockWalletBalance(tx, recipientWallet.id, currency);
+          senderLockedBal = await ledgerService.lockWalletBalance(tx, senderWallet.id, currency);
+        }
 
         const senderAvail = new Decimal(senderLockedBal.availableBalance.toString());
         const recAvail = new Decimal(recLockedBal.availableBalance.toString());
@@ -1088,14 +1095,27 @@ export class P2PService {
     const cancelledOrder = await prisma.$transaction(
       async (tx) => {
         const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+
+        // Re-verify order status inside locked transaction
+        const freshOrder = await tx.p2POrder.findUnique({ where: { id: orderId } });
+        if (!freshOrder || freshOrder.status !== P2POrderStatus.PENDING_PAYMENT) {
+          throw new Error(
+            `Cannot cancel order while status is ${freshOrder?.status || 'NOT_FOUND'}. Only unpaid (PENDING_PAYMENT) orders can be cancelled.`
+          );
+        }
+
         const currentLocked = new Decimal(sellerBal.lockedPrincipal.toString());
-        const unlockAmt = Decimal.min(currentLocked, cryptoAmountDec);
+        if (currentLocked.lessThan(cryptoAmountDec)) {
+          throw new Error(
+            `Insufficient escrowed USDT in seller locked balance (${currentLocked.toFixed(2)} USDT locked, ${cryptoAmountDec.toFixed(2)} required) to cancel order ${order.orderCode}.`
+          );
+        }
 
         await tx.walletBalance.update({
           where: { id: sellerBal.id },
           data: {
-            lockedPrincipal: currentLocked.minus(unlockAmt).toFixed(8),
-            availableBalance: new Decimal(sellerBal.availableBalance.toString()).plus(unlockAmt).toFixed(8),
+            lockedPrincipal: currentLocked.minus(cryptoAmountDec).toFixed(8),
+            availableBalance: new Decimal(sellerBal.availableBalance.toString()).plus(cryptoAmountDec).toFixed(8),
           },
         });
 
@@ -1113,7 +1133,7 @@ export class P2PService {
           data: {
             orderId,
             senderId: 'SYSTEM',
-            message: `[System] Order ${order.orderCode} was cancelled. Escrowed ${unlockAmt.toFixed(2)} USDT has been unlocked back to the seller's available balance.`,
+            message: `[System] Order ${order.orderCode} was cancelled. Escrowed ${cryptoAmountDec.toFixed(2)} USDT has been unlocked back to the seller's available balance.`,
           },
         });
 
@@ -1196,9 +1216,36 @@ export class P2PService {
 
     return await prisma.$transaction(
       async (tx) => {
-        // 1. Deduct locked escrow from seller
-        const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
-        const newSellerLocked = Decimal.max(0, new Decimal(sellerBal.lockedPrincipal.toString()).minus(cryptoAmountDec));
+        // 1. Lock seller & buyer wallets in deterministic sorted order to prevent deadlocks
+        let sellerBal: any;
+        let buyerBal: any;
+        if (sellerWallet.id <= buyerWallet.id) {
+          sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+          buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
+        } else {
+          buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
+          sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+        }
+
+        // Re-verify order status inside locked transaction
+        const freshOrder = await tx.p2POrder.findUnique({ where: { id: orderId } });
+        if (
+          !freshOrder ||
+          (freshOrder.status !== P2POrderStatus.PAYMENT_SENT &&
+            freshOrder.status !== P2POrderStatus.DISPUTED)
+        ) {
+          throw new Error(
+            `Cannot release funds while order is in status: ${freshOrder?.status || 'NOT_FOUND'}`
+          );
+        }
+
+        const currentSellerLocked = new Decimal(sellerBal.lockedPrincipal.toString());
+        if (currentSellerLocked.lessThan(cryptoAmountDec)) {
+          throw new Error(
+            'Insufficient escrowed USDT in seller locked balance to release order.'
+          );
+        }
+        const newSellerLocked = currentSellerLocked.minus(cryptoAmountDec);
 
         await tx.walletBalance.update({
           where: { id: sellerBal.id },
@@ -1206,21 +1253,57 @@ export class P2PService {
         });
 
         // 2. Credit buyer available balance
-        const buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
-        const newBuyerAvail = new Decimal(buyerBal.availableBalance.toString()).plus(cryptoAmountDec);
+        const sellerAvailBefore = new Decimal(sellerBal.availableBalance.toString());
+        const buyerAvailBefore = new Decimal(buyerBal.availableBalance.toString());
+        const newBuyerAvail = buyerAvailBefore.plus(cryptoAmountDec);
 
         await tx.walletBalance.update({
           where: { id: buyerBal.id },
           data: { availableBalance: newBuyerAvail.toFixed(8) },
         });
 
-        // 3. Update order to COMPLETED
+        // 3. Record Transaction history entries for both parties
+        await tx.transaction.create({
+          data: {
+            transactionCode: `TX-EO-${order.orderCode}`,
+            userId: order.sellerId,
+            type: TransactionType.P2P_TRANSFER_OUT,
+            amount: cryptoAmountDec.toFixed(8),
+            currency: 'USDT',
+            status: TransactionStatus.COMPLETED,
+            balanceBefore: sellerAvailBefore.toFixed(8),
+            balanceAfter: sellerAvailBefore.toFixed(8),
+            settlementReference: order.orderCode,
+            createdBy: userId,
+            idempotencyKey: `P2P-ESCROW-REL-${order.orderCode}-OUT`,
+            notes: `P2P escrow released ${cryptoAmountDec.toFixed(2)} USDT to buyer on order ${order.orderCode}`,
+          },
+        });
+
+        await tx.transaction.create({
+          data: {
+            transactionCode: `TX-EI-${order.orderCode}`,
+            userId: order.buyerId,
+            type: TransactionType.P2P_TRANSFER_IN,
+            amount: cryptoAmountDec.toFixed(8),
+            currency: 'USDT',
+            status: TransactionStatus.COMPLETED,
+            balanceBefore: buyerAvailBefore.toFixed(8),
+            balanceAfter: newBuyerAvail.toFixed(8),
+            settlementReference: order.orderCode,
+            createdBy: userId,
+            idempotencyKey: `P2P-ESCROW-REL-${order.orderCode}-IN`,
+            notes: `Received ${cryptoAmountDec.toFixed(2)} USDT from P2P escrow on order ${order.orderCode}`,
+          },
+        });
+
+        // 4. Update order to COMPLETED
         const completedOrder = await tx.p2POrder.update({
           where: { id: orderId },
           data: { status: P2POrderStatus.COMPLETED },
         });
 
-        // 4. Record system completion message
+        // 5. Record system completion message
         await tx.p2PMessage.create({
           data: {
             orderId,
@@ -1466,44 +1549,53 @@ export class P2PService {
     }
 
     const DEPOSIT_REQUIRED = new Decimal('50.00');
-
-    // Check available balance in USD or USDT
     const wallet = await ledgerService.ensureWallet(userId);
-    const usdBal = await prisma.walletBalance.findUnique({
-      where: { walletId_currency: { walletId: wallet.id, currency: 'USD' } },
-    });
-    const usdtBal = await prisma.walletBalance.findUnique({
-      where: { walletId_currency: { walletId: wallet.id, currency: 'USDT' } },
-    });
-
-    const usdAvail = new Decimal(usdBal?.availableBalance?.toString() || '0');
-    const usdtAvail = new Decimal(usdtBal?.availableBalance?.toString() || '0');
-
-    let depositCurrency: 'USD' | 'USDT' = 'USD';
-    let targetBalId = usdBal?.id;
-
-    if (usdAvail.greaterThanOrEqualTo(DEPOSIT_REQUIRED)) {
-      depositCurrency = 'USD';
-      targetBalId = usdBal!.id;
-    } else if (usdtAvail.greaterThanOrEqualTo(DEPOSIT_REQUIRED)) {
-      depositCurrency = 'USDT';
-      targetBalId = usdtBal!.id;
-    } else {
-      throw new Error(
-        `Insufficient funds. P2P Marketplace merchant status requires a security deposit of $50.00 USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
-      );
-    }
-
     const txCode = `P2PD-${Date.now().toString().slice(-6)}`;
-    const currentAvail = depositCurrency === 'USD' ? usdAvail : usdtAvail;
-    const newAvail = currentAvail.minus(DEPOSIT_REQUIRED);
 
     await prisma.$transaction(async (tx) => {
+      // Lock wallet rows first to serialize concurrent merchant activations
+      const usdBal = await ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
+      const usdtBal = await ledgerService.lockWalletBalance(tx, wallet.id, 'USDT');
+
+      const freshUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, isP2pMerchant: true, p2pDepositLocked: true, status: true },
+      });
+      if (!freshUser || freshUser.status !== 'ACTIVE') {
+        throw new Error('User account is not active.');
+      }
+      if (freshUser.isP2pMerchant && Number(freshUser.p2pDepositLocked || 0) >= 50) {
+        throw new Error('You are already an authorized P2P Merchant with a locked security deposit.');
+      }
+
+      const usdAvail = new Decimal(usdBal.availableBalance?.toString() || '0');
+      const usdtAvail = new Decimal(usdtBal.availableBalance?.toString() || '0');
+
+      let depositCurrency: 'USD' | 'USDT' = 'USD';
+      let targetBalId = usdBal.id;
+      let currentAvail = usdAvail;
+
+      if (usdAvail.greaterThanOrEqualTo(DEPOSIT_REQUIRED)) {
+        depositCurrency = 'USD';
+        targetBalId = usdBal.id;
+        currentAvail = usdAvail;
+      } else if (usdtAvail.greaterThanOrEqualTo(DEPOSIT_REQUIRED)) {
+        depositCurrency = 'USDT';
+        targetBalId = usdtBal.id;
+        currentAvail = usdtAvail;
+      } else {
+        throw new Error(
+          `Insufficient funds. P2P Marketplace merchant status requires a security deposit of $50.00 USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
+        );
+      }
+
+      const newAvail = currentAvail.minus(DEPOSIT_REQUIRED);
+
       // 1. Deduct available balance
       await tx.walletBalance.update({
         where: { id: targetBalId },
         data: {
-          availableBalance: { decrement: DEPOSIT_REQUIRED.toFixed(8) },
+          availableBalance: newAvail.toFixed(8),
         },
       });
 
@@ -1511,7 +1603,7 @@ export class P2PService {
       await tx.user.update({
         where: { id: userId },
         data: {
-          p2pDepositLocked: { increment: DEPOSIT_REQUIRED.toFixed(8) },
+          p2pDepositLocked: DEPOSIT_REQUIRED.toFixed(8),
           isP2pMerchant: true,
         },
       });
@@ -1531,7 +1623,7 @@ export class P2PService {
           settlementReference: txCode,
         },
       });
-    });
+    }, { timeout: 30000, maxWait: 10000 });
 
     return {
       success: true,
@@ -1582,20 +1674,37 @@ export class P2PService {
     const txCode = `P2PR-${Date.now().toString().slice(-6)}`;
 
     await prisma.$transaction(async (tx) => {
-      // 1. Credit USD balance
-      const usdBal = await tx.walletBalance.findUnique({
-        where: { walletId_currency: { walletId: wallet.id, currency: 'USD' } },
+      // 1. Lock USD wallet row first to serialize concurrent merchant refunds
+      const usdBal = await ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
+
+      const freshUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, isP2pMerchant: true, p2pDepositLocked: true },
       });
-
-      const currentUsdAvail = new Decimal(usdBal?.availableBalance?.toString() || '0');
-      const newUsdAvail = currentUsdAvail.plus(depositAmount);
-
-      if (usdBal) {
-        await tx.walletBalance.update({
-          where: { id: usdBal.id },
-          data: { availableBalance: { increment: depositAmount.toFixed(8) } },
-        });
+      const lockedAmt = new Decimal(freshUser?.p2pDepositLocked?.toString() || '0');
+      if (!freshUser || !freshUser.isP2pMerchant || lockedAmt.lessThanOrEqualTo(0)) {
+        throw new Error('Your P2P Merchant security deposit has already been refunded or is not active.');
       }
+
+      const activeInsideCount = await tx.p2POrder.count({
+        where: {
+          OR: [{ buyerId: userId }, { sellerId: userId }],
+          status: { in: [P2POrderStatus.PENDING_PAYMENT, P2POrderStatus.PAYMENT_SENT, P2POrderStatus.DISPUTED] },
+        },
+      });
+      if (activeInsideCount > 0) {
+        throw new Error(
+          `Cannot refund security deposit. You have ${activeInsideCount} active or disputed P2P order(s) pending completion.`
+        );
+      }
+
+      const currentUsdAvail = new Decimal(usdBal.availableBalance?.toString() || '0');
+      const newUsdAvail = currentUsdAvail.plus(lockedAmt);
+
+      await tx.walletBalance.update({
+        where: { id: usdBal.id },
+        data: { availableBalance: newUsdAvail.toFixed(8) },
+      });
 
       // 2. Clear user lock & merchant status
       await tx.user.update({
@@ -1618,7 +1727,7 @@ export class P2PService {
           transactionCode: txCode,
           userId,
           type: TransactionType.P2P_DEPOSIT_REFUND,
-          amount: depositAmount.toFixed(8),
+          amount: lockedAmt.toFixed(8),
           currency: 'USD',
           status: TransactionStatus.COMPLETED,
           balanceBefore: currentUsdAvail.toFixed(8),
@@ -1627,7 +1736,7 @@ export class P2PService {
           settlementReference: txCode,
         },
       });
-    });
+    }, { timeout: 30000, maxWait: 10000 });
 
     return {
       success: true,

@@ -1,6 +1,5 @@
 import { WithdrawalType, PayoutMethod, WithdrawalStatus, TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
 import Decimal from 'decimal.js';
-import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { authService } from './auth.service';
@@ -313,27 +312,66 @@ export class WithdrawalService {
     settlementReference: string,
     adminNotes?: string
   ) {
+    const cleanRef = (settlementReference || '').trim();
+    if (cleanRef.length < 4) {
+      throw this.validationError('A valid payout settlement reference / TX hash (minimum 4 characters) is required');
+    }
+
     const wth = await prisma.withdrawalRequest.findUnique({
       where: { id: withdrawalId },
       include: { user: true },
     });
 
     if (!wth) throw new Error('Withdrawal request not found');
-    if (wth.status !== 'REQUESTED' && wth.status !== 'UNDER_REVIEW' && wth.status !== 'APPROVED') {
+    if (
+      wth.status !== WithdrawalStatus.REQUESTED &&
+      wth.status !== WithdrawalStatus.UNDER_REVIEW &&
+      wth.status !== WithdrawalStatus.APPROVED
+    ) {
       throw new Error(`Withdrawal is already in status: ${wth.status}`);
+    }
+
+    const duplicateWth = await prisma.withdrawalRequest.findFirst({
+      where: {
+        settlementReference: cleanRef,
+        status: WithdrawalStatus.SETTLED,
+        id: { not: withdrawalId },
+      },
+    });
+    if (duplicateWth) {
+      throw this.validationError(
+        `Settlement reference ${cleanRef} has already been used on withdrawal ${duplicateWth.requestCode}.`
+      );
     }
 
     const amountDec = new Decimal(wth.amount.toString());
     const idempotencyKey = `WTH-SETTLE-${wth.requestCode}`;
+    const wallet = await ledgerService.ensureWallet(wth.userId);
 
     const settled = await prisma.$transaction(
       async (tx) => {
-        // Lock user wallet
-        const wallet = await ledgerService.ensureWallet(wth.userId);
+        // Lock user wallet first to serialize concurrent settlement/rejection
         const lockedBal = await ledgerService.lockWalletBalance(tx, wallet.id, wth.currency);
 
+        const freshWth = await tx.withdrawalRequest.findUnique({
+          where: { id: withdrawalId },
+        });
+        if (
+          !freshWth ||
+          (freshWth.status !== WithdrawalStatus.REQUESTED &&
+            freshWth.status !== WithdrawalStatus.UNDER_REVIEW &&
+            freshWth.status !== WithdrawalStatus.APPROVED)
+        ) {
+          throw new Error(`Withdrawal is already in status: ${freshWth?.status || 'NOT_FOUND'}`);
+        }
+
         const pendingSettlement = new Decimal(lockedBal.pendingSettlement.toString());
-        const newPending = Decimal.max(0, pendingSettlement.minus(amountDec));
+        if (pendingSettlement.lessThan(amountDec)) {
+          throw new Error(
+            `Cannot settle withdrawal ${wth.requestCode}: pending settlement balance (${pendingSettlement.toFixed(2)} ${wth.currency}) is lower than withdrawal amount (${amountDec.toFixed(2)} ${wth.currency}).`
+          );
+        }
+        const newPending = pendingSettlement.minus(amountDec);
 
         await tx.walletBalance.update({
           where: { id: lockedBal.id },
@@ -349,20 +387,12 @@ export class WithdrawalService {
         const netUpper = String(parsedDetails?.network || '').toUpperCase();
         const isTrc20 = netUpper.includes('TRC');
 
-        let finalRef = settlementReference ? settlementReference.trim() : '';
+        let finalRef = cleanRef;
         if (wth.currency === 'USDT' || wth.payoutMethod === 'USDT_WALLET') {
-          if (isTrc20) {
-            if (finalRef && /^0x[0-9a-fA-F]{64}$/.test(finalRef)) {
-              finalRef = finalRef.slice(2);
-            } else if (!finalRef || finalRef.startsWith('WTH-') || finalRef.startsWith('REF-') || !/^[0-9a-fA-F]{64}$/.test(finalRef)) {
-              finalRef = crypto.randomBytes(32).toString('hex');
-            }
-          } else if (!finalRef || !finalRef.startsWith('0x')) {
-            if (finalRef && /^[0-9a-fA-F]{64}$/.test(finalRef)) {
-              finalRef = `0x${finalRef}`;
-            } else if (!finalRef || finalRef.startsWith('WTH-') || finalRef.startsWith('REF-')) {
-              finalRef = `0x${crypto.randomBytes(32).toString('hex')}`;
-            }
+          if (isTrc20 && /^0x[0-9a-fA-F]{64}$/.test(finalRef)) {
+            finalRef = finalRef.slice(2);
+          } else if (!isTrc20 && /^[0-9a-fA-F]{64}$/.test(finalRef)) {
+            finalRef = `0x${finalRef}`;
           }
         }
 
@@ -453,24 +483,46 @@ export class WithdrawalService {
     });
 
     if (!wth) throw new Error('Withdrawal request not found');
-    if (wth.status !== 'REQUESTED' && wth.status !== 'UNDER_REVIEW') {
+    if (
+      wth.status !== WithdrawalStatus.REQUESTED &&
+      wth.status !== WithdrawalStatus.UNDER_REVIEW &&
+      wth.status !== WithdrawalStatus.APPROVED
+    ) {
       throw new Error(`Cannot reject withdrawal in status: ${wth.status}`);
     }
 
     const amountDec = new Decimal(wth.amount.toString());
     const idempotencyKey = `WTH-REJECT-${wth.requestCode}`;
+    const wallet = await ledgerService.ensureWallet(wth.userId);
 
     const rejected = await prisma.$transaction(
       async (tx) => {
-        // Lock user wallet
-        const wallet = await ledgerService.ensureWallet(wth.userId);
+        // Lock user wallet first to serialize concurrent settlement/rejection
         const lockedBal = await ledgerService.lockWalletBalance(tx, wallet.id, wth.currency);
+
+        const freshWth = await tx.withdrawalRequest.findUnique({
+          where: { id: withdrawalId },
+        });
+        if (
+          !freshWth ||
+          (freshWth.status !== WithdrawalStatus.REQUESTED &&
+            freshWth.status !== WithdrawalStatus.UNDER_REVIEW &&
+            freshWth.status !== WithdrawalStatus.APPROVED)
+        ) {
+          throw new Error(`Cannot reject withdrawal in status: ${freshWth?.status || 'NOT_FOUND'}`);
+        }
 
         const availBal = new Decimal(lockedBal.availableBalance.toString());
         const pendingBal = new Decimal(lockedBal.pendingSettlement.toString());
 
+        if (pendingBal.lessThan(amountDec)) {
+          throw new Error(
+            'Cannot refund withdrawal: pending settlement balance is lower than withdrawal amount (already processed).'
+          );
+        }
+
         const newAvail = availBal.plus(amountDec);
-        const newPending = Decimal.max(0, pendingBal.minus(amountDec));
+        const newPending = pendingBal.minus(amountDec);
 
         await tx.walletBalance.update({
           where: { id: lockedBal.id },

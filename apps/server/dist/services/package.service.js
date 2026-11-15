@@ -242,6 +242,9 @@ class PackageService {
             };
         }
         // Case 2: Manual deposit with proof upload (Bank Wire, USDT TRC-20, Tbilisi Counter)
+        if (params.txHashOrRef?.trim()) {
+            await ledger_service_1.ledgerService.assertUniqueTxReference(params.txHashOrRef.trim());
+        }
         const packageCode = `PKG-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
         const depositCode = `DEP-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
         const [pkg, deposit] = await prisma_1.prisma.$transaction(async (tx) => {
@@ -309,22 +312,72 @@ class PackageService {
         lockInEnd.setMonth(lockInEnd.getMonth() + pkg.lockInMonths);
         const amountDec = new decimal_js_1.default(pkg.amount.toString());
         const idempotencyKey = `PKG-APPROVE-${pkg.packageCode}`;
+        const wallet = await ledger_service_1.ledgerService.ensureWallet(pkg.userId);
         const updated = await prisma_1.prisma.$transaction(async (tx) => {
-            // 1. Lock user's wallet
-            const wallet = await ledger_service_1.ledgerService.ensureWallet(pkg.userId);
+            // 1. Lock user's wallet first to serialize concurrent package/deposit approvals
             const lockedBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, pkg.currency);
+            // Re-verify package status inside the locked transaction
+            const freshPkg = await tx.investmentPackage.findUnique({
+                where: { id: packageId },
+            });
+            if (!freshPkg || freshPkg.status !== client_1.PackageStatus.PENDING_PAYMENT) {
+                throw new Error(`Package is already in status: ${freshPkg?.status || 'NOT_FOUND'}`);
+            }
+            // Check for a paired DepositRequest created during package checkout
+            const pairedDeposit = await tx.depositRequest.findFirst({
+                where: {
+                    userId: pkg.userId,
+                    adminNotes: { contains: pkg.packageCode },
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+            if (pairedDeposit && pairedDeposit.status === client_1.DepositStatus.REJECTED) {
+                throw new Error(`Paired deposit ${pairedDeposit.depositCode} was rejected and cannot be used to activate ${pkg.packageCode}.`);
+            }
             const availBal = new decimal_js_1.default(lockedBal.availableBalance.toString());
             const lockedPrinc = new decimal_js_1.default(lockedBal.lockedPrincipal.toString());
             const newLockedPrinc = lockedPrinc.plus(amountDec);
-            await tx.walletBalance.update({
-                where: { id: lockedBal.id },
-                data: { lockedPrincipal: newLockedPrinc.toFixed(8) },
-            });
+            let newAvailBal = availBal;
+            let journalDebitAccount = pkg.currency === 'USDT' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
+            let debitUserId = null;
+            if (pairedDeposit && pairedDeposit.status === client_1.DepositStatus.APPROVED) {
+                // Admin already credited the paired deposit to availableBalance — move funds from availableBalance -> lockedPrincipal
+                if (availBal.lessThan(amountDec)) {
+                    throw new Error(`Paired deposit ${pairedDeposit.depositCode} was already credited to available balance, but user now has insufficient available balance ($${availBal.toFixed(2)}) to lock $${amountDec.toFixed(2)} into ${pkg.packageCode}.`);
+                }
+                newAvailBal = availBal.minus(amountDec);
+                journalDebitAccount = 'USER_AVAILABLE_USD';
+                debitUserId = pkg.userId;
+                await tx.walletBalance.update({
+                    where: { id: lockedBal.id },
+                    data: {
+                        availableBalance: newAvailBal.toFixed(8),
+                        lockedPrincipal: newLockedPrinc.toFixed(8),
+                    },
+                });
+            }
+            else {
+                await tx.walletBalance.update({
+                    where: { id: lockedBal.id },
+                    data: { lockedPrincipal: newLockedPrinc.toFixed(8) },
+                });
+                if (pairedDeposit && pairedDeposit.status === client_1.DepositStatus.PENDING) {
+                    await tx.depositRequest.update({
+                        where: { id: pairedDeposit.id },
+                        data: {
+                            status: client_1.DepositStatus.APPROVED,
+                            reviewedBy: adminUserId,
+                            reviewedAt: now,
+                            adminNotes: `${pairedDeposit.adminNotes || ''} | Auto-approved & locked via FD activation (${pkg.packageCode})`.trim(),
+                        },
+                    });
+                }
+            }
             // 2. Activate Package
             const updatedPkg = await tx.investmentPackage.update({
                 where: { id: packageId },
                 data: {
-                    status: 'ACTIVE',
+                    status: client_1.PackageStatus.ACTIVE,
                     purchaseDate: now,
                     lockInStart: now,
                     lockInEnd,
@@ -332,8 +385,7 @@ class PackageService {
                     adminNotes: adminNotes || 'Approved by admin',
                 },
             });
-            // 3. Double-entry Ledger: Debit Bank/Hot Wallet, Credit User Locked Principal
-            const assetAccount = pkg.currency === 'USDT' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
+            // 3. Double-entry Ledger: Debit paired source (Treasury or User Available), Credit User Locked Principal
             await ledger_service_1.ledgerService.recordJournal(tx, {
                 idempotencyKey,
                 referenceType: client_1.JournalReferenceType.PACKAGE_PURCHASE,
@@ -342,7 +394,8 @@ class PackageService {
                 createdBy: adminUserId,
                 entries: [
                     {
-                        accountId: assetAccount,
+                        accountId: journalDebitAccount,
+                        ...(debitUserId ? { userId: debitUserId } : {}),
                         direction: 'DEBIT',
                         amount: amountDec.toFixed(8),
                         currency: pkg.currency,
@@ -368,7 +421,7 @@ class PackageService {
                     currency: pkg.currency,
                     status: client_1.TransactionStatus.COMPLETED,
                     balanceBefore: availBal.toFixed(8),
-                    balanceAfter: availBal.toFixed(8),
+                    balanceAfter: newAvailBal.toFixed(8),
                     settlementReference: pkg.packageCode,
                     createdBy: adminUserId,
                     idempotencyKey,

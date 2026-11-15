@@ -307,34 +307,8 @@ class GlobalMoneyTransferService {
             recipientCurrency: data.recipientCurrency,
         });
         const totalToDebit = new decimal_js_1.default(quote.totalPaidAmount);
-        // Ensure wallet balance
         const wallet = await ledger_service_1.ledgerService.ensureWallet(userId);
-        const usdBal = await prisma_1.prisma.walletBalance.findUnique({
-            where: { walletId_currency: { walletId: wallet.id, currency: 'USD' } },
-        });
-        const usdtBal = await prisma_1.prisma.walletBalance.findUnique({
-            where: { walletId_currency: { walletId: wallet.id, currency: 'USDT' } },
-        });
-        const usdAvail = new decimal_js_1.default(usdBal?.availableBalance?.toString() || '0');
-        const usdtAvail = new decimal_js_1.default(usdtBal?.availableBalance?.toString() || '0');
-        let debitCurrency = 'USD';
-        let targetBalId = usdBal?.id;
-        let currentBal = usdAvail;
-        if (usdAvail.greaterThanOrEqualTo(totalToDebit)) {
-            debitCurrency = 'USD';
-            targetBalId = usdBal.id;
-            currentBal = usdAvail;
-        }
-        else if (usdtAvail.greaterThanOrEqualTo(totalToDebit)) {
-            debitCurrency = 'USDT';
-            targetBalId = usdtBal.id;
-            currentBal = usdtAvail;
-        }
-        else {
-            throw new Error(`Insufficient funds. Transfer requires $${quote.totalPaidAmount} (including ${quote.transferFeePct}% fee of $${quote.transferFeeAmount}). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`);
-        }
         const transferCode = `GMT-${Date.now().toString().slice(-6)}`;
-        const newBal = currentBal.minus(totalToDebit);
         const formattedAddress = data.recipientAddress
             ? (data.recipientEmail ? `${data.recipientAddress} | Tracking Email: ${data.recipientEmail}` : data.recipientAddress)
             : (data.recipientEmail ? `Tracking Email: ${data.recipientEmail}` : null);
@@ -354,10 +328,32 @@ class GlobalMoneyTransferService {
             { stage: 'COMPLETED', title: 'Funds Credited to Recipient', timestamp: null, status: 'PENDING', notes: `Beneficiary account ending in ${normalizedAccount.slice(-4)}` }
         ];
         const result = await prisma_1.prisma.$transaction(async (tx) => {
+            // Lock both wallet balance rows before checking funds to prevent concurrent double-spend
+            const usdBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
+            const usdtBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, 'USDT');
+            const usdAvail = new decimal_js_1.default(usdBal.availableBalance?.toString() || '0');
+            const usdtAvail = new decimal_js_1.default(usdtBal.availableBalance?.toString() || '0');
+            let debitCurrency = 'USD';
+            let targetBalId = usdBal.id;
+            let currentBal = usdAvail;
+            if (usdAvail.greaterThanOrEqualTo(totalToDebit)) {
+                debitCurrency = 'USD';
+                targetBalId = usdBal.id;
+                currentBal = usdAvail;
+            }
+            else if (usdtAvail.greaterThanOrEqualTo(totalToDebit)) {
+                debitCurrency = 'USDT';
+                targetBalId = usdtBal.id;
+                currentBal = usdtAvail;
+            }
+            else {
+                throw new Error(`Insufficient funds. Transfer requires $${quote.totalPaidAmount} (including ${quote.transferFeePct}% fee of $${quote.transferFeeAmount}). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`);
+            }
+            const newBal = currentBal.minus(totalToDebit);
             // 1. Deduct wallet available balance
             await tx.walletBalance.update({
                 where: { id: targetBalId },
-                data: { availableBalance: { decrement: totalToDebit.toFixed(8) } },
+                data: { availableBalance: newBal.toFixed(8) },
             });
             // 2. Create GlobalTransfer record
             const transfer = await tx.globalTransfer.create({
@@ -400,12 +396,13 @@ class GlobalMoneyTransferService {
                     status: client_1.TransactionStatus.COMPLETED,
                     balanceBefore: currentBal.toFixed(8),
                     balanceAfter: newBal.toFixed(8),
+                    idempotencyKey: `GMT-OUT-${transferCode}`,
                     notes: `Global Money Transfer to ${data.recipientName.trim()} (${data.recipientBankName.trim()} - ${data.destinationCountry}). Fee: $${quote.transferFeeAmount}`,
                     settlementReference: transferCode,
                 },
             });
             return transfer;
-        });
+        }, { timeout: 30000, maxWait: 10000 });
         return {
             ...result,
             trackingTimeline: initialTimeline,
@@ -463,30 +460,107 @@ class GlobalMoneyTransferService {
         }));
     }
     /**
-     * Admin: Update transfer status (e.g. COMPLETED or REFUNDED)
+     * Admin: Update transfer status (e.g. COMPLETED, REJECTED, or REFUNDED) with atomic wallet refund guard
      */
-    async updateTransferStatusAdmin(id, status, notes) {
-        const transfer = await prisma_1.prisma.globalTransfer.findUnique({ where: { id } });
-        if (!transfer)
+    async updateTransferStatusAdmin(id, status, notes, options) {
+        const existing = await prisma_1.prisma.globalTransfer.findUnique({ where: { id } });
+        if (!existing)
             throw new Error('Transfer not found');
-        const timeline = transfer.trackingTimeline ? JSON.parse(transfer.trackingTimeline) : [];
-        timeline.push({
-            stage: status,
-            title: `Status updated to ${status}`,
-            timestamp: new Date().toISOString(),
-            status: 'COMPLETED',
-            notes: notes || 'Admin update',
-        });
-        const updated = await prisma_1.prisma.globalTransfer.update({
-            where: { id },
-            data: {
-                status,
-                complianceNotes: notes || transfer.complianceNotes,
-                completedAt: status === 'COMPLETED' ? new Date() : transfer.completedAt,
-                trackingTimeline: JSON.stringify(timeline),
-            },
-        });
-        return updated;
+        const wallet = await ledger_service_1.ledgerService.ensureWallet(existing.userId);
+        const nextStatus = (status || existing.status).toUpperCase();
+        const refundStatuses = ['REJECTED', 'REFUNDED', 'CANCELLED'];
+        return await prisma_1.prisma.$transaction(async (tx) => {
+            const transfer = await tx.globalTransfer.findUnique({ where: { id } });
+            if (!transfer)
+                throw new Error('Transfer not found');
+            if (refundStatuses.includes(transfer.status) && !refundStatuses.includes(nextStatus)) {
+                throw new Error(`Transfer ${transfer.transferCode} has already been ${transfer.status} and refunded; its status cannot be changed back to ${nextStatus}.`);
+            }
+            const timeline = transfer.trackingTimeline ? JSON.parse(transfer.trackingTimeline) : [];
+            timeline.push({
+                stage: nextStatus,
+                title: `Status updated to ${nextStatus}`,
+                timestamp: new Date().toISOString(),
+                status: 'COMPLETED',
+                notes: options?.rejectionReason || notes || 'Admin update',
+            });
+            if (refundStatuses.includes(nextStatus) && !refundStatuses.includes(transfer.status)) {
+                const refundIdempotencyKey = `GMT-REFUND-${transfer.transferCode}`;
+                const existingRefund = await tx.transaction.findUnique({
+                    where: { idempotencyKey: refundIdempotencyKey },
+                });
+                if (!existingRefund) {
+                    const refundCurrency = transfer.sendingCurrency || 'USD';
+                    const lockedBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, refundCurrency);
+                    const refundAmt = new decimal_js_1.default(transfer.totalPaidAmount.toString());
+                    const balBefore = new decimal_js_1.default(lockedBal.availableBalance.toString());
+                    const balAfter = balBefore.plus(refundAmt);
+                    await tx.walletBalance.update({
+                        where: { id: lockedBal.id },
+                        data: { availableBalance: balAfter.toFixed(8) },
+                    });
+                    const assetAccount = refundCurrency === 'USDT' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
+                    await ledger_service_1.ledgerService.recordJournal(tx, {
+                        idempotencyKey: refundIdempotencyKey,
+                        referenceType: client_1.JournalReferenceType.REVERSAL,
+                        referenceId: transfer.transferCode,
+                        notes: `Refund for ${nextStatus} Global Money Transfer ${transfer.transferCode}`,
+                        createdBy: options?.adminUserId || 'ADMIN',
+                        entries: [
+                            {
+                                accountId: assetAccount,
+                                direction: 'DEBIT',
+                                amount: refundAmt.toFixed(8),
+                                currency: refundCurrency,
+                            },
+                            {
+                                accountId: 'USER_AVAILABLE_USD',
+                                userId: transfer.userId,
+                                direction: 'CREDIT',
+                                amount: refundAmt.toFixed(8),
+                                currency: refundCurrency,
+                            },
+                        ],
+                    });
+                    await tx.transaction.create({
+                        data: {
+                            transactionCode: `TX-GMTR-${transfer.transferCode}`,
+                            userId: transfer.userId,
+                            type: client_1.TransactionType.REVERSAL,
+                            amount: refundAmt.toFixed(8),
+                            currency: refundCurrency,
+                            status: client_1.TransactionStatus.COMPLETED,
+                            balanceBefore: balBefore.toFixed(8),
+                            balanceAfter: balAfter.toFixed(8),
+                            settlementReference: transfer.transferCode,
+                            idempotencyKey: refundIdempotencyKey,
+                            createdBy: options?.adminUserId || 'ADMIN',
+                            notes: `Refunded ${refundAmt.toFixed(2)} ${refundCurrency} for ${nextStatus} Global Money Transfer ${transfer.transferCode}. Reason: ${options?.rejectionReason || notes || 'Transfer cancelled/rejected'}`,
+                        },
+                    });
+                    timeline.push({
+                        stage: 'REFUND_CREDITED',
+                        title: 'Funds Refunded to Wallet',
+                        timestamp: new Date().toISOString(),
+                        status: 'COMPLETED',
+                        notes: `${refundAmt.toFixed(2)} ${refundCurrency} returned to available balance.`,
+                    });
+                }
+            }
+            const updated = await tx.globalTransfer.update({
+                where: { id },
+                data: {
+                    status: nextStatus,
+                    complianceNotes: notes !== undefined ? notes : transfer.complianceNotes,
+                    rejectionReason: options?.rejectionReason !== undefined
+                        ? options.rejectionReason
+                        : transfer.rejectionReason,
+                    completedAt: nextStatus === 'COMPLETED' ? new Date() : transfer.completedAt,
+                    trackingTimeline: JSON.stringify(timeline),
+                },
+            });
+            return updated;
+        }, { timeout: 30000, maxWait: 10000 });
     }
 }
 exports.GlobalMoneyTransferService = GlobalMoneyTransferService;

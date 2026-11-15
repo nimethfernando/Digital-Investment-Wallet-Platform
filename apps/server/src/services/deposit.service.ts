@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { DepositStatus } from '@prisma/client';
+import { DepositStatus, PackageStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
@@ -400,12 +400,22 @@ export class DepositService {
       };
     }
 
+    if (deposit.status !== DepositStatus.PENDING) {
+      throw new Error(`Deposit request is in status ${deposit.status} and cannot be verified.`);
+    }
+
     const razorpayCfg = await this.getRazorpayConfig();
     const paymentIdClean = params.razorpay_payment_id.trim();
     const orderIdToVerify = (params.razorpay_order_id || deposit.txHashOrRef || '').trim();
 
-    // If live Razorpay keys & signature are present, verify cryptographic HMAC-SHA256 signature
-    if (razorpayCfg.hasLiveKeys && params.razorpay_signature) {
+    await ledgerService.assertUniqueTxReference(paymentIdClean, deposit.id);
+
+    // When live Razorpay keys are configured, strictly require & verify cryptographic HMAC-SHA256 signature
+    if (razorpayCfg.hasLiveKeys) {
+      if (!params.razorpay_signature) {
+        throw new Error('Cryptographic Razorpay payment signature is required for verification.');
+      }
+
       const expectedSignature = crypto
         .createHmac('sha256', razorpayCfg.keySecret)
         .update(`${orderIdToVerify}|${paymentIdClean}`)
@@ -447,7 +457,7 @@ export class DepositService {
       };
     }
 
-    // Assisted / Standard Checkout Confirmation (records payment ID / UTR and auto-credits if AUTO_APPROVE_DEPOSITS is enabled or instant checkout confirmation)
+    // Assisted Checkout Confirmation (records payment ID / UTR for admin treasury verification — never auto-credits unverified claims)
     const updatedNotes = `${deposit.adminNotes || 'Razorpay Payment'} | Ref/Payment ID: ${paymentIdClean}`;
     const updated = await prisma.depositRequest.update({
       where: { id: deposit.id },
@@ -456,39 +466,6 @@ export class DepositService {
         adminNotes: updatedNotes,
       },
     });
-
-    if (process.env.AUTO_APPROVE_DEPOSITS === 'true') {
-      const approval = await ledgerService.processDepositApproval({
-        depositId: deposit.id,
-        depositCode: deposit.depositCode,
-        userId: deposit.userId,
-        amount: deposit.amount.toString(),
-        currency: deposit.currency,
-        reviewedBy: 'RAZORPAY_INSTANT_DESK',
-        notes: updatedNotes,
-        txHash: paymentIdClean,
-      });
-
-      notificationService.sendEmail({
-        to: deposit.user.email,
-        subject: `Avora Bank Razorpay Deposit Credited - ${deposit.depositCode}`,
-        html: `
-          <h3>Razorpay Payment Confirmed</h3>
-          <p>Your Razorpay payment reference (<code>${paymentIdClean}</code>) has been confirmed and credited.</p>
-          <p>Net Credited Amount: <strong>$${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency}</strong> (after ${razorpayCfg.commissionPercent.toFixed(1)}% commission).</p>
-          <p>New Available Wallet Balance: <strong>$${approval.balanceAfter} ${deposit.currency}</strong>.</p>
-        `,
-      }).catch(() => {});
-
-      return {
-        verified: true,
-        autoCredited: true,
-        status: 'APPROVED',
-        deposit: approval.deposit,
-        balanceAfter: approval.balanceAfter,
-        message: `Razorpay payment confirmed! $${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency} (net of ${razorpayCfg.commissionPercent.toFixed(1)}% commission) has been credited to your wallet.`,
-      };
-    }
 
     notificationService.sendEmail({
       to: deposit.user.email,
@@ -656,6 +633,10 @@ export class DepositService {
       }
     }
 
+    if (normalizedHash) {
+      await ledgerService.assertUniqueTxReference(normalizedHash);
+    }
+
     let cleanProofUrl = data.proofUrl?.trim() || null;
     if (cleanProofUrl && cleanProofUrl.includes('?__cf_chl')) {
       cleanProofUrl = cleanProofUrl.split('?')[0];
@@ -747,8 +728,12 @@ export class DepositService {
     });
 
     if (!deposit) throw new Error('Deposit request not found');
-    if (deposit.status !== 'PENDING') {
+    if (deposit.status !== DepositStatus.PENDING) {
       throw new Error(`Deposit is already in status: ${deposit.status}`);
+    }
+
+    if (customTxHash) {
+      await ledgerService.assertUniqueTxReference(customTxHash, depositId);
     }
 
     const result = await ledgerService.processDepositApproval({
@@ -786,19 +771,46 @@ export class DepositService {
     });
 
     if (!deposit) throw new Error('Deposit request not found');
-    if (deposit.status !== 'PENDING') {
+    if (deposit.status !== DepositStatus.PENDING) {
       throw new Error(`Deposit is already in status: ${deposit.status}`);
     }
 
-    const updated = await prisma.depositRequest.update({
-      where: { id: depositId },
-      data: {
-        status: DepositStatus.REJECTED,
-        adminNotes: reason,
-        reviewedBy: adminUserId,
-        reviewedAt: new Date(),
-      },
-    });
+    const updated = await prisma.$transaction(async (tx) => {
+      const freshDeposit = await tx.depositRequest.findUnique({
+        where: { id: depositId },
+      });
+      if (!freshDeposit || freshDeposit.status !== DepositStatus.PENDING) {
+        throw new Error(`Deposit is already in status: ${freshDeposit?.status || 'NOT_FOUND'}`);
+      }
+
+      const rejectedDeposit = await tx.depositRequest.update({
+        where: { id: depositId },
+        data: {
+          status: DepositStatus.REJECTED,
+          adminNotes: reason,
+          reviewedBy: adminUserId,
+          reviewedAt: new Date(),
+        },
+      });
+
+      const pkgCodeMatch = freshDeposit.adminNotes?.match(/PKG-[A-Z0-9-]+/);
+      if (pkgCodeMatch) {
+        const linkedPkg = await tx.investmentPackage.findUnique({
+          where: { packageCode: pkgCodeMatch[0] },
+        });
+        if (linkedPkg && linkedPkg.status === PackageStatus.PENDING_PAYMENT) {
+          await tx.investmentPackage.update({
+            where: { id: linkedPkg.id },
+            data: {
+              status: PackageStatus.CANCELLED,
+              adminNotes: `Cancelled because paired deposit ${freshDeposit.depositCode} was rejected: ${reason}`,
+            },
+          });
+        }
+      }
+
+      return rejectedDeposit;
+    }, { timeout: 30000, maxWait: 10000 });
 
     // Send rejection email (non-blocking)
     notificationService.sendEmail({
