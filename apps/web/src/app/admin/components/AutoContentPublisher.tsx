@@ -69,6 +69,7 @@ export default function AutoContentPublisher({
   const [openaiKey, setOpenaiKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
   const [finnhubKey, setFinnhubKey] = useState('');
+  const [alphaVantageKey, setAlphaVantageKey] = useState('');
   const [savingKeys, setSavingKeys] = useState(false);
 
   const loadPostsAndStatus = async () => {
@@ -191,6 +192,7 @@ export default function AutoContentPublisher({
       if (openaiKey.trim()) payload.openaiApiKey = openaiKey.trim();
       if (geminiKey.trim()) payload.geminiApiKey = geminiKey.trim();
       if (finnhubKey.trim()) payload.finnhubApiKey = finnhubKey.trim();
+      if (alphaVantageKey.trim()) payload.alphaVantageApiKey = alphaVantageKey.trim();
 
       const res = await api.post('/cms/admin/ai-config', payload);
       if (res.data?.success) {
@@ -198,7 +200,8 @@ export default function AutoContentPublisher({
         setOpenaiKey('');
         setGeminiKey('');
         setFinnhubKey('');
-        onFeedback?.('AI & News engine keys updated.', 'success');
+        setAlphaVantageKey('');
+        onFeedback?.('Market Data & AI API keys saved and activated.', 'success');
       }
     } catch (err: any) {
       onFeedback?.(extractErrorMessage(err, 'Failed to save API keys'), 'error');
@@ -215,77 +218,134 @@ export default function AutoContentPublisher({
           <div className="space-y-1">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold uppercase tracking-wider">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>1-Click Autonomous Content &amp; News Engine</span>
+              <span>1-Click Institutional Research &amp; Live Data Engine</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
               Automated Topic-to-Publish Pipeline
             </h2>
             <p className="text-xs text-slate-400 max-w-2xl">
-              Enter any stock ticker or topic and click Post. The engine resolves live prices, writes the headline &amp; full blog article, renders an editorial hero banner &amp; meme, publishes it live, and continuously gathers news underneath.
+              Enter any stock ticker or topic and click Post. The engine resolves real-time OHLCV quotes, RSI-14, SMA-20/50, 52W ranges, fundamental metrics &amp; news wires, generates an institutional report, terminal banner &amp; Bull/Bear thesis matrix, and continuously gathers live news underneath.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] font-semibold text-slate-300">
-              Engine: <span className="text-emerald-400 font-bold">{aiStatus?.engineMode || 'Live Market + RSS Engine'}</span>
+              Engine: <span className="text-emerald-400 font-bold">{aiStatus?.engineMode || 'Live Market OHLCV + RSS Engine'}</span>
             </span>
             <button
               type="button"
               onClick={() => setShowAiConfig((v) => !v)}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer transition-colors"
+              className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-xs font-bold text-amber-300 flex items-center gap-1.5 cursor-pointer transition-colors"
             >
               <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-              <span>{showAiConfig ? 'Hide API Keys' : 'AI / News Keys'}</span>
+              <span>{showAiConfig ? 'Hide API Keys' : 'Configure Market & AI API Keys'}</span>
             </button>
           </div>
         </div>
 
-        {/* Optional AI / Finnhub API Keys Config */}
+        {/* Market Data & AI API Keys Config */}
         {showAiConfig && (
           <form
             onSubmit={handleSaveAiKeys}
-            className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-4 text-xs animate-in fade-in duration-150"
+            className="p-5 rounded-2xl bg-slate-950/90 border border-amber-500/30 space-y-4 text-xs animate-in fade-in duration-150"
           >
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-white">
-                Optional Upgrades (Works immediately without keys; add OpenAI/Gemini for deeper prose &amp; Finnhub for institutional wires)
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div>
+                <p className="font-bold text-white text-sm">
+                  Real-Time Market Data &amp; AI Synthesis API Keys
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Yahoo Finance v8 OHLCV + Google/Yahoo RSS work out-of-the-box. Add a free <span className="text-emerald-400 font-semibold">Finnhub</span> or <span className="text-emerald-400 font-semibold">Alpha Vantage</span> API key to unlock real-time P/E, EPS, Market Cap, Beta, Wall St. Analyst Consensus &amp; institutional company news, plus <span className="text-emerald-400 font-semibold">OpenAI / Gemini</span> for deep LLM research synthesis.
+                </p>
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
-                <label className="block text-slate-400 font-bold mb-1">
-                  OpenAI API Key {aiStatus?.openaiConfigured && <span className="text-emerald-400">(Active)</span>}
-                </label>
-                <input
-                  type="password"
-                  value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 font-bold mb-1">
-                  Google Gemini Key {aiStatus?.geminiConfigured && <span className="text-emerald-400">(Active)</span>}
-                </label>
-                <input
-                  type="password"
-                  value={geminiKey}
-                  onChange={(e) => setGeminiKey(e.target.value)}
-                  placeholder="AIza..."
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 font-bold mb-1">
-                  Finnhub News Key {aiStatus?.finnhubConfigured && <span className="text-emerald-400">(Active)</span>}
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-300 font-bold">
+                    Finnhub Market API Key {aiStatus?.finnhubConfigured && <span className="text-emerald-400">(Active)</span>}
+                  </label>
+                  <a
+                    href="https://finnhub.io/register"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-emerald-400 hover:underline"
+                  >
+                    Get free key ↗
+                  </a>
+                </div>
                 <input
                   type="password"
                   value={finnhubKey}
                   onChange={(e) => setFinnhubKey(e.target.value)}
-                  placeholder="Finnhub token..."
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none"
+                  placeholder="Quotes, P/E, Analyst Ratings & News..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 focus:border-emerald-500 text-white outline-none"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-300 font-bold">
+                    Alpha Vantage API Key {aiStatus?.alphaVantageConfigured && <span className="text-emerald-400">(Active)</span>}
+                  </label>
+                  <a
+                    href="https://www.alphavantage.co/support/#api-key"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-emerald-400 hover:underline"
+                  >
+                    Get free key ↗
+                  </a>
+                </div>
+                <input
+                  type="password"
+                  value={alphaVantageKey}
+                  onChange={(e) => setAlphaVantageKey(e.target.value)}
+                  placeholder="Fundamentals, EPS, Margin & Sentiment..."
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 focus:border-emerald-500 text-white outline-none"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-300 font-bold">
+                    OpenAI API Key {aiStatus?.openaiConfigured && <span className="text-emerald-400">(Active)</span>}
+                  </label>
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-emerald-400 hover:underline"
+                  >
+                    OpenAI Keys ↗
+                  </a>
+                </div>
+                <input
+                  type="password"
+                  value={openaiKey}
+                  onChange={(e) => setOpenaiKey(e.target.value)}
+                  placeholder="sk-... (GPT-4o Research)"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 focus:border-emerald-500 text-white outline-none"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-300 font-bold">
+                    Google Gemini Key {aiStatus?.geminiConfigured && <span className="text-emerald-400">(Active)</span>}
+                  </label>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-emerald-400 hover:underline"
+                  >
+                    Google AI Studio ↗
+                  </a>
+                </div>
+                <input
+                  type="password"
+                  value={geminiKey}
+                  onChange={(e) => setGeminiKey(e.target.value)}
+                  placeholder="AIza... (Gemini 2.0 Flash)"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 focus:border-emerald-500 text-white outline-none"
                 />
               </div>
             </div>
@@ -293,9 +353,9 @@ export default function AutoContentPublisher({
               <button
                 type="submit"
                 disabled={savingKeys}
-                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer disabled:opacity-50"
+                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer disabled:opacity-50"
               >
-                {savingKeys ? 'Saving...' : 'Save Keys'}
+                {savingKeys ? 'Saving...' : 'Save & Activate API Keys'}
               </button>
             </div>
           </form>
@@ -359,7 +419,7 @@ export default function AutoContentPublisher({
                 className="rounded border-slate-600 bg-slate-800 text-emerald-500"
               />
               <Smile className="w-3.5 h-3.5 text-amber-400" />
-              <span>Auto-create market meme card</span>
+              <span>Auto-create Quantitative Sentiment &amp; Bull/Bear Matrix graphic</span>
             </label>
 
             <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -379,10 +439,10 @@ export default function AutoContentPublisher({
         {publishing && (
           <div className="p-4 rounded-2xl bg-slate-950/90 border border-emerald-500/30 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
             {[
-              { step: 1, text: 'Resolving live quote & ticker' },
+              { step: 1, text: 'Resolving live OHLCV & fundamentals' },
               { step: 2, text: 'Gathering verified market wires' },
-              { step: 3, text: 'Writing article, banner & meme' },
-              { step: 4, text: 'Publishing + arming news feed' },
+              { step: 3, text: 'Writing report, terminal banner & matrix' },
+              { step: 4, text: 'Publishing + arming live news feed' },
             ].map((s) => (
               <div
                 key={s.step}
@@ -429,7 +489,7 @@ export default function AutoContentPublisher({
               {lastResult.post.coverImage && (
                 <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900">
                   <img
-                    src={resolveMediaUrl(lastResult.post.coverImage)}
+                    src={`${resolveMediaUrl(lastResult.post.coverImage)}?t=${Date.now()}`}
                     alt="Generated Hero Banner"
                     className="w-full h-auto"
                   />
@@ -438,8 +498,8 @@ export default function AutoContentPublisher({
               {lastResult.post.memeUrl && (
                 <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900">
                   <img
-                    src={resolveMediaUrl(lastResult.post.memeUrl)}
-                    alt="Generated Market Meme"
+                    src={`${resolveMediaUrl(lastResult.post.memeUrl)}?t=${Date.now()}`}
+                    alt="Generated Quantitative Sentiment Matrix"
                     className="w-full h-auto"
                   />
                 </div>

@@ -1,8 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getSettings = exports.subscribeNewsletter = void 0;
+exports.saveAiPublisherConfig = exports.getAiPublisherConfig = exports.deleteAdminBlogPost = exports.updateAdminBlogPost = exports.getAdminBlogPosts = exports.syncAllTrackedBlogs = exports.syncBlogNewsAdmin = exports.autoPublishBlog = exports.getBlogMemeMedia = exports.getBlogBannerMedia = exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getSettings = exports.subscribeNewsletter = void 0;
 const zod_1 = require("zod");
 const cms_service_1 = require("../services/cms.service");
+const autoContent_service_1 = require("../services/autoContent.service");
+const prisma_1 = require("../lib/prisma");
 const client_1 = require("@prisma/client");
 const inquirySchema = zod_1.z.object({
     type: zod_1.z.nativeEnum(client_1.InquiryType),
@@ -145,9 +147,23 @@ exports.getBlogPosts = getBlogPosts;
 const getBlogPost = async (req, res, next) => {
     try {
         const slug = req.params.slug;
-        const blog = await cms_service_1.cmsService.getBlogPostBySlug(slug);
+        let blog = await cms_service_1.cmsService.getBlogPostBySlug(slug);
         if (!blog)
             return res.status(404).json({ success: false, message: 'Blog post not found' });
+        // Stale auto-refresh if auto-tracked and last sync was > 30 mins ago (keeps continuous news fresh even on serverless)
+        const thirtyMinsAgo = Date.now() - 30 * 60 * 1000;
+        if (blog.autoTrackNews &&
+            blog.ticker &&
+            (!blog.lastNewsSync || new Date(blog.lastNewsSync).getTime() < thirtyMinsAgo)) {
+            try {
+                const synced = await autoContent_service_1.autoContentService.syncPostNews(blog.id);
+                if (synced?.post)
+                    blog = synced.post;
+            }
+            catch {
+                // serve existing cached content if external news fetch times out
+            }
+        }
         res.json({ success: true, blog });
     }
     catch (err) {
@@ -155,3 +171,152 @@ const getBlogPost = async (req, res, next) => {
     }
 };
 exports.getBlogPost = getBlogPost;
+const getBlogBannerMedia = async (req, res, next) => {
+    try {
+        const rawSlug = String(req.params.slug || '').replace(/\.svg$/i, '');
+        const post = await prisma_1.prisma.blogPost.findUnique({
+            where: { slug: rawSlug },
+            select: { slug: true, title: true, bannerData: true },
+        });
+        const svg = autoContent_service_1.autoContentService.renderBannerSvg(rawSlug, post?.bannerData, post?.title);
+        res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        res.send(svg);
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.getBlogBannerMedia = getBlogBannerMedia;
+const getBlogMemeMedia = async (req, res, next) => {
+    try {
+        const rawSlug = String(req.params.slug || '').replace(/\.svg$/i, '');
+        const post = await prisma_1.prisma.blogPost.findUnique({
+            where: { slug: rawSlug },
+            select: { ticker: true, memeData: true },
+        });
+        const svg = autoContent_service_1.autoContentService.renderMemeSvg(post?.memeData, post?.ticker || 'MARKET');
+        res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        res.send(svg);
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.getBlogMemeMedia = getBlogMemeMedia;
+const autoPublishBlog = async (req, res, next) => {
+    try {
+        const { topic, includeMeme, autoTrackNews, categoryOverride } = req.body;
+        if (!topic || typeof topic !== 'string' || topic.trim().length < 2) {
+            return res.status(400).json({ success: false, message: 'Please enter a valid stock ticker or topic.' });
+        }
+        const result = await autoContent_service_1.autoContentService.publishAutomatedPost({
+            topic: topic.trim(),
+            includeMeme: includeMeme !== false,
+            autoTrackNews: autoTrackNews !== false,
+            categoryOverride: typeof categoryOverride === 'string' && categoryOverride.trim() ? categoryOverride.trim() : undefined,
+        });
+        res.status(201).json({
+            success: true,
+            message: `Published automated briefing for ${result.stats.companyName} (${result.stats.tickerResolved}) with ${result.stats.newsGathered} live news updates.`,
+            ...result,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.autoPublishBlog = autoPublishBlog;
+const syncBlogNewsAdmin = async (req, res, next) => {
+    try {
+        const id = req.params.id;
+        const result = await autoContent_service_1.autoContentService.syncPostNews(id, true);
+        if (!result) {
+            return res.status(404).json({ success: false, message: 'Tracked blog post not found.' });
+        }
+        res.json({
+            success: true,
+            message: `Updated quantitative report & synced ${result.addedCount} new headline(s) for ${result.post.ticker || result.post.slug}.`,
+            ...result,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.syncBlogNewsAdmin = syncBlogNewsAdmin;
+const syncAllTrackedBlogs = async (req, res, next) => {
+    try {
+        const summary = await autoContent_service_1.autoContentService.syncAllTrackedPosts();
+        res.json({ success: true, ...summary });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.syncAllTrackedBlogs = syncAllTrackedBlogs;
+const getAdminBlogPosts = async (req, res, next) => {
+    try {
+        const blogs = await cms_service_1.cmsService.getBlogPosts(true);
+        res.json({ success: true, blogs });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.getAdminBlogPosts = getAdminBlogPosts;
+const updateAdminBlogPost = async (req, res, next) => {
+    try {
+        const id = req.params.id;
+        const { isPublished, autoTrackNews } = req.body;
+        const data = {};
+        if (typeof isPublished === 'boolean')
+            data.isPublished = isPublished;
+        if (typeof autoTrackNews === 'boolean')
+            data.autoTrackNews = autoTrackNews;
+        const updated = await prisma_1.prisma.blogPost.update({ where: { id }, data });
+        res.json({ success: true, blog: updated });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.updateAdminBlogPost = updateAdminBlogPost;
+const deleteAdminBlogPost = async (req, res, next) => {
+    try {
+        const id = req.params.id;
+        await prisma_1.prisma.blogPost.delete({ where: { id } });
+        res.json({ success: true, message: 'Blog post deleted.' });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.deleteAdminBlogPost = deleteAdminBlogPost;
+const getAiPublisherConfig = async (req, res, next) => {
+    try {
+        const status = await autoContent_service_1.autoContentService.getPublicAiStatus();
+        res.json({ success: true, status });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.getAiPublisherConfig = getAiPublisherConfig;
+const saveAiPublisherConfig = async (req, res, next) => {
+    try {
+        const { openaiApiKey, geminiApiKey, finnhubApiKey, alphaVantageApiKey } = req.body;
+        const status = await autoContent_service_1.autoContentService.saveAiConfig({
+            openaiApiKey,
+            geminiApiKey,
+            finnhubApiKey,
+            alphaVantageApiKey,
+        });
+        res.json({ success: true, status });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.saveAiPublisherConfig = saveAiPublisherConfig;

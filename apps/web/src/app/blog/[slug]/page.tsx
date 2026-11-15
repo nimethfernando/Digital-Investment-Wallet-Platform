@@ -42,6 +42,7 @@ interface ExtendedBlogPost extends BlogPostItem {
   lastNewsSync?: string | null;
   autoTrackNews?: boolean;
   memeUrl?: string | null;
+  bannerMeta?: any | null;
   highlights?: LiveHighlight[];
   newsUpdates?: NewsUpdateItem[];
 }
@@ -97,6 +98,17 @@ export default function BlogPostDetailPage() {
             }
           } catch {}
 
+          let parsedBannerMeta: any = null;
+          try {
+            if (typeof b.bannerData === 'string') {
+              parsedBannerMeta = JSON.parse(b.bannerData);
+            }
+          } catch {}
+
+          const cacheTag = b.lastNewsSync || b.updatedAt ? `?t=${new Date(b.lastNewsSync || b.updatedAt).getTime()}` : '';
+          const rawCover = resolveMediaUrl(b.coverImage) || resolveMediaUrl(b.bannerSvgUrl);
+          const rawMeme = resolveMediaUrl(b.memeUrl);
+
           setPost({
             id: b.id,
             slug: b.slug,
@@ -106,11 +118,10 @@ export default function BlogPostDetailPage() {
             readTime: b.readTime || '5 min read',
             publishedAt: b.publishedAt || b.createdAt || '2026-10-20',
             authorName: b.authorName || b.author || 'Avora Institutional Research',
-            authorRole: b.ticker ? `${b.ticker} • Automated Market Research Desk` : 'Avora Bank Research Desk',
-            coverImage:
-              resolveMediaUrl(b.coverImage) ||
-              resolveMediaUrl(b.bannerSvgUrl) ||
-              'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80',
+            authorRole: b.ticker ? `${b.ticker} • Quantitative Equity & Macro Desk` : 'Avora Bank Research Desk',
+            coverImage: rawCover
+              ? `${rawCover}${rawCover.endsWith('.svg') ? cacheTag : ''}`
+              : 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80',
             tags: Array.isArray(b.tags)
               ? b.tags
               : typeof b.tags === 'string'
@@ -126,7 +137,8 @@ export default function BlogPostDetailPage() {
             priceChange: b.priceChange || null,
             lastNewsSync: b.lastNewsSync || null,
             autoTrackNews: Boolean(b.autoTrackNews),
-            memeUrl: resolveMediaUrl(b.memeUrl) || null,
+            memeUrl: rawMeme ? `${rawMeme}${rawMeme.endsWith('.svg') ? cacheTag : ''}` : null,
+            bannerMeta: parsedBannerMeta,
             highlights: parsedHighlights,
             newsUpdates: Array.isArray(b.newsUpdates) ? b.newsUpdates : [],
           });
@@ -229,12 +241,101 @@ export default function BlogPostDetailPage() {
         />
       </div>
 
+      {/* Quantitative Market Data Terminal Snapshot (Real API Metrics) */}
+      {post.bannerMeta && (
+        <div className="p-6 sm:p-7 rounded-3xl bg-slate-950 border border-slate-800 text-white shadow-xl space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-400">
+              <TrendingUp className="w-4 h-4" />
+              <span>Real-Time Quantitative &amp; Fundamental Terminal ({post.ticker || 'MARKET'})</span>
+            </div>
+            <span className="text-[11px] font-mono text-slate-400">
+              Source: {post.bannerMeta.dataSource || 'Yahoo Finance v8 OHLCV + Wires'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-xs">
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+              <div className="text-[10px] font-bold uppercase text-slate-400">Last Traded Price</div>
+              <div className="text-base font-black font-mono text-white">{post.lastPrice || post.bannerMeta.priceText}</div>
+              <div className={`text-xs font-mono font-bold ${(post.priceChange || '').startsWith('-') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                {post.priceChange || post.bannerMeta.changeText} (1D Session)
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+              <div className="text-[10px] font-bold uppercase text-slate-400">Intraday Range</div>
+              <div className="text-sm font-black font-mono text-white">{post.bannerMeta.dayRangeText || 'N/A'}</div>
+              <div className="text-[11px] text-slate-400">Exchange: {post.bannerMeta.exchange || 'NASDAQ'}</div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+              <div className="text-[10px] font-bold uppercase text-slate-400">52-Week Band</div>
+              <div className="text-sm font-black font-mono text-sky-400">{post.bannerMeta.fiftyTwoWeekText || 'N/A'}</div>
+              {typeof post.bannerMeta.technicals?.fiftyTwoWeekPct === 'number' && (
+                <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden mt-1">
+                  <div
+                    className="h-full bg-sky-400 rounded-full"
+                    style={{ width: `${post.bannerMeta.technicals.fiftyTwoWeekPct}%` }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+              <div className="text-[10px] font-bold uppercase text-slate-400">Session Volume</div>
+              <div className="text-sm font-black font-mono text-white">{post.bannerMeta.volumeText || 'N/A'}</div>
+              <div className="text-[11px] text-slate-400">Liquidity participation</div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+              <div className="text-[10px] font-bold uppercase text-slate-400">RSI (14-Day) Momentum</div>
+              <div className="text-sm font-black font-mono text-emerald-400">{post.bannerMeta.rsiText || 'N/A'}</div>
+              <div className="text-[11px] text-slate-400">Relative Strength Index</div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+              <div className="text-[10px] font-bold uppercase text-slate-400">Moving Averages</div>
+              <div className="text-xs font-black font-mono text-slate-200">{post.bannerMeta.smaText || 'N/A'}</div>
+              <div className="text-[11px] text-slate-400">
+                3M Return:{' '}
+                <span className="font-mono font-bold text-white">
+                  {typeof post.bannerMeta.technicals?.return3mPct === 'number'
+                    ? `${post.bannerMeta.technicals.return3mPct >= 0 ? '+' : ''}${post.bannerMeta.technicals.return3mPct}%`
+                    : 'N/A'}
+                </span>
+              </div>
+            </div>
+
+            {post.bannerMeta.fundamentals?.marketCap && (
+              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+                <div className="text-[10px] font-bold uppercase text-slate-400">Market Cap &amp; Valuation</div>
+                <div className="text-sm font-black font-mono text-white">{post.bannerMeta.fundamentals.marketCap}</div>
+                <div className="text-[11px] text-slate-400 font-mono">
+                  P/E: {post.bannerMeta.fundamentals.peRatio || 'N/A'} {post.bannerMeta.fundamentals.eps ? `• EPS ${post.bannerMeta.fundamentals.eps}` : ''}
+                </div>
+              </div>
+            )}
+
+            {post.bannerMeta.fundamentals?.analystConsensus && (
+              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1">
+                <div className="text-[10px] font-bold uppercase text-slate-400">Wall St. Analyst Consensus</div>
+                <div className="text-xs font-black font-mono text-amber-400">{post.bannerMeta.fundamentals.analystConsensus}</div>
+                <div className="text-[11px] text-slate-400">
+                  {post.bannerMeta.fundamentals.analystTarget ? `Target: ${post.bannerMeta.fundamentals.analystTarget}` : 'Finnhub Institutional Survey'}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Key Takeaways Box */}
       {post.keyTakeaways && post.keyTakeaways.length > 0 && (
         <div className="p-6 sm:p-8 rounded-3xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/60 space-y-4">
           <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
             <Sparkles className="w-4 h-4" />
-            <span>Executive Summary &amp; Key Takeaways</span>
+            <span>Executive Summary &amp; Key Quantitative Takeaways</span>
           </div>
           <ul className="space-y-2.5">
             {post.keyTakeaways.map((point, idx) => (
@@ -250,27 +351,43 @@ export default function BlogPostDetailPage() {
         </div>
       )}
 
-      {/* Main Article Body */}
+      {/* Main Article Body (Supports Structured ## Section Headers) */}
       <div className="space-y-6 text-sm sm:text-base text-slate-700 dark:text-slate-300 leading-relaxed">
-        {post.content.map((paragraph, index) => (
-          <p key={index} className="leading-relaxed">
-            {paragraph}
-          </p>
-        ))}
+        {post.content.map((block, index) => {
+          const trimmed = block.trim();
+          if (trimmed.startsWith('## ')) {
+            const newlineIdx = trimmed.indexOf('\n');
+            const heading = newlineIdx !== -1 ? trimmed.slice(3, newlineIdx).trim() : trimmed.slice(3).trim();
+            const body = newlineIdx !== -1 ? trimmed.slice(newlineIdx + 1).trim() : '';
+            return (
+              <div key={index} className="space-y-2.5 pt-2">
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                  {heading}
+                </h3>
+                {body && <p className="leading-relaxed">{body}</p>}
+              </div>
+            );
+          }
+          return (
+            <p key={index} className="leading-relaxed">
+              {trimmed}
+            </p>
+          );
+        })}
       </div>
 
-      {/* Market Humor / Meme Card (Auto-Generated) */}
+      {/* Quantitative Sentiment & Bull/Bear Matrix Visual Card */}
       {post.memeUrl && (
         <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-slate-950 p-4 sm:p-6 space-y-3 shadow-xl">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-amber-400">
-              <Smile className="w-4 h-4" />
-              Market Sentiment Visual
+            <span className="inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-emerald-400">
+              <TrendingUp className="w-4 h-4" />
+              Quantitative Sentiment &amp; Bull / Bear Thesis Matrix
             </span>
-            <span className="font-mono">{post.ticker || 'AVORA'} BRIEF</span>
+            <span className="font-mono">{post.ticker || 'AVORA'} RESEARCH</span>
           </div>
           <div className="overflow-hidden rounded-2xl border border-slate-800">
-            <img src={post.memeUrl} alt={`${post.ticker || post.title} Market Meme`} className="w-full h-auto" />
+            <img src={post.memeUrl} alt={`${post.ticker || post.title} Sentiment Matrix`} className="w-full h-auto" />
           </div>
         </div>
       )}

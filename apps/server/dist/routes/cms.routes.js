@@ -8,14 +8,24 @@ const router = (0, express_1.Router)();
 router.get('/settings', cms_controller_1.getSettings);
 router.get('/sections/:page', cms_controller_1.getPageSections);
 router.get('/blogs', cms_controller_1.getBlogPosts);
+router.get('/blogs/cron-sync', cms_controller_1.syncAllTrackedBlogs);
 router.get('/blogs/:slug', cms_controller_1.getBlogPost);
+router.get('/media/banner/:slug', cms_controller_1.getBlogBannerMedia);
+router.get('/media/meme/:slug', cms_controller_1.getBlogMemeMedia);
 router.post('/inquiry', cms_controller_1.submitInquiry);
 router.post('/newsletter', cms_controller_1.subscribeNewsletter);
 router.get('/my-tickets', auth_1.authenticateToken, cms_controller_1.getMyInquiries);
-// Admin-only CMS routes
+// Admin-only CMS & Auto-Publisher routes
 router.get('/admin/sections', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.getAllSections);
 router.put('/admin/sections/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateSection);
 router.post('/admin/settings', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateSetting);
 router.get('/admin/inquiries', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.getInquiries);
 router.put('/admin/inquiries/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateInquiryStatus);
+router.get('/admin/blogs', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.getAdminBlogPosts);
+router.post('/admin/blogs/auto-publish', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.autoPublishBlog);
+router.post('/admin/blogs/:id/sync-news', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.syncBlogNewsAdmin);
+router.patch('/admin/blogs/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateAdminBlogPost);
+router.delete('/admin/blogs/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.deleteAdminBlogPost);
+router.get('/admin/ai-config', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.getAiPublisherConfig);
+router.post('/admin/ai-config', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.saveAiPublisherConfig);
 exports.default = router;

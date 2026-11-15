@@ -4,6 +4,7 @@ exports.cmsService = exports.CmsService = void 0;
 const client_1 = require("@prisma/client");
 const prisma_1 = require("../lib/prisma");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
+const autoContent_service_1 = require("./autoContent.service");
 class CmsService {
     async getPublicSettings() {
         const settings = await prisma_1.prisma.cmsSetting.findMany();
@@ -37,15 +38,28 @@ class CmsService {
             data,
         });
     }
-    async getBlogPosts() {
+    async getBlogPosts(includeDrafts = false) {
+        await autoContent_service_1.autoContentService.ensureSchema();
         return prisma_1.prisma.blogPost.findMany({
-            where: { isPublished: true },
+            where: includeDrafts ? {} : { isPublished: true },
             orderBy: { publishedAt: 'desc' },
+            include: {
+                _count: {
+                    select: { newsUpdates: true },
+                },
+            },
         });
     }
     async getBlogPostBySlug(slug) {
+        await autoContent_service_1.autoContentService.ensureSchema();
         return prisma_1.prisma.blogPost.findUnique({
             where: { slug },
+            include: {
+                newsUpdates: {
+                    orderBy: { publishedAt: 'desc' },
+                    take: 25,
+                },
+            },
         });
     }
     async submitInquiry(data) {

@@ -219,13 +219,13 @@ export const autoPublishBlog = async (req: Request, res: Response, next: NextFun
 export const syncBlogNewsAdmin = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    const result = await autoContentService.syncPostNews(id);
+    const result = await autoContentService.syncPostNews(id, true);
     if (!result) {
       return res.status(404).json({ success: false, message: 'Tracked blog post not found.' });
     }
     res.json({
       success: true,
-      message: `Synced ${result.addedCount} new headline(s) for ${result.post.ticker || result.post.slug}.`,
+      message: `Updated quantitative report & synced ${result.addedCount} new headline(s) for ${result.post.ticker || result.post.slug}.`,
       ...result,
     });
   } catch (err) {
@@ -287,11 +287,12 @@ export const getAiPublisherConfig = async (req: Request, res: Response, next: Ne
 
 export const saveAiPublisherConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { openaiApiKey, geminiApiKey, finnhubApiKey } = req.body;
+    const { openaiApiKey, geminiApiKey, finnhubApiKey, alphaVantageApiKey } = req.body;
     const status = await autoContentService.saveAiConfig({
       openaiApiKey,
       geminiApiKey,
       finnhubApiKey,
+      alphaVantageApiKey,
     });
     res.json({ success: true, status });
   } catch (err) {
