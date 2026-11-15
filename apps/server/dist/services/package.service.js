@@ -4,6 +4,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.packageService = exports.PackageService = void 0;
+exports.getCycleDueDate = getCycleDueDate;
+exports.computePackageYieldSchedule = computePackageYieldSchedule;
 const client_1 = require("@prisma/client");
 const decimal_js_1 = __importDefault(require("decimal.js"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
@@ -11,6 +13,79 @@ const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
+/**
+ * Computes the calendar anniversary due date for a monthly FD cycle (1-indexed),
+ * clamping end-of-month dates cleanly (e.g., Jan 31 + 1 mo -> Feb 28/29).
+ */
+function getCycleDueDate(startDateInput, periodIndex) {
+    const start = new Date(startDateInput);
+    const firstOfTargetMonth = new Date(start.getFullYear(), start.getMonth() + periodIndex, 1);
+    const lastDayOfTargetMonth = new Date(firstOfTargetMonth.getFullYear(), firstOfTargetMonth.getMonth() + 1, 0).getDate();
+    const clampedDay = Math.min(start.getDate(), lastDayOfTargetMonth);
+    return new Date(firstOfTargetMonth.getFullYear(), firstOfTargetMonth.getMonth(), clampedDay, start.getHours(), start.getMinutes(), start.getSeconds(), start.getMilliseconds());
+}
+/**
+ * Computes date-based monthly yield completion cycles for an investment package.
+ */
+function computePackageYieldSchedule(pkg, now = new Date()) {
+    const startRaw = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt || now;
+    const startDate = new Date(startRaw);
+    const lockMonths = pkg.lockInMonths || 6;
+    const returnsCount = Array.isArray(pkg.returns)
+        ? pkg.returns.length
+        : typeof pkg.returnsCount === 'number'
+            ? pkg.returnsCount
+            : 0;
+    let completedCycles = 0;
+    for (let k = 1; k <= lockMonths; k++) {
+        if (now.getTime() >= getCycleDueDate(startDate, k).getTime()) {
+            completedCycles = k;
+        }
+        else {
+            break;
+        }
+    }
+    const isActive = pkg.status === 'ACTIVE';
+    const duePeriodsCount = isActive ? Math.max(0, completedCycles - returnsCount) : 0;
+    const duePeriodIndices = [];
+    if (isActive && duePeriodsCount > 0) {
+        for (let p = returnsCount + 1; p <= completedCycles; p++) {
+            duePeriodIndices.push(p);
+        }
+    }
+    const amountDec = new decimal_js_1.default(pkg.amount?.toString() || '0');
+    const rateDec = new decimal_js_1.default(pkg.returnRateSnapshot?.toString() || '0.01');
+    const monthlyYieldDec = amountDec.times(rateDec);
+    const dueYieldAmount = monthlyYieldDec.times(duePeriodsCount).toFixed(2);
+    const nextPeriodIndex = returnsCount < lockMonths ? returnsCount + 1 : null;
+    const nextYieldDueDate = isActive && nextPeriodIndex !== null
+        ? getCycleDueDate(startDate, nextPeriodIndex)
+        : null;
+    const daysUntilNextYield = nextYieldDueDate
+        ? Math.ceil((nextYieldDueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+        : null;
+    const isYieldDue = isActive && duePeriodsCount > 0;
+    const isYieldDueSoon = isActive &&
+        !isYieldDue &&
+        daysUntilNextYield !== null &&
+        daysUntilNextYield > 0 &&
+        daysUntilNextYield <= 5;
+    return {
+        startDate,
+        lockMonths,
+        returnsCount,
+        completedCycles,
+        duePeriodsCount,
+        duePeriodIndices,
+        monthlyYield: monthlyYieldDec.toFixed(2),
+        dueYieldAmount,
+        nextPeriodIndex,
+        nextYieldDueDate,
+        daysUntilNextYield,
+        isYieldDue,
+        isYieldDueSoon,
+    };
+}
 class PackageService {
     /**
      * Helper to retrieve package rules from CMS settings
@@ -77,6 +152,7 @@ class PackageService {
                 const msRemaining = Math.max(0, end - now.getTime());
                 daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
             }
+            const yieldSchedule = computePackageYieldSchedule(pkg, now);
             return {
                 id: pkg.id,
                 packageCode: pkg.packageCode,
@@ -94,6 +170,14 @@ class PackageService {
                 withdrawalEligibilityDate: pkg.withdrawalEligibilityDate,
                 daysRemaining,
                 progressPercent,
+                completedCycles: yieldSchedule.completedCycles,
+                duePeriodsCount: yieldSchedule.duePeriodsCount,
+                dueYieldAmount: yieldSchedule.dueYieldAmount,
+                isYieldDue: yieldSchedule.isYieldDue,
+                isYieldDueSoon: yieldSchedule.isYieldDueSoon,
+                nextPeriodIndex: yieldSchedule.nextPeriodIndex,
+                nextYieldDueDate: yieldSchedule.nextYieldDueDate,
+                daysUntilNextYield: yieldSchedule.daysUntilNextYield,
                 depositMethod: pkg.depositMethod,
                 depositProofUrl: pkg.depositProofUrl,
                 returns: pkg.returns.map((r) => ({
@@ -496,6 +580,7 @@ class PackageService {
                     daysRemaining = Math.ceil((end - nowMs) / (1000 * 60 * 60 * 24));
                 }
                 const lastPayoutDate = pkg.returns.length > 0 ? pkg.returns[0].payoutDate : null;
+                const yieldSchedule = computePackageYieldSchedule(pkg, new Date(nowMs));
                 return {
                     id: pkg.id,
                     packageCode: pkg.packageCode,
@@ -520,6 +605,14 @@ class PackageService {
                     withdrawalEligibilityDate: pkg.withdrawalEligibilityDate,
                     daysRemaining,
                     progressPercent,
+                    completedCycles: yieldSchedule.completedCycles,
+                    duePeriodsCount: yieldSchedule.duePeriodsCount,
+                    dueYieldAmount: yieldSchedule.dueYieldAmount,
+                    isYieldDue: yieldSchedule.isYieldDue,
+                    isYieldDueSoon: yieldSchedule.isYieldDueSoon,
+                    nextPeriodIndex: yieldSchedule.nextPeriodIndex,
+                    nextYieldDueDate: yieldSchedule.nextYieldDueDate,
+                    daysUntilNextYield: yieldSchedule.daysUntilNextYield,
                     depositMethod: pkg.depositMethod,
                     depositProofUrl: pkg.depositProofUrl,
                     adminNotes: pkg.adminNotes,

@@ -3,17 +3,35 @@ import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { notificationService } from '../adapters/notification/notification.provider';
+import { computePackageYieldSchedule } from './package.service';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
+
+export interface ReturnsPackageDetail {
+  packageCode: string;
+  userEmail: string;
+  status: 'CREDITED' | 'SKIPPED_NOT_DUE' | 'SKIPPED_ALREADY_CREDITED' | 'ERROR';
+  periodsCredited: number;
+  amountCredited: string;
+  nextPeriodIndex: number | null;
+  nextYieldDueDate: string | null;
+  daysUntilNextYield: number | null;
+  reason: string;
+}
 
 export interface ReturnsRunResult {
   executionId: string;
   totalActivePackages: number;
+  duePackagesCount: number;
   creditedCount: number;
+  periodsCreditedCount: number;
   skippedCount: number;
+  notYetDueCount: number;
+  alreadyCreditedCount: number;
   errorCount: number;
   totalDistributedUsd: string;
   errors: { packageCode: string; error: string }[];
+  packageDetails: ReturnsPackageDetail[];
   executedAt: string;
   manualRun: boolean;
   adminReason?: string;
@@ -22,7 +40,9 @@ export interface ReturnsRunResult {
 
 export class ReturnsJobService {
   /**
-   * Main returns distribution execution across all active packages
+   * Main returns distribution execution across all active packages.
+   * Date-based: evaluates each package's actual start/deployment date (`lockInStart || purchaseDate || createdAt`)
+   * and credits ONLY monthly periods that have actually completed.
    */
   async executeMonthlyReturns(options?: {
     manualRun?: boolean;
@@ -37,7 +57,7 @@ export class ReturnsJobService {
       `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const executionId = `RET-RUN-${currentYearMonth}-${Date.now()}`;
 
-    console.log(`[ReturnsJob] Starting returns distribution cycle for ${currentYearMonth} (Exec ID: ${executionId})...`);
+    console.log(`[ReturnsJob] Starting date-based returns evaluation for ${currentYearMonth} (Exec ID: ${executionId})...`);
 
     // 1. Fetch all ACTIVE investment packages
     const activePackages = await prisma.investmentPackage.findMany({
@@ -48,58 +68,143 @@ export class ReturnsJobService {
       },
     });
 
+    let duePackagesCount = 0;
     let creditedCount = 0;
+    let periodsCreditedCount = 0;
     let skippedCount = 0;
+    let notYetDueCount = 0;
+    let alreadyCreditedCount = 0;
     let errorCount = 0;
     let totalDistributed = new Decimal(0);
     const errors: { packageCode: string; error: string }[] = [];
+    const packageDetails: ReturnsPackageDetail[] = [];
 
     for (const pkg of activePackages) {
       try {
-        // Calculate next period index: number of existing credited returns + 1
-        const periodIndex = pkg.returns.length + 1;
+        const schedule = computePackageYieldSchedule(pkg, now);
 
-        // Construct unique idempotency key
-        const idempotencyKey = options?.forceNextPeriod
-          ? `RETURN-${pkg.packageCode}-PERIOD-${periodIndex}-${Date.now()}`
-          : `RETURN-${pkg.packageCode}-${currentYearMonth}`;
+        // Enforce strict date-based cycle completion: skip packages whose monthly cycle is not yet due
+        if (!schedule.isYieldDue || schedule.duePeriodsCount <= 0) {
+          skippedCount++;
+          const dueDateStr = schedule.nextYieldDueDate
+            ? schedule.nextYieldDueDate.toISOString().split('T')[0]
+            : null;
+          const remainingDays = Math.max(1, schedule.daysUntilNextYield || 1);
 
-        // Return amount: package.amount * returnRateSnapshot (e.g. $10,000 * 0.01 = $100.00)
+          if (
+            schedule.returnsCount >= schedule.lockMonths ||
+            (schedule.completedCycles > 0 && schedule.returnsCount >= schedule.completedCycles)
+          ) {
+            alreadyCreditedCount++;
+            const reason = dueDateStr
+              ? `Cycle ${schedule.returnsCount}/${schedule.lockMonths} already credited; Month ${schedule.nextPeriodIndex} due on ${dueDateStr} (${remainingDays}d remaining)`
+              : 'All monthly cycles for this FD tenure have already been credited';
+            console.log(`[ReturnsJob] Skipping ${pkg.packageCode}: ${reason}`);
+            packageDetails.push({
+              packageCode: pkg.packageCode,
+              userEmail: pkg.user.email,
+              status: 'SKIPPED_ALREADY_CREDITED',
+              periodsCredited: 0,
+              amountCredited: '0.00',
+              nextPeriodIndex: schedule.nextPeriodIndex,
+              nextYieldDueDate: schedule.nextYieldDueDate ? schedule.nextYieldDueDate.toISOString() : null,
+              daysUntilNextYield: schedule.daysUntilNextYield,
+              reason,
+            });
+          } else {
+            notYetDueCount++;
+            const reason = `Not yet due — Month ${schedule.nextPeriodIndex || 1}/${schedule.lockMonths} cycle completes on ${dueDateStr || 'N/A'} (${remainingDays}d remaining)`;
+            console.log(`[ReturnsJob] Skipping ${pkg.packageCode}: ${reason}`);
+            packageDetails.push({
+              packageCode: pkg.packageCode,
+              userEmail: pkg.user.email,
+              status: 'SKIPPED_NOT_DUE',
+              periodsCredited: 0,
+              amountCredited: '0.00',
+              nextPeriodIndex: schedule.nextPeriodIndex,
+              nextYieldDueDate: schedule.nextYieldDueDate ? schedule.nextYieldDueDate.toISOString() : null,
+              daysUntilNextYield: schedule.daysUntilNextYield,
+              reason,
+            });
+          }
+          continue;
+        }
+
+        // Package has one or more completed monthly cycles awaiting credit
+        duePackagesCount++;
         const amountDec = new Decimal(pkg.amount.toString());
         const rateDec = new Decimal(pkg.returnRateSnapshot.toString());
-        const returnAmount = amountDec.times(rateDec);
+        const singleMonthlyReturn = amountDec.times(rateDec);
 
-        const result = await ledgerService.creditMonthlyReturn({
-          packageId: pkg.id,
-          userId: pkg.userId,
-          returnAmount: returnAmount.toFixed(8),
-          currency: pkg.currency,
-          periodIndex,
-          idempotencyKey,
-        });
+        let pkgCreditedPeriods = 0;
+        let pkgCreditedAmount = new Decimal(0);
 
-        if (result.alreadyCredited) {
-          console.log(`[ReturnsJob] Package ${pkg.packageCode} already credited for ${currentYearMonth}, skipping.`);
-          skippedCount++;
-        } else {
+        for (const periodIndex of schedule.duePeriodIndices) {
+          const idempotencyKey = `RETURN-${pkg.packageCode}-PERIOD-${periodIndex}`;
+          const result = await ledgerService.creditMonthlyReturn({
+            packageId: pkg.id,
+            userId: pkg.userId,
+            returnAmount: singleMonthlyReturn.toFixed(8),
+            currency: pkg.currency,
+            periodIndex,
+            idempotencyKey,
+          });
+
+          if (!result.alreadyCredited) {
+            pkgCreditedPeriods++;
+            periodsCreditedCount++;
+            pkgCreditedAmount = pkgCreditedAmount.plus(singleMonthlyReturn);
+            totalDistributed = totalDistributed.plus(singleMonthlyReturn);
+            console.log(
+              `[ReturnsJob] Credited $${singleMonthlyReturn.toFixed(2)} to ${pkg.user.email} for package ${pkg.packageCode} (Period ${periodIndex})`
+            );
+          }
+        }
+
+        if (pkgCreditedPeriods > 0) {
           creditedCount++;
-          totalDistributed = totalDistributed.plus(returnAmount);
-          console.log(
-            `[ReturnsJob] Credited $${returnAmount.toFixed(2)} to ${pkg.user.email} for package ${pkg.packageCode} (Period ${periodIndex})`
-          );
+          const postCreditReturnsCount = schedule.returnsCount + pkgCreditedPeriods;
+          const postNextPeriod =
+            postCreditReturnsCount < schedule.lockMonths ? postCreditReturnsCount + 1 : null;
+
+          packageDetails.push({
+            packageCode: pkg.packageCode,
+            userEmail: pkg.user.email,
+            status: 'CREDITED',
+            periodsCredited: pkgCreditedPeriods,
+            amountCredited: pkgCreditedAmount.toFixed(2),
+            nextPeriodIndex: postNextPeriod,
+            nextYieldDueDate: schedule.nextYieldDueDate ? schedule.nextYieldDueDate.toISOString() : null,
+            daysUntilNextYield: schedule.daysUntilNextYield,
+            reason: `Credited ${pkgCreditedPeriods} completed monthly cycle(s): ${schedule.duePeriodIndices.map((p) => `Month ${p}`).join(', ')}`,
+          });
 
           // Asynchronous email notification to investor (non-blocking)
           void notificationService.sendEmail({
             to: pkg.user.email,
-            subject: `Monthly Return Credited - $${returnAmount.toFixed(2)} USD`,
+            subject: `Monthly Return Credited - $${pkgCreditedAmount.toFixed(2)} ${pkg.currency}`,
             html: `
               <h3>Monthly Investment Return Credited</h3>
               <p>Hello ${pkg.user.firstName || 'Investor'},</p>
-              <p>Your monthly return of <strong>$${returnAmount.toFixed(2)} USD</strong> for package <strong>${pkg.packageCode}</strong> (Month ${periodIndex}) has been credited to your available platform wallet.</p>
+              <p>Your monthly return of <strong>$${pkgCreditedAmount.toFixed(2)} ${pkg.currency}</strong> for package <strong>${pkg.packageCode}</strong> (${schedule.duePeriodIndices.map((p) => `Month ${p}`).join(', ')}) has been credited to your available platform wallet.</p>
               <p>You may hold, re-invest into an additional package, or request a withdrawal on the 1st of the month.</p>
             `,
           }).catch((err) => {
             console.error(`[ReturnsJob] Email dispatch error for ${pkg.user.email}:`, err.message);
+          });
+        } else {
+          skippedCount++;
+          alreadyCreditedCount++;
+          packageDetails.push({
+            packageCode: pkg.packageCode,
+            userEmail: pkg.user.email,
+            status: 'SKIPPED_ALREADY_CREDITED',
+            periodsCredited: 0,
+            amountCredited: '0.00',
+            nextPeriodIndex: schedule.nextPeriodIndex,
+            nextYieldDueDate: schedule.nextYieldDueDate ? schedule.nextYieldDueDate.toISOString() : null,
+            daysUntilNextYield: schedule.daysUntilNextYield,
+            reason: 'Completed cycle already recorded in ledger (idempotency protection)',
           });
         }
 
@@ -111,28 +216,138 @@ export class ReturnsJobService {
         console.error(`[ReturnsJob] Error processing package ${pkg.packageCode}:`, err);
         errorCount++;
         errors.push({ packageCode: pkg.packageCode, error: err.message });
+        packageDetails.push({
+          packageCode: pkg.packageCode,
+          userEmail: pkg.user?.email || 'unknown',
+          status: 'ERROR',
+          periodsCredited: 0,
+          amountCredited: '0.00',
+          nextPeriodIndex: null,
+          nextYieldDueDate: null,
+          daysUntilNextYield: null,
+          reason: err.message || 'Processing error',
+        });
       }
     }
 
     const summary: ReturnsRunResult = {
       executionId,
       totalActivePackages: activePackages.length,
+      duePackagesCount,
       creditedCount,
+      periodsCreditedCount,
       skippedCount,
+      notYetDueCount,
+      alreadyCreditedCount,
       errorCount,
       totalDistributedUsd: totalDistributed.toFixed(2),
       errors,
+      packageDetails,
       executedAt: now.toISOString(),
       manualRun: !!options?.manualRun,
-      adminReason: options?.adminReason || 'Admin monthly yield batch distribution',
+      adminReason: options?.adminReason || 'Admin date-based monthly yield distribution',
       cycleMonth: currentYearMonth,
     };
 
     console.log(
-      `[ReturnsJob] Completed cycle: ${creditedCount} credited, ${skippedCount} skipped, ${errorCount} errors. Total: $${totalDistributed.toFixed(2)} USD.`
+      `[ReturnsJob] Completed cycle: ${creditedCount} credited (${periodsCreditedCount} periods), ${skippedCount} skipped (${notYetDueCount} not yet due, ${alreadyCreditedCount} already credited), ${errorCount} errors. Total: $${totalDistributed.toFixed(2)} USD.`
     );
 
     return summary;
+  }
+
+  /**
+   * Credits only due completed monthly yield period(s) for a single ACTIVE package.
+   * Rejects cleanly with HTTP 400 if the current monthly cycle is not yet complete.
+   */
+  async creditSinglePackageDueYield(packageId: string, adminUserId: string = 'ADMIN_YIELD') {
+    const now = new Date();
+    const pkg = await prisma.investmentPackage.findUnique({
+      where: { id: packageId },
+      include: {
+        user: { select: { id: true, email: true, firstName: true } },
+        returns: true,
+      },
+    });
+
+    if (!pkg) {
+      const err: any = new Error('Investment package not found');
+      err.status = 404;
+      throw err;
+    }
+
+    if (pkg.status !== 'ACTIVE') {
+      const err: any = new Error(`Package ${pkg.packageCode} is ${pkg.status}; only ACTIVE packages can receive monthly yield credits.`);
+      err.status = 400;
+      throw err;
+    }
+
+    const schedule = computePackageYieldSchedule(pkg, now);
+    if (!schedule.isYieldDue || schedule.duePeriodsCount <= 0) {
+      const dueDateStr = schedule.nextYieldDueDate
+        ? schedule.nextYieldDueDate.toISOString().split('T')[0]
+        : 'maturity';
+      const remaining = Math.max(1, schedule.daysUntilNextYield || 0);
+      const err: any = new Error(
+        `Monthly yield is not yet due for ${pkg.packageCode}. Month ${schedule.nextPeriodIndex || 1}/${schedule.lockMonths} completes on ${dueDateStr} (${remaining} days remaining).`
+      );
+      err.status = 400;
+      throw err;
+    }
+
+    const amountDec = new Decimal(pkg.amount.toString());
+    const rateDec = new Decimal(pkg.returnRateSnapshot.toString());
+    const singleMonthlyReturn = amountDec.times(rateDec);
+
+    let periodsCreditedCount = 0;
+    let totalCreditedDec = new Decimal(0);
+
+    for (const periodIndex of schedule.duePeriodIndices) {
+      const idempotencyKey = `RETURN-${pkg.packageCode}-PERIOD-${periodIndex}`;
+      const res = await ledgerService.creditMonthlyReturn({
+        packageId: pkg.id,
+        userId: pkg.userId,
+        returnAmount: singleMonthlyReturn.toFixed(8),
+        currency: pkg.currency,
+        periodIndex,
+        idempotencyKey,
+      });
+
+      if (!res.alreadyCredited) {
+        periodsCreditedCount++;
+        totalCreditedDec = totalCreditedDec.plus(singleMonthlyReturn);
+      }
+    }
+
+    if (periodsCreditedCount > 0) {
+      void notificationService.sendEmail({
+        to: pkg.user.email,
+        subject: `Monthly Return Credited - $${totalCreditedDec.toFixed(2)} ${pkg.currency}`,
+        html: `
+          <h3>Monthly Investment Return Credited</h3>
+          <p>Hello ${pkg.user.firstName || 'Investor'},</p>
+          <p>Your monthly return of <strong>$${totalCreditedDec.toFixed(2)} ${pkg.currency}</strong> for package <strong>${pkg.packageCode}</strong> (${schedule.duePeriodIndices.map((p) => `Month ${p}`).join(', ')}) has been credited to your available wallet balance.</p>
+          <p>Processed by Desk Operator (${adminUserId}).</p>
+        `,
+      }).catch((err) => {
+        console.error(`[ReturnsJob] Single-yield email error for ${pkg.user.email}:`, err.message);
+      });
+    }
+
+    const updatedPkg = await prisma.investmentPackage.findUnique({
+      where: { id: pkg.id },
+      include: { returns: true },
+    });
+    const postSchedule = updatedPkg ? computePackageYieldSchedule(updatedPkg, now) : schedule;
+
+    return {
+      packageCode: pkg.packageCode,
+      periodsCreditedCount,
+      totalCreditedUsd: totalCreditedDec.toFixed(2),
+      nextPeriodIndex: postSchedule.nextPeriodIndex,
+      nextYieldDueDate: postSchedule.nextYieldDueDate ? postSchedule.nextYieldDueDate.toISOString() : null,
+      userEmail: pkg.user.email,
+    };
   }
 
   /**

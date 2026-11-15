@@ -23,6 +23,7 @@ router.post('/settings/config', requireRole([Role.ADMIN]), requireAdmin2FA, (req
 router.get('/packages', (req, res, next) => adminController.getPackages(req, res, next));
 router.post('/packages/create', requireRole([Role.ADMIN]), (req, res, next) => adminController.createPackage(req, res, next));
 router.post('/packages/:id/approve', (req, res, next) => adminController.approvePackage(req, res, next));
+router.post('/packages/:id/credit-yield', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.creditSinglePackageYield(req, res, next));
 router.post('/packages/:id/settle-full', requireAdmin2FA, (req, res, next) => adminController.settleFullPackage(req, res, next));
 router.patch('/packages/:id/tenure', requireAdmin2FA, (req, res, next) => adminController.updatePackageTenure(req, res, next));
 
@@ -114,7 +115,8 @@ router.get('/audit-logs', requireRole([Role.ADMIN]), (req, res, next) => adminCo
 router.get('/system/status', (req, res, next) => adminController.getSystemStatus(req, res, next));
 router.post('/system/settings', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateSystemStatus(req, res, next));
 
-// Platform Analytics Overview
+// Platform Analytics Overview & Real-Time Admin Notifications
 router.get('/analytics/overview', (req, res, next) => adminController.getPlatformOverviewAnalytics(req, res, next));
+router.get('/notifications', (req, res, next) => adminController.getAdminNotifications(req, res, next));
 
 export default router;

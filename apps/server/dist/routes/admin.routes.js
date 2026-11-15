@@ -20,6 +20,7 @@ router.post('/settings/config', (0, auth_1.requireRole)([client_1.Role.ADMIN]), 
 router.get('/packages', (req, res, next) => admin_controller_1.adminController.getPackages(req, res, next));
 router.post('/packages/create', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.createPackage(req, res, next));
 router.post('/packages/:id/approve', (req, res, next) => admin_controller_1.adminController.approvePackage(req, res, next));
+router.post('/packages/:id/credit-yield', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.creditSinglePackageYield(req, res, next));
 router.post('/packages/:id/settle-full', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.settleFullPackage(req, res, next));
 router.patch('/packages/:id/tenure', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updatePackageTenure(req, res, next));
 // Startup Equity & Token Allocation operations
@@ -67,6 +68,7 @@ router.get('/audit-logs', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, 
 // System Controls & Announcement Broadcast
 router.get('/system/status', (req, res, next) => admin_controller_1.adminController.getSystemStatus(req, res, next));
 router.post('/system/settings', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateSystemStatus(req, res, next));
-// Platform Analytics Overview
+// Platform Analytics Overview & Real-Time Admin Notifications
 router.get('/analytics/overview', (req, res, next) => admin_controller_1.adminController.getPlatformOverviewAnalytics(req, res, next));
+router.get('/notifications', (req, res, next) => admin_controller_1.adminController.getAdminNotifications(req, res, next));
 exports.default = router;

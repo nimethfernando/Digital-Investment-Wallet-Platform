@@ -56,6 +56,8 @@ import {
   DollarSign,
   Calendar,
   Sparkles,
+  Bell,
+  AlertTriangle,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -64,12 +66,20 @@ export default function AdminPortalPage() {
   const { user, token, isAdmin, isLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'users' | 'packages' | 'remittance' | 'investments' | 'p2p' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
+    'overview' | 'alerts' | 'users' | 'packages' | 'remittance' | 'investments' | 'p2p' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
   >('overview');
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Overview & Analytics State
+  // Overview, Command Center Notifications & Analytics State
   const [overviewAnalytics, setOverviewAnalytics] = useState<any | null>(null);
+  const [commandCenter, setCommandCenter] = useState<any | null>(null);
+  const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
+  const [creditingPkgId, setCreditingPkgId] = useState<string | null>(null);
+  const [alertCategoryFilter, setAlertCategoryFilter] = useState<string>('ALL');
+  const [pendingTypeFilter, setPendingTypeFilter] = useState<string>('ALL');
+  const [pendingUrgencyFilter, setPendingUrgencyFilter] = useState<string>('ALL');
+  const [pendingSortBy, setPendingSortBy] = useState<string>('URGENCY');
+  const [pendingSearch, setPendingSearch] = useState<string>('');
   const [lastSyncedTime, setLastSyncedTime] = useState<string>('');
 
   // Action Modals State
@@ -140,6 +150,7 @@ export default function AdminPortalPage() {
   const [tenureModalOpen, setTenureModalOpen] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<any | null>(null);
   const [editLockMonths, setEditLockMonths] = useState(6);
+  const [customStartDate, setCustomStartDate] = useState('');
   const [customMaturityDate, setCustomMaturityDate] = useState('');
   const [tenureNotes, setTenureNotes] = useState('');
   const [savingTenure, setSavingTenure] = useState(false);
@@ -245,13 +256,16 @@ export default function AdminPortalPage() {
     setTimeout(() => setFeedback(null), 4000);
   };
 
-  // Fast initial mount analytics fetch so ALL tab badges and KPI cards are immediately populated with real counts
+  // Fast initial mount analytics fetch so ALL tab badges, alerts & KPI cards are immediately populated with real counts
   useEffect(() => {
     if (token && isAdmin) {
       api.get('/admin/analytics/overview')
         .then((res) => {
           if (res.data?.success && res.data?.data) {
             setOverviewAnalytics(res.data.data);
+            if (res.data.data.commandCenter) {
+              setCommandCenter(res.data.data.commandCenter);
+            }
             setLastSyncedTime(new Date().toLocaleTimeString());
           }
         })
@@ -268,11 +282,14 @@ export default function AdminPortalPage() {
 
   // Load Tab Data
   const loadData = async () => {
-    // Re-fetch overview analytics in background on any data load to keep tab counts accurate
+    // Re-fetch overview analytics in background on any data load to keep tab counts & notifications accurate
     api.get('/admin/analytics/overview')
       .then((res) => {
         if (res.data?.success && res.data?.data) {
           setOverviewAnalytics(res.data.data);
+          if (res.data.data.commandCenter) {
+            setCommandCenter(res.data.data.commandCenter);
+          }
           setLastSyncedTime(new Date().toLocaleTimeString());
         }
       })
@@ -284,11 +301,26 @@ export default function AdminPortalPage() {
           api.get('/admin/analytics/overview').catch(() => ({ data: { data: null } })),
           api.get('/admin/ledger/reconcile').catch(() => ({ data: { data: null } })),
         ]);
-        if (anRes.data?.success) setOverviewAnalytics(anRes.data.data);
+        if (anRes.data?.success) {
+          setOverviewAnalytics(anRes.data.data);
+          if (anRes.data.data?.commandCenter) {
+            setCommandCenter(anRes.data.data.commandCenter);
+          }
+        }
         if (recRes.data?.success) setLedgerReconciliation(recRes.data.data);
         setLastSyncedTime(new Date().toLocaleTimeString());
       } catch (e) {
         console.error('Failed to load overview analytics:', e);
+      }
+    } else if (activeTab === 'alerts') {
+      try {
+        const res = await api.get('/admin/notifications');
+        if (res.data?.success && res.data?.data) {
+          setCommandCenter(res.data.data);
+          setLastSyncedTime(new Date().toLocaleTimeString());
+        }
+      } catch (e) {
+        console.error('Failed to load admin notifications:', e);
       }
     } else if (activeTab === 'users') {
       setUsersLoading(true);
@@ -483,7 +515,7 @@ export default function AdminPortalPage() {
     }
   }, [activeTab, isAdmin]);
 
-  // Handle Monthly Returns Job across all active packages
+  // Handle Date-Based Monthly Returns Job across active packages (credits ONLY packages with completed monthly cycles)
   const handleTriggerMonthlyReturns = async () => {
     setRunningReturns(true);
     setReturnsResult(null);
@@ -491,15 +523,14 @@ export default function AdminPortalPage() {
       const res = await api.post(
         '/admin/returns/run',
         {
-          reason: 'Admin batch monthly yield distribution (1% standard return)',
-          forceNextPeriod: true,
+          reason: 'Admin date-based monthly yield evaluation (1% standard return)',
         },
         { headers: admin2FaCode ? { 'x-admin-2fa': admin2FaCode } : {} }
       );
       if (res.data?.success) {
         setReturnsResult(res.data.data);
         showToast(
-          res.data.message || `Monthly yield run complete! Credited: ${res.data.data?.creditedCount || 0}`,
+          res.data.message || `Monthly yield evaluation complete! Credited: ${res.data.data?.creditedCount || 0}`,
           'success'
         );
         loadData();
@@ -508,6 +539,30 @@ export default function AdminPortalPage() {
       showToast(err.response?.data?.message || 'Failed to execute returns job', 'error');
     } finally {
       setRunningReturns(false);
+    }
+  };
+
+  // Handle Crediting Due Monthly Yield for a Single Active Package
+  const handleCreditSinglePackageYield = async (pkgId: string, pkgCode: string) => {
+    if (creditingPkgId) return;
+    setCreditingPkgId(pkgId);
+    try {
+      const res = await api.post(
+        `/admin/packages/${pkgId}/credit-yield`,
+        {},
+        { headers: admin2FaCode ? { 'x-admin-2fa': admin2FaCode } : {} }
+      );
+      if (res.data?.success) {
+        showToast(
+          res.data.message || `Due monthly yield credited for ${pkgCode}!`,
+          'success'
+        );
+        loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || `Failed to credit yield for ${pkgCode}`, 'error');
+    } finally {
+      setCreditingPkgId(null);
     }
   };
 
@@ -675,7 +730,7 @@ export default function AdminPortalPage() {
     }
   };
 
-  // Handle Save FD Package Tenure
+  // Handle Save FD Package Tenure & Start/End Dates
   const handleSavePackageTenure = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPackage) return;
@@ -685,6 +740,7 @@ export default function AdminPortalPage() {
         `/admin/packages/${selectedPackage.id}/tenure`,
         {
           lockInMonths: editLockMonths,
+          newStartDate: customStartDate || undefined,
           newEndDate: customMaturityDate || undefined,
           adminNotes: tenureNotes || undefined,
         },
@@ -694,6 +750,7 @@ export default function AdminPortalPage() {
         showToast(res.data.message || 'FD tenure updated successfully!', 'success');
         setTenureModalOpen(false);
         setSelectedPackage(null);
+        setCustomStartDate('');
         setCustomMaturityDate('');
         setTenureNotes('');
         loadData();
@@ -895,6 +952,21 @@ export default function AdminPortalPage() {
       0
     );
 
+    const yieldDuePkgs = adminPackages.filter((p) => p.status === 'ACTIVE' && p.isYieldDue === true);
+    const yieldDueAmount = yieldDuePkgs.reduce(
+      (s, p) => s + parseFloat(p.dueYieldAmount || p.monthlyYield || 0),
+      0
+    );
+    const yieldDueSoonCount = adminPackages.filter(
+      (p) => p.status === 'ACTIVE' && p.isYieldDueSoon === true
+    ).length;
+    const nextDueDates = adminPackages
+      .filter((p) => p.status === 'ACTIVE' && !p.isYieldDue && p.nextYieldDueDate)
+      .map((p) => new Date(p.nextYieldDueDate).getTime())
+      .filter((t) => !isNaN(t))
+      .sort((a, b) => a - b);
+    const nextUpcomingYieldDate = nextDueDates.length > 0 ? new Date(nextDueDates[0]).toISOString() : null;
+
     return {
       activeCount: activePkgs.length,
       pendingCount: pendingPkgs.length,
@@ -907,6 +979,10 @@ export default function AdminPortalPage() {
       due30Amount,
       due31To90Count: due31To90Pkgs.length,
       due31To90Amount,
+      yieldDueCount: yieldDuePkgs.length,
+      yieldDueAmount,
+      yieldDueSoonCount,
+      nextUpcomingYieldDate,
     };
   }, [adminPackages]);
 
@@ -921,7 +997,11 @@ export default function AdminPortalPage() {
       if (pkgTenureFilter !== 'ALL' && String(pkg.lockInMonths || 6) !== pkgTenureFilter)
         return false;
 
-      if (pkgHorizonFilter === 'DUE_NOW') {
+      if (pkgHorizonFilter === 'YIELD_DUE_NOW') {
+        if (pkg.status !== 'ACTIVE' || !pkg.isYieldDue) return false;
+      } else if (pkgHorizonFilter === 'YIELD_DUE_SOON') {
+        if (pkg.status !== 'ACTIVE' || !pkg.isYieldDueSoon) return false;
+      } else if (pkgHorizonFilter === 'DUE_NOW') {
         if (!isActiveLike || pkg.daysRemaining === null || pkg.daysRemaining > 0) return false;
       } else if (pkgHorizonFilter === 'ENDING_7D') {
         if (!isActiveLike || pkg.daysRemaining === null || pkg.daysRemaining > 7) return false;
@@ -995,6 +1075,68 @@ export default function AdminPortalPage() {
     );
     return { principal, monthly, remainingLiability };
   }, [filteredPackages]);
+
+  const filteredAlerts = useMemo(() => {
+    const rawAlerts: any[] = Array.isArray(commandCenter?.alerts) ? commandCenter.alerts : [];
+    return rawAlerts.filter((item) => {
+      if (alertCategoryFilter === 'YIELD_DUE') {
+        return item.category === 'FD_YIELD_DUE' || item.category === 'FD_YIELD_SOON';
+      }
+      if (alertCategoryFilter === 'MATURITY') {
+        return item.category === 'FD_MATURED' || item.category === 'FD_APPROACHING_MATURITY';
+      }
+      if (alertCategoryFilter === 'DEPOSITS') {
+        return item.category === 'DEPOSIT' || item.category === 'FD_ACTIVATION';
+      }
+      if (alertCategoryFilter === 'WITHDRAWALS') {
+        return item.category === 'WITHDRAWAL';
+      }
+      if (alertCategoryFilter === 'OVERDUE') {
+        return Boolean(item.isOverdue);
+      }
+      if (alertCategoryFilter === 'COMPLIANCE') {
+        return ['KYC_VERIFICATION', 'REMITTANCE', 'SUPPORT_TICKET', 'P2P_DISPUTE', 'INQUIRY'].includes(item.category);
+      }
+      return true;
+    });
+  }, [commandCenter, alertCategoryFilter]);
+
+  const filteredPendingRequests = useMemo(() => {
+    const rawList: any[] = Array.isArray(commandCenter?.pendingRequests)
+      ? commandCenter.pendingRequests
+      : [];
+    const q = pendingSearch.trim().toLowerCase();
+
+    const filtered = rawList.filter((item) => {
+      if (pendingTypeFilter !== 'ALL' && item.category !== pendingTypeFilter) return false;
+      if (pendingUrgencyFilter === 'OVERDUE' && !item.isOverdue) return false;
+      if (pendingUrgencyFilter === 'DUE_TODAY' && item.urgency !== 'DUE_TODAY') return false;
+      if (pendingUrgencyFilter === 'HIGH' && !['OVERDUE', 'DUE_TODAY', 'HIGH'].includes(item.urgency)) {
+        return false;
+      }
+      if (q) {
+        const hay = `${item.code || ''} ${item.title || ''} ${item.description || ''} ${item.customerName || ''} ${item.customerEmail || ''} ${item.typeLabel || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    return [...filtered].sort((a, b) => {
+      if (pendingSortBy === 'OLDEST_FIRST') {
+        return new Date(a.requestDate).getTime() - new Date(b.requestDate).getTime();
+      }
+      if (pendingSortBy === 'NEWEST_FIRST') {
+        return new Date(b.requestDate).getTime() - new Date(a.requestDate).getTime();
+      }
+      if (pendingSortBy === 'AMOUNT_DESC') {
+        return parseFloat(b.amount || '0') - parseFloat(a.amount || '0');
+      }
+      if ((a.priorityRank ?? 9) !== (b.priorityRank ?? 9)) {
+        return (a.priorityRank ?? 9) - (b.priorityRank ?? 9);
+      }
+      return (b.ageMs || 0) - (a.ageMs || 0);
+    });
+  }, [commandCenter, pendingTypeFilter, pendingUrgencyFilter, pendingSortBy, pendingSearch]);
 
   const toLocalYmd = (dateInput: string | Date) => {
     const d = new Date(dateInput);
@@ -1222,8 +1364,11 @@ export default function AdminPortalPage() {
     );
   }
 
+  const commandCenterSummary = commandCenter || overviewAnalytics?.commandCenter || null;
+
   const tabBadgeCounts: Record<string, number> = {
     overview: 0,
+    alerts: commandCenterSummary?.totalActionItems ?? 0,
     users: users.length > 0 ? users.length : (overviewAnalytics?.totalUsers || 0),
     packages: adminPackages.length > 0 ? adminPackages.length : (overviewAnalytics?.totalPackages || 0),
     remittance: remittanceTransfers.length > 0 ? remittanceTransfers.length : (overviewAnalytics?.totalTransfers || 0),
@@ -1293,6 +1438,116 @@ export default function AdminPortalPage() {
               <Coins className="w-3.5 h-3.5" />
               <span>+ Credit Deposit</span>
             </button>
+
+            {/* Real-Time Notification Bell & Popover Drawer */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setNotificationDrawerOpen((prev) => !prev)}
+                className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer relative ${
+                  (commandCenterSummary?.overdueCount ?? 0) > 0 || (commandCenterSummary?.yieldDueCount ?? 0) > 0
+                    ? 'bg-amber-500/15 border-amber-500/50 text-amber-300 hover:bg-amber-500/25'
+                    : 'border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="Admin Notifications & Due / Pending Queue"
+              >
+                <Bell className={`w-3.5 h-3.5 ${(commandCenterSummary?.overdueCount ?? 0) > 0 ? 'text-rose-400 animate-pulse' : 'text-amber-400'}`} />
+                <span className="hidden sm:inline">Alerts</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-black font-mono ${
+                    (commandCenterSummary?.overdueCount ?? 0) > 0
+                      ? 'bg-rose-600 text-white'
+                      : (commandCenterSummary?.totalAlertsCount ?? 0) > 0
+                      ? 'bg-amber-500 text-slate-950'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {commandCenterSummary?.totalAlertsCount ?? 0}
+                </span>
+              </button>
+
+              {notificationDrawerOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-slate-950 border border-slate-800 shadow-2xl z-50 p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <div>
+                      <p className="text-xs font-black text-white flex items-center gap-1.5">
+                        <Bell className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Admin Alert Center</span>
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {commandCenterSummary?.yieldDueCount ?? 0} yield due • {commandCenterSummary?.overdueCount ?? 0} overdue • {commandCenterSummary?.totalPendingCount ?? 0} pending
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNotificationDrawerOpen(false)}
+                      className="text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                    {(!commandCenterSummary?.alerts || commandCenterSummary.alerts.length === 0) ? (
+                      <div className="p-4 text-center text-xs text-slate-500">
+                        No active alerts or overdue requests right now.
+                      </div>
+                    ) : (
+                      commandCenterSummary.alerts.slice(0, 8).map((al: any) => (
+                        <button
+                          key={al.id}
+                          type="button"
+                          onClick={() => {
+                            setNotificationDrawerOpen(false);
+                            setActiveTab('alerts');
+                          }}
+                          className={`w-full text-left p-2.5 rounded-xl border transition-colors cursor-pointer space-y-1 ${
+                            al.isOverdue
+                              ? 'bg-rose-950/30 border-rose-500/40 hover:border-rose-400'
+                              : al.urgency === 'DUE_TODAY'
+                              ? 'bg-emerald-950/25 border-emerald-500/40 hover:border-emerald-400'
+                              : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-black uppercase font-mono text-amber-300 truncate">
+                              {al.typeLabel} • {al.code}
+                            </span>
+                            <span
+                              className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase whitespace-nowrap ${
+                                al.isOverdue
+                                  ? 'bg-rose-500/20 text-rose-300'
+                                  : al.urgency === 'DUE_TODAY'
+                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  : 'bg-slate-800 text-slate-300'
+                              }`}
+                            >
+                              {al.ageLabel}
+                            </span>
+                          </div>
+                          <p className="text-xs font-bold text-white truncate">{al.title}</p>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {al.customerName} ({al.customerEmail})
+                          </p>
+                        </button>
+                      ))
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNotificationDrawerOpen(false);
+                      setActiveTab('alerts');
+                    }}
+                    className="w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-colors cursor-pointer"
+                  >
+                    Open Full Alerts &amp; Pending Queue ({commandCenterSummary?.totalActionItems ?? 0}) →
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => loadData()}
               className="text-xs font-bold text-slate-300 hover:text-white px-3 py-1.5 rounded-xl border border-slate-800 hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer"
@@ -1345,8 +1600,9 @@ export default function AdminPortalPage() {
         <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs font-bold">
           {[
             { id: 'overview', label: 'Overview & Analytics', icon: LayoutDashboard },
+            { id: 'alerts', label: `Alerts & Pending Queue (${tabBadgeCounts.alerts})`, icon: Bell },
             { id: 'users', label: `Users & Accounts (${tabBadgeCounts.users})`, icon: Users },
-            { id: 'packages', label: `Packages & Yields (${tabBadgeCounts.packages})`, icon: Package },
+            { id: 'packages', label: `Packages & Yields (${tabBadgeCounts.packages})${(commandCenterSummary?.yieldDueCount ?? 0) > 0 ? ` • 🔔 ${commandCenterSummary.yieldDueCount} Due` : ''}`, icon: Package },
             { id: 'remittance', label: `Remittance Orders (${tabBadgeCounts.remittance})`, icon: Globe },
             { id: 'investments', label: `Startup Portfolios (${tabBadgeCounts.investments})`, icon: Building },
             { id: 'p2p', label: `P2P Escrow (${tabBadgeCounts.p2p})`, icon: TrendingUp },
@@ -1362,6 +1618,9 @@ export default function AdminPortalPage() {
             { id: 'disputes', label: `Inquiries & Chat (${tabBadgeCounts.disputes})`, icon: MessageSquare },
           ].map((t) => {
             const Icon = t.icon;
+            const isAlertHighlighted =
+              t.id === 'alerts' &&
+              ((commandCenterSummary?.overdueCount ?? 0) > 0 || (commandCenterSummary?.yieldDueCount ?? 0) > 0);
             return (
               <button
                 key={t.id}
@@ -1369,6 +1628,8 @@ export default function AdminPortalPage() {
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer ${
                   activeTab === t.id
                     ? 'bg-rose-600 text-white shadow-md'
+                    : isAlertHighlighted
+                    ? 'text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
                 }`}
               >
@@ -1383,6 +1644,7 @@ export default function AdminPortalPage() {
         {activeTab === 'overview' && (
           <AdminOverviewTab
             analytics={overviewAnalytics}
+            commandCenter={commandCenterSummary}
             ledgerReconciliation={ledgerReconciliation}
             onNavigateTab={(tab) => {
               setActiveTab(tab as any);
@@ -1390,6 +1652,481 @@ export default function AdminPortalPage() {
             onTriggerYieldRun={handleTriggerMonthlyReturns}
             runningReturns={runningReturns}
           />
+        )}
+
+        {/* TAB 0.5: ADMIN NOTIFICATION CENTER & TRACKABLE PENDING REQUESTS QUEUE */}
+        {activeTab === 'alerts' && (
+          <div className="space-y-6">
+            {/* Header & Sync */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-extrabold text-base text-white flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-amber-400" />
+                  <span>Admin Notification Center &amp; Pending / Overdue Requests</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Date-based yield cycle alerts, upcoming FD maturities, pending customer requests, request age, and overdue SLA escalations.
+                </p>
+              </div>
+              <div className="flex items-center gap-2.5">
+                {(commandCenterSummary?.yieldDueCount ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleTriggerMonthlyReturns}
+                    disabled={runningReturns}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/30 cursor-pointer disabled:opacity-50"
+                  >
+                    {runningReturns ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                    <span>Credit Due Yields Now ({commandCenterSummary?.yieldDueCount})</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={loadData}
+                  className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs text-rose-400 font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh Queue</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 4 Operational KPI Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className={`p-5 rounded-3xl border space-y-1.5 ${
+                (commandCenterSummary?.yieldDueCount ?? 0) > 0 || (commandCenterSummary?.maturedUnsettledCount ?? 0) > 0
+                  ? 'bg-emerald-950/25 border-emerald-500/40'
+                  : 'bg-slate-900 border-slate-800'
+              }`}>
+                <div className="flex items-center justify-between text-xs font-bold uppercase text-emerald-400">
+                  <span>Due Today (Yields &amp; Maturities)</span>
+                  <Zap className="w-4 h-4" />
+                </div>
+                <div className="text-2xl font-black font-mono text-white">
+                  {commandCenterSummary?.yieldDueCount ?? 0} Yields · ${parseFloat(commandCenterSummary?.yieldDueTotalUsd || '0').toFixed(2)}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  {commandCenterSummary?.maturedUnsettledCount ?? 0} matured FD(s) awaiting full settlement
+                </p>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-slate-900 border border-sky-500/30 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold uppercase text-sky-400">
+                  <span>Pending Customer Requests</span>
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div className="text-2xl font-black font-mono text-white">
+                  {commandCenterSummary?.totalPendingCount ?? 0}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  {commandCenterSummary?.pendingDepositsCount ?? 0} deposits • {commandCenterSummary?.pendingWithdrawalsCount ?? 0} withdrawals • {commandCenterSummary?.pendingKycCount ?? 0} KYC
+                </p>
+              </div>
+
+              <div className={`p-5 rounded-3xl border space-y-1.5 ${
+                (commandCenterSummary?.overdueCount ?? 0) > 0
+                  ? 'bg-rose-950/35 border-rose-500/60'
+                  : 'bg-slate-900 border-slate-800'
+              }`}>
+                <div className="flex items-center justify-between text-xs font-bold uppercase text-rose-400">
+                  <span>Overdue Requests (&gt;48h)</span>
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div className={`text-2xl font-black font-mono ${(commandCenterSummary?.overdueCount ?? 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {commandCenterSummary?.overdueCount ?? 0}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  {(commandCenterSummary?.overdueCount ?? 0) > 0
+                    ? `Oldest request age: ${commandCenterSummary?.oldestPendingLabel || 'N/A'}`
+                    : 'No overdue requests across queues'}
+                </p>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-slate-900 border border-amber-500/30 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold uppercase text-amber-400">
+                  <span>Upcoming (Next 15 Days)</span>
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <div className="text-2xl font-black font-mono text-white">
+                  {(commandCenterSummary?.yieldDueSoonCount ?? 0) + (commandCenterSummary?.approachingMaturityCount ?? 0)}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  {commandCenterSummary?.yieldDueSoonCount ?? 0} yield cycle(s) ≤5d • {commandCenterSummary?.approachingMaturityCount ?? 0} maturing ≤15d
+                </p>
+              </div>
+            </div>
+
+            {/* Event-Based Admin Alerts & Notifications Feed */}
+            <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div>
+                  <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400" />
+                    <span>Event-Based Alerts &amp; Notifications Feed ({filteredAlerts.length})</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Real-time alerts covering yield cycles due, upcoming FD maturities, new deposit/withdrawal requests, and SLA overdue escalations.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  {[
+                    { key: 'ALL', label: 'All Alerts' },
+                    { key: 'YIELD_DUE', label: '🔔 Yield Due' },
+                    { key: 'MATURITY', label: '📅 FD Maturity' },
+                    { key: 'DEPOSITS', label: '💰 Deposits' },
+                    { key: 'WITHDRAWALS', label: '🏦 Withdrawals' },
+                    { key: 'OVERDUE', label: '🚨 Overdue Only' },
+                    { key: 'COMPLIANCE', label: '🌍 KYC / Remittance / Support' },
+                  ].map((pill) => (
+                    <button
+                      key={pill.key}
+                      type="button"
+                      onClick={() => setAlertCategoryFilter(pill.key)}
+                      className={`px-3 py-1.5 rounded-xl font-bold border transition-all cursor-pointer ${
+                        alertCategoryFilter === pill.key
+                          ? 'bg-rose-600 text-white border-rose-500'
+                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
+                      }`}
+                    >
+                      {pill.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {filteredAlerts.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-slate-950/70 border border-slate-800 text-center text-xs text-slate-400">
+                  No alerts match this category filter. All monitored events in this category are clear.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
+                  {filteredAlerts.map((alert: any) => (
+                    <div
+                      key={alert.id}
+                      className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 ${
+                        alert.isOverdue
+                          ? 'bg-rose-950/25 border-rose-500/50'
+                          : alert.urgency === 'DUE_TODAY'
+                          ? 'bg-emerald-950/20 border-emerald-500/40'
+                          : alert.urgency === 'UPCOMING'
+                          ? 'bg-sky-950/20 border-sky-500/30'
+                          : 'bg-slate-950/70 border-slate-800'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                alert.isOverdue
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                  : alert.urgency === 'DUE_TODAY'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                  : alert.urgency === 'UPCOMING'
+                                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              }`}
+                            >
+                              {alert.isOverdue ? 'OVERDUE' : alert.urgency === 'DUE_TODAY' ? 'DUE TODAY' : alert.urgency === 'UPCOMING' ? 'UPCOMING' : 'NEW REQUEST'}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-400 font-bold">{alert.typeLabel}</span>
+                          </div>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-300">
+                            {alert.ageLabel}
+                          </span>
+                        </div>
+                        <p className="text-xs font-extrabold text-white">{alert.title}</p>
+                        <p className="text-[11px] text-slate-400">{alert.description}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Customer: <span className="text-slate-200 font-semibold">{alert.customerName}</span> ({alert.customerEmail}) • Date:{' '}
+                          {new Date(alert.requestDate).toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/70">
+                        {alert.category === 'FD_YIELD_DUE' && (
+                          <button
+                            type="button"
+                            disabled={creditingPkgId === alert.entityId}
+                            onClick={() => handleCreditSinglePackageYield(alert.entityId, alert.code)}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            {creditingPkgId === alert.entityId
+                              ? 'Crediting...'
+                              : `Credit Month ${alert.meta?.nextPeriodIndex || 1} Yield (+$${alert.amount})`}
+                          </button>
+                        )}
+                        {alert.category === 'DEPOSIT' && (
+                          <button
+                            type="button"
+                            disabled={approvingDepId === alert.entityId}
+                            onClick={() => handleApproveDeposit(alert.entityId)}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            Approve &amp; Credit
+                          </button>
+                        )}
+                        {alert.category === 'FD_ACTIVATION' && (
+                          <button
+                            type="button"
+                            onClick={() => handleApprovePackage(alert.entityId)}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer"
+                          >
+                            Approve &amp; Activate
+                          </button>
+                        )}
+                        {alert.category === 'FD_MATURED' && (
+                          <button
+                            type="button"
+                            onClick={() => handleSettleFullPackage(alert.entityId, alert.code)}
+                            className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                          >
+                            Process Full Settlement
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (alert.category === 'DEPOSIT') setDepStatusFilter('PENDING');
+                            setActiveTab((alert.targetTab || 'overview') as any);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold border border-slate-700 cursor-pointer"
+                        >
+                          {alert.category === 'WITHDRAWAL' ? 'Review & Settle →' : 'Go to Queue →'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Dedicated Trackable Pending & Overdue Requests Table */}
+            <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="font-extrabold text-sm text-white">
+                    Unified Pending &amp; Overdue Requests Tracker ({filteredPendingRequests.length} items)
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Every unfulfilled customer request and due FD yield cycle tracked with submission date, customer details, pending duration, and direct resolution actions.
+                  </p>
+                </div>
+              </div>
+
+              {/* Filter & Search Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 p-4 rounded-2xl bg-slate-950 border border-slate-800 text-xs">
+                <div className="lg:col-span-2">
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                    Search Request ID, Customer Name or Email
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={pendingSearch}
+                      onChange={(e) => setPendingSearch(e.target.value)}
+                      placeholder="WTH-, DEP-, PKG-, TKT-, customer email..."
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Request Type</label>
+                  <select
+                    value={pendingTypeFilter}
+                    onChange={(e) => setPendingTypeFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="ALL">All Types</option>
+                    <option value="FD_YIELD_DUE">FD Monthly Yield Due</option>
+                    <option value="FD_MATURED">FD Maturity Settlement</option>
+                    <option value="FD_ACTIVATION">FD Activation</option>
+                    <option value="DEPOSIT">Deposit Request</option>
+                    <option value="WITHDRAWAL">Withdrawal Request</option>
+                    <option value="REMITTANCE">Global Remittance</option>
+                    <option value="KYC_VERIFICATION">KYC Verification</option>
+                    <option value="SUPPORT_TICKET">Support Ticket</option>
+                    <option value="P2P_DISPUTE">P2P Dispute</option>
+                    <option value="INQUIRY">Client Inquiry</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">SLA / Urgency</label>
+                  <select
+                    value={pendingUrgencyFilter}
+                    onChange={(e) => setPendingUrgencyFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="ALL">All Urgencies</option>
+                    <option value="OVERDUE">🚨 Overdue Only (&gt;48h / Past Cycle)</option>
+                    <option value="DUE_TODAY">🔔 Due Today</option>
+                    <option value="HIGH">High Priority &amp; Above</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Sort Priority</label>
+                  <select
+                    value={pendingSortBy}
+                    onChange={(e) => setPendingSortBy(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold outline-none focus:border-rose-500"
+                  >
+                    <option value="URGENCY">Highest Urgency / Overdue First</option>
+                    <option value="OLDEST_FIRST">Oldest Pending First (Longest Wait)</option>
+                    <option value="NEWEST_FIRST">Newest Requests First</option>
+                    <option value="AMOUNT_DESC">Highest Amount First</option>
+                  </select>
+                </div>
+              </div>
+
+              {filteredPendingRequests.length === 0 ? (
+                <div className="p-10 text-center text-slate-400 text-xs bg-slate-950/60 border border-slate-800 rounded-2xl">
+                  No pending requests or due yields match your selected filters.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-slate-800 text-slate-400 uppercase font-bold text-[10px]">
+                      <tr>
+                        <th className="pb-3 pr-3">Request ID &amp; Type</th>
+                        <th className="pb-3 pr-3">Customer</th>
+                        <th className="pb-3 pr-3">Request Details &amp; Amount</th>
+                        <th className="pb-3 pr-3">Request / Due Date</th>
+                        <th className="pb-3 pr-3">Pending Duration &amp; SLA</th>
+                        <th className="pb-3 pr-3">Current Status</th>
+                        <th className="pb-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {filteredPendingRequests.map((reqItem: any) => (
+                        <tr key={reqItem.id} className="hover:bg-slate-800/35 transition-colors align-top">
+                          <td className="py-3 pr-3 whitespace-nowrap">
+                            <div className="font-mono font-bold text-rose-400">{reqItem.code}</div>
+                            <span className="inline-block mt-1 px-2 py-0.5 rounded bg-slate-800 text-[10px] font-semibold text-slate-300 border border-slate-700">
+                              {reqItem.typeLabel}
+                            </span>
+                          </td>
+
+                          <td className="py-3 pr-3">
+                            <div className="font-bold text-white">{reqItem.customerName}</div>
+                            <div className="text-[11px] font-mono text-slate-400">{reqItem.customerEmail}</div>
+                          </td>
+
+                          <td className="py-3 pr-3 max-w-xs">
+                            {reqItem.amount && (
+                              <div className="font-mono font-black text-emerald-400">
+                                {reqItem.currency === 'USD' ? '$' : ''}
+                                {parseFloat(reqItem.amount).toLocaleString('en-US', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}{' '}
+                                {reqItem.currency}
+                              </div>
+                            )}
+                            <div className="text-[11px] text-slate-300 mt-0.5">{reqItem.description}</div>
+                          </td>
+
+                          <td className="py-3 pr-3 whitespace-nowrap font-mono text-[11px]">
+                            <div className="text-white font-semibold">
+                              {new Date(reqItem.requestDate).toLocaleDateString('en-GB', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                              {new Date(reqItem.requestDate).toLocaleTimeString('en-GB', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                          </td>
+
+                          <td className="py-3 pr-3 whitespace-nowrap">
+                            <div className="font-mono font-bold text-slate-200">{reqItem.ageLabel} pending</div>
+                            <span
+                              className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                reqItem.isOverdue
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                  : reqItem.urgency === 'DUE_TODAY'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                  : 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
+                              }`}
+                            >
+                              {reqItem.isOverdue ? '🚨 OVERDUE' : reqItem.urgency === 'DUE_TODAY' ? '🔔 DUE TODAY' : '🆕 Recent'}
+                            </span>
+                          </td>
+
+                          <td className="py-3 pr-3 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-mono text-[10px] font-bold border border-slate-700">
+                              {reqItem.status}
+                            </span>
+                          </td>
+
+                          <td className="py-3 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {reqItem.category === 'FD_YIELD_DUE' && (
+                                <button
+                                  type="button"
+                                  disabled={creditingPkgId === reqItem.entityId}
+                                  onClick={() => handleCreditSinglePackageYield(reqItem.entityId, reqItem.code)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                                >
+                                  {creditingPkgId === reqItem.entityId ? 'Crediting...' : 'Credit Due Yield'}
+                                </button>
+                              )}
+                              {reqItem.category === 'DEPOSIT' && (
+                                <button
+                                  type="button"
+                                  disabled={approvingDepId === reqItem.entityId}
+                                  onClick={() => handleApproveDeposit(reqItem.entityId)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                                >
+                                  Approve
+                                </button>
+                              )}
+                              {reqItem.category === 'FD_ACTIVATION' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleApprovePackage(reqItem.entityId)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer"
+                                >
+                                  Activate FD
+                                </button>
+                              )}
+                              {reqItem.category === 'FD_MATURED' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSettleFullPackage(reqItem.entityId, reqItem.code)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                                >
+                                  Full Settle
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (reqItem.category === 'DEPOSIT') setDepStatusFilter('PENDING');
+                                  setActiveTab((reqItem.targetTab || 'overview') as any);
+                                }}
+                                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold border border-slate-700 cursor-pointer"
+                              >
+                                Go to Tab →
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* TAB: USERS & ACCOUNTS */}
@@ -1844,15 +2581,28 @@ export default function AdminPortalPage() {
               </div>
             </div>
 
-            {/* Monthly 1% Yield Executor */}
+            {/* Monthly 1% Yield Executor (Date-Based Cycle Engine) */}
             <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-950/40 via-slate-900 to-slate-900 border border-rose-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
                   <Zap className="w-5 h-5 text-rose-500" />
-                  <h3 className="font-extrabold text-base text-white">Monthly Yield Engine (1% ROI)</h3>
+                  <h3 className="font-extrabold text-base text-white">Date-Based Monthly Yield Engine (1% ROI)</h3>
+                  {packageAnalytics.yieldDueCount > 0 ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
+                      Yield Due: {packageAnalytics.yieldDueCount} FD(s) · ${packageAnalytics.yieldDueAmount.toFixed(2)}
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                      0 Packages Due Today ({packageAnalytics.yieldDueSoonCount} due ≤5d
+                      {packageAnalytics.nextUpcomingYieldDate
+                        ? ` · Next: ${new Date(packageAnalytics.nextUpcomingYieldDate).toLocaleDateString()}`
+                        : ''}
+                      )
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 max-w-xl">
-                  Executes the automated monthly dividend run across all active packages ($1,000–$10,000) and posts atomic journal credits to user available balances with idempotency protection.
+                  Evaluates every active FD from its deployment start date and only credits packages that have completed their current 1-month cycle. Mid-cycle and same-day packages are automatically skipped with atomic idempotency protection.
                 </p>
               </div>
 
@@ -1868,10 +2618,14 @@ export default function AdminPortalPage() {
                 <button
                   onClick={handleTriggerMonthlyReturns}
                   disabled={runningReturns}
-                  className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50 cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50 cursor-pointer whitespace-nowrap"
                 >
                   {runningReturns && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>Execute Monthly Yield Run</span>
+                  <span>
+                    {packageAnalytics.yieldDueCount > 0
+                      ? `Credit Due Yields (${packageAnalytics.yieldDueCount})`
+                      : 'Evaluate & Credit Due Yields'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -1882,22 +2636,31 @@ export default function AdminPortalPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold">
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Monthly Yield Batch Run Complete</span>
+                    <span>Date-Based Monthly Yield Evaluation Complete</span>
                   </div>
                   <span className="text-[10px] font-mono text-slate-400">{returnsResult.executionId}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                   <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-                    <p className="text-slate-400 text-[11px]">Total Active Packages</p>
+                    <p className="text-slate-400 text-[11px]">Active FDs Evaluated</p>
                     <p className="text-base font-black text-white mt-0.5">{returnsResult.totalActivePackages}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      Due Now: {returnsResult.duePackagesCount ?? returnsResult.creditedCount}
+                    </p>
                   </div>
                   <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-                    <p className="text-slate-400 text-[11px]">Packages Credited</p>
+                    <p className="text-slate-400 text-[11px]">Due &amp; Credited</p>
                     <p className="text-base font-black text-emerald-400 mt-0.5">{returnsResult.creditedCount}</p>
+                    <p className="text-[10px] text-emerald-500/80 mt-0.5">
+                      {returnsResult.periodsCreditedCount ?? returnsResult.creditedCount} cycle(s) paid
+                    </p>
                   </div>
                   <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-                    <p className="text-slate-400 text-[11px]">Already Credited / Skipped</p>
+                    <p className="text-slate-400 text-[11px]">Skipped (Not Yet Due / Paid)</p>
                     <p className="text-base font-black text-amber-400 mt-0.5">{returnsResult.skippedCount}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {returnsResult.notYetDueCount ?? returnsResult.skippedCount} in cycle · {returnsResult.alreadyCreditedCount ?? 0} already paid
+                    </p>
                   </div>
                   <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
                     <p className="text-slate-400 text-[11px]">Total Distributed (USD)</p>
@@ -1993,31 +2756,98 @@ export default function AdminPortalPage() {
                   <span className="text-purple-400">{packageAnalytics.settledCount} Settled</span>
                 </div>
                 <p className="text-[11px] text-slate-500 font-mono">
-                  Cron Schedule: 00:05 UTC (1st of Month)
+                  Cycle Check: Daily 00:05 UTC · {packageAnalytics.yieldDueCount} Yield Due
                 </p>
               </div>
             </div>
 
+            {/* Yield Due Alert Banner */}
+            {(packageAnalytics.yieldDueCount > 0 || packageAnalytics.yieldDueSoonCount > 0) && (
+              <div
+                className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                  packageAnalytics.yieldDueCount > 0
+                    ? 'bg-amber-950/35 border-amber-500/40'
+                    : 'bg-slate-900/90 border-sky-500/30'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <AlertTriangle
+                    className={`w-5 h-5 mt-0.5 shrink-0 ${
+                      packageAnalytics.yieldDueCount > 0 ? 'text-amber-400 animate-pulse' : 'text-sky-400'
+                    }`}
+                  />
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-extrabold text-white">
+                      {packageAnalytics.yieldDueCount > 0
+                        ? `Yield Due Alert: ${packageAnalytics.yieldDueCount} Active FD(s) Have Completed Their Monthly Cycle ($${packageAnalytics.yieldDueAmount.toFixed(2)} USD Ready)`
+                        : `${packageAnalytics.yieldDueSoonCount} Active FD(s) Completing Monthly Cycle Within 5 Days`}
+                    </div>
+                    <p className="text-[11px] text-slate-300">
+                      {packageAnalytics.yieldDueCount > 0
+                        ? 'Review the highlighted YIELD DUE packages below or run the date-based batch payout. Packages still within their current monthly cycle are safely skipped.'
+                        : packageAnalytics.nextUpcomingYieldDate
+                        ? `Next scheduled monthly yield unlocks on ${new Date(packageAnalytics.nextUpcomingYieldDate).toLocaleDateString()}.`
+                        : 'No FDs are past their monthly cycle today.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {packageAnalytics.yieldDueCount > 0 && (
+                    <button
+                      onClick={() => setPkgHorizonFilter('YIELD_DUE_NOW')}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer"
+                    >
+                      Filter Yield Due ({packageAnalytics.yieldDueCount})
+                    </button>
+                  )}
+                  {packageAnalytics.yieldDueSoonCount > 0 && (
+                    <button
+                      onClick={() => setPkgHorizonFilter('YIELD_DUE_SOON')}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-xs border border-sky-500/30 cursor-pointer"
+                    >
+                      Due ≤ 5d ({packageAnalytics.yieldDueSoonCount})
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Yield Engine Payout Card */}
             <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-950/40 via-slate-900 to-slate-900 border border-rose-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
                   <Zap className="w-5 h-5 text-rose-500" />
-                  <h3 className="font-extrabold text-base text-white">Trigger Batch Monthly Yield Run</h3>
+                  <h3 className="font-extrabold text-base text-white">Date-Based Batch Monthly Yield Run</h3>
+                  {packageAnalytics.yieldDueCount > 0 ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                      🔔 {packageAnalytics.yieldDueCount} Ready ($ {packageAnalytics.yieldDueAmount.toFixed(2)})
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                      ✅ 0 Packages Due Today
+                      {packageAnalytics.nextUpcomingYieldDate
+                        ? ` · Next Due: ${new Date(packageAnalytics.nextUpcomingYieldDate).toLocaleDateString()}`
+                        : ''}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 max-w-xl">
-                  Credits target monthly returns to each customer's available wallet balance simultaneously, generates atomic double-entry ledger entries, and logs investor transaction records.
+                  Checks each active FD&apos;s deployment start date and only credits monthly 1% yields when a full 1-month cycle has been completed. Newly opened or mid-cycle packages are automatically skipped.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={handleTriggerMonthlyReturns}
                   disabled={runningReturns}
                   className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50 cursor-pointer"
                 >
                   {runningReturns && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>Credit All Active Packages Now</span>
+                  <span>
+                    {packageAnalytics.yieldDueCount > 0
+                      ? `Credit Due Yields (${packageAnalytics.yieldDueCount})`
+                      : 'Evaluate & Credit Due Yields'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -2028,22 +2858,31 @@ export default function AdminPortalPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold">
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Monthly Yield Batch Run Complete</span>
+                    <span>Date-Based Monthly Yield Run Complete</span>
                   </div>
                   <span className="text-[10px] font-mono text-slate-400">{returnsResult.executionId}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                   <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-                    <p className="text-slate-400 text-[11px]">Total Active Packages</p>
+                    <p className="text-slate-400 text-[11px]">Active FDs Evaluated</p>
                     <p className="text-base font-black text-white mt-0.5">{returnsResult.totalActivePackages}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      Due Now: {returnsResult.duePackagesCount ?? returnsResult.creditedCount}
+                    </p>
                   </div>
                   <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-                    <p className="text-slate-400 text-[11px]">Packages Credited</p>
+                    <p className="text-slate-400 text-[11px]">Due &amp; Credited</p>
                     <p className="text-base font-black text-emerald-400 mt-0.5">{returnsResult.creditedCount}</p>
+                    <p className="text-[10px] text-emerald-500/80 mt-0.5">
+                      {returnsResult.periodsCreditedCount ?? returnsResult.creditedCount} cycle(s) paid
+                    </p>
                   </div>
                   <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
-                    <p className="text-slate-400 text-[11px]">Already Credited / Skipped</p>
+                    <p className="text-slate-400 text-[11px]">Skipped (Not Yet Due / Paid)</p>
                     <p className="text-base font-black text-amber-400 mt-0.5">{returnsResult.skippedCount}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {returnsResult.notYetDueCount ?? returnsResult.skippedCount} mid-cycle · {returnsResult.alreadyCreditedCount ?? 0} paid
+                    </p>
                   </div>
                   <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800">
                     <p className="text-slate-400 text-[11px]">Total Distributed (USD)</p>
@@ -2090,6 +2929,8 @@ export default function AdminPortalPage() {
                     className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold outline-none focus:border-amber-500"
                   >
                     <option value="ALL">All Maturity Horizons</option>
+                    <option value="YIELD_DUE_NOW">🔔 Monthly Yield Due Now (Ready to Credit)</option>
+                    <option value="YIELD_DUE_SOON">⏳ Monthly Yield Due Within 5 Days</option>
                     <option value="DUE_NOW">🚨 Matured / Due Now (≤ 0 Days)</option>
                     <option value="ENDING_7D">⚠️ Ending Within 7 Days</option>
                     <option value="ENDING_15D">⚠️ Ending Within 15 Days</option>
@@ -2410,28 +3251,80 @@ export default function AdminPortalPage() {
                                   })}
                                 </div>
                               )}
+                              {pkg.status === 'ACTIVE' && !isSettled && (
+                                <div className="mt-1">
+                                  {pkg.isYieldDue ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black animate-pulse">
+                                      🔔 YIELD DUE: Mo {pkg.nextPeriodIndex ?? (Number(pkg.completedCycles || 0))} (+$
+                                      {Number(pkg.dueYieldAmount || Number(pkg.amount || 0) * 0.01).toFixed(2)})
+                                    </span>
+                                  ) : pkg.isYieldDueSoon ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[10px] font-bold">
+                                      ⏳ Mo {pkg.nextPeriodIndex ?? Number(pkg.returnsCount || 0) + 1} due in{' '}
+                                      {pkg.daysUntilNextYield ?? 0}d
+                                      {pkg.nextYieldDueDate
+                                        ? ` (${new Date(pkg.nextYieldDueDate).toLocaleDateString()})`
+                                        : ''}
+                                    </span>
+                                  ) : pkg.nextYieldDueDate ? (
+                                    <span className="text-[10px] font-mono text-slate-400">
+                                      🗓️ Next Yield (Mo {pkg.nextPeriodIndex ?? Number(pkg.returnsCount || 0) + 1}):{' '}
+                                      {new Date(pkg.nextYieldDueDate).toLocaleDateString()} ({pkg.daysUntilNextYield ?? 0}d left)
+                                    </span>
+                                  ) : null}
+                                </div>
+                              )}
                             </td>
 
                             <td className="py-3.5 pr-3">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                                  pkg.status === 'ACTIVE'
-                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                    : pkg.status === 'PENDING_PAYMENT'
-                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                    : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                                }`}
-                              >
-                                {pkg.status}
-                              </span>
+                              <div className="flex flex-col items-start gap-1">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                    pkg.status === 'ACTIVE'
+                                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                      : pkg.status === 'PENDING_PAYMENT'
+                                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                      : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                                  }`}
+                                >
+                                  {pkg.status}
+                                </span>
+                                {pkg.status === 'ACTIVE' && pkg.isYieldDue && (
+                                  <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                                    YIELD DUE
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             <td className="py-3.5 text-right">
-                              <div className="flex items-center justify-end gap-2">
+                              <div className="flex items-center justify-end gap-2 flex-wrap">
+                                {pkg.status === 'ACTIVE' && pkg.isYieldDue && (
+                                  <button
+                                    onClick={() => handleCreditSinglePackageYield(pkg.id, pkg.packageCode)}
+                                    disabled={creditingPkgId === pkg.id}
+                                    className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap disabled:opacity-50"
+                                    title="Credit Monthly Yield Due for this Package"
+                                  >
+                                    {creditingPkgId === pkg.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Zap className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>
+                                      Credit Due Yield (+$
+                                      {Number(pkg.dueYieldAmount || Number(pkg.amount || 0) * 0.01).toFixed(2)})
+                                    </span>
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => {
                                     setSelectedPackage(pkg);
                                     setEditLockMonths(pkg.lockInMonths || 6);
+                                    const startRaw = pkg.lockInStart || pkg.purchaseDate;
+                                    setCustomStartDate(
+                                      startRaw ? new Date(startRaw).toISOString().split('T')[0] : ''
+                                    );
                                     setCustomMaturityDate(
                                       pkg.lockInEnd ? new Date(pkg.lockInEnd).toISOString().split('T')[0] : ''
                                     );
@@ -4016,6 +4909,22 @@ export default function AdminPortalPage() {
                 }}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white outline-none font-mono"
               />
+            </div>
+
+            {/* Custom Start / Deployment Date Override */}
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">
+                Override Start / Deployment Date (Optional)
+              </label>
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white outline-none font-mono"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Monthly 1% yield cycles are calculated from this deployment start date.
+              </p>
             </div>
 
             {/* Custom Exact Maturity Date Override */}

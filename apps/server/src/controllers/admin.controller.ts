@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { PackageStatus, DepositStatus, WithdrawalStatus, Role, KycStatus, UserStatus, P2POrderStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
-import { packageService } from '../services/package.service';
+import { packageService, computePackageYieldSchedule } from '../services/package.service';
 import { depositService } from '../services/deposit.service';
 import { returnsJobService } from '../services/returns.job';
 import { ledgerService } from '../services/ledger.service';
@@ -169,20 +169,19 @@ export class AdminController {
   }
 
   /**
-   * Manually trigger monthly returns job
+   * Manually trigger date-based monthly returns job (only processes packages whose monthly cycle is actually due)
    */
   async triggerMonthlyReturns(req: Request, res: Response, next: NextFunction) {
     try {
       const adminUserId = (req as any).user.id;
-      const { reason, cycleMonth, forceNextPeriod } = req.body || {};
-      const auditReason = reason || 'Admin batch monthly yield distribution (1% standard return)';
+      const { reason, cycleMonth } = req.body || {};
+      const auditReason = reason || 'Admin date-based monthly yield batch evaluation (1% standard return)';
 
       const summary = await returnsJobService.executeMonthlyReturns({
         manualRun: true,
         adminUserId,
         adminReason: auditReason,
         cycleMonth,
-        forceNextPeriod: Boolean(forceNextPeriod),
       });
 
       // Audit Log
@@ -192,14 +191,49 @@ export class AdminController {
           action: 'MANUAL_RETURNS_PAYOUT',
           entity: 'ReturnsEngine',
           entityId: summary.executionId,
-          details: `Manual payout executed. Credited: ${summary.creditedCount}, Total: $${summary.totalDistributedUsd}. Reason: ${auditReason}`,
+          details: `Date-based yield run executed. Due Credited: ${summary.creditedCount} ($${summary.totalDistributedUsd}), Skipped Not Due: ${summary.notYetDueCount}, Already Credited: ${summary.alreadyCreditedCount}. Reason: ${auditReason}`,
+        },
+      });
+
+      const message =
+        summary.creditedCount > 0
+          ? `Monthly yield run completed: ${summary.creditedCount} due package(s) credited ($${summary.totalDistributedUsd} USD). ${summary.notYetDueCount} package(s) skipped (current monthly cycle not yet completed).`
+          : `No packages have monthly yield due today. ${summary.notYetDueCount} active package(s) are still within their current monthly cycle and ${summary.alreadyCreditedCount} completed cycle(s) were already credited.`;
+
+      res.json({
+        success: true,
+        message,
+        data: summary,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Credit monthly yield for a single active package (only if due based on start/deployment date)
+   */
+  async creditSinglePackageYield(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const packageId = req.params.id as string;
+
+      const result = await returnsJobService.creditSinglePackageDueYield(packageId, adminUserId);
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'SINGLE_PACKAGE_YIELD_CREDIT',
+          entity: 'InvestmentPackage',
+          entityId: packageId,
+          details: `Credited ${result.periodsCreditedCount} due monthly yield period(s) for ${result.packageCode} ($${result.totalCreditedUsd} USD).`,
         },
       });
 
       res.json({
         success: true,
-        message: `Monthly returns job completed. ${summary.creditedCount} packages credited, $${summary.totalDistributedUsd} distributed.`,
-        data: summary,
+        message: `Credited $${result.totalCreditedUsd} USD (${result.periodsCreditedCount} due monthly period(s)) for ${result.packageCode}.`,
+        data: result,
       });
     } catch (err) {
       next(err);
@@ -656,13 +690,13 @@ export class AdminController {
   }
 
   /**
-   * Update investment package FD lock-in tenure & maturity date
+   * Update investment package FD lock-in tenure, start date & maturity date
    */
   async updatePackageTenure(req: Request, res: Response, next: NextFunction) {
     try {
       const adminUserId = (req as any).user.id;
       const packageId = req.params.id as string;
-      const { lockInMonths, newEndDate, returnRateSnapshot, adminNotes } = req.body;
+      const { lockInMonths, newStartDate, newEndDate, returnRateSnapshot, adminNotes } = req.body;
 
       const pkg = await prisma.investmentPackage.findUnique({
         where: { id: packageId },
@@ -675,6 +709,28 @@ export class AdminController {
 
       const updateData: any = {};
       let calculatedEndDate: Date | null = null;
+      let effectiveStartDate = new Date(pkg.lockInStart || pkg.purchaseDate || pkg.createdAt || new Date());
+
+      if (newStartDate) {
+        const parsedStart = new Date(newStartDate);
+        if (isNaN(parsedStart.getTime())) {
+          return res.status(400).json({ success: false, message: 'Invalid custom start date' });
+        }
+        effectiveStartDate = parsedStart;
+        updateData.lockInStart = parsedStart;
+        updateData.purchaseDate = parsedStart;
+
+        const targetMonths =
+          lockInMonths !== undefined && lockInMonths !== null && lockInMonths !== ''
+            ? parseInt(lockInMonths, 10)
+            : pkg.lockInMonths;
+        if (!isNaN(targetMonths) && targetMonths >= 1 && targetMonths <= 60) {
+          calculatedEndDate = new Date(effectiveStartDate);
+          calculatedEndDate.setMonth(calculatedEndDate.getMonth() + targetMonths);
+          updateData.lockInEnd = calculatedEndDate;
+          updateData.withdrawalEligibilityDate = calculatedEndDate;
+        }
+      }
 
       if (lockInMonths !== undefined && lockInMonths !== null && lockInMonths !== '') {
         const months = parseInt(lockInMonths, 10);
@@ -683,8 +739,7 @@ export class AdminController {
         }
         updateData.lockInMonths = months;
 
-        const startDate = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt || new Date();
-        calculatedEndDate = new Date(startDate);
+        calculatedEndDate = new Date(effectiveStartDate);
         calculatedEndDate.setMonth(calculatedEndDate.getMonth() + months);
         updateData.lockInEnd = calculatedEndDate;
         updateData.withdrawalEligibilityDate = calculatedEndDate;
@@ -704,7 +759,7 @@ export class AdminController {
       }
 
       if (adminNotes) {
-        updateData.adminNotes = pkg.adminNotes 
+        updateData.adminNotes = pkg.adminNotes
           ? `${pkg.adminNotes}\n[${new Date().toISOString()}] ${adminNotes}`
           : adminNotes;
       }
@@ -722,13 +777,13 @@ export class AdminController {
           action: 'UPDATE_PACKAGE_TENURE',
           entity: 'InvestmentPackage',
           entityId: packageId,
-          details: `Updated package ${pkg.packageCode} tenure to ${updateData.lockInMonths || pkg.lockInMonths} months. Lock end: ${updated.lockInEnd?.toISOString()}. Notes: ${adminNotes || 'None'}`,
+          details: `Updated package ${pkg.packageCode} tenure to ${updateData.lockInMonths || pkg.lockInMonths} months. Start: ${updated.lockInStart?.toISOString()}, Lock end: ${updated.lockInEnd?.toISOString()}. Notes: ${adminNotes || 'None'}`,
         },
       });
 
       res.json({
         success: true,
-        message: `Package ${pkg.packageCode} FD lock tenure updated to ${updated.lockInMonths} months (Maturity: ${updated.lockInEnd ? new Date(updated.lockInEnd).toLocaleDateString() : 'Active'}).`,
+        message: `Package ${pkg.packageCode} FD dates/tenure updated (${updated.lockInMonths} months, Maturity: ${updated.lockInEnd ? new Date(updated.lockInEnd).toLocaleDateString() : 'Active'}).`,
         data: {
           ...updated,
           amount: new Decimal(updated.amount.toString()).toFixed(2),
@@ -2014,6 +2069,653 @@ export class AdminController {
   }
 
   /**
+   * Formats elapsed age & SLA breach status relative to `now`.
+   */
+  private computeAgeInfo(dateInput: Date | string, now: Date, overdueThresholdHours: number) {
+    const dt = new Date(dateInput);
+    const ageMs = isNaN(dt.getTime()) ? 0 : Math.max(0, now.getTime() - dt.getTime());
+    const ageMins = Math.floor(ageMs / (1000 * 60));
+    const ageHours = Math.floor(ageMs / (1000 * 60 * 60));
+    const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+
+    let ageLabel = `${ageMins}m`;
+    if (ageHours >= 24) {
+      ageLabel = `${ageDays}d ${ageHours % 24}h`;
+    } else if (ageMins >= 60) {
+      ageLabel = `${ageHours}h ${ageMins % 60}m`;
+    }
+
+    return {
+      ageMs,
+      ageHours,
+      ageDays,
+      ageLabel,
+      isOverdue: ageHours >= overdueThresholdHours,
+    };
+  }
+
+  /**
+   * Builds unified date-based alerts & actionable pending requests across all operational queues.
+   */
+  private async buildAdminCommandCenterData() {
+    const now = new Date();
+    const [
+      activeAndPendingPackages,
+      pendingDepositsList,
+      pendingWithdrawalsList,
+      pendingKycList,
+      pendingTransfersList,
+      openTicketsList,
+      disputedP2PList,
+      pendingInquiriesList,
+    ] = await Promise.all([
+      prisma.investmentPackage.findMany({
+        where: { status: { in: ['ACTIVE', 'PENDING_PAYMENT', 'WITHDRAWAL_REQUESTED'] } },
+        include: {
+          user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          returns: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.depositRequest.findMany({
+        where: { status: DepositStatus.PENDING },
+        include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.withdrawalRequest.findMany({
+        where: {
+          status: {
+            in: [WithdrawalStatus.REQUESTED, WithdrawalStatus.UNDER_REVIEW, WithdrawalStatus.APPROVED],
+          },
+        },
+        include: {
+          user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          package: { select: { packageCode: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.kycDocument.findMany({
+        where: { status: KycStatus.PENDING },
+        include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.globalTransfer.findMany({
+        where: { status: { in: ['SUBMITTED', 'COMPLIANCE_SCREENED', 'PROCESSING'] } },
+        include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.supportTicket.findMany({
+        where: { status: { in: ['OPEN', 'IN_PROGRESS'] } },
+        include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.p2POrder.findMany({
+        where: { status: P2POrderStatus.DISPUTED },
+        include: {
+          buyer: { select: { id: true, email: true, firstName: true, lastName: true } },
+          seller: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.inquiry.findMany({
+        where: { status: 'NEW' },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    const pendingRequests: any[] = [];
+    const alerts: any[] = [];
+
+    let yieldDueCount = 0;
+    let yieldDueTotalDec = new Decimal(0);
+    let yieldDueSoonCount = 0;
+    let yieldDueSoonTotalDec = new Decimal(0);
+    let maturedUnsettledCount = 0;
+    let approachingMaturityCount = 0;
+    let pendingPackagesCount = 0;
+    let nextUpcomingYieldDate: Date | null = null;
+
+    for (const pkg of activeAndPendingPackages) {
+      const fullName =
+        `${pkg.user?.firstName || ''} ${pkg.user?.lastName || ''}`.trim() ||
+        pkg.user?.email ||
+        'Investor';
+      const amountFixed = new Decimal(pkg.amount.toString()).toFixed(2);
+
+      if (pkg.status === 'PENDING_PAYMENT') {
+        pendingPackagesCount++;
+        const age = this.computeAgeInfo(pkg.createdAt, now, 48);
+        const item = {
+          id: `PKG_ACT-${pkg.id}`,
+          entityId: pkg.id,
+          code: pkg.packageCode,
+          category: 'FD_ACTIVATION',
+          typeLabel: 'FD Package Activation',
+          title: `Pending FD Activation: ${pkg.packageCode}`,
+          description: `$${amountFixed} ${pkg.currency} (${pkg.lockInMonths}m FD via ${pkg.depositMethod || 'BANK_WIRE'}) awaiting payment verification`,
+          customerId: pkg.userId,
+          customerName: fullName,
+          customerEmail: pkg.user?.email || '',
+          amount: amountFixed,
+          currency: pkg.currency,
+          status: pkg.status,
+          targetTab: 'packages',
+          requestDate: pkg.createdAt.toISOString(),
+          createdDate: pkg.createdAt.toISOString(),
+          ageMs: age.ageMs,
+          ageHours: age.ageHours,
+          ageDays: age.ageDays,
+          ageLabel: age.ageLabel,
+          isOverdue: age.isOverdue,
+          urgency: age.isOverdue ? 'OVERDUE' : age.ageHours >= 24 ? 'HIGH' : 'NORMAL',
+          priorityRank: age.isOverdue ? 1 : 3,
+          meta: {
+            lockInMonths: pkg.lockInMonths,
+            depositMethod: pkg.depositMethod,
+          },
+        };
+        pendingRequests.push(item);
+        alerts.push(item);
+        continue;
+      }
+
+      // Active FD Yield Schedule evaluation
+      const schedule = computePackageYieldSchedule(pkg, now);
+      if (schedule.isYieldDue && schedule.duePeriodsCount > 0) {
+        yieldDueCount++;
+        const dueAmtDec = new Decimal(schedule.dueYieldAmount);
+        yieldDueTotalDec = yieldDueTotalDec.plus(dueAmtDec);
+        const dueDate = schedule.nextYieldDueDate || now;
+        const age = this.computeAgeInfo(dueDate, now, 24);
+        const overdueFlag = age.isOverdue || (schedule.daysUntilNextYield ?? 0) < 0;
+        const periodSummary = schedule.duePeriodIndices.map((p) => `Month ${p}`).join(', ');
+
+        const yieldItem = {
+          id: `YIELD_DUE-${pkg.id}`,
+          entityId: pkg.id,
+          code: pkg.packageCode,
+          category: 'FD_YIELD_DUE',
+          typeLabel: 'FD Monthly Yield Due',
+          title: `Yield Due: ${pkg.packageCode} (${periodSummary})`,
+          description: `+$${schedule.dueYieldAmount} ${pkg.currency} ready to credit (${schedule.duePeriodsCount} completed monthly cycle${schedule.duePeriodsCount > 1 ? 's' : ''} out of ${schedule.lockMonths}m)`,
+          customerId: pkg.userId,
+          customerName: fullName,
+          customerEmail: pkg.user?.email || '',
+          amount: schedule.dueYieldAmount,
+          currency: pkg.currency,
+          status: 'YIELD_DUE',
+          targetTab: 'packages',
+          requestDate: dueDate.toISOString(),
+          createdDate: dueDate.toISOString(),
+          ageMs: age.ageMs,
+          ageHours: age.ageHours,
+          ageDays: age.ageDays,
+          ageLabel: age.ageHours < 1 ? 'Due today' : `${age.ageLabel} past cycle`,
+          isOverdue: overdueFlag,
+          urgency: overdueFlag ? 'OVERDUE' : 'DUE_TODAY',
+          priorityRank: overdueFlag ? 0 : 1,
+          meta: {
+            packageCode: pkg.packageCode,
+            principalAmount: amountFixed,
+            duePeriodsCount: schedule.duePeriodsCount,
+            duePeriodIndices: schedule.duePeriodIndices,
+            nextPeriodIndex: schedule.nextPeriodIndex,
+            lockInMonths: schedule.lockMonths,
+          },
+        };
+        pendingRequests.push(yieldItem);
+        alerts.push(yieldItem);
+      } else if (pkg.status === 'ACTIVE' && schedule.nextYieldDueDate) {
+        if (!nextUpcomingYieldDate || schedule.nextYieldDueDate < nextUpcomingYieldDate) {
+          nextUpcomingYieldDate = schedule.nextYieldDueDate;
+        }
+        if (schedule.isYieldDueSoon) {
+          yieldDueSoonCount++;
+          yieldDueSoonTotalDec = yieldDueSoonTotalDec.plus(new Decimal(schedule.monthlyYield));
+          alerts.push({
+            id: `YIELD_SOON-${pkg.id}`,
+            entityId: pkg.id,
+            code: pkg.packageCode,
+            category: 'FD_YIELD_SOON',
+            typeLabel: 'Upcoming FD Yield Cycle',
+            title: `Yield Due in ${schedule.daysUntilNextYield}d: ${pkg.packageCode}`,
+            description: `Month ${schedule.nextPeriodIndex}/${schedule.lockMonths} (+$${schedule.monthlyYield} ${pkg.currency}) completes on ${schedule.nextYieldDueDate.toISOString().split('T')[0]}`,
+            customerId: pkg.userId,
+            customerName: fullName,
+            customerEmail: pkg.user?.email || '',
+            amount: schedule.monthlyYield,
+            currency: pkg.currency,
+            status: 'UPCOMING_CYCLE',
+            targetTab: 'packages',
+            requestDate: schedule.nextYieldDueDate.toISOString(),
+            createdDate: schedule.nextYieldDueDate.toISOString(),
+            ageMs: 0,
+            ageHours: 0,
+            ageDays: 0,
+            ageLabel: `In ${schedule.daysUntilNextYield}d`,
+            isOverdue: false,
+            urgency: 'UPCOMING',
+            priorityRank: 4,
+            meta: {
+              packageCode: pkg.packageCode,
+              nextPeriodIndex: schedule.nextPeriodIndex,
+              daysUntilNextYield: schedule.daysUntilNextYield,
+            },
+          });
+        }
+      }
+
+      // Check FD Maturity / Approaching Maturity
+      if (pkg.lockInEnd) {
+        const endDt = new Date(pkg.lockInEnd);
+        const msRemaining = endDt.getTime() - now.getTime();
+        const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
+        if (daysRemaining <= 0) {
+          maturedUnsettledCount++;
+          const age = this.computeAgeInfo(endDt, now, 24);
+          const maturedItem = {
+            id: `FD_MATURED-${pkg.id}`,
+            entityId: pkg.id,
+            code: pkg.packageCode,
+            category: 'FD_MATURED',
+            typeLabel: 'FD Maturity Settlement',
+            title: `FD Matured: ${pkg.packageCode} Ready for Settlement`,
+            description: `$${amountFixed} ${pkg.currency} principal lock ended ${endDt.toISOString().split('T')[0]}. Process full settlement (returns + principal).`,
+            customerId: pkg.userId,
+            customerName: fullName,
+            customerEmail: pkg.user?.email || '',
+            amount: amountFixed,
+            currency: pkg.currency,
+            status: 'MATURED_DUE',
+            targetTab: 'packages',
+            requestDate: endDt.toISOString(),
+            createdDate: endDt.toISOString(),
+            ageMs: age.ageMs,
+            ageHours: age.ageHours,
+            ageDays: age.ageDays,
+            ageLabel: age.ageHours < 1 ? 'Matured today' : `${age.ageLabel} past end`,
+            isOverdue: age.isOverdue,
+            urgency: age.isOverdue ? 'OVERDUE' : 'DUE_TODAY',
+            priorityRank: age.isOverdue ? 0 : 1,
+            meta: {
+              packageCode: pkg.packageCode,
+              lockInMonths: pkg.lockInMonths,
+            },
+          };
+          pendingRequests.push(maturedItem);
+          alerts.push(maturedItem);
+        } else if (daysRemaining <= 15) {
+          approachingMaturityCount++;
+          alerts.push({
+            id: `FD_SOON-${pkg.id}`,
+            entityId: pkg.id,
+            code: pkg.packageCode,
+            category: 'FD_APPROACHING_MATURITY',
+            typeLabel: 'FD Approaching Maturity',
+            title: `FD Maturing in ${daysRemaining}d: ${pkg.packageCode}`,
+            description: `$${amountFixed} ${pkg.currency} principal matures on ${endDt.toISOString().split('T')[0]}`,
+            customerId: pkg.userId,
+            customerName: fullName,
+            customerEmail: pkg.user?.email || '',
+            amount: amountFixed,
+            currency: pkg.currency,
+            status: 'APPROACHING_MATURITY',
+            targetTab: 'packages',
+            requestDate: endDt.toISOString(),
+            createdDate: endDt.toISOString(),
+            ageMs: 0,
+            ageHours: 0,
+            ageDays: 0,
+            ageLabel: `${daysRemaining}d left`,
+            isOverdue: false,
+            urgency: 'UPCOMING',
+            priorityRank: 4,
+            meta: {
+              packageCode: pkg.packageCode,
+              daysRemaining,
+            },
+          });
+        }
+      }
+    }
+
+    // Pending Deposit Requests
+    for (const dep of pendingDepositsList) {
+      const fullName =
+        `${dep.user?.firstName || ''} ${dep.user?.lastName || ''}`.trim() ||
+        dep.user?.email ||
+        'Investor';
+      const amountFixed = new Decimal(dep.amount.toString()).toFixed(2);
+      const age = this.computeAgeInfo(dep.createdAt, now, 48);
+      const item = {
+        id: `DEP-${dep.id}`,
+        entityId: dep.id,
+        code: dep.depositCode,
+        category: 'DEPOSIT',
+        typeLabel: 'Deposit / Balance Request',
+        title: `Deposit Request: ${dep.depositCode} ($${amountFixed} ${dep.currency})`,
+        description: `${dep.depositMethod} deposit awaiting verification${dep.txHashOrRef ? ` • Ref: ${dep.txHashOrRef}` : ' • No gateway ref'}`,
+        customerId: dep.userId,
+        customerName: fullName,
+        customerEmail: dep.user?.email || '',
+        amount: amountFixed,
+        currency: dep.currency,
+        status: dep.status,
+        targetTab: 'deposits',
+        requestDate: dep.createdAt.toISOString(),
+        createdDate: dep.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : age.ageHours >= 24 ? 'HIGH' : 'NORMAL',
+        priorityRank: age.isOverdue ? 0 : 2,
+        meta: {
+          depositMethod: dep.depositMethod,
+          txHashOrRef: dep.txHashOrRef,
+        },
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    // Pending Withdrawal Requests
+    for (const wth of pendingWithdrawalsList) {
+      const fullName =
+        `${wth.user?.firstName || ''} ${wth.user?.lastName || ''}`.trim() ||
+        wth.user?.email ||
+        'Investor';
+      const amountFixed = new Decimal(wth.amount.toString()).toFixed(2);
+      const age = this.computeAgeInfo(wth.createdAt, now, 48);
+      let parsedDetails: any = null;
+      try {
+        parsedDetails = wth.payoutDetails ? JSON.parse(wth.payoutDetails) : null;
+      } catch {
+        parsedDetails = null;
+      }
+      const item = {
+        id: `WTH-${wth.id}`,
+        entityId: wth.id,
+        code: wth.requestCode,
+        category: 'WITHDRAWAL',
+        typeLabel: 'Withdrawal Settlement',
+        title: `Withdrawal Request: ${wth.requestCode} (${amountFixed} ${wth.currency})`,
+        description: `${wth.payoutMethod}${parsedDetails?.network ? ` • ${parsedDetails.network}` : ''} • ${parsedDetails?.sourceBalanceLabel || wth.withdrawalType}${wth.package?.packageCode ? ` (${wth.package.packageCode})` : ''}`,
+        customerId: wth.userId,
+        customerName: fullName,
+        customerEmail: wth.user?.email || '',
+        amount: amountFixed,
+        currency: wth.currency,
+        status: wth.status,
+        targetTab: 'withdrawals',
+        requestDate: wth.createdAt.toISOString(),
+        createdDate: wth.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : age.ageHours >= 24 ? 'HIGH' : 'NORMAL',
+        priorityRank: age.isOverdue ? 0 : 2,
+        meta: {
+          payoutMethod: wth.payoutMethod,
+          network: parsedDetails?.network || null,
+          sourceBalanceLabel: parsedDetails?.sourceBalanceLabel || null,
+          withdrawalType: wth.withdrawalType,
+        },
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    // Pending KYC Verifications
+    for (const kyc of pendingKycList) {
+      const fullName =
+        `${kyc.user?.firstName || ''} ${kyc.user?.lastName || ''}`.trim() ||
+        kyc.user?.email ||
+        'Investor';
+      const age = this.computeAgeInfo(kyc.createdAt, now, 48);
+      const item = {
+        id: `KYC-${kyc.id}`,
+        entityId: kyc.id,
+        code: `KYC-${kyc.id.slice(0, 8).toUpperCase()}`,
+        category: 'KYC_VERIFICATION',
+        typeLabel: 'KYC Verification',
+        title: `KYC Review: ${kyc.documentType}`,
+        description: `${kyc.documentType} submission awaiting compliance verification`,
+        customerId: kyc.userId,
+        customerName: fullName,
+        customerEmail: kyc.user?.email || '',
+        amount: null,
+        currency: null,
+        status: kyc.status,
+        targetTab: 'kyc',
+        requestDate: kyc.createdAt.toISOString(),
+        createdDate: kyc.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : age.ageHours >= 24 ? 'HIGH' : 'NORMAL',
+        priorityRank: age.isOverdue ? 1 : 3,
+        meta: { documentType: kyc.documentType },
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    // Pending Global Remittance Orders
+    for (const tr of pendingTransfersList) {
+      const fullName =
+        `${tr.user?.firstName || ''} ${tr.user?.lastName || ''}`.trim() ||
+        tr.senderName ||
+        tr.senderEmail;
+      const amountFixed = new Decimal(tr.sendingAmount.toString()).toFixed(2);
+      const age = this.computeAgeInfo(tr.createdAt, now, 48);
+      const item = {
+        id: `GMT-${tr.id}`,
+        entityId: tr.id,
+        code: tr.transferCode,
+        category: 'REMITTANCE',
+        typeLabel: 'Global Remittance',
+        title: `Remittance Order: ${tr.transferCode} (${amountFixed} ${tr.sendingCurrency} → ${tr.recipientCurrency})`,
+        description: `To ${tr.recipientName} (${tr.destinationCountry}) • Status: ${tr.status}`,
+        customerId: tr.userId,
+        customerName: fullName,
+        customerEmail: tr.user?.email || tr.senderEmail || '',
+        amount: amountFixed,
+        currency: tr.sendingCurrency,
+        status: tr.status,
+        targetTab: 'remittance',
+        requestDate: tr.createdAt.toISOString(),
+        createdDate: tr.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : age.ageHours >= 24 ? 'HIGH' : 'NORMAL',
+        priorityRank: age.isOverdue ? 1 : 3,
+        meta: {
+          recipientCurrency: tr.recipientCurrency,
+          destinationCountry: tr.destinationCountry,
+        },
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    // Open Support Tickets
+    for (const tkt of openTicketsList) {
+      const fullName =
+        `${tkt.user?.firstName || ''} ${tkt.user?.lastName || ''}`.trim() ||
+        tkt.user?.email ||
+        'Client';
+      const age = this.computeAgeInfo(tkt.createdAt, now, 48);
+      const item = {
+        id: `TKT-${tkt.id}`,
+        entityId: tkt.id,
+        code: tkt.ticketNumber,
+        category: 'SUPPORT_TICKET',
+        typeLabel: 'Support Ticket',
+        title: `Support Ticket: ${tkt.subject}`,
+        description: `Priority: ${tkt.priority} • Category: ${tkt.category}`,
+        customerId: tkt.userId,
+        customerName: fullName,
+        customerEmail: tkt.user?.email || '',
+        amount: null,
+        currency: null,
+        status: tkt.status,
+        targetTab: 'disputes',
+        requestDate: tkt.createdAt.toISOString(),
+        createdDate: tkt.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : tkt.priority === 'HIGH' ? 'HIGH' : 'NORMAL',
+        priorityRank: age.isOverdue ? 1 : 3,
+        meta: { priority: tkt.priority, ticketCategory: tkt.category },
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    // Disputed P2P Orders
+    for (const p2p of disputedP2PList) {
+      const buyerName = `${p2p.buyer?.firstName || ''} ${p2p.buyer?.lastName || ''}`.trim() || p2p.buyer?.email || 'Buyer';
+      const amountFixed = new Decimal(p2p.cryptoAmount.toString()).toFixed(2);
+      const age = this.computeAgeInfo(p2p.createdAt, now, 24);
+      const item = {
+        id: `P2P-${p2p.id}`,
+        entityId: p2p.id,
+        code: p2p.orderCode,
+        category: 'P2P_DISPUTE',
+        typeLabel: 'P2P Escrow Dispute',
+        title: `P2P Dispute: ${p2p.orderCode} (${amountFixed} USDT)`,
+        description: `${buyerName} vs ${p2p.seller?.email || 'Seller'} • Requires compliance escrow decision`,
+        customerId: p2p.buyerId,
+        customerName: buyerName,
+        customerEmail: p2p.buyer?.email || '',
+        amount: amountFixed,
+        currency: 'USDT',
+        status: p2p.status,
+        targetTab: 'p2p',
+        requestDate: p2p.createdAt.toISOString(),
+        createdDate: p2p.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : 'HIGH',
+        priorityRank: 0,
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    // New Client Inquiries
+    for (const inq of pendingInquiriesList) {
+      const age = this.computeAgeInfo(inq.createdAt, now, 48);
+      const item = {
+        id: `INQ-${inq.id}`,
+        entityId: inq.id,
+        code: `INQ-${inq.id.slice(0, 8).toUpperCase()}`,
+        category: 'INQUIRY',
+        typeLabel: 'Client Inquiry',
+        title: `Client Inquiry: ${inq.subject}`,
+        description: `${inq.type} inquiry from ${inq.name}`,
+        customerId: inq.userId || null,
+        customerName: inq.name,
+        customerEmail: inq.email,
+        amount: null,
+        currency: null,
+        status: inq.status,
+        targetTab: 'disputes',
+        requestDate: inq.createdAt.toISOString(),
+        createdDate: inq.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : 'NORMAL',
+        priorityRank: age.isOverdue ? 1 : 3,
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    const sortByUrgencyThenAge = (a: any, b: any) => {
+      if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
+      return b.ageMs - a.ageMs;
+    };
+
+    pendingRequests.sort(sortByUrgencyThenAge);
+    alerts.sort(sortByUrgencyThenAge);
+
+    const overdueCount = pendingRequests.filter((r) => r.isOverdue).length;
+    const dueTodayCount = pendingRequests.filter((r) => r.urgency === 'DUE_TODAY').length;
+    const totalPendingCount = pendingRequests.filter(
+      (r) => !['FD_YIELD_DUE', 'FD_MATURED'].includes(r.category)
+    ).length;
+    const oldestItem = [...pendingRequests].sort((a, b) => b.ageMs - a.ageMs)[0] || null;
+
+    const summary = {
+      yieldDueCount,
+      yieldDueTotalUsd: yieldDueTotalDec.toFixed(2),
+      yieldDueSoonCount,
+      yieldDueSoonTotalUsd: yieldDueSoonTotalDec.toFixed(2),
+      maturedUnsettledCount,
+      approachingMaturityCount,
+      pendingDepositsCount: pendingDepositsList.length,
+      pendingWithdrawalsCount: pendingWithdrawalsList.length,
+      pendingPackagesCount,
+      pendingKycCount: pendingKycList.length,
+      pendingRemittancesCount: pendingTransfersList.length,
+      openTicketsCount: openTicketsList.length,
+      disputedP2PCount: disputedP2PList.length,
+      newInquiriesCount: pendingInquiriesList.length,
+      totalPendingCount,
+      totalActionItems: pendingRequests.length,
+      overdueCount,
+      dueTodayCount,
+      upcomingAlertsCount: alerts.filter((a) => a.urgency === 'UPCOMING').length,
+      totalAlertsCount: alerts.length,
+      oldestPendingDays: oldestItem ? oldestItem.ageDays : 0,
+      oldestPendingLabel: oldestItem ? oldestItem.ageLabel : '0m',
+      nextUpcomingYieldDate: nextUpcomingYieldDate ? nextUpcomingYieldDate.toISOString() : null,
+    };
+
+    return {
+      ...summary,
+      summary,
+      alerts,
+      pendingRequests,
+      generatedAt: now.toISOString(),
+    };
+  }
+
+  /**
+   * Dedicated endpoint returning real-time date-based notifications, yield alerts & pending/overdue requests
+   */
+  async getAdminNotifications(req: Request, res: Response, next: NextFunction) {
+    try {
+      const commandCenter = await this.buildAdminCommandCenterData();
+      res.json({
+        success: true,
+        data: commandCenter,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Institutional Analytics & KPI Overview
    */
   async getPlatformOverviewAnalytics(req: Request, res: Response, next: NextFunction) {
@@ -2028,6 +2730,7 @@ export class AdminController {
         totalStartups,
         totalTransfers,
         totalTickets,
+        commandCenter,
       ] = await Promise.all([
         prisma.user.count(),
         prisma.investmentPackage.count(),
@@ -2036,11 +2739,18 @@ export class AdminController {
           select: { amount: true },
         }),
         prisma.depositRequest.count({ where: { status: DepositStatus.PENDING } }),
-        prisma.withdrawalRequest.count({ where: { status: { in: [WithdrawalStatus.REQUESTED, WithdrawalStatus.UNDER_REVIEW] } } }),
+        prisma.withdrawalRequest.count({
+          where: {
+            status: {
+              in: [WithdrawalStatus.REQUESTED, WithdrawalStatus.UNDER_REVIEW, WithdrawalStatus.APPROVED],
+            },
+          },
+        }),
         prisma.kycDocument.count({ where: { status: KycStatus.PENDING } }),
         prisma.startupListing.count({ where: { status: 'PUBLISHED' } }),
         prisma.globalTransfer.count(),
-        prisma.supportTicket.count({ where: { status: 'OPEN' } }),
+        prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
+        this.buildAdminCommandCenterData(),
       ]);
 
       const activeCapital = activePackages.reduce((acc, p) => acc + parseFloat(p.amount.toString()), 0);
@@ -2058,6 +2768,7 @@ export class AdminController {
           totalStartups,
           totalTransfers,
           totalTickets,
+          commandCenter,
         },
       });
     } catch (err) {
