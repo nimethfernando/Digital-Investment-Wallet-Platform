@@ -9,13 +9,21 @@ import { notificationService } from '../adapters/notification/notification.provi
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 export class WithdrawalService {
+  private validationError(message: string): Error {
+    const err: any = new Error(message);
+    err.status = 400;
+    return err;
+  }
+
   /**
    * Submit a new withdrawal request
    * Enforces:
    * 1. 24h Security Cooldown after password reset/change
    * 2. 2FA verification if enabled
    * 3. 1st-of-the-month submission window rule (configurable via CMS settings)
-   * 4. Double-entry allocation (availableBalance -> pendingSettlement)
+   * 4. Principal release maturity / smart available-balance fallback
+   * 5. Network validation (TRC20 vs BEP20) for USDT crypto payouts
+   * 6. Double-entry allocation (availableBalance -> pendingSettlement)
    */
   async requestWithdrawal(
     userId: string,
@@ -30,10 +38,10 @@ export class WithdrawalService {
     }
   ) {
     const amountDec = new Decimal(params.amount.toString());
-    const currency = params.currency || 'USD';
+    const currency = (params.currency || 'USD').toUpperCase();
 
     if (amountDec.lessThanOrEqualTo(0)) {
-      throw new Error('Withdrawal amount must be strictly greater than 0');
+      throw this.validationError('Withdrawal amount must be strictly greater than 0');
     }
 
     // 1. Enforce 24-48h Security Cooldown
@@ -55,27 +63,123 @@ export class WithdrawalService {
     const today = new Date();
 
     if (isStrict && today.getUTCDate() !== allowedDay) {
-      throw new Error(
+      throw this.validationError(
         `Withdrawals may only be submitted on the ${allowedDay}st of each month. Current date: ${today.toISOString().split('T')[0]}`
       );
     }
 
-    // 4. Validate Principal Release Lock-in
-    if (params.withdrawalType === 'PRINCIPAL_RELEASE') {
-      if (!params.packageId) {
-        throw new Error('Package ID is required for principal release withdrawals');
-      }
-      const pkg = await prisma.investmentPackage.findUnique({
-        where: { id: params.packageId },
-      });
-      if (!pkg || pkg.userId !== userId) {
-        throw new Error('Specified package does not exist or belong to your account');
-      }
-      if (pkg.lockInEnd && today < pkg.lockInEnd) {
-        throw new Error(
-          `Package ${pkg.packageCode} is still in its 6-month lock-in period. Matures on ${pkg.lockInEnd.toISOString().split('T')[0]}.`
+    let effectiveWithdrawalType: 'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE' = params.withdrawalType;
+    let effectivePackageId: string | undefined = params.packageId || undefined;
+
+    // 4. Validate & Smartly Resolve Principal Release vs Available Balance
+    if (effectiveWithdrawalType === 'PRINCIPAL_RELEASE') {
+      if (effectivePackageId) {
+        const pkg = await prisma.investmentPackage.findUnique({
+          where: { id: effectivePackageId },
+        });
+        if (!pkg || pkg.userId !== userId) {
+          throw this.validationError('Specified package does not exist or belong to your account');
+        }
+        if (pkg.status === 'SETTLED' || pkg.status === 'CANCELLED') {
+          throw this.validationError(`Package ${pkg.packageCode} has already been settled or cancelled.`);
+        }
+        if (pkg.lockInEnd && today < pkg.lockInEnd && pkg.status !== 'MATURED') {
+          const daysLeft = Math.ceil((pkg.lockInEnd.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          throw this.validationError(
+            `Package ${pkg.packageCode} ($${new Decimal(pkg.amount.toString()).toFixed(2)} ${pkg.currency}) is still in its ${pkg.lockInMonths}-month lock-in period (${daysLeft} days remaining; matures on ${pkg.lockInEnd.toISOString().split('T')[0]}). To withdraw your liquid wallet funds now, please select "Available USD Wallet" or "Available USDT Wallet".`
+          );
+        }
+        if (pkg.status === 'ACTIVE' && (!pkg.lockInEnd || today >= pkg.lockInEnd)) {
+          await ledgerService.releaseMaturedPrincipal(pkg.id, userId, false);
+        }
+      } else {
+        const userPackages = await prisma.investmentPackage.findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        const eligiblePkg = userPackages.find(
+          (p) => p.status === 'MATURED' || (p.status === 'ACTIVE' && (!p.lockInEnd || p.lockInEnd <= today))
         );
+
+        if (eligiblePkg) {
+          effectivePackageId = eligiblePkg.id;
+          if (eligiblePkg.status === 'ACTIVE') {
+            await ledgerService.releaseMaturedPrincipal(eligiblePkg.id, userId, false);
+          }
+        } else {
+          // Fallback check: if user has sufficient liquid wallet balance, process from available balance smoothly
+          const wallet = await ledgerService.ensureWallet(userId);
+          const balRow = wallet.balances.find((b) => b.currency === currency);
+          const currentAvail = new Decimal((balRow?.availableBalance ?? 0).toString());
+
+          if (currentAvail.greaterThanOrEqualTo(amountDec)) {
+            effectiveWithdrawalType = 'MONTHLY_RETURNS';
+          } else {
+            const activeLockedPkg = userPackages.find(
+              (p) => p.status === 'ACTIVE' && p.lockInEnd && p.lockInEnd > today
+            );
+            const fmtAvail = `${currency === 'USD' ? '$' : ''}${currentAvail.toFixed(2)} ${currency}`;
+            if (activeLockedPkg) {
+              throw this.validationError(
+                `No matured FD package is ready for principal release yet (Package ${activeLockedPkg.packageCode} matures on ${activeLockedPkg.lockInEnd!.toISOString().split('T')[0]}). Your current Available ${currency} Balance is ${fmtAvail}.`
+              );
+            }
+            throw this.validationError(
+              `No FD packages found on your account for principal release. Please select "Available ${currency} Wallet" (Current available balance: ${fmtAvail}).`
+            );
+          }
+        }
       }
+    }
+
+    // 5. Validate & Normalize Payout Details (including TRC20 vs BEP20 network validation)
+    const normalizedDetails: Record<string, any> = { ...(params.payoutDetails || {}) };
+    if (params.payoutMethod === 'USDT_WALLET') {
+      const rawAddress = String(normalizedDetails.address || '').trim();
+      const rawNetwork = String(normalizedDetails.network || '').toUpperCase().trim();
+
+      if (!rawAddress) {
+        throw this.validationError('Please enter a destination USDT wallet address.');
+      }
+
+      const isBep20 =
+        rawNetwork.includes('BEP') ||
+        rawNetwork.includes('BSC') ||
+        (!rawNetwork && rawAddress.startsWith('0x'));
+      const network: 'TRC20' | 'BEP20' = isBep20 ? 'BEP20' : 'TRC20';
+
+      if (network === 'BEP20') {
+        if (!/^0x[a-fA-F0-9]{40}$/.test(rawAddress)) {
+          throw this.validationError(
+            'Invalid BEP20 wallet address. BNB Smart Chain (BEP20) addresses must start with "0x" and be 42 hexadecimal characters long.'
+          );
+        }
+      } else {
+        if (!/^T[1-9A-HJ-NP-Za-km-z]{32,35}$/.test(rawAddress)) {
+          throw this.validationError(
+            'Invalid TRC20 wallet address. TRON (TRC20) addresses must start with "T" and be 34 characters long.'
+          );
+        }
+      }
+
+      normalizedDetails.address = rawAddress;
+      normalizedDetails.network = network;
+      normalizedDetails.networkLabel =
+        network === 'BEP20' ? 'BNB Smart Chain (BEP20)' : 'TRON Network (TRC20)';
+    }
+
+    if (!normalizedDetails.sourceBalance) {
+      normalizedDetails.sourceBalance =
+        effectiveWithdrawalType === 'PRINCIPAL_RELEASE' ? 'FD_PRINCIPAL' : `${currency}_WALLET`;
+    }
+    if (!normalizedDetails.sourceBalanceLabel) {
+      normalizedDetails.sourceBalanceLabel =
+        effectiveWithdrawalType === 'PRINCIPAL_RELEASE'
+          ? 'Matured FD Package Principal'
+          : currency === 'USDT'
+          ? 'Available USDT Wallet'
+          : 'Available USD Wallet';
     }
 
     const requestCode = `WTH-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
@@ -83,6 +187,11 @@ export class WithdrawalService {
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new Error('User not found');
+
+    const payoutDesc =
+      params.payoutMethod === 'USDT_WALLET'
+        ? `USDT_WALLET (${normalizedDetails.network})`
+        : params.payoutMethod;
 
     const result = await prisma.$transaction(
       async (tx) => {
@@ -94,8 +203,10 @@ export class WithdrawalService {
         const pendingSettlement = new Decimal(lockedBal.pendingSettlement.toString());
 
         if (availBal.lessThan(amountDec)) {
-          throw new Error(
-            `Insufficient available balance ($${availBal.toFixed(2)} ${currency}). Requested: $${amountDec.toFixed(2)} ${currency}`
+          const fmtAvail = `${currency === 'USD' ? '$' : ''}${availBal.toFixed(2)} ${currency}`;
+          const fmtReq = `${currency === 'USD' ? '$' : ''}${amountDec.toFixed(2)} ${currency}`;
+          throw this.validationError(
+            `Insufficient available ${currency} balance (Available: ${fmtAvail}, Requested: ${fmtReq}).`
           );
         }
 
@@ -116,7 +227,7 @@ export class WithdrawalService {
           idempotencyKey,
           referenceType: JournalReferenceType.WITHDRAWAL_REQUEST,
           referenceId: requestCode,
-          notes: `Withdrawal request ${requestCode} via ${params.payoutMethod}`,
+          notes: `Withdrawal request ${requestCode} via ${payoutDesc} from ${normalizedDetails.sourceBalanceLabel}`,
           createdBy: userId,
           entries: [
             {
@@ -141,7 +252,7 @@ export class WithdrawalService {
           data: {
             transactionCode: `TX-WTH-${requestCode}`,
             userId,
-            packageId: params.packageId || null,
+            packageId: effectivePackageId || null,
             type: TransactionType.WITHDRAWAL_REQUEST,
             amount: amountDec.toFixed(8),
             currency,
@@ -151,7 +262,7 @@ export class WithdrawalService {
             settlementReference: requestCode,
             createdBy: userId,
             idempotencyKey,
-            notes: `Withdrawal requested via ${params.payoutMethod}`,
+            notes: `Withdrawal requested via ${payoutDesc} (${normalizedDetails.sourceBalanceLabel})`,
           },
         });
 
@@ -160,12 +271,12 @@ export class WithdrawalService {
           data: {
             requestCode,
             userId,
-            packageId: params.packageId || null,
-            withdrawalType: params.withdrawalType as WithdrawalType,
+            packageId: effectivePackageId || null,
+            withdrawalType: effectiveWithdrawalType as WithdrawalType,
             amount: amountDec.toFixed(8),
             currency,
             payoutMethod: params.payoutMethod as PayoutMethod,
-            payoutDetails: JSON.stringify(params.payoutDetails),
+            payoutDetails: JSON.stringify(normalizedDetails),
             status: WithdrawalStatus.REQUESTED,
             requestWindowDate: today,
           },
@@ -183,7 +294,7 @@ export class WithdrawalService {
       html: `
         <div style="font-family: sans-serif; padding: 20px;">
           <h3>Withdrawal Request Submitted</h3>
-          <p>We received your withdrawal request of <strong>$${amountDec.toFixed(2)} ${currency}</strong> via <strong>${params.payoutMethod}</strong>.</p>
+          <p>We received your withdrawal request of <strong>${currency === 'USD' ? '$' : ''}${amountDec.toFixed(2)} ${currency}</strong> from <strong>${normalizedDetails.sourceBalanceLabel}</strong> via <strong>${payoutDesc}</strong>.</p>
           <p>Reference: <strong>${requestCode}</strong></p>
           <p>Target processing window is ~15 business days. You can track status on your investor dashboard.</p>
         </div>
@@ -229,9 +340,24 @@ export class WithdrawalService {
           data: { pendingSettlement: newPending.toFixed(8) },
         });
 
+        let parsedDetails: Record<string, any> = {};
+        try {
+          parsedDetails = wth.payoutDetails ? JSON.parse(wth.payoutDetails) : {};
+        } catch {
+          parsedDetails = {};
+        }
+        const netUpper = String(parsedDetails?.network || '').toUpperCase();
+        const isTrc20 = netUpper.includes('TRC');
+
         let finalRef = settlementReference ? settlementReference.trim() : '';
         if (wth.currency === 'USDT' || wth.payoutMethod === 'USDT_WALLET') {
-          if (!finalRef || !finalRef.startsWith('0x')) {
+          if (isTrc20) {
+            if (finalRef && /^0x[0-9a-fA-F]{64}$/.test(finalRef)) {
+              finalRef = finalRef.slice(2);
+            } else if (!finalRef || finalRef.startsWith('WTH-') || finalRef.startsWith('REF-') || !/^[0-9a-fA-F]{64}$/.test(finalRef)) {
+              finalRef = crypto.randomBytes(32).toString('hex');
+            }
+          } else if (!finalRef || !finalRef.startsWith('0x')) {
             if (finalRef && /^[0-9a-fA-F]{64}$/.test(finalRef)) {
               finalRef = `0x${finalRef}`;
             } else if (!finalRef || finalRef.startsWith('WTH-') || finalRef.startsWith('REF-')) {
@@ -308,8 +434,8 @@ export class WithdrawalService {
       html: `
         <div style="font-family: sans-serif; padding: 20px;">
           <h3>Withdrawal Dispatched</h3>
-          <p>Your withdrawal of <strong>$${amountDec.toFixed(2)} ${wth.currency}</strong> has been completed.</p>
-          <p>Payout Reference / UTR / TX Hash: <strong>${settlementReference}</strong></p>
+          <p>Your withdrawal of <strong>${wth.currency === 'USD' ? '$' : ''}${amountDec.toFixed(2)} ${wth.currency}</strong> has been completed.</p>
+          <p>Payout Reference / UTR / TX Hash: <strong>${settled.settlementReference || settlementReference}</strong></p>
         </div>
       `,
     }).catch(() => {});

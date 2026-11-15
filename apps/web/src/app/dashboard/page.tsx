@@ -279,6 +279,8 @@ function DashboardContent() {
   const [dismissedDepositAlert, setDismissedDepositAlert] = useState(false);
 
   // Withdrawal Form State
+  const [wthSource, setWthSource] = useState<'USD_WALLET' | 'USDT_WALLET_BAL' | 'FD_PRINCIPAL'>('USD_WALLET');
+  const [wthCryptoNetwork, setWthCryptoNetwork] = useState<'TRC20' | 'BEP20'>('TRC20');
   const [wthType, setWthType] = useState<'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE'>('MONTHLY_RETURNS');
   const [wthPackageId, setWthPackageId] = useState('');
   const [wthAmount, setWthAmount] = useState('');
@@ -493,6 +495,33 @@ function DashboardContent() {
   useEffect(() => {
     loadSavedBankAccounts();
   }, [user, activeTab, withdrawModalOpen]);
+
+  useEffect(() => {
+    if (!withdrawModalOpen) return;
+    setWthError(null);
+    setWthSuccess(null);
+
+    const usdBal = parseFloat(wallet?.balances?.find((b) => b.currency === 'USD')?.availableBalance || '0') || 0;
+    const usdtBal = parseFloat(wallet?.balances?.find((b) => b.currency === 'USDT')?.availableBalance || '0') || 0;
+
+    if (usdBal <= 0 && usdtBal > 0) {
+      setWthSource('USDT_WALLET_BAL');
+      setWthType('MONTHLY_RETURNS');
+      setWthCurrency('USDT');
+    } else {
+      setWthSource('USD_WALLET');
+      setWthType('MONTHLY_RETURNS');
+      setWthCurrency('USD');
+    }
+
+    if (packages.length > 0 && !wthPackageId) {
+      const now = new Date();
+      const firstMatured = packages.find(
+        (p) => p.status === 'MATURED' || (p.status === 'ACTIVE' && p.lockInEnd && new Date(p.lockInEnd) <= now)
+      );
+      setWthPackageId((firstMatured || packages[0]).id);
+    }
+  }, [withdrawModalOpen]);
 
   // Fetch Dashboard Data
   const fetchDashboardData = async () => {
@@ -713,18 +742,108 @@ function DashboardContent() {
   // ---------------------------------------------------------------------------
   const handleWithdrawalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setWthLoading(true);
     setWthError(null);
     setWthSuccess(null);
 
-    let payoutDetails: any = {};
+    const effectiveType: 'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE' =
+      wthSource === 'FD_PRINCIPAL' ? 'PRINCIPAL_RELEASE' : 'MONTHLY_RETURNS';
+    const effectiveCurrency = wthSource === 'USDT_WALLET_BAL' ? 'USDT' : 'USD';
+    const parsedAmount = parseFloat(wthAmount);
+
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      setWthError('Please enter a valid withdrawal amount greater than 0.');
+      return;
+    }
+
+    if (wthSource === 'FD_PRINCIPAL') {
+      if (packages.length === 0) {
+        setWthError(
+          'You do not have any FD Investment Packages on record. Please select "Available USD Wallet" or "Available USDT Wallet" above to withdraw your balance.'
+        );
+        return;
+      }
+      if (!wthPackageId) {
+        setWthError('Please select the matured FD package you want to release and withdraw.');
+        return;
+      }
+    }
+
+    const usdBal = parseFloat(wallet?.balances?.find((b) => b.currency === 'USD')?.availableBalance || '0') || 0;
+    const usdtBal = parseFloat(wallet?.balances?.find((b) => b.currency === 'USDT')?.availableBalance || '0') || 0;
+    const sourceAvail = wthSource === 'USDT_WALLET_BAL' ? usdtBal : usdBal;
+
+    if (wthSource !== 'FD_PRINCIPAL' && parsedAmount > sourceAvail) {
+      const label = wthSource === 'USDT_WALLET_BAL' ? 'Available USDT Wallet' : 'Available USD Wallet';
+      const fmtReq = `${effectiveCurrency === 'USD' ? '$' : ''}${parsedAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${effectiveCurrency}`;
+      const fmtAvail = `${effectiveCurrency === 'USD' ? '$' : ''}${sourceAvail.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${effectiveCurrency}`;
+      setWthError(`Requested amount (${fmtReq}) exceeds your ${label} balance (${fmtAvail}).`);
+      return;
+    }
+
+    const sourceBalanceLabel =
+      wthSource === 'USDT_WALLET_BAL'
+        ? 'Available USDT Wallet'
+        : wthSource === 'FD_PRINCIPAL'
+        ? 'Matured FD Package Principal'
+        : 'Available USD Wallet';
+
+    let payoutDetails: any = {
+      sourceBalance: wthSource,
+      sourceBalanceLabel,
+    };
+
     if (wthMethod === 'USDT_WALLET') {
-      payoutDetails = { address: wthWalletAddress, network: 'TRC-20' };
-    } else if (wthMethod === 'BANK_TRANSFER') {
+      const trimmedAddr = wthWalletAddress.trim();
+      if (!trimmedAddr) {
+        setWthError(`Please enter your destination ${wthCryptoNetwork} USDT wallet address.`);
+        return;
+      }
+
+      if (wthCryptoNetwork === 'TRC20') {
+        if (trimmedAddr.startsWith('0x')) {
+          setWthError(
+            'This looks like a BEP20 (0x...) address. Please select the BEP20 (BNB Smart Chain) network option or enter a TRC20 (T...) address.'
+          );
+          return;
+        }
+        if (!/^T[1-9A-HJ-NP-Za-km-z]{32,35}$/.test(trimmedAddr)) {
+          setWthError(
+            'Invalid TRC20 wallet address. TRON (TRC20) addresses must start with "T" and be 34 characters long.'
+          );
+          return;
+        }
+      } else {
+        if (trimmedAddr.startsWith('T')) {
+          setWthError(
+            'This looks like a TRC20 (T...) address. Please select the TRC20 (TRON) network option or enter a BEP20 (0x...) address.'
+          );
+          return;
+        }
+        if (!/^0x[a-fA-F0-9]{40}$/.test(trimmedAddr)) {
+          setWthError(
+            'Invalid BEP20 wallet address. BNB Smart Chain (BEP20) addresses must start with "0x" and be 42 hexadecimal characters long.'
+          );
+          return;
+        }
+      }
+
       payoutDetails = {
-        bankName: wthBankName,
-        iban: wthIban,
-        swift: wthSwift,
+        ...payoutDetails,
+        address: trimmedAddr,
+        network: wthCryptoNetwork,
+        networkLabel: wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain (BEP20)' : 'TRON Network (TRC20)',
+      };
+    } else if (wthMethod === 'BANK_TRANSFER') {
+      if (!wthBankName.trim() || !wthIban.trim() || !wthSwift.trim()) {
+        setWthError('Please complete Bank Name, IBAN / Account Number, and SWIFT / Routing details.');
+        return;
+      }
+
+      payoutDetails = {
+        ...payoutDetails,
+        bankName: wthBankName.trim(),
+        iban: wthIban.trim(),
+        swift: wthSwift.trim(),
         accountHolder: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : undefined,
       };
 
@@ -746,10 +865,10 @@ function DashboardContent() {
               swiftCode: wthSwift,
               routingNumber: wthSwift.length === 9 ? wthSwift : undefined,
               accountType: 'Checking',
-              currency: wthCurrency || 'USD',
+              currency: effectiveCurrency || 'USD',
               payoutRail: wthSwift.length === 9 ? 'LOCAL' : 'SWIFT',
               bankCountry: 'United States',
-              nickname: `${wthBankName} (${wthCurrency})`,
+              nickname: `${wthBankName} (${effectiveCurrency})`,
               isDefault: existingList.length === 0,
               createdAt: new Date().toISOString(),
             };
@@ -763,19 +882,26 @@ function DashboardContent() {
       }
     }
 
+    setWthLoading(true);
     try {
       const res = await api.post('/withdrawals', {
-        withdrawalType: wthType,
-        packageId: wthType === 'PRINCIPAL_RELEASE' ? wthPackageId : undefined,
-        amount: parseFloat(wthAmount),
-        currency: wthCurrency,
+        withdrawalType: effectiveType,
+        packageId: effectiveType === 'PRINCIPAL_RELEASE' ? wthPackageId : undefined,
+        amount: parsedAmount,
+        currency: effectiveCurrency,
         payoutMethod: wthMethod,
         payoutDetails,
         twoFactorCode: wth2FACode || undefined,
       });
 
       if (res.data.success) {
-        setWthSuccess('Withdrawal request queued! Settlements are processed following the 1st-of-month window (15-day timeline).');
+        const railDesc =
+          wthMethod === 'USDT_WALLET'
+            ? `USDT (${wthCryptoNetwork})`
+            : 'Bank Wire (SWIFT / SEPA)';
+        setWthSuccess(
+          `Withdrawal request queued for ${effectiveCurrency === 'USD' ? '$' : ''}${parsedAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${effectiveCurrency} from ${sourceBalanceLabel} via ${railDesc}. Settlements follow the 15-day window.`
+        );
         setWthAmount('');
         setWthWalletAddress('');
         setWth2FACode('');
@@ -842,6 +968,39 @@ function DashboardContent() {
   const lockedPrincipal = wallet?.totalActiveInvestmentsUsd || '0.00';
   const returnsPaid = wallet?.totalReturnsPaidUsd || '0.00';
   const pendingWth = wallet?.totalPendingWithdrawalsUsd || '0.00';
+
+  const availUsdNum = parseFloat(usdBalance || '0') || 0;
+  const availUsdtNum = parseFloat(usdtBalance || '0') || 0;
+  const maturedPackagesList = packages.filter(
+    (p) =>
+      p.status === 'MATURED' ||
+      (p.status === 'ACTIVE' &&
+        (p.daysRemaining === 0 || (p.lockInEnd && new Date(p.lockInEnd) <= new Date())))
+  );
+  const selectedWthPackage = packages.find((p) => p.id === wthPackageId) || null;
+  const wthSelectedCurrency = wthSource === 'USDT_WALLET_BAL' ? 'USDT' : 'USD';
+  const wthSelectedPackageMatured = Boolean(
+    selectedWthPackage &&
+      (selectedWthPackage.status === 'MATURED' ||
+        (selectedWthPackage.status === 'ACTIVE' &&
+          (selectedWthPackage.daysRemaining === 0 ||
+            (selectedWthPackage.lockInEnd && new Date(selectedWthPackage.lockInEnd) <= new Date()))))
+  );
+  const wthSelectedAvailableNum =
+    wthSource === 'USDT_WALLET_BAL'
+      ? availUsdtNum
+      : wthSource === 'FD_PRINCIPAL'
+      ? selectedWthPackage
+        ? wthSelectedPackageMatured
+          ? selectedWthPackage.status === 'MATURED'
+            ? availUsdNum
+            : parseFloat(selectedWthPackage.amount || '0')
+          : 0
+        : maturedPackagesList.reduce(
+            (sum, p) => sum + (p.status === 'ACTIVE' ? parseFloat(p.amount || '0') : 0),
+            0
+          )
+      : availUsdNum;
 
   // Filtered Transactions
   const filteredTransactions = transactions.filter((tx) => {
@@ -2321,18 +2480,138 @@ function DashboardContent() {
         {/* WITHDRAWALS TAB */}
         {activeTab === 'withdrawals' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-xl font-bold">Withdrawal Queue &amp; Settlement</h3>
-                <p className="text-xs text-slate-500">Submitted on the 1st of each month with 15-day administrative processing</p>
+                <p className="text-xs text-slate-500">
+                  Withdraw available USD, USDT (TRC20 / BEP20), or matured FD principal to your crypto wallet or linked bank account
+                </p>
               </div>
-              <button
-                onClick={() => setWithdrawModalOpen(true)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-emerald-600 text-white shadow-md flex items-center gap-1.5 cursor-pointer"
-              >
-                <ArrowUpRight className="w-4 h-4" />
-                Request Settlement
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWthMethod('USDT_WALLET');
+                    setWthCryptoNetwork('TRC20');
+                    setWithdrawModalOpen(true);
+                  }}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer"
+                >
+                  + USDT (TRC20)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWthMethod('USDT_WALLET');
+                    setWthCryptoNetwork('BEP20');
+                    setWithdrawModalOpen(true);
+                  }}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                >
+                  + USDT (BEP20)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWithdrawModalOpen(true)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-emerald-600 text-white shadow-md flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowUpRight className="w-4 h-4" />
+                  Request Settlement
+                </button>
+              </div>
+            </div>
+
+            {/* Available Withdrawable Balances Overview */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                  <span>Available USD Wallet</span>
+                  <Wallet className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
+                  ${availUsdNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWithdrawModalOpen(true);
+                    setTimeout(() => {
+                      setWthSource('USD_WALLET');
+                      setWthCurrency('USD');
+                    }, 0);
+                  }}
+                  className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                >
+                  Withdraw USD Balance →
+                </button>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                  <span>Available USDT Wallet</span>
+                  <Coins className="w-4 h-4 text-amber-500" />
+                </div>
+                <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
+                  {availUsdtNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                </div>
+                <div className="flex items-center gap-2 text-[10px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWthMethod('USDT_WALLET');
+                      setWthCryptoNetwork('TRC20');
+                      setWithdrawModalOpen(true);
+                      setTimeout(() => {
+                        setWthSource('USDT_WALLET_BAL');
+                        setWthCurrency('USDT');
+                      }, 0);
+                    }}
+                    className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    TRC20 →
+                  </button>
+                  <span className="text-slate-400">•</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWthMethod('USDT_WALLET');
+                      setWthCryptoNetwork('BEP20');
+                      setWithdrawModalOpen(true);
+                      setTimeout(() => {
+                        setWthSource('USDT_WALLET_BAL');
+                        setWthCurrency('USDT');
+                      }, 0);
+                    }}
+                    className="text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                  >
+                    BEP20 →
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                  <span>FD Package Principal</span>
+                  <Lock className="w-4 h-4 text-blue-500" />
+                </div>
+                <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
+                  ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {maturedPackagesList.length} matured • {packages.length} total package(s)
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                  <span>Pending Settlements</span>
+                  <Clock className="w-4 h-4 text-amber-500" />
+                </div>
+                <div className="text-xl font-black font-mono text-amber-600 dark:text-amber-400">
+                  ${parseFloat(pendingWth).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                </div>
+                <p className="text-[11px] text-slate-500">15-day administrative clearing</p>
+              </div>
             </div>
 
             {/* Linked Real Bank Accounts for Direct Fiat Settlement */}
@@ -2434,28 +2713,92 @@ function DashboardContent() {
                   <thead className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-semibold">
                     <tr>
                       <th className="pb-3">Request Code</th>
-                      <th className="pb-3">Type</th>
+                      <th className="pb-3">Withdrawn From</th>
                       <th className="pb-3">Amount</th>
-                      <th className="pb-3">Payout Rail</th>
+                      <th className="pb-3">Network &amp; Destination</th>
                       <th className="pb-3">Status</th>
                       <th className="pb-3">Date</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {withdrawals.map((w) => (
-                      <tr key={w.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="py-3 font-mono font-bold text-amber-600">{w.requestCode}</td>
-                        <td className="py-3 font-bold">{w.withdrawalType.replace(/_/g, ' ')}</td>
-                        <td className="py-3 font-mono font-bold">${parseFloat(w.amount).toFixed(2)}</td>
-                        <td className="py-3">{w.payoutMethod.replace(/_/g, ' ')}</td>
-                        <td className="py-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                            {w.status}
-                          </span>
-                        </td>
-                        <td className="py-3 text-slate-400">{new Date(w.createdAt).toLocaleDateString()}</td>
-                      </tr>
-                    ))}
+                    {withdrawals.map((w) => {
+                      let details: any = {};
+                      try {
+                        details = typeof w.payoutDetails === 'string' ? JSON.parse(w.payoutDetails) : (w.payoutDetails || {});
+                      } catch {
+                        details = {};
+                      }
+                      const netName = details?.network || (details?.address?.startsWith('0x') ? 'BEP20' : details?.address?.startsWith('T') ? 'TRC20' : '');
+                      const sourceLabel =
+                        details?.sourceBalanceLabel ||
+                        (w.withdrawalType === 'PRINCIPAL_RELEASE'
+                          ? 'Matured FD Principal'
+                          : w.currency === 'USDT'
+                          ? 'Available USDT Wallet'
+                          : 'Available USD Wallet');
+                      return (
+                        <tr key={w.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td className="py-3 font-mono font-bold text-amber-600">{w.requestCode}</td>
+                          <td className="py-3">
+                            <div className="font-bold text-slate-900 dark:text-white">{sourceLabel}</div>
+                            {w.packageCode && (
+                              <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
+                                {w.packageCode}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 font-mono font-bold whitespace-nowrap">
+                            {w.currency === 'USD' ? '$' : ''}
+                            {parseFloat(w.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {w.currency}
+                          </td>
+                          <td className="py-3">
+                            {w.payoutMethod === 'USDT_WALLET' ? (
+                              <div className="space-y-0.5">
+                                <span
+                                  className={`inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                    String(netName).toUpperCase().includes('BEP')
+                                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                                      : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                                  }`}
+                                >
+                                  USDT • {netName || 'TRC20'}
+                                </span>
+                                {details?.address && (
+                                  <div className="text-[10px] font-mono text-slate-500 truncate max-w-[160px]" title={details.address}>
+                                    {details.address.slice(0, 8)}...{details.address.slice(-6)}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="space-y-0.5">
+                                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
+                                  {w.payoutMethod.replace(/_/g, ' ')}
+                                </span>
+                                {details?.bankName && (
+                                  <div className="text-[10px] text-slate-500 truncate max-w-[160px]">
+                                    {details.bankName}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                w.status === 'SETTLED'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : w.status === 'REJECTED'
+                                  ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              }`}
+                            >
+                              {w.status}
+                            </span>
+                          </td>
+                          <td className="py-3 text-slate-400">{new Date(w.createdAt).toLocaleDateString()}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -3008,8 +3351,9 @@ function DashboardContent() {
       {/* ========================================================================= */}
       {withdrawModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md max-h-[92vh] overflow-y-auto rounded-3xl p-5 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 relative my-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-3xl p-5 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 relative my-auto">
             <button
+              type="button"
               onClick={() => {
                 setWithdrawModalOpen(false);
                 setWthError(null);
@@ -3021,76 +3365,396 @@ function DashboardContent() {
             </button>
 
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950 text-amber-600 flex items-center justify-center shrink-0">
                 <ArrowUpRight className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-black">Request Withdrawal Settlement</h3>
-                <p className="text-xs text-slate-500">1st of month request window • 15-day processing</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Request Withdrawal Settlement</h3>
+                <p className="text-xs text-slate-500">
+                  1st-of-month settlement window • Supports USDT (TRC20 &amp; BEP20) and Bank Wire
+                </p>
+              </div>
+            </div>
+
+            {/* AVAILABLE BALANCE OVERVIEW BANNER */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <span>Your Available Balances</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-mono">
+                  Active Source: {wthSource === 'USDT_WALLET_BAL' ? 'USDT Wallet' : wthSource === 'FD_PRINCIPAL' ? 'FD Principal' : 'USD Wallet'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <span className="text-[10px] text-slate-400 block">Available USD</span>
+                  <span className="font-mono font-black text-slate-900 dark:text-white">
+                    ${availUsdNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <span className="text-[10px] text-slate-400 block">Available USDT</span>
+                  <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                    {availUsdtNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <span className="text-[10px] text-slate-400 block">FD Principal</span>
+                  <span className="font-mono font-black text-blue-600 dark:text-blue-400">
+                    ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[9px] text-slate-400 block">{maturedPackagesList.length} matured</span>
+                </div>
               </div>
             </div>
 
             {wthSuccess && (
-              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-xs text-emerald-700 dark:text-emerald-300 font-bold">
-                {wthSuccess}
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-500/30 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-start gap-2.5">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{wthSuccess}</span>
               </div>
             )}
 
             {wthError && (
-              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950 text-xs text-rose-700 dark:text-rose-300">
-                {wthError}
+              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-500/30 text-xs text-rose-700 dark:text-rose-300 flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{wthError}</span>
               </div>
             )}
 
-            <form onSubmit={handleWithdrawalSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold mb-1">Withdrawal Type</label>
-                <select
-                  value={wthType}
-                  onChange={(e) => setWthType(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
-                >
-                  <option value="MONTHLY_RETURNS" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Monthly Yields Available</option>
-                  <option value="PRINCIPAL_RELEASE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Matured Package Principal</option>
-                </select>
+            <form onSubmit={handleWithdrawalSubmit} className="space-y-5">
+              {/* STEP 1: WITHDRAWING FROM (SOURCE BALANCE) */}
+              <div className="space-y-2">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  1. Select Balance to Withdraw From
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWthSource('USD_WALLET');
+                      setWthType('MONTHLY_RETURNS');
+                      setWthCurrency('USD');
+                      setWthError(null);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      wthSource === 'USD_WALLET'
+                        ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-black text-slate-900 dark:text-white">Available USD Wallet</span>
+                      {wthSource === 'USD_WALLET' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
+                    </div>
+                    <div className="font-mono text-sm font-black text-emerald-600 dark:text-emerald-400">
+                      ${availUsdNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Liquid balance &amp; yields</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWthSource('USDT_WALLET_BAL');
+                      setWthType('MONTHLY_RETURNS');
+                      setWthCurrency('USDT');
+                      setWthError(null);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      wthSource === 'USDT_WALLET_BAL'
+                        ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-black text-slate-900 dark:text-white">Available USDT Wallet</span>
+                      {wthSource === 'USDT_WALLET_BAL' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
+                    </div>
+                    <div className="font-mono text-sm font-black text-emerald-600 dark:text-emerald-400">
+                      {availUsdtNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Crypto vault balance</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWthSource('FD_PRINCIPAL');
+                      setWthType('PRINCIPAL_RELEASE');
+                      setWthCurrency('USD');
+                      setWthError(null);
+                      if (packages.length > 0) {
+                        const targetPkg = maturedPackagesList[0] || packages[0];
+                        setWthPackageId(targetPkg.id);
+                        const isMat =
+                          targetPkg.status === 'MATURED' ||
+                          (targetPkg.lockInEnd && new Date(targetPkg.lockInEnd) <= new Date());
+                        if (isMat) {
+                          setWthAmount(String(parseFloat(targetPkg.amount || '0')));
+                        }
+                      }
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      wthSource === 'FD_PRINCIPAL'
+                        ? 'border-amber-500 bg-amber-50/70 dark:bg-amber-950/40 ring-2 ring-amber-500/20'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-black text-slate-900 dark:text-white">Matured FD Principal</span>
+                      {wthSource === 'FD_PRINCIPAL' && <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />}
+                    </div>
+                    <div className="font-mono text-sm font-black text-amber-600 dark:text-amber-400">
+                      ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      {maturedPackagesList.length} matured / {packages.length} total
+                    </span>
+                  </button>
+                </div>
+
+                {/* Package Selector when Matured FD Principal is selected */}
+                {wthSource === 'FD_PRINCIPAL' && (
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+                    {packages.length === 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-amber-700 dark:text-amber-300 font-semibold">
+                          You do not have any Fixed Deposit packages on record. Please withdraw from your Available USD Wallet or Available USDT Wallet instead.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWthSource(availUsdNum <= 0 && availUsdtNum > 0 ? 'USDT_WALLET_BAL' : 'USD_WALLET');
+                            setWthType('MONTHLY_RETURNS');
+                            setWthCurrency(availUsdNum <= 0 && availUsdtNum > 0 ? 'USDT' : 'USD');
+                            setWthError(null);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold text-[11px] cursor-pointer"
+                        >
+                          Use Available Wallet Balance Instead
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                            Select Investment Package to Release *
+                          </label>
+                          <select
+                            value={wthPackageId}
+                            onChange={(e) => {
+                              const pid = e.target.value;
+                              setWthPackageId(pid);
+                              setWthError(null);
+                              const pkg = packages.find((p) => p.id === pid);
+                              if (pkg) {
+                                const isMat =
+                                  pkg.status === 'MATURED' ||
+                                  (pkg.lockInEnd && new Date(pkg.lockInEnd) <= new Date());
+                                if (isMat) {
+                                  setWthAmount(String(parseFloat(pkg.amount || '0')));
+                                }
+                              }
+                            }}
+                            className="w-full px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none cursor-pointer"
+                          >
+                            {packages.map((pkg) => {
+                              const isMat =
+                                pkg.status === 'MATURED' ||
+                                (pkg.status === 'ACTIVE' &&
+                                  (pkg.daysRemaining === 0 || (pkg.lockInEnd && new Date(pkg.lockInEnd) <= new Date())));
+                              return (
+                                <option key={pkg.id} value={pkg.id}>
+                                  {pkg.packageCode} — ${parseFloat(pkg.amount).toLocaleString()} USD ({isMat ? 'Matured • Eligible' : `Locked • ${pkg.daysRemaining ?? '?'}d remaining`})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+
+                        {selectedWthPackage && !wthSelectedPackageMatured && (
+                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 space-y-1.5">
+                            <p className="text-[11px]">
+                              <strong>{selectedWthPackage.packageCode}</strong> is still in lock-in until{' '}
+                              <span className="font-mono font-bold">
+                                {selectedWthPackage.lockInEnd ? new Date(selectedWthPackage.lockInEnd).toLocaleDateString() : 'maturity'}
+                              </span>
+                              . To withdraw your liquid balance immediately, switch to Available Wallet.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setWthSource(availUsdNum <= 0 && availUsdtNum > 0 ? 'USDT_WALLET_BAL' : 'USD_WALLET');
+                                setWthType('MONTHLY_RETURNS');
+                                setWthCurrency(availUsdNum <= 0 && availUsdtNum > 0 ? 'USDT' : 'USD');
+                                setWthError(null);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[10px] cursor-pointer"
+                            >
+                              Switch to Available Wallet ({availUsdNum > 0 ? `$${availUsdNum.toFixed(2)} USD` : `${availUsdtNum.toFixed(2)} USDT`})
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="block text-xs font-bold mb-1">Payout Method</label>
-                <select
-                  value={wthMethod}
-                  onChange={(e) => setWthMethod(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
-                >
-                  <option value="USDT_WALLET" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">USDT Wallet (TRC-20)</option>
-                  <option value="BANK_TRANSFER" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Bank Wire (SWIFT / SEPA)</option>
-                </select>
+              {/* STEP 2: DESTINATION NETWORK / PAYOUT OPTION */}
+              <div className="space-y-2">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  2. Choose Payout Network / Method
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWthMethod('USDT_WALLET');
+                      setWthCryptoNetwork('TRC20');
+                      setWthError(null);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      wthMethod === 'USDT_WALLET' && wthCryptoNetwork === 'TRC20'
+                        ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-black text-slate-900 dark:text-white">USDT (TRC20)</span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[9px] font-black">
+                        TRON
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 block font-mono">Address starts with T...</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWthMethod('USDT_WALLET');
+                      setWthCryptoNetwork('BEP20');
+                      setWthError(null);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      wthMethod === 'USDT_WALLET' && wthCryptoNetwork === 'BEP20'
+                        ? 'border-amber-500 bg-amber-50/70 dark:bg-amber-950/40 ring-2 ring-amber-500/20'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-black text-slate-900 dark:text-white">USDT (BEP20)</span>
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[9px] font-black">
+                        BSC
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 block font-mono">Address starts with 0x...</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWthMethod('BANK_TRANSFER');
+                      setWthError(null);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      wthMethod === 'BANK_TRANSFER'
+                        ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-black text-slate-900 dark:text-white">Bank Wire</span>
+                      <Landmark className="w-3.5 h-3.5 text-blue-500" />
+                    </div>
+                    <span className="text-[10px] text-slate-500 block">SWIFT / SEPA / Local</span>
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold mb-1">Amount (USD)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  placeholder="e.g. 1000"
-                  value={wthAmount}
-                  onChange={(e) => setWthAmount(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono font-bold"
-                />
-              </div>
-
+              {/* DESTINATION DETAILS SECTION */}
               {wthMethod === 'USDT_WALLET' && (
-                <div>
-                  <label className="block text-xs font-bold mb-1">USDT Wallet Address</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="T..."
-                    value={wthWalletAddress}
-                    onChange={(e) => setWthWalletAddress(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
-                  />
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Coins className={`w-4 h-4 ${wthCryptoNetwork === 'BEP20' ? 'text-amber-500' : 'text-emerald-500'}`} />
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        USDT Crypto Destination ({wthCryptoNetwork})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setWthCryptoNetwork('TRC20')}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                          wthCryptoNetwork === 'TRC20'
+                            ? 'bg-emerald-600 text-white'
+                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        TRC20 (TRON)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setWthCryptoNetwork('BEP20')}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                          wthCryptoNetwork === 'BEP20'
+                            ? 'bg-amber-600 text-white'
+                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        BEP20 (BSC)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                      Destination {wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain (BEP20)' : 'TRON (TRC20)'} Address
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder={wthCryptoNetwork === 'BEP20' ? '0x71C7656EC7ab88b098defB751B7401B5f6d8976F' : 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb'}
+                      value={wthWalletAddress}
+                      onChange={(e) => setWthWalletAddress(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  {wthWalletAddress.trim() && (
+                    <div className="flex items-center justify-between text-[11px]">
+                      {wthCryptoNetwork === 'TRC20' && wthWalletAddress.trim().startsWith('0x') ? (
+                        <div className="flex items-center justify-between w-full p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300">
+                          <span>This looks like a BEP20 (0x...) address.</span>
+                          <button
+                            type="button"
+                            onClick={() => setWthCryptoNetwork('BEP20')}
+                            className="underline font-bold cursor-pointer"
+                          >
+                            Switch to BEP20 →
+                          </button>
+                        </div>
+                      ) : wthCryptoNetwork === 'BEP20' && wthWalletAddress.trim().startsWith('T') ? (
+                        <div className="flex items-center justify-between w-full p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300">
+                          <span>This looks like a TRC20 (T...) address.</span>
+                          <button
+                            type="button"
+                            onClick={() => setWthCryptoNetwork('TRC20')}
+                            className="underline font-bold cursor-pointer"
+                          >
+                            Switch to TRC20 →
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">
+                          {wthCryptoNetwork === 'BEP20'
+                            ? 'Must be a valid BNB Smart Chain (BEP20) 0x address (42 hex characters).'
+                            : 'Must be a valid TRON (TRC20) address starting with T (34 characters).'}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3194,6 +3858,95 @@ function DashboardContent() {
                 </div>
               )}
 
+              {/* STEP 3: WITHDRAWAL AMOUNT */}
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    3. Withdrawal Amount ({wthSelectedCurrency})
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-500">
+                      Available:{' '}
+                      <strong className="font-mono text-emerald-600 dark:text-emerald-400">
+                        {wthSelectedCurrency === 'USD' ? '$' : ''}
+                        {wthSelectedAvailableNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wthSelectedCurrency}
+                      </strong>
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {[
+                        { label: '25%', pct: 0.25 },
+                        { label: '50%', pct: 0.5 },
+                        { label: 'MAX', pct: 1 },
+                      ].map((q) => (
+                        <button
+                          key={q.label}
+                          type="button"
+                          disabled={wthSelectedAvailableNum <= 0}
+                          onClick={() => {
+                            const val = Math.floor(wthSelectedAvailableNum * q.pct * 100) / 100;
+                            setWthAmount(val > 0 ? val.toFixed(2) : '');
+                            setWthError(null);
+                          }}
+                          className="px-2 py-0.5 rounded-md text-[10px] font-black bg-slate-100 dark:bg-slate-800 hover:bg-emerald-600 hover:text-white text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors cursor-pointer"
+                        >
+                          {q.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    placeholder={`Enter amount in ${wthSelectedCurrency} (e.g. 1000)`}
+                    value={wthAmount}
+                    onChange={(e) => setWthAmount(e.target.value)}
+                    className="w-full px-3.5 py-2.5 pr-16 rounded-xl text-sm border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono font-bold text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                  <span className="absolute right-3.5 top-2.5 text-xs font-mono font-bold text-slate-400">
+                    {wthSelectedCurrency}
+                  </span>
+                </div>
+
+                {wthSource !== 'FD_PRINCIPAL' && parseFloat(wthAmount || '0') > wthSelectedAvailableNum && (
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-[11px] text-rose-700 dark:text-rose-300 flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      Amount exceeds your {wthSource === 'USDT_WALLET_BAL' ? 'Available USDT' : 'Available USD'} balance ({wthSelectedCurrency === 'USD' ? '$' : ''}{wthSelectedAvailableNum.toFixed(2)} {wthSelectedCurrency}).
+                    </span>
+                    {wthSource === 'USD_WALLET' && availUsdtNum >= parseFloat(wthAmount || '0') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWthSource('USDT_WALLET_BAL');
+                          setWthCurrency('USDT');
+                          setWthError(null);
+                        }}
+                        className="font-bold underline text-emerald-600 dark:text-emerald-400 cursor-pointer"
+                      >
+                        Switch to USDT Wallet ({availUsdtNum.toFixed(2)} USDT)
+                      </button>
+                    )}
+                    {wthSource === 'USDT_WALLET_BAL' && availUsdNum >= parseFloat(wthAmount || '0') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWthSource('USD_WALLET');
+                          setWthCurrency('USD');
+                          setWthError(null);
+                        }}
+                        className="font-bold underline text-emerald-600 dark:text-emerald-400 cursor-pointer"
+                      >
+                        Switch to USD Wallet (${availUsdNum.toFixed(2)} USD)
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {user?.twoFactorEnabled && (
                 <div>
                   <label className="block text-xs font-bold mb-1">6-Digit 2FA Code</label>
@@ -3209,12 +3962,65 @@ function DashboardContent() {
                 </div>
               )}
 
+              {/* WITHDRAWAL SETTLEMENT SUMMARY */}
+              <div className="p-3.5 rounded-2xl bg-slate-900 text-white border border-slate-800 space-y-2 text-xs">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Withdrawal Summary Confirmation
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Withdrawing From:</span>
+                  <span className="font-bold text-white">
+                    {wthSource === 'USDT_WALLET_BAL'
+                      ? 'Available USDT Wallet'
+                      : wthSource === 'FD_PRINCIPAL'
+                      ? `FD Package${selectedWthPackage ? ` (${selectedWthPackage.packageCode})` : ''}`
+                      : 'Available USD Wallet'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Payout Network / Rail:</span>
+                  <span className="font-bold text-emerald-400">
+                    {wthMethod === 'USDT_WALLET'
+                      ? `USDT Wallet • ${wthCryptoNetwork} (${wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain' : 'TRON'})`
+                      : 'Bank Wire (SWIFT / SEPA)'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Destination:</span>
+                  <span className="font-mono text-slate-200 truncate max-w-[230px]">
+                    {wthMethod === 'USDT_WALLET'
+                      ? wthWalletAddress.trim() || 'Enter wallet address above'
+                      : wthBankName
+                      ? `${wthBankName} (${wthIban ? `••••${wthIban.slice(-4)}` : 'Bank'})`
+                      : 'Select bank account'}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-slate-800 pt-2">
+                  <span className="text-slate-400">Withdrawal Amount:</span>
+                  <span className="font-mono font-black text-amber-400">
+                    {wthSelectedCurrency === 'USD' ? '$' : ''}
+                    {(parseFloat(wthAmount || '0') || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wthSelectedCurrency}
+                  </span>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-slate-400">Remaining Source Balance:</span>
+                  <span className="font-mono font-bold text-slate-200">
+                    {wthSelectedCurrency === 'USD' ? '$' : ''}
+                    {Math.max(0, wthSelectedAvailableNum - (parseFloat(wthAmount || '0') || 0)).toLocaleString('en-US', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    {wthSelectedCurrency}
+                  </span>
+                </div>
+              </div>
+
               <button
                 type="submit"
-                disabled={wthLoading || !wthAmount}
-                className="w-full py-3.5 rounded-2xl font-bold text-xs bg-slate-900 dark:bg-emerald-600 text-white disabled:opacity-50 transition-colors shadow-md"
+                disabled={wthLoading || !wthAmount || parseFloat(wthAmount || '0') <= 0}
+                className="w-full py-3.5 rounded-2xl font-bold text-xs bg-slate-900 dark:bg-emerald-600 hover:bg-black dark:hover:bg-emerald-500 text-white disabled:opacity-50 transition-colors shadow-md cursor-pointer"
               >
-                {wthLoading ? 'Queuing settlement...' : 'Submit Settlement Request'}
+                {wthLoading ? 'Queuing settlement...' : 'Confirm & Submit Withdrawal Request'}
               </button>
             </form>
           </div>

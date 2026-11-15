@@ -3111,15 +3111,26 @@ export default function AdminPortalPage() {
                   const details = parsePayoutDetails(w.payoutDetails);
                   const isCrypto = w.payoutMethod === 'USDT_WALLET' || Boolean(details?.address) || (w.destination && w.destination.startsWith('0x')) || (w.destination && w.destination.startsWith('T'));
                   const cryptoAddr = details?.address || w.destination || '';
+                  const normalizedNet = String(details?.network || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                  const networkCode: 'BEP20' | 'TRC20' = normalizedNet.includes('BEP20') || normalizedNet.includes('BSC') || cryptoAddr.startsWith('0x') ? 'BEP20' : 'TRC20';
+                  const networkDisplay = networkCode === 'BEP20' ? 'BEP20 (BNB Smart Chain)' : 'TRC20 (TRON Network)';
+                  const baseSourceLabel = details?.sourceBalanceLabel || (
+                    w.withdrawalType === 'PRINCIPAL_RELEASE'
+                      ? 'FD Package Principal'
+                      : w.currency === 'USDT'
+                        ? 'Available USDT Wallet'
+                        : 'Available USD Wallet'
+                  );
+                  const sourceBalanceDisplay = w.packageCode ? `${baseSourceLabel} • ${w.packageCode}` : baseSourceLabel;
                   return (
                     <div
                       key={w.id}
                       className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 hover:border-slate-700 transition-colors"
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex flex-wrap items-center gap-2.5">
                           <span className="text-xl font-black text-white font-mono">
-                            ${parseFloat(w.amount).toFixed(2)} {w.currency}
+                            {w.currency === 'USD' ? '$' : ''}{parseFloat(w.amount).toFixed(2)} {w.currency}
                           </span>
                           <span className="font-mono text-xs text-rose-400 font-bold px-2 py-0.5 rounded-md bg-rose-500/10 border border-rose-500/20">
                             {w.requestCode}
@@ -3132,6 +3143,9 @@ export default function AdminPortalPage() {
                               : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                           }`}>
                             {w.status}
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                            Withdrawn From: {sourceBalanceDisplay}
                           </span>
                         </div>
                         <div className="text-xs text-slate-400">
@@ -3161,12 +3175,27 @@ export default function AdminPortalPage() {
 
                       {/* Explicit Payout Target & Banking Information */}
                       {isCrypto ? (
-                        <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 space-y-2 text-xs">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5 font-mono">
-                              <Coins className="w-4 h-4 text-emerald-400" />
-                              Destination USDT Wallet ({details?.network || 'TRC-20'})
-                            </span>
+                        <div className={`p-3.5 rounded-2xl space-y-2 text-xs ${
+                          networkCode === 'BEP20'
+                            ? 'bg-amber-950/20 border border-amber-500/30'
+                            : 'bg-emerald-950/20 border border-emerald-500/30'
+                        }`}>
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 font-mono ${
+                                networkCode === 'BEP20' ? 'text-amber-400' : 'text-emerald-400'
+                              }`}>
+                                <Coins className={`w-4 h-4 ${networkCode === 'BEP20' ? 'text-amber-400' : 'text-emerald-400'}`} />
+                                Destination USDT Wallet
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-black font-mono uppercase border ${
+                                networkCode === 'BEP20'
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              }`}>
+                                {networkDisplay}
+                              </span>
+                            </div>
                             <button
                               type="button"
                               onClick={() => {
@@ -3174,7 +3203,11 @@ export default function AdminPortalPage() {
                                 setCopiedKey(w.id);
                                 setTimeout(() => setCopiedKey(null), 2000);
                               }}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+                                networkCode === 'BEP20'
+                                  ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300'
+                                  : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300'
+                              }`}
                             >
                               {copiedKey === w.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                               <span>{copiedKey === w.id ? 'Copied!' : 'Copy Wallet Address'}</span>
@@ -3194,7 +3227,7 @@ export default function AdminPortalPage() {
                             <button
                               type="button"
                               onClick={() => {
-                                const wireText = `Beneficiary: ${w.user?.firstName || ''} ${w.user?.lastName || ''}\nBank: ${details?.bankName || ''}\nIBAN/Account: ${details?.iban || ''}\nSWIFT/BIC: ${details?.swift || ''}\nAmount: $${parseFloat(w.amount).toFixed(2)} ${w.currency}`;
+                                const wireText = `Beneficiary: ${w.user?.firstName || ''} ${w.user?.lastName || ''}\nBank: ${details?.bankName || ''}\nIBAN/Account: ${details?.iban || ''}\nSWIFT/BIC: ${details?.swift || ''}\nAmount: ${w.currency === 'USD' ? '$' : ''}${parseFloat(w.amount).toFixed(2)} ${w.currency}`;
                                 navigator.clipboard.writeText(wireText);
                                 setCopiedKey(w.id);
                                 setTimeout(() => setCopiedKey(null), 2000);
@@ -3224,7 +3257,7 @@ export default function AdminPortalPage() {
 
                       {/* Settled / Rejection Audit Details */}
                       {w.status === 'SETTLED' && (() => {
-                        const explorer = getExplorerInfo(w.settlementReference, w.currency, w.payoutMethod);
+                        const explorer = getExplorerInfo(w.settlementReference, w.currency, details?.network || w.payoutMethod);
                         return (
                           <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-slate-400">
                             <div className="flex items-center gap-2">

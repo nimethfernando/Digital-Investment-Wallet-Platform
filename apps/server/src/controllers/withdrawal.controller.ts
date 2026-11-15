@@ -42,9 +42,9 @@ export class WithdrawalController {
 
       const result = await withdrawalService.requestWithdrawal(userId, {
         withdrawalType,
-        packageId,
+        packageId: packageId || undefined,
         amount,
-        currency: currency || 'USD',
+        currency: String(currency || 'USD').toUpperCase(),
         payoutMethod,
         payoutDetails: payoutDetails || {},
         twoFactorCode,
