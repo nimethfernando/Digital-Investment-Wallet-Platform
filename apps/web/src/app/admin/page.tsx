@@ -15,6 +15,7 @@ import AdminKycTab from './components/AdminKycTab';
 import AdminSystemTab from './components/AdminSystemTab';
 import AdminAuditLogsTab from './components/AdminAuditLogsTab';
 import AdminActionModals from './components/AdminActionModals';
+import AutoContentPublisher from './components/AutoContentPublisher';
 import {
   LayoutDashboard,
   Globe,
@@ -54,6 +55,7 @@ import {
   Building,
   DollarSign,
   Calendar,
+  Sparkles,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -62,7 +64,7 @@ export default function AdminPortalPage() {
   const { user, token, isAdmin, isLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'users' | 'packages' | 'remittance' | 'investments' | 'p2p' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes'
+    'overview' | 'users' | 'packages' | 'remittance' | 'investments' | 'p2p' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
   >('overview');
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -973,6 +975,7 @@ export default function AdminPortalPage() {
             { id: 'config', label: 'Protocol Fee Controls', icon: Sliders },
             { id: 'system', label: 'System & Maintenance', icon: Settings },
             { id: 'audit', label: 'Audit Logs', icon: FileText },
+            { id: 'content', label: 'Auto Publisher', icon: Sparkles },
             { id: 'disputes', label: `Inquiries & Chat (${tabBadgeCounts.disputes})`, icon: MessageSquare },
           ].map((t) => {
             const Icon = t.icon;
@@ -2244,6 +2247,13 @@ export default function AdminPortalPage() {
               )}
             </div>
           </div>
+        )}
+
+        {/* TAB 6B: AI AUTO-PUBLISHER & CONTINUOUS NEWS ENGINE */}
+        {activeTab === 'content' && (
+          <AutoContentPublisher
+            onFeedback={(text, type) => setFeedback({ text, type })}
+          />
         )}
 
         {/* TAB 7: RECEIVER ADDRESSES & QR CONFIGURATION */}

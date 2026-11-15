@@ -547,19 +547,52 @@ model CmsSection {
 }
 
 model BlogPost {
-  id          String   @id @default(uuid())
-  slug        String   @unique @db.VarChar(150)
-  title       String   @db.VarChar(255)
-  summary     String   @db.Text
-  content     String   @db.LongText
-  coverImage  String?  @db.VarChar(500)
-  authorName  String   @default("Avora Bank Research Team")
-  readTime    String   @default("5 min read")
-  isPublished Boolean  @default(true)
-  publishedAt DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String           @id @default(uuid())
+  slug          String           @unique @db.VarChar(150)
+  title         String           @db.VarChar(255)
+  summary       String           @db.Text
+  content       String           @db.LongText
+  coverImage    String?          @db.VarChar(500)
+  category      String           @default("Market Research") @db.VarChar(80)
+  tags          String?          @db.VarChar(500)
+  keyTakeaways  String?          @db.LongText
+  ticker        String?          @db.VarChar(32)
+  topicQuery    String?          @db.VarChar(150)
+  bannerSvgUrl  String?          @db.VarChar(500)
+  memeUrl       String?          @db.VarChar(500)
+  bannerData    String?          @db.LongText
+  memeData      String?          @db.LongText
+  highlights    String?          @db.LongText
+  lastPrice     String?          @db.VarChar(64)
+  priceChange   String?          @db.VarChar(64)
+  autoTrackNews Boolean          @default(true)
+  lastNewsSync  DateTime?
+  authorName    String           @default("Avora Bank Research Team")
+  readTime      String           @default("5 min read")
+  isPublished   Boolean          @default(true)
+  publishedAt   DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  newsUpdates   BlogNewsUpdate[]
 
   @@map("diw_blog_posts")
+}
+
+model BlogNewsUpdate {
+  id          String   @id @default(uuid())
+  postId      String
+  post        BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  headline    String   @db.VarChar(400)
+  summary     String   @db.Text
+  sourceName  String   @db.VarChar(100)
+  sourceUrl   String   @db.VarChar(600)
+  sentiment   String   @default("NEUTRAL") @db.VarChar(20)
+  urlHash     String   @db.VarChar(64)
+  publishedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([postId, urlHash])
+  @@index([postId, publishedAt])
+  @@map("diw_blog_news_updates")
 }
 
 model Inquiry {

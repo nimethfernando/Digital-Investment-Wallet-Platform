@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { api } from '../../../lib/api';
+import { api, resolveMediaUrl } from '../../../lib/api';
 import { BLOG_POSTS_DATA, BlogPostItem, formatBlogDate } from '../../../lib/blog-data';
 import {
   ArrowLeft,
@@ -13,13 +13,55 @@ import {
   Sparkles,
   ArrowRight,
   User,
+  ExternalLink,
+  TrendingUp,
+  Radio,
+  Smile,
 } from 'lucide-react';
+
+interface LiveHighlight {
+  text: string;
+  source: string;
+  url?: string;
+}
+
+interface NewsUpdateItem {
+  id: string;
+  headline: string;
+  summary: string;
+  sourceName: string;
+  sourceUrl: string;
+  sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  publishedAt: string;
+}
+
+interface ExtendedBlogPost extends BlogPostItem {
+  ticker?: string | null;
+  lastPrice?: string | null;
+  priceChange?: string | null;
+  lastNewsSync?: string | null;
+  autoTrackNews?: boolean;
+  memeUrl?: string | null;
+  highlights?: LiveHighlight[];
+  newsUpdates?: NewsUpdateItem[];
+}
+
+function timeAgo(iso?: string | null): string {
+  if (!iso) return 'recently';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.max(1, Math.floor(diffMs / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
 
 export default function BlogPostDetailPage() {
   const params = useParams();
   const slug = typeof params?.slug === 'string' ? params.slug : Array.isArray(params?.slug) ? params.slug[0] : '';
 
-  const [post, setPost] = useState<BlogPostItem | null>(() => {
+  const [post, setPost] = useState<ExtendedBlogPost | null>(() => {
     return BLOG_POSTS_DATA.find((b) => b.slug === slug) || null;
   });
 
@@ -35,6 +77,26 @@ export default function BlogPostDetailPage() {
       .then((res) => {
         const b = res.data?.blog;
         if (b) {
+          let parsedTakeaways = foundStatic?.keyTakeaways || [];
+          try {
+            if (typeof b.keyTakeaways === 'string') {
+              const arr = JSON.parse(b.keyTakeaways);
+              if (Array.isArray(arr)) parsedTakeaways = arr;
+            } else if (Array.isArray(b.keyTakeaways)) {
+              parsedTakeaways = b.keyTakeaways;
+            }
+          } catch {}
+
+          let parsedHighlights: LiveHighlight[] = [];
+          try {
+            if (typeof b.highlights === 'string') {
+              const arr = JSON.parse(b.highlights);
+              if (Array.isArray(arr)) parsedHighlights = arr;
+            } else if (Array.isArray(b.highlights)) {
+              parsedHighlights = b.highlights;
+            }
+          } catch {}
+
           setPost({
             id: b.id,
             slug: b.slug,
@@ -43,21 +105,30 @@ export default function BlogPostDetailPage() {
             category: b.category || 'Treasury & Yield',
             readTime: b.readTime || '5 min read',
             publishedAt: b.publishedAt || b.createdAt || '2026-10-20',
-            authorName: b.author || 'Avora Institutional Research',
-            authorRole: 'Avora Bank Research Desk',
+            authorName: b.authorName || b.author || 'Avora Institutional Research',
+            authorRole: b.ticker ? `${b.ticker} • Automated Market Research Desk` : 'Avora Bank Research Desk',
             coverImage:
-              b.coverImage ||
+              resolveMediaUrl(b.coverImage) ||
+              resolveMediaUrl(b.bannerSvgUrl) ||
               'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80',
             tags: Array.isArray(b.tags)
               ? b.tags
               : typeof b.tags === 'string'
-              ? b.tags.split(',').map((t: string) => t.trim())
+              ? b.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
               : ['Avora Bank', 'Research'],
             content:
               typeof b.content === 'string'
                 ? b.content.split('\n\n')
                 : foundStatic?.content || [],
-            keyTakeaways: foundStatic?.keyTakeaways || [],
+            keyTakeaways: parsedTakeaways,
+            ticker: b.ticker || null,
+            lastPrice: b.lastPrice || null,
+            priceChange: b.priceChange || null,
+            lastNewsSync: b.lastNewsSync || null,
+            autoTrackNews: Boolean(b.autoTrackNews),
+            memeUrl: resolveMediaUrl(b.memeUrl) || null,
+            highlights: parsedHighlights,
+            newsUpdates: Array.isArray(b.newsUpdates) ? b.newsUpdates : [],
           });
         }
       })
@@ -107,6 +178,18 @@ export default function BlogPostDetailPage() {
           <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider">
             {post.category}
           </span>
+          {post.ticker && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900 dark:bg-slate-800 border border-slate-700 text-white font-mono font-bold">
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{post.ticker}</span>
+              {post.lastPrice && <span className="text-slate-300">• {post.lastPrice}</span>}
+              {post.priceChange && (
+                <span className={post.priceChange.startsWith('-') ? 'text-rose-400' : 'text-emerald-400'}>
+                  {post.priceChange}
+                </span>
+              )}
+            </span>
+          )}
           <span className="flex items-center gap-1 text-slate-500">
             <Clock className="w-3.5 h-3.5 text-emerald-500" />
             {post.readTime}
@@ -175,6 +258,145 @@ export default function BlogPostDetailPage() {
           </p>
         ))}
       </div>
+
+      {/* Market Humor / Meme Card (Auto-Generated) */}
+      {post.memeUrl && (
+        <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-slate-950 p-4 sm:p-6 space-y-3 shadow-xl">
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span className="inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-amber-400">
+              <Smile className="w-4 h-4" />
+              Market Sentiment Visual
+            </span>
+            <span className="font-mono">{post.ticker || 'AVORA'} BRIEF</span>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-slate-800">
+            <img src={post.memeUrl} alt={`${post.ticker || post.title} Market Meme`} className="w-full h-auto" />
+          </div>
+        </div>
+      )}
+
+      {/* CONTINUOUS LIVE NEWS & TODAY'S HIGHLIGHTS (TradingView-Style Feed Underneath Main Post) */}
+      {(post.highlights?.length || post.newsUpdates?.length) ? (
+        <section className="space-y-6 pt-6 border-t border-slate-200 dark:border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                Headlines &amp; Live Corridor News
+              </h2>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Updated {timeAgo(post.lastNewsSync || post.publishedAt)}
+                </span>
+                {post.lastPrice && (
+                  <>
+                    <span>•</span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+                      {post.lastPrice}
+                    </span>
+                  </>
+                )}
+                {post.priceChange && (
+                  <span
+                    className={`font-mono font-bold ${
+                      post.priceChange.startsWith('-') ? 'text-rose-500' : 'text-emerald-500'
+                    }`}
+                  >
+                    {post.priceChange}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {post.autoTrackNews && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+                <Radio className="w-3.5 h-3.5 animate-pulse" />
+                Auto-Updating Wire
+              </span>
+            )}
+          </div>
+
+          {/* Today's Highlights Box (Matches TradingView Screenshot) */}
+          {post.highlights && post.highlights.length > 0 && (
+            <div className="p-6 sm:p-7 rounded-3xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                Today&apos;s highlights
+              </h3>
+              <ul className="space-y-3">
+                {post.highlights.map((item, idx) => (
+                  <li
+                    key={idx}
+                    className="flex items-start gap-3 text-xs sm:text-sm text-slate-700 dark:text-slate-200 leading-relaxed"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-900 dark:bg-emerald-400 mt-2 shrink-0" />
+                    <div className="space-x-2">
+                      <span>{item.text}</span>
+                      {item.url ? (
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-500 transition-colors"
+                        >
+                          <span>{item.source}</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                          {item.source}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Continuous Live News Feed Underneath */}
+          {post.newsUpdates && post.newsUpdates.length > 0 && (
+            <div className="space-y-3">
+              <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Latest Verified News Stream ({post.newsUpdates.length})
+              </h4>
+              <div className="divide-y divide-slate-200 dark:divide-slate-800 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 overflow-hidden">
+                {post.newsUpdates.map((news) => (
+                  <a
+                    key={news.id}
+                    href={news.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block p-4 sm:p-5 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors group"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">{news.sourceName}</span>
+                        <span className="text-slate-400">•</span>
+                        <span className="text-slate-500">{timeAgo(news.publishedAt)}</span>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                          news.sentiment === 'BULLISH'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                            : news.sentiment === 'BEARISH'
+                            ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                        }`}
+                      >
+                        {news.sentiment}
+                      </span>
+                    </div>
+                    <h5 className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors flex items-start justify-between gap-2">
+                      <span>{news.headline}</span>
+                      <ExternalLink className="w-3.5 h-3.5 shrink-0 mt-1 text-slate-400 group-hover:text-emerald-500" />
+                    </h5>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      ) : null}
 
       {/* Tags */}
       <div className="pt-6 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-2">

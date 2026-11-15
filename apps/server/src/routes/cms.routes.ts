@@ -12,6 +12,16 @@ import {
   updateInquiryStatus,
   getBlogPosts,
   getBlogPost,
+  getBlogBannerMedia,
+  getBlogMemeMedia,
+  autoPublishBlog,
+  syncBlogNewsAdmin,
+  syncAllTrackedBlogs,
+  getAdminBlogPosts,
+  updateAdminBlogPost,
+  deleteAdminBlogPost,
+  getAiPublisherConfig,
+  saveAiPublisherConfig,
 } from '../controllers/cms.controller';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
 
@@ -21,16 +31,26 @@ const router = Router();
 router.get('/settings', getSettings);
 router.get('/sections/:page', getPageSections);
 router.get('/blogs', getBlogPosts);
+router.get('/blogs/cron-sync', syncAllTrackedBlogs);
 router.get('/blogs/:slug', getBlogPost);
+router.get('/media/banner/:slug', getBlogBannerMedia);
+router.get('/media/meme/:slug', getBlogMemeMedia);
 router.post('/inquiry', submitInquiry);
 router.post('/newsletter', subscribeNewsletter);
 router.get('/my-tickets', authenticateToken, getMyInquiries);
 
-// Admin-only CMS routes
+// Admin-only CMS & Auto-Publisher routes
 router.get('/admin/sections', authenticateToken, requireAdmin, getAllSections);
 router.put('/admin/sections/:id', authenticateToken, requireAdmin, updateSection);
 router.post('/admin/settings', authenticateToken, requireAdmin, updateSetting);
 router.get('/admin/inquiries', authenticateToken, requireAdmin, getInquiries);
 router.put('/admin/inquiries/:id', authenticateToken, requireAdmin, updateInquiryStatus);
+router.get('/admin/blogs', authenticateToken, requireAdmin, getAdminBlogPosts);
+router.post('/admin/blogs/auto-publish', authenticateToken, requireAdmin, autoPublishBlog);
+router.post('/admin/blogs/:id/sync-news', authenticateToken, requireAdmin, syncBlogNewsAdmin);
+router.patch('/admin/blogs/:id', authenticateToken, requireAdmin, updateAdminBlogPost);
+router.delete('/admin/blogs/:id', authenticateToken, requireAdmin, deleteAdminBlogPost);
+router.get('/admin/ai-config', authenticateToken, requireAdmin, getAiPublisherConfig);
+router.post('/admin/ai-config', authenticateToken, requireAdmin, saveAiPublisherConfig);
 
 export default router;

@@ -1,6 +1,7 @@
 import { InquiryType } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { notificationService } from '../adapters/notification/notification.provider';
+import { autoContentService } from './autoContent.service';
 
 export class CmsService {
   async getPublicSettings() {
@@ -40,16 +41,29 @@ export class CmsService {
     });
   }
 
-  async getBlogPosts() {
+  async getBlogPosts(includeDrafts = false) {
+    await autoContentService.ensureSchema();
     return prisma.blogPost.findMany({
-      where: { isPublished: true },
+      where: includeDrafts ? {} : { isPublished: true },
       orderBy: { publishedAt: 'desc' },
+      include: {
+        _count: {
+          select: { newsUpdates: true },
+        },
+      },
     });
   }
 
   async getBlogPostBySlug(slug: string) {
+    await autoContentService.ensureSchema();
     return prisma.blogPost.findUnique({
       where: { slug },
+      include: {
+        newsUpdates: {
+          orderBy: { publishedAt: 'desc' },
+          take: 25,
+        },
+      },
     });
   }
 

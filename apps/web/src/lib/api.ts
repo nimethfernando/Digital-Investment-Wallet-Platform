@@ -10,6 +10,17 @@ const getBaseUrl = (): string => {
   return 'http://localhost:5000/api/v1';
 };
 
+export const getApiBaseUrl = getBaseUrl;
+
+export const resolveMediaUrl = (url?: string | null): string => {
+  if (!url) return '';
+  if (/^(https?:|data:|blob:)/i.test(url)) return url;
+  if (url.startsWith('/api/v1/')) {
+    return `${getBaseUrl().replace(/\/+$/, '')}${url.slice('/api/v1'.length)}`;
+  }
+  return url;
+};
+
 export const api = axios.create({
   baseURL: getBaseUrl(),
   timeout: 25000,

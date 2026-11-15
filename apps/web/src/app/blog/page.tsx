@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api } from '../../lib/api';
+import { api, resolveMediaUrl } from '../../lib/api';
 import { BLOG_POSTS_DATA, BlogPostItem, formatBlogDate } from '../../lib/blog-data';
 import {
   ArrowRight,
@@ -34,10 +34,11 @@ export default function BlogListingPage() {
             category: b.category || 'Treasury & Yield',
             readTime: b.readTime || '5 min read',
             publishedAt: b.publishedAt || b.createdAt || '2026-10-20',
-            authorName: b.author || 'Avora Institutional Research',
-            authorRole: 'Avora Bank Research Desk',
+            authorName: b.authorName || b.author || 'Avora Institutional Research',
+            authorRole: b.ticker ? `${b.ticker} • Live News Tracked` : 'Avora Bank Research Desk',
             coverImage:
-              b.coverImage ||
+              resolveMediaUrl(b.coverImage) ||
+              resolveMediaUrl(b.bannerSvgUrl) ||
               'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80',
             isFeatured: Boolean(b.isFeatured),
             tags: Array.isArray(b.tags)

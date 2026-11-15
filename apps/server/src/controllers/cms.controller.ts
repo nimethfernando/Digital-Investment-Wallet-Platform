@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { cmsService } from '../services/cms.service';
+import { autoContentService } from '../services/autoContent.service';
+import { prisma } from '../lib/prisma';
 import { InquiryType } from '@prisma/client';
 
 const inquirySchema = z.object({
@@ -134,9 +136,164 @@ export const getBlogPosts = async (req: Request, res: Response, next: NextFuncti
 export const getBlogPost = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const slug = req.params.slug as string;
-    const blog = await cmsService.getBlogPostBySlug(slug);
+    let blog = await cmsService.getBlogPostBySlug(slug);
     if (!blog) return res.status(404).json({ success: false, message: 'Blog post not found' });
+
+    // Stale auto-refresh if auto-tracked and last sync was > 30 mins ago (keeps continuous news fresh even on serverless)
+    const thirtyMinsAgo = Date.now() - 30 * 60 * 1000;
+    if (
+      blog.autoTrackNews &&
+      blog.ticker &&
+      (!blog.lastNewsSync || new Date(blog.lastNewsSync).getTime() < thirtyMinsAgo)
+    ) {
+      try {
+        const synced = await autoContentService.syncPostNews(blog.id);
+        if (synced?.post) blog = synced.post as any;
+      } catch {
+        // serve existing cached content if external news fetch times out
+      }
+    }
+
     res.json({ success: true, blog });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getBlogBannerMedia = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawSlug = String(req.params.slug || '').replace(/\.svg$/i, '');
+    const post = await prisma.blogPost.findUnique({
+      where: { slug: rawSlug },
+      select: { slug: true, title: true, bannerData: true },
+    });
+    const svg = autoContentService.renderBannerSvg(rawSlug, post?.bannerData, post?.title);
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.send(svg);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getBlogMemeMedia = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawSlug = String(req.params.slug || '').replace(/\.svg$/i, '');
+    const post = await prisma.blogPost.findUnique({
+      where: { slug: rawSlug },
+      select: { ticker: true, memeData: true },
+    });
+    const svg = autoContentService.renderMemeSvg(post?.memeData, post?.ticker || 'MARKET');
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.send(svg);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const autoPublishBlog = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { topic, includeMeme, autoTrackNews, categoryOverride } = req.body;
+    if (!topic || typeof topic !== 'string' || topic.trim().length < 2) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid stock ticker or topic.' });
+    }
+
+    const result = await autoContentService.publishAutomatedPost({
+      topic: topic.trim(),
+      includeMeme: includeMeme !== false,
+      autoTrackNews: autoTrackNews !== false,
+      categoryOverride: typeof categoryOverride === 'string' && categoryOverride.trim() ? categoryOverride.trim() : undefined,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Published automated briefing for ${result.stats.companyName} (${result.stats.tickerResolved}) with ${result.stats.newsGathered} live news updates.`,
+      ...result,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const syncBlogNewsAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const result = await autoContentService.syncPostNews(id);
+    if (!result) {
+      return res.status(404).json({ success: false, message: 'Tracked blog post not found.' });
+    }
+    res.json({
+      success: true,
+      message: `Synced ${result.addedCount} new headline(s) for ${result.post.ticker || result.post.slug}.`,
+      ...result,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const syncAllTrackedBlogs = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const summary = await autoContentService.syncAllTrackedPosts();
+    res.json({ success: true, ...summary });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getAdminBlogPosts = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const blogs = await cmsService.getBlogPosts(true);
+    res.json({ success: true, blogs });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateAdminBlogPost = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    const { isPublished, autoTrackNews } = req.body;
+    const data: any = {};
+    if (typeof isPublished === 'boolean') data.isPublished = isPublished;
+    if (typeof autoTrackNews === 'boolean') data.autoTrackNews = autoTrackNews;
+
+    const updated = await prisma.blogPost.update({ where: { id }, data });
+    res.json({ success: true, blog: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deleteAdminBlogPost = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string;
+    await prisma.blogPost.delete({ where: { id } });
+    res.json({ success: true, message: 'Blog post deleted.' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getAiPublisherConfig = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const status = await autoContentService.getPublicAiStatus();
+    res.json({ success: true, status });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const saveAiPublisherConfig = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { openaiApiKey, geminiApiKey, finnhubApiKey } = req.body;
+    const status = await autoContentService.saveAiConfig({
+      openaiApiKey,
+      geminiApiKey,
+      finnhubApiKey,
+    });
+    res.json({ success: true, status });
   } catch (err) {
     next(err);
   }
