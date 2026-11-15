@@ -62,16 +62,30 @@ export class OtcController {
         countryCode,
         city,
         locationAddress,
+        landmark,
+        googleMapsUrl,
+        latitude,
+        longitude,
         supportedCurrencies,
         settlementMethods,
         buyRateMarginPct,
         sellRateMarginPct,
       } = req.body;
 
-      if (!deskName || !country || !countryCode || !city || !supportedCurrencies || !settlementMethods) {
+      if (
+        !deskName ||
+        !country ||
+        !countryCode ||
+        !city ||
+        !locationAddress ||
+        !String(locationAddress).trim() ||
+        !supportedCurrencies ||
+        !settlementMethods
+      ) {
         return res.status(400).json({
           success: false,
-          message: 'Desk name, country, country code, city, supported currencies, and settlement methods are required.',
+          message:
+            'Desk name, country, country code, city, physical location address, supported currencies, and settlement methods are required.',
         });
       }
 
@@ -81,6 +95,10 @@ export class OtcController {
         countryCode,
         city,
         locationAddress,
+        landmark,
+        googleMapsUrl,
+        latitude,
+        longitude,
         supportedCurrencies,
         settlementMethods,
         buyRateMarginPct,
@@ -240,6 +258,60 @@ export class OtcController {
       res.json({
         success: true,
         message: 'Escrow released successfully! Funds and operator commission distributed.',
+        data: trade,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/otc/my-trades
+   * List authenticated user's OTC trades
+   */
+  async getMyTrades(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const trades = await otcService.getMyTrades(userId);
+      res.json({ success: true, data: trades });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/otc/trades/:id/dispute
+   * Raise a dispute on an active OTC trade
+   */
+  async disputeTrade(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const tradeId = Array.isArray(req.params.id) ? req.params.id[0] : String(req.params.id);
+      const { reason } = req.body || {};
+      const trade = await otcService.disputeTrade(tradeId, userId, reason);
+      res.json({
+        success: true,
+        message: 'Trade escalated to Avora Compliance dispute resolution.',
+        data: trade,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/otc/trades/:id/cancel
+   * Cancel an IN_PROGRESS OTC trade and return escrow to seller
+   */
+  async cancelTrade(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const tradeId = Array.isArray(req.params.id) ? req.params.id[0] : String(req.params.id);
+      const { reason } = req.body || {};
+      const trade = await otcService.cancelTrade(tradeId, userId, reason);
+      res.json({
+        success: true,
+        message: 'Trade cancelled and escrowed USDT unlocked back to seller.',
         data: trade,
       });
     } catch (err) {

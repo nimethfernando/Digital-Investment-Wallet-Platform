@@ -11,6 +11,7 @@ import { withdrawalService } from '../services/withdrawal.service';
 import { kycService } from '../services/kyc.service';
 import { generateAvoraAccountNumber } from '../services/p2p.service';
 import { globalMoneyTransferService } from '../services/gmt.service';
+import { otcService } from '../services/otc.service';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -2157,6 +2158,8 @@ export class AdminController {
       openTicketsList,
       disputedP2PList,
       pendingInquiriesList,
+      activeAndDisputedOtcTradesList,
+      underReviewOtcDesksList,
     ] = await Promise.all([
       prisma.investmentPackage.findMany({
         where: { status: { in: ['ACTIVE', 'PENDING_PAYMENT', 'WITHDRAWAL_REQUESTED'] } },
@@ -2208,6 +2211,22 @@ export class AdminController {
       }),
       prisma.inquiry.findMany({
         where: { status: 'NEW' },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.otcTrade.findMany({
+        where: { status: { in: ['DISPUTED', 'IN_PROGRESS'] } },
+        include: {
+          desk: { select: { deskName: true, city: true, country: true } },
+          customer: { select: { id: true, email: true, firstName: true, lastName: true } },
+          operator: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.otcDesk.findMany({
+        where: { status: 'UNDER_REVIEW' },
+        include: {
+          user: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
         orderBy: { createdAt: 'asc' },
       }),
     ]);
@@ -2699,6 +2718,80 @@ export class AdminController {
       alerts.push(item);
     }
 
+    // Active & Disputed OTC Escrow Trades
+    for (const otc of activeAndDisputedOtcTradesList) {
+      const custName =
+        `${otc.customer?.firstName || ''} ${otc.customer?.lastName || ''}`.trim() ||
+        otc.customer?.email ||
+        'Customer';
+      const amountFixed = new Decimal(otc.cryptoAmount.toString()).toFixed(2);
+      const isDisputed = otc.status === 'DISPUTED';
+      const age = this.computeAgeInfo(otc.createdAt, now, isDisputed ? 12 : 24);
+      const item = {
+        id: `OTC_TRD-${otc.id}`,
+        entityId: otc.id,
+        code: otc.tradeCode,
+        category: isDisputed ? 'OTC_DISPUTE' : 'OTC_TRADE',
+        typeLabel: isDisputed ? 'OTC Escrow Dispute' : 'Active OTC Escrow',
+        title: `${isDisputed ? 'OTC Dispute' : 'OTC Escrow'}: ${otc.tradeCode} (${amountFixed} USDT)`,
+        description: `${otc.desk?.deskName || 'OTC Desk'} • ${custName} vs ${otc.operator?.email || 'Operator'} (${otc.fiatAmount ? `${new Decimal(otc.fiatAmount.toString()).toFixed(2)} ${otc.fiatCurrency}` : otc.tradeType})`,
+        customerId: otc.customerId,
+        customerName: custName,
+        customerEmail: otc.customer?.email || '',
+        amount: amountFixed,
+        currency: 'USDT',
+        status: otc.status,
+        targetTab: 'otc',
+        requestDate: otc.createdAt.toISOString(),
+        createdDate: otc.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: isDisputed || age.isOverdue ? (isDisputed ? 'OVERDUE' : 'OVERDUE') : 'HIGH',
+        priorityRank: isDisputed ? 0 : 2,
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    // OTC Desks Awaiting Review
+    for (const desk of underReviewOtcDesksList) {
+      const opName =
+        `${desk.user?.firstName || ''} ${desk.user?.lastName || ''}`.trim() ||
+        desk.user?.email ||
+        'Operator';
+      const age = this.computeAgeInfo(desk.createdAt, now, 24);
+      const item = {
+        id: `OTC_DSK-${desk.id}`,
+        entityId: desk.id,
+        code: desk.deskCode,
+        category: 'OTC_DESK_REVIEW',
+        typeLabel: 'OTC Desk Review',
+        title: `OTC Desk Review: ${desk.deskName}`,
+        description: `${desk.city}, ${desk.country} • ${desk.locationAddress || 'Verify location & deposit'}`,
+        customerId: desk.userId,
+        customerName: opName,
+        customerEmail: desk.user?.email || '',
+        amount: new Decimal(desk.securityDeposit.toString()).toFixed(2),
+        currency: 'USD',
+        status: desk.status,
+        targetTab: 'otc',
+        requestDate: desk.createdAt.toISOString(),
+        createdDate: desk.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : 'HIGH',
+        priorityRank: age.isOverdue ? 0 : 2,
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
     const sortByUrgencyThenAge = (a: any, b: any) => {
       if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
       return b.ageMs - a.ageMs;
@@ -2728,6 +2821,8 @@ export class AdminController {
       pendingRemittancesCount: pendingTransfersList.length,
       openTicketsCount: openTicketsList.length,
       disputedP2PCount: disputedP2PList.length,
+      disputedOtcCount: activeAndDisputedOtcTradesList.filter((t) => t.status === 'DISPUTED').length,
+      activeOtcTradesCount: activeAndDisputedOtcTradesList.length,
       newInquiriesCount: pendingInquiriesList.length,
       totalPendingCount,
       totalActionItems: pendingRequests.length,
@@ -2779,6 +2874,8 @@ export class AdminController {
         totalStartups,
         totalTransfers,
         totalTickets,
+        totalOtcDesks,
+        totalOtcTrades,
         commandCenter,
       ] = await Promise.all([
         prisma.user.count(),
@@ -2799,6 +2896,8 @@ export class AdminController {
         prisma.startupListing.count({ where: { status: 'PUBLISHED' } }),
         prisma.globalTransfer.count(),
         prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
+        prisma.otcDesk.count(),
+        prisma.otcTrade.count(),
         this.buildAdminCommandCenterData(),
       ]);
 
@@ -2817,6 +2916,8 @@ export class AdminController {
           totalStartups,
           totalTransfers,
           totalTickets,
+          totalOtcDesks,
+          totalOtcTrades,
           commandCenter,
         },
       });
@@ -3111,6 +3212,84 @@ export class AdminController {
       });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message || 'Manual deposit creation failed' });
+    }
+  }
+
+  /**
+   * Admin: List all OTC Desks with location metadata, security deposits, and summary KPIs
+   */
+  async getOtcDesks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { status, search } = req.query;
+      const result = await otcService.getAllDesksAdmin({
+        status: typeof status === 'string' ? status : undefined,
+        search: typeof search === 'string' ? search : undefined,
+      });
+      res.json({
+        success: true,
+        data: result,
+        desks: result.desks,
+        summary: result.summary,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Admin: Update OTC Desk status, location/landmark, margins, or refund/forfeit $1,000 security deposit
+   */
+  async updateOtcDesk(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const deskId = String(req.params.id);
+      const updated = await otcService.updateDeskAdmin(adminUserId, deskId, req.body || {});
+      res.json({
+        success: true,
+        message: `OTC Desk ${updated.deskCode} updated (${updated.status}).`,
+        data: updated,
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message || 'Failed to update OTC desk' });
+    }
+  }
+
+  /**
+   * Admin: List all OTC Escrow Trades across all desks with chat history
+   */
+  async getOtcTrades(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { status, search } = req.query;
+      const trades = await otcService.getAllTradesAdmin({
+        status: typeof status === 'string' ? status : undefined,
+        search: typeof search === 'string' ? search : undefined,
+      });
+      res.json({
+        success: true,
+        data: trades,
+        trades,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Admin: Resolve or Force-Settle an IN_PROGRESS or DISPUTED OTC Trade
+   */
+  async resolveOtcTrade(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const tradeId = String(req.params.id);
+      const { resolution, reason } = req.body || {};
+      const trade = await otcService.resolveTradeAdmin(adminUserId, tradeId, resolution, reason);
+      res.json({
+        success: true,
+        message: `OTC Trade ${trade.tradeCode} resolved (${resolution} -> ${trade.status}).`,
+        data: trade,
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message || 'Failed to resolve OTC trade' });
     }
   }
 }

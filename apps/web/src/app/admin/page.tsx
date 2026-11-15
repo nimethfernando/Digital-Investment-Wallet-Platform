@@ -11,6 +11,7 @@ import AdminUsersTab from './components/AdminUsersTab';
 import AdminRemittanceTab from './components/AdminRemittanceTab';
 import AdminStartupsTab from './components/AdminStartupsTab';
 import AdminP2PTab from './components/AdminP2PTab';
+import AdminOtcTab from './components/AdminOtcTab';
 import AdminKycTab from './components/AdminKycTab';
 import AdminSystemTab from './components/AdminSystemTab';
 import AdminAuditLogsTab from './components/AdminAuditLogsTab';
@@ -53,6 +54,7 @@ import {
   Copy,
   Save,
   Building,
+  Building2,
   DollarSign,
   Calendar,
   Sparkles,
@@ -66,7 +68,7 @@ export default function AdminPortalPage() {
   const { user, token, isAdmin, isLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'alerts' | 'users' | 'packages' | 'remittance' | 'investments' | 'p2p' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
+    'overview' | 'alerts' | 'users' | 'packages' | 'remittance' | 'investments' | 'p2p' | 'otc' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
   >('overview');
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -99,6 +101,12 @@ export default function AdminPortalPage() {
   // P2P Escrow Orders State
   const [p2pOrders, setP2POrders] = useState<any[]>([]);
   const [p2pLoading, setP2PLoading] = useState(false);
+
+  // OTC Desks & Escrow Trades State
+  const [otcDesks, setOtcDesks] = useState<any[]>([]);
+  const [otcTrades, setOtcTrades] = useState<any[]>([]);
+  const [otcSummary, setOtcSummary] = useState<any | null>(null);
+  const [otcLoading, setOtcLoading] = useState(false);
 
   // Audit Logs State
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -357,6 +365,26 @@ export default function AdminPortalPage() {
         setP2POrders([]);
       } finally {
         setP2PLoading(false);
+      }
+    } else if (activeTab === 'otc') {
+      setOtcLoading(true);
+      try {
+        const [desksRes, tradesRes] = await Promise.all([
+          api.get('/admin/otc/desks').catch(() => ({ data: { desks: [], summary: null } })),
+          api.get('/admin/otc/trades').catch(() => ({ data: { trades: [] } })),
+        ]);
+        const deskList = desksRes.data?.desks || desksRes.data?.data?.desks || [];
+        const summaryObj = desksRes.data?.summary || desksRes.data?.data?.summary || null;
+        const tradeList = tradesRes.data?.trades || tradesRes.data?.data || [];
+        setOtcDesks(Array.isArray(deskList) ? deskList : []);
+        setOtcSummary(summaryObj);
+        setOtcTrades(Array.isArray(tradeList) ? tradeList : []);
+      } catch (e) {
+        console.error('Failed to load OTC data:', e);
+        setOtcDesks([]);
+        setOtcTrades([]);
+      } finally {
+        setOtcLoading(false);
       }
     } else if (activeTab === 'audit') {
       setAuditLoading(true);
@@ -1095,7 +1123,7 @@ export default function AdminPortalPage() {
         return Boolean(item.isOverdue);
       }
       if (alertCategoryFilter === 'COMPLIANCE') {
-        return ['KYC_VERIFICATION', 'REMITTANCE', 'SUPPORT_TICKET', 'P2P_DISPUTE', 'INQUIRY'].includes(item.category);
+        return ['KYC_VERIFICATION', 'REMITTANCE', 'SUPPORT_TICKET', 'P2P_DISPUTE', 'OTC_DISPUTE', 'OTC_TRADE', 'OTC_DESK_REVIEW', 'INQUIRY'].includes(item.category);
       }
       return true;
     });
@@ -1374,6 +1402,7 @@ export default function AdminPortalPage() {
     remittance: remittanceTransfers.length > 0 ? remittanceTransfers.length : (overviewAnalytics?.totalTransfers || 0),
     investments: adminInvestments.length > 0 ? adminInvestments.length : (overviewAnalytics?.totalStartups || 0),
     p2p: p2pOrders.length || 0,
+    otc: otcDesks.length > 0 ? otcDesks.length : (overviewAnalytics?.totalOtcDesks ?? 0),
     deposits: (Array.isArray(deposits) && deposits.length > 0)
       ? deposits.filter((d) => d?.status === 'PENDING').length
       : (overviewAnalytics?.pendingDeposits ?? 0),
@@ -1606,6 +1635,7 @@ export default function AdminPortalPage() {
             { id: 'remittance', label: `Remittance Orders (${tabBadgeCounts.remittance})`, icon: Globe },
             { id: 'investments', label: `Startup Portfolios (${tabBadgeCounts.investments})`, icon: Building },
             { id: 'p2p', label: `P2P Escrow (${tabBadgeCounts.p2p})`, icon: TrendingUp },
+            { id: 'otc', label: `OTC Desks & Trades (${tabBadgeCounts.otc})`, icon: Building2 },
             { id: 'deposits', label: `Deposits (${tabBadgeCounts.deposits})`, icon: Coins },
             { id: 'withdrawals', label: `Settlements (${tabBadgeCounts.withdrawals})`, icon: Clock },
             { id: 'kyc', label: `KYC Compliance (${tabBadgeCounts.kyc})`, icon: UserCheck },
@@ -1950,6 +1980,9 @@ export default function AdminPortalPage() {
                     <option value="KYC_VERIFICATION">KYC Verification</option>
                     <option value="SUPPORT_TICKET">Support Ticket</option>
                     <option value="P2P_DISPUTE">P2P Dispute</option>
+                    <option value="OTC_DISPUTE">OTC Dispute</option>
+                    <option value="OTC_TRADE">Active OTC Escrow</option>
+                    <option value="OTC_DESK_REVIEW">OTC Desk Review</option>
                     <option value="INQUIRY">Client Inquiry</option>
                   </select>
                 </div>
@@ -2157,6 +2190,19 @@ export default function AdminPortalPage() {
           <AdminP2PTab
             orders={p2pOrders}
             ordersLoading={p2pLoading}
+            onRefresh={loadData}
+            onFeedback={(f) => setFeedback(f)}
+          />
+        )}
+
+        {/* TAB: OTC DESKS & ESCROW TRADES */}
+        {activeTab === 'otc' && (
+          <AdminOtcTab
+            desks={otcDesks}
+            trades={otcTrades}
+            summary={otcSummary}
+            loading={otcLoading}
+            admin2FaCode={admin2FaCode}
             onRefresh={loadData}
             onFeedback={(f) => setFeedback(f)}
           />

@@ -16,6 +16,7 @@ const withdrawal_service_1 = require("../services/withdrawal.service");
 const kyc_service_1 = require("../services/kyc.service");
 const p2p_service_1 = require("../services/p2p.service");
 const gmt_service_1 = require("../services/gmt.service");
+const otc_service_1 = require("../services/otc.service");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class AdminController {
     /**
@@ -1953,7 +1954,7 @@ class AdminController {
      */
     async buildAdminCommandCenterData() {
         const now = new Date();
-        const [activeAndPendingPackages, pendingDepositsList, pendingWithdrawalsList, pendingKycList, pendingTransfersList, openTicketsList, disputedP2PList, pendingInquiriesList,] = await Promise.all([
+        const [activeAndPendingPackages, pendingDepositsList, pendingWithdrawalsList, pendingKycList, pendingTransfersList, openTicketsList, disputedP2PList, pendingInquiriesList, activeAndDisputedOtcTradesList, underReviewOtcDesksList,] = await Promise.all([
             prisma_1.prisma.investmentPackage.findMany({
                 where: { status: { in: ['ACTIVE', 'PENDING_PAYMENT', 'WITHDRAWAL_REQUESTED'] } },
                 include: {
@@ -2004,6 +2005,22 @@ class AdminController {
             }),
             prisma_1.prisma.inquiry.findMany({
                 where: { status: 'NEW' },
+                orderBy: { createdAt: 'asc' },
+            }),
+            prisma_1.prisma.otcTrade.findMany({
+                where: { status: { in: ['DISPUTED', 'IN_PROGRESS'] } },
+                include: {
+                    desk: { select: { deskName: true, city: true, country: true } },
+                    customer: { select: { id: true, email: true, firstName: true, lastName: true } },
+                    operator: { select: { id: true, email: true, firstName: true, lastName: true } },
+                },
+                orderBy: { createdAt: 'asc' },
+            }),
+            prisma_1.prisma.otcDesk.findMany({
+                where: { status: 'UNDER_REVIEW' },
+                include: {
+                    user: { select: { id: true, email: true, firstName: true, lastName: true } },
+                },
                 orderBy: { createdAt: 'asc' },
             }),
         ]);
@@ -2477,6 +2494,76 @@ class AdminController {
             pendingRequests.push(item);
             alerts.push(item);
         }
+        // Active & Disputed OTC Escrow Trades
+        for (const otc of activeAndDisputedOtcTradesList) {
+            const custName = `${otc.customer?.firstName || ''} ${otc.customer?.lastName || ''}`.trim() ||
+                otc.customer?.email ||
+                'Customer';
+            const amountFixed = new decimal_js_1.default(otc.cryptoAmount.toString()).toFixed(2);
+            const isDisputed = otc.status === 'DISPUTED';
+            const age = this.computeAgeInfo(otc.createdAt, now, isDisputed ? 12 : 24);
+            const item = {
+                id: `OTC_TRD-${otc.id}`,
+                entityId: otc.id,
+                code: otc.tradeCode,
+                category: isDisputed ? 'OTC_DISPUTE' : 'OTC_TRADE',
+                typeLabel: isDisputed ? 'OTC Escrow Dispute' : 'Active OTC Escrow',
+                title: `${isDisputed ? 'OTC Dispute' : 'OTC Escrow'}: ${otc.tradeCode} (${amountFixed} USDT)`,
+                description: `${otc.desk?.deskName || 'OTC Desk'} • ${custName} vs ${otc.operator?.email || 'Operator'} (${otc.fiatAmount ? `${new decimal_js_1.default(otc.fiatAmount.toString()).toFixed(2)} ${otc.fiatCurrency}` : otc.tradeType})`,
+                customerId: otc.customerId,
+                customerName: custName,
+                customerEmail: otc.customer?.email || '',
+                amount: amountFixed,
+                currency: 'USDT',
+                status: otc.status,
+                targetTab: 'otc',
+                requestDate: otc.createdAt.toISOString(),
+                createdDate: otc.createdAt.toISOString(),
+                ageMs: age.ageMs,
+                ageHours: age.ageHours,
+                ageDays: age.ageDays,
+                ageLabel: age.ageLabel,
+                isOverdue: age.isOverdue,
+                urgency: isDisputed || age.isOverdue ? (isDisputed ? 'OVERDUE' : 'OVERDUE') : 'HIGH',
+                priorityRank: isDisputed ? 0 : 2,
+            };
+            pendingRequests.push(item);
+            alerts.push(item);
+        }
+        // OTC Desks Awaiting Review
+        for (const desk of underReviewOtcDesksList) {
+            const opName = `${desk.user?.firstName || ''} ${desk.user?.lastName || ''}`.trim() ||
+                desk.user?.email ||
+                'Operator';
+            const age = this.computeAgeInfo(desk.createdAt, now, 24);
+            const item = {
+                id: `OTC_DSK-${desk.id}`,
+                entityId: desk.id,
+                code: desk.deskCode,
+                category: 'OTC_DESK_REVIEW',
+                typeLabel: 'OTC Desk Review',
+                title: `OTC Desk Review: ${desk.deskName}`,
+                description: `${desk.city}, ${desk.country} • ${desk.locationAddress || 'Verify location & deposit'}`,
+                customerId: desk.userId,
+                customerName: opName,
+                customerEmail: desk.user?.email || '',
+                amount: new decimal_js_1.default(desk.securityDeposit.toString()).toFixed(2),
+                currency: 'USD',
+                status: desk.status,
+                targetTab: 'otc',
+                requestDate: desk.createdAt.toISOString(),
+                createdDate: desk.createdAt.toISOString(),
+                ageMs: age.ageMs,
+                ageHours: age.ageHours,
+                ageDays: age.ageDays,
+                ageLabel: age.ageLabel,
+                isOverdue: age.isOverdue,
+                urgency: age.isOverdue ? 'OVERDUE' : 'HIGH',
+                priorityRank: age.isOverdue ? 0 : 2,
+            };
+            pendingRequests.push(item);
+            alerts.push(item);
+        }
         const sortByUrgencyThenAge = (a, b) => {
             if (a.priorityRank !== b.priorityRank)
                 return a.priorityRank - b.priorityRank;
@@ -2502,6 +2589,8 @@ class AdminController {
             pendingRemittancesCount: pendingTransfersList.length,
             openTicketsCount: openTicketsList.length,
             disputedP2PCount: disputedP2PList.length,
+            disputedOtcCount: activeAndDisputedOtcTradesList.filter((t) => t.status === 'DISPUTED').length,
+            activeOtcTradesCount: activeAndDisputedOtcTradesList.length,
             newInquiriesCount: pendingInquiriesList.length,
             totalPendingCount,
             totalActionItems: pendingRequests.length,
@@ -2541,7 +2630,7 @@ class AdminController {
      */
     async getPlatformOverviewAnalytics(req, res, next) {
         try {
-            const [totalUsers, totalPackages, activePackages, pendingDeposits, pendingWithdrawals, pendingKyc, totalStartups, totalTransfers, totalTickets, commandCenter,] = await Promise.all([
+            const [totalUsers, totalPackages, activePackages, pendingDeposits, pendingWithdrawals, pendingKyc, totalStartups, totalTransfers, totalTickets, totalOtcDesks, totalOtcTrades, commandCenter,] = await Promise.all([
                 prisma_1.prisma.user.count(),
                 prisma_1.prisma.investmentPackage.count(),
                 prisma_1.prisma.investmentPackage.findMany({
@@ -2560,6 +2649,8 @@ class AdminController {
                 prisma_1.prisma.startupListing.count({ where: { status: 'PUBLISHED' } }),
                 prisma_1.prisma.globalTransfer.count(),
                 prisma_1.prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
+                prisma_1.prisma.otcDesk.count(),
+                prisma_1.prisma.otcTrade.count(),
                 this.buildAdminCommandCenterData(),
             ]);
             const activeCapital = activePackages.reduce((acc, p) => acc + parseFloat(p.amount.toString()), 0);
@@ -2576,6 +2667,8 @@ class AdminController {
                     totalStartups,
                     totalTransfers,
                     totalTickets,
+                    totalOtcDesks,
+                    totalOtcTrades,
                     commandCenter,
                 },
             });
@@ -2811,6 +2904,84 @@ class AdminController {
         }
         catch (err) {
             res.status(400).json({ success: false, message: err.message || 'Manual deposit creation failed' });
+        }
+    }
+    /**
+     * Admin: List all OTC Desks with location metadata, security deposits, and summary KPIs
+     */
+    async getOtcDesks(req, res, next) {
+        try {
+            const { status, search } = req.query;
+            const result = await otc_service_1.otcService.getAllDesksAdmin({
+                status: typeof status === 'string' ? status : undefined,
+                search: typeof search === 'string' ? search : undefined,
+            });
+            res.json({
+                success: true,
+                data: result,
+                desks: result.desks,
+                summary: result.summary,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Update OTC Desk status, location/landmark, margins, or refund/forfeit $1,000 security deposit
+     */
+    async updateOtcDesk(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const deskId = String(req.params.id);
+            const updated = await otc_service_1.otcService.updateDeskAdmin(adminUserId, deskId, req.body || {});
+            res.json({
+                success: true,
+                message: `OTC Desk ${updated.deskCode} updated (${updated.status}).`,
+                data: updated,
+            });
+        }
+        catch (err) {
+            res.status(400).json({ success: false, message: err.message || 'Failed to update OTC desk' });
+        }
+    }
+    /**
+     * Admin: List all OTC Escrow Trades across all desks with chat history
+     */
+    async getOtcTrades(req, res, next) {
+        try {
+            const { status, search } = req.query;
+            const trades = await otc_service_1.otcService.getAllTradesAdmin({
+                status: typeof status === 'string' ? status : undefined,
+                search: typeof search === 'string' ? search : undefined,
+            });
+            res.json({
+                success: true,
+                data: trades,
+                trades,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Resolve or Force-Settle an IN_PROGRESS or DISPUTED OTC Trade
+     */
+    async resolveOtcTrade(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const tradeId = String(req.params.id);
+            const { resolution, reason } = req.body || {};
+            const trade = await otc_service_1.otcService.resolveTradeAdmin(adminUserId, tradeId, resolution, reason);
+            res.json({
+                success: true,
+                message: `OTC Trade ${trade.tradeCode} resolved (${resolution} -> ${trade.status}).`,
+                data: trade,
+            });
+        }
+        catch (err) {
+            res.status(400).json({ success: false, message: err.message || 'Failed to resolve OTC trade' });
         }
     }
 }

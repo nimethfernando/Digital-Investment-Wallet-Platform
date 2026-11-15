@@ -108,6 +108,12 @@ router.delete('/investments/listings/:id', requireRole([Role.ADMIN]), requireAdm
 router.get('/p2p/orders', (req, res, next) => adminController.getP2POrders(req, res, next));
 router.post('/p2p/orders/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resolveP2PDispute(req, res, next));
 
+// OTC Desks & Escrow Trade Management
+router.get('/otc/desks', (req, res, next) => adminController.getOtcDesks(req, res, next));
+router.patch('/otc/desks/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateOtcDesk(req, res, next));
+router.get('/otc/trades', (req, res, next) => adminController.getOtcTrades(req, res, next));
+router.post('/otc/trades/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resolveOtcTrade(req, res, next));
+
 // Institutional Audit Logs
 router.get('/audit-logs', requireRole([Role.ADMIN]), (req, res, next) => adminController.getAdminAuditLogs(req, res, next));
 
