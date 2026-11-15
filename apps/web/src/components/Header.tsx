@@ -7,6 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useLanguage, languageNames, Language } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { AvoraBankLogo } from './AvoraBankLogo';
+import { CustomerNotificationBell } from './CustomerNotificationBell';
 import {
   Sun,
   Moon,
@@ -426,6 +427,9 @@ export const Header: React.FC = () => {
               <Moon className="w-4 h-4 text-slate-700" />
             )}
           </button>
+
+          {/* Customer Real-Time Notification Bell */}
+          {user && <CustomerNotificationBell />}
 
           {/* User Auth or Menu */}
           {user ? (

@@ -5,8 +5,35 @@ import { prisma } from '../lib/prisma';
 import { ledgerService } from '../services/ledger.service';
 import { depositService } from '../services/deposit.service';
 import { cardService } from '../services/card.service';
+import { computePackageYieldSchedule } from '../services/package.service';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
+
+export interface CustomerNotificationItem {
+  id: string;
+  category: 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT';
+  type: string;
+  severity: 'SUCCESS' | 'INFO' | 'WARNING' | 'CRITICAL';
+  title: string;
+  message: string;
+  referenceCode?: string | null;
+  amount?: string | null;
+  currency?: string | null;
+  status?: string | null;
+  actionUrl: string;
+  actionLabel: string;
+  createdAt: string;
+  isRead: boolean;
+}
+
+function fmtAmountDisplay(value: any, currency = 'USD'): string {
+  const num = Number(value || 0);
+  const formatted = num.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return currency === 'USD' ? `$${formatted} USD` : `${formatted} ${currency}`;
+}
 
 export class WalletController {
   /**
@@ -446,6 +473,770 @@ export class WalletController {
         approved: false,
         reject_reason: 'CARD_FROZEN',
       });
+    }
+  }
+
+  /**
+   * Build real-time event-driven notifications for an authenticated customer
+   */
+  private async buildCustomerNotifications(userId: string) {
+    const now = new Date();
+    const settingKey = `notif_state_${userId}`;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        kycStatus: true,
+        twoFactorEnabled: true,
+        updatedAt: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      return {
+        summary: {
+          totalCount: 0,
+          unreadCount: 0,
+          supportCount: 0,
+          fdCount: 0,
+          depositWithdrawalCount: 0,
+          transactionCount: 0,
+          accountCount: 0,
+        },
+        notifications: [] as CustomerNotificationItem[],
+      };
+    }
+
+    const [
+      kycDocuments,
+      supportTickets,
+      inquiries,
+      investmentInquiries,
+      packages,
+      deposits,
+      withdrawals,
+      transactions,
+      globalTransfers,
+      p2pOrders,
+      notifSetting,
+    ] = await Promise.all([
+      prisma.kycDocument.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      prisma.supportTicket.findMany({
+        where: { userId },
+        include: {
+          replies: {
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 25,
+      }),
+      prisma.inquiry.findMany({
+        where: user.email
+          ? { OR: [{ userId }, { email: user.email }] }
+          : { userId },
+        orderBy: { updatedAt: 'desc' },
+        take: 15,
+      }),
+      prisma.investmentInquiry.findMany({
+        where: { investorUserId: userId },
+        include: {
+          listing: { select: { companyName: true, slug: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 15,
+      }),
+      prisma.investmentPackage.findMany({
+        where: { userId },
+        include: {
+          returns: { orderBy: { payoutDate: 'desc' } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 30,
+      }),
+      prisma.depositRequest.findMany({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+        take: 30,
+      }),
+      prisma.withdrawalRequest.findMany({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+        take: 30,
+      }),
+      prisma.transaction.findMany({
+        where: { userId },
+        include: {
+          package: { select: { packageCode: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+      }),
+      prisma.globalTransfer.findMany({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+      }),
+      prisma.p2POrder.findMany({
+        where: { OR: [{ buyerId: userId }, { sellerId: userId }] },
+        include: {
+          offer: { select: { fiatCurrency: true, cryptoCurrency: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+      }),
+      prisma.cmsSetting.findUnique({
+        where: { key: settingKey },
+      }),
+    ]);
+
+    let lastReadAllAt: string | null = null;
+    let readIds: string[] = [];
+    if (notifSetting?.value) {
+      try {
+        const parsed = JSON.parse(notifSetting.value);
+        if (parsed?.lastReadAllAt) lastReadAllAt = String(parsed.lastReadAllAt);
+        if (Array.isArray(parsed?.readIds)) readIds = parsed.readIds.map(String);
+      } catch {
+        // Ignore malformed read state
+      }
+    }
+    const readIdsSet = new Set<string>(readIds);
+    const lastReadAllMs = lastReadAllAt ? new Date(lastReadAllAt).getTime() : 0;
+
+    const rawItems: Omit<CustomerNotificationItem, 'isRead'>[] = [];
+
+    // 1. SUPPORT TICKETS & INQUIRIES
+    for (const ticket of supportTickets) {
+      const adminReplies = (ticket.replies || []).filter(
+        (r) => r.senderRole === 'ADMIN' || r.senderRole === 'STAFF'
+      );
+
+      for (const reply of adminReplies) {
+        const snippet =
+          reply.message.length > 140 ? `${reply.message.slice(0, 140)}...` : reply.message;
+        rawItems.push({
+          id: `tkt-reply-${reply.id}`,
+          category: 'SUPPORT',
+          type: 'TICKET_REPLY',
+          severity: 'INFO',
+          title: `Support Desk Replied: [${ticket.ticketNumber}]`,
+          message: `${reply.senderName}: "${snippet}" — ${ticket.subject}`,
+          referenceCode: ticket.ticketNumber,
+          status: ticket.status,
+          actionUrl: '/dashboard?tab=support',
+          actionLabel: 'View Reply',
+          createdAt: reply.createdAt.toISOString(),
+        });
+      }
+
+      if (
+        ticket.status === 'RESOLVED' ||
+        ticket.status === 'CLOSED' ||
+        ticket.status === 'IN_REVIEW' ||
+        ticket.status === 'WAITING_USER' ||
+        ticket.adminNotes
+      ) {
+        rawItems.push({
+          id: `tkt-status-${ticket.id}-${ticket.status}`,
+          category: 'SUPPORT',
+          type: 'TICKET_STATUS',
+          severity:
+            ticket.status === 'RESOLVED' || ticket.status === 'CLOSED'
+              ? 'SUCCESS'
+              : 'INFO',
+          title: `Ticket [${ticket.ticketNumber}] — ${ticket.status.replace(/_/g, ' ')}`,
+          message: ticket.adminNotes
+            ? `Desk Note: ${ticket.adminNotes}`
+            : `Subject: ${ticket.subject}`,
+          referenceCode: ticket.ticketNumber,
+          status: ticket.status,
+          actionUrl: '/dashboard?tab=support',
+          actionLabel: 'Open Ticket',
+          createdAt: ticket.updatedAt.toISOString(),
+        });
+      } else {
+        rawItems.push({
+          id: `tkt-open-${ticket.id}`,
+          category: 'SUPPORT',
+          type: 'TICKET_CREATED',
+          severity: 'INFO',
+          title: `Support Ticket Logged: [${ticket.ticketNumber}]`,
+          message: `"${ticket.subject}" has been assigned to our support desk.`,
+          referenceCode: ticket.ticketNumber,
+          status: ticket.status,
+          actionUrl: '/dashboard?tab=support',
+          actionLabel: 'View Ticket',
+          createdAt: ticket.createdAt.toISOString(),
+        });
+      }
+    }
+
+    for (const inq of inquiries) {
+      if (inq.status !== 'NEW' || inq.adminNotes) {
+        rawItems.push({
+          id: `inq-${inq.id}-${inq.status}`,
+          category: 'SUPPORT',
+          type: 'INQUIRY_UPDATE',
+          severity: inq.status === 'RESOLVED' || inq.status === 'CLOSED' ? 'SUCCESS' : 'INFO',
+          title: `Inquiry Update: ${inq.subject}`,
+          message: inq.adminNotes || `Your inquiry status is now ${inq.status}.`,
+          status: inq.status,
+          actionUrl: '/dashboard?tab=support',
+          actionLabel: 'View Support',
+          createdAt: inq.updatedAt.toISOString(),
+        });
+      }
+    }
+
+    for (const invInq of investmentInquiries) {
+      if (invInq.response || invInq.status === 'RESPONDED' || invInq.status === 'CLOSED') {
+        rawItems.push({
+          id: `inv-inq-${invInq.id}-${invInq.status}`,
+          category: 'SUPPORT',
+          type: 'VENTURE_INQUIRY_REPLY',
+          severity: 'INFO',
+          title: `Venture Desk Response: ${invInq.listing.companyName}`,
+          message: invInq.response || `Your venture inquiry status updated to ${invInq.status}.`,
+          status: invInq.status,
+          actionUrl: '/dashboard?tab=packages',
+          actionLabel: 'View Portfolio',
+          createdAt: invInq.updatedAt.toISOString(),
+        });
+      }
+    }
+
+    // 2. FD PACKAGES & MONTHLY RETURNS
+    for (const pkg of packages) {
+      const amtNum = Number(pkg.amount || 0);
+      const amtStr = amtNum.toFixed(2);
+      const schedule = computePackageYieldSchedule(pkg, now);
+      const daysRemaining = pkg.lockInEnd
+        ? Math.ceil((new Date(pkg.lockInEnd).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+        : null;
+
+      if (pkg.status === 'PENDING_PAYMENT') {
+        rawItems.push({
+          id: `pkg-pending-${pkg.id}`,
+          category: 'FD_PACKAGE',
+          type: 'FD_PENDING',
+          severity: 'WARNING',
+          title: `FD [${pkg.packageCode}] Awaiting Activation`,
+          message: `${fmtAmountDisplay(amtNum, pkg.currency)} (${schedule.lockMonths} Months FD) submitted and pending institutional verification.`,
+          referenceCode: pkg.packageCode,
+          amount: amtStr,
+          currency: pkg.currency,
+          status: pkg.status,
+          actionUrl: '/dashboard?tab=packages',
+          actionLabel: 'View FD',
+          createdAt: pkg.createdAt.toISOString(),
+        });
+      } else if (pkg.status === 'ACTIVE') {
+        const startTs = (pkg.lockInStart || pkg.purchaseDate || pkg.createdAt).toISOString();
+        rawItems.push({
+          id: `pkg-active-${pkg.id}`,
+          category: 'FD_PACKAGE',
+          type: 'FD_ACTIVATED',
+          severity: 'SUCCESS',
+          title: `FD Package [${pkg.packageCode}] Active (${fmtAmountDisplay(amtNum, pkg.currency)})`,
+          message: `Earning 1.0% monthly yield (+$${schedule.monthlyYield}/mo) over ${schedule.lockMonths} months.${
+            schedule.nextYieldDueDate
+              ? ` Next payout cycle: ${new Date(schedule.nextYieldDueDate).toLocaleDateString()}.`
+              : ''
+          }`,
+          referenceCode: pkg.packageCode,
+          amount: amtStr,
+          currency: pkg.currency,
+          status: pkg.status,
+          actionUrl: '/dashboard?tab=packages',
+          actionLabel: 'View FD',
+          createdAt: startTs,
+        });
+
+        if (daysRemaining !== null && daysRemaining <= 0) {
+          rawItems.push({
+            id: `pkg-matured-${pkg.id}`,
+            category: 'FD_PACKAGE',
+            type: 'FD_MATURED',
+            severity: 'SUCCESS',
+            title: `FD Package [${pkg.packageCode}] Has Matured!`,
+            message: `Your ${schedule.lockMonths}-month lock-in term is complete (${fmtAmountDisplay(amtNum, pkg.currency)}). Principal is ready for release or withdrawal.`,
+            referenceCode: pkg.packageCode,
+            amount: amtStr,
+            currency: pkg.currency,
+            status: 'MATURED',
+            actionUrl: '/dashboard?tab=withdraw',
+            actionLabel: 'Withdraw Principal',
+            createdAt: (pkg.lockInEnd || pkg.updatedAt).toISOString(),
+          });
+        } else if (daysRemaining !== null && daysRemaining > 0 && daysRemaining <= 15) {
+          const maturingAt = new Date(now.getTime() - 1000).toISOString();
+          rawItems.push({
+            id: `pkg-maturing-${pkg.id}`,
+            category: 'FD_PACKAGE',
+            type: 'FD_MATURING_SOON',
+            severity: 'WARNING',
+            title: `FD [${pkg.packageCode}] Matures in ${daysRemaining} Day(s)`,
+            message: `${fmtAmountDisplay(amtNum, pkg.currency)} FD reaches full maturity on ${new Date(pkg.lockInEnd!).toLocaleDateString()}.`,
+            referenceCode: pkg.packageCode,
+            amount: amtStr,
+            currency: pkg.currency,
+            status: pkg.status,
+            actionUrl: '/dashboard?tab=packages',
+            actionLabel: 'View FD',
+            createdAt: maturingAt,
+          });
+        }
+      } else if (pkg.status === 'MATURED') {
+        rawItems.push({
+          id: `pkg-matured-${pkg.id}`,
+          category: 'FD_PACKAGE',
+          type: 'FD_MATURED',
+          severity: 'SUCCESS',
+          title: `FD Package [${pkg.packageCode}] Has Matured!`,
+          message: `Your ${schedule.lockMonths}-month term for ${fmtAmountDisplay(amtNum, pkg.currency)} is complete and ready for settlement or withdrawal.`,
+          referenceCode: pkg.packageCode,
+          amount: amtStr,
+          currency: pkg.currency,
+          status: pkg.status,
+          actionUrl: '/dashboard?tab=withdraw',
+          actionLabel: 'Withdraw Principal',
+          createdAt: (pkg.lockInEnd || pkg.updatedAt).toISOString(),
+        });
+      } else if (pkg.status === 'SETTLED') {
+        rawItems.push({
+          id: `pkg-settled-${pkg.id}`,
+          category: 'FD_PACKAGE',
+          type: 'FD_SETTLED',
+          severity: 'SUCCESS',
+          title: `FD [${pkg.packageCode}] Settled & Principal Released`,
+          message: `Principal and accumulated returns for ${fmtAmountDisplay(amtNum, pkg.currency)} have been settled to your wallet.`,
+          referenceCode: pkg.packageCode,
+          amount: amtStr,
+          currency: pkg.currency,
+          status: pkg.status,
+          actionUrl: '/dashboard?tab=transactions',
+          actionLabel: 'View Ledger',
+          createdAt: pkg.updatedAt.toISOString(),
+        });
+      }
+
+      for (const ret of pkg.returns || []) {
+        const retAmt = Number(ret.returnAmount || 0);
+        rawItems.push({
+          id: `pkg-return-${ret.id}`,
+          category: 'FD_PACKAGE',
+          type: 'FD_YIELD_CREDITED',
+          severity: 'SUCCESS',
+          title: `Monthly FD Yield Credited: +${fmtAmountDisplay(retAmt, ret.currency)}`,
+          message: `Cycle #${ret.periodIndex} monthly return from FD [${pkg.packageCode}] has been credited to your Available Wallet.`,
+          referenceCode: pkg.packageCode,
+          amount: retAmt.toFixed(2),
+          currency: ret.currency,
+          status: ret.status,
+          actionUrl: '/dashboard?tab=packages',
+          actionLabel: 'View Yield',
+          createdAt: (ret.payoutDate || ret.createdAt).toISOString(),
+        });
+      }
+    }
+
+    // 3. DEPOSIT REQUESTS
+    for (const dep of deposits) {
+      const amtNum = Number(dep.amount || 0);
+      const amtStr = amtNum.toFixed(2);
+      if (dep.status === 'APPROVED') {
+        rawItems.push({
+          id: `dep-approved-${dep.id}`,
+          category: 'DEPOSIT',
+          type: 'DEPOSIT_APPROVED',
+          severity: 'SUCCESS',
+          title: `Deposit Credited: +${fmtAmountDisplay(amtNum, dep.currency)}`,
+          message: `Deposit [${dep.depositCode}] via ${dep.depositMethod.replace(/_/g, ' ')} was approved and added to your available balance.${
+            dep.adminNotes ? ` Note: ${dep.adminNotes}` : ''
+          }`,
+          referenceCode: dep.depositCode,
+          amount: amtStr,
+          currency: dep.currency,
+          status: dep.status,
+          actionUrl: '/dashboard?tab=transactions',
+          actionLabel: 'View Balance',
+          createdAt: (dep.reviewedAt || dep.updatedAt || dep.createdAt).toISOString(),
+        });
+      } else if (dep.status === 'PENDING') {
+        rawItems.push({
+          id: `dep-pending-${dep.id}`,
+          category: 'DEPOSIT',
+          type: 'DEPOSIT_PENDING',
+          severity: 'INFO',
+          title: `Deposit Submitted: ${fmtAmountDisplay(amtNum, dep.currency)} (In Review)`,
+          message: `Deposit [${dep.depositCode}] via ${dep.depositMethod.replace(/_/g, ' ')} is awaiting treasury verification.`,
+          referenceCode: dep.depositCode,
+          amount: amtStr,
+          currency: dep.currency,
+          status: dep.status,
+          actionUrl: '/dashboard?tab=overview',
+          actionLabel: 'Track Status',
+          createdAt: dep.createdAt.toISOString(),
+        });
+      } else if (dep.status === 'REJECTED') {
+        rawItems.push({
+          id: `dep-rejected-${dep.id}`,
+          category: 'DEPOSIT',
+          type: 'DEPOSIT_REJECTED',
+          severity: 'CRITICAL',
+          title: `Deposit Declined: [${dep.depositCode}]`,
+          message: `Your ${fmtAmountDisplay(amtNum, dep.currency)} deposit request was declined.${
+            dep.adminNotes ? ` Reason: ${dep.adminNotes}` : ''
+          }`,
+          referenceCode: dep.depositCode,
+          amount: amtStr,
+          currency: dep.currency,
+          status: dep.status,
+          actionUrl: '/dashboard?tab=support',
+          actionLabel: 'Contact Support',
+          createdAt: (dep.reviewedAt || dep.updatedAt || dep.createdAt).toISOString(),
+        });
+      }
+    }
+
+    // 4. WITHDRAWAL REQUESTS
+    for (const wth of withdrawals) {
+      const amtNum = Number(wth.amount || 0);
+      const amtStr = amtNum.toFixed(2);
+      const railLabel = wth.payoutMethod.replace(/_/g, ' ');
+      if (wth.status === 'SETTLED') {
+        rawItems.push({
+          id: `wth-settled-${wth.id}`,
+          category: 'WITHDRAWAL',
+          type: 'WITHDRAWAL_SETTLED',
+          severity: 'SUCCESS',
+          title: `Withdrawal Settled: ${fmtAmountDisplay(amtNum, wth.currency)}`,
+          message: `Request [${wth.requestCode}] via ${railLabel} has been settled.${
+            wth.settlementReference ? ` Ref: ${wth.settlementReference}` : ''
+          }`,
+          referenceCode: wth.requestCode,
+          amount: amtStr,
+          currency: wth.currency,
+          status: wth.status,
+          actionUrl: '/dashboard?tab=withdrawals',
+          actionLabel: 'View Receipt',
+          createdAt: (wth.settledAt || wth.updatedAt).toISOString(),
+        });
+      } else if (wth.status === 'REJECTED') {
+        rawItems.push({
+          id: `wth-rejected-${wth.id}`,
+          category: 'WITHDRAWAL',
+          type: 'WITHDRAWAL_REJECTED',
+          severity: 'CRITICAL',
+          title: `Withdrawal Declined & Refunded: [${wth.requestCode}]`,
+          message: `Your ${fmtAmountDisplay(amtNum, wth.currency)} withdrawal was declined and funds were restored to your wallet.${
+            wth.adminNotes ? ` Note: ${wth.adminNotes}` : ''
+          }`,
+          referenceCode: wth.requestCode,
+          amount: amtStr,
+          currency: wth.currency,
+          status: wth.status,
+          actionUrl: '/dashboard?tab=withdrawals',
+          actionLabel: 'View Details',
+          createdAt: wth.updatedAt.toISOString(),
+        });
+      } else {
+        rawItems.push({
+          id: `wth-${wth.id}-${wth.status}`,
+          category: 'WITHDRAWAL',
+          type: 'WITHDRAWAL_STATUS',
+          severity: wth.status === 'APPROVED' ? 'SUCCESS' : 'INFO',
+          title: `Withdrawal [${wth.requestCode}] — ${wth.status.replace(/_/g, ' ')}`,
+          message: `Your ${fmtAmountDisplay(amtNum, wth.currency)} payout via ${railLabel} is ${wth.status.replace(/_/g, ' ').toLowerCase()}.`,
+          referenceCode: wth.requestCode,
+          amount: amtStr,
+          currency: wth.currency,
+          status: wth.status,
+          actionUrl: '/dashboard?tab=withdrawals',
+          actionLabel: 'Track Withdrawal',
+          createdAt: wth.updatedAt.toISOString(),
+        });
+      }
+    }
+
+    // 5. LEDGER TRANSACTIONS, GLOBAL TRANSFERS & P2P ORDERS
+    const depositRefSet = new Set(
+      deposits.flatMap((d) => [d.depositCode, d.txHashOrRef].filter(Boolean) as string[])
+    );
+
+    const standaloneTxTypes = new Set<TransactionType>([
+      TransactionType.P2P_TRANSFER_IN,
+      TransactionType.P2P_TRANSFER_OUT,
+      TransactionType.EXCHANGE_BUY,
+      TransactionType.EXCHANGE_SELL,
+      TransactionType.CARD_PAYMENT,
+      TransactionType.ADJUSTMENT,
+      TransactionType.REVERSAL,
+      TransactionType.PRINCIPAL_RELEASE,
+      TransactionType.INVESTMENT_ALLOCATION,
+      TransactionType.INVESTMENT_DISTRIBUTION,
+    ]);
+
+    for (const tx of transactions) {
+      const isDirectAdminDeposit =
+        tx.type === TransactionType.DEPOSIT &&
+        (!tx.settlementReference || !depositRefSet.has(tx.settlementReference)) &&
+        !deposits.some(
+          (d) =>
+            d.status === 'APPROVED' &&
+            Math.abs(Number(d.amount) - Number(tx.amount)) < 0.01 &&
+            Math.abs(
+              new Date(d.reviewedAt || d.updatedAt).getTime() - new Date(tx.createdAt).getTime()
+            ) < 120000
+        );
+
+      if (!standaloneTxTypes.has(tx.type) && !isDirectAdminDeposit) {
+        continue;
+      }
+
+      const amtNum = Number(tx.amount || 0);
+      const amtStr = amtNum.toFixed(2);
+      const isCredit =
+        tx.type === TransactionType.P2P_TRANSFER_IN ||
+        tx.type === TransactionType.DEPOSIT ||
+        tx.type === TransactionType.PRINCIPAL_RELEASE ||
+        tx.type === TransactionType.INVESTMENT_DISTRIBUTION ||
+        tx.type === TransactionType.EXCHANGE_BUY;
+
+      const labelMap: Record<string, string> = {
+        P2P_TRANSFER_IN: 'Incoming Account Transfer Received',
+        P2P_TRANSFER_OUT: 'Account Transfer Sent',
+        EXCHANGE_BUY: 'Instant Swap Credit',
+        EXCHANGE_SELL: 'Instant Swap Conversion',
+        CARD_PAYMENT: 'Virtual Card Charge',
+        ADJUSTMENT: 'Treasury Balance Adjustment',
+        REVERSAL: 'Ledger Reversal Processed',
+        PRINCIPAL_RELEASE: 'FD Principal Released to Wallet',
+        INVESTMENT_ALLOCATION: 'Venture Allocation Executed',
+        INVESTMENT_DISTRIBUTION: 'Venture Distribution Credited',
+        DEPOSIT: 'Institutional Wallet Credit',
+      };
+
+      rawItems.push({
+        id: `tx-${tx.id}`,
+        category: 'TRANSACTION',
+        type: tx.type,
+        severity: tx.status === 'FAILED' || tx.status === 'DECLINED' ? 'CRITICAL' : 'SUCCESS',
+        title: `${labelMap[tx.type] || tx.type.replace(/_/g, ' ')}: ${isCredit ? '+' : ''}${fmtAmountDisplay(amtNum, tx.currency)}`,
+        message: tx.notes || `Transaction [${tx.transactionCode}] completed (${tx.status}).`,
+        referenceCode: tx.transactionCode,
+        amount: amtStr,
+        currency: tx.currency,
+        status: tx.status,
+        actionUrl: '/dashboard?tab=transactions',
+        actionLabel: 'View Ledger',
+        createdAt: tx.createdAt.toISOString(),
+      });
+    }
+
+    for (const gmt of globalTransfers) {
+      const sendAmt = Number(gmt.sendingAmount || 0);
+      const recAmt = Number(gmt.recipientAmount || 0);
+      rawItems.push({
+        id: `gmt-${gmt.id}-${gmt.status}`,
+        category: 'TRANSACTION',
+        type: 'GLOBAL_REMITTANCE',
+        severity:
+          gmt.status === 'COMPLETED'
+            ? 'SUCCESS'
+            : gmt.status === 'REJECTED'
+            ? 'CRITICAL'
+            : 'INFO',
+        title: `Global Remittance [${gmt.transferCode}] — ${gmt.status.replace(/_/g, ' ')}`,
+        message: `${fmtAmountDisplay(sendAmt, gmt.sendingCurrency)} to ${gmt.recipientName} (${fmtAmountDisplay(recAmt, gmt.recipientCurrency)}) is ${gmt.status.replace(/_/g, ' ').toLowerCase()}.${
+          gmt.rejectionReason ? ` Reason: ${gmt.rejectionReason}` : ''
+        }`,
+        referenceCode: gmt.transferCode,
+        amount: sendAmt.toFixed(2),
+        currency: gmt.sendingCurrency,
+        status: gmt.status,
+        actionUrl: `/transfer/track?code=${encodeURIComponent(gmt.transferCode)}`,
+        actionLabel: 'Track Transfer',
+        createdAt: (gmt.completedAt || gmt.updatedAt || gmt.createdAt).toISOString(),
+      });
+    }
+
+    for (const ord of p2pOrders) {
+      const sideLabel = ord.buyerId === userId ? 'Buy' : 'Sell';
+      const fiatCur = ord.offer?.fiatCurrency || 'USD';
+      const cryptoCur = ord.offer?.cryptoCurrency || 'USDT';
+      rawItems.push({
+        id: `p2p-${ord.id}-${ord.status}`,
+        category: 'TRANSACTION',
+        type: 'P2P_ORDER',
+        severity:
+          ord.status === 'COMPLETED'
+            ? 'SUCCESS'
+            : ord.status === 'DISPUTED' || ord.status === 'CANCELLED'
+            ? 'CRITICAL'
+            : 'INFO',
+        title: `P2P Escrow [${ord.orderCode}] — ${ord.status.replace(/_/g, ' ')}`,
+        message: `${sideLabel} ${Number(ord.cryptoAmount).toFixed(2)} ${cryptoCur} (${fmtAmountDisplay(ord.fiatAmount, fiatCur)}) is ${ord.status.replace(/_/g, ' ').toLowerCase()}.`,
+        referenceCode: ord.orderCode,
+        amount: Number(ord.cryptoAmount).toFixed(2),
+        currency: cryptoCur,
+        status: ord.status,
+        actionUrl: '/p2p',
+        actionLabel: 'Open P2P Desk',
+        createdAt: ord.updatedAt.toISOString(),
+      });
+    }
+
+    // 6. ACCOUNT & KYC UPDATES
+    const latestKyc = kycDocuments[0] || null;
+    if (user.kycStatus !== 'NOT_STARTED') {
+      rawItems.push({
+        id: `kyc-${user.kycStatus}-${latestKyc?.id || 'profile'}`,
+        category: 'ACCOUNT',
+        type: 'KYC_STATUS',
+        severity:
+          user.kycStatus === 'APPROVED'
+            ? 'SUCCESS'
+            : user.kycStatus === 'REJECTED'
+            ? 'CRITICAL'
+            : 'WARNING',
+        title:
+          user.kycStatus === 'APPROVED'
+            ? 'KYC Identity Verification Approved'
+            : user.kycStatus === 'REJECTED'
+            ? 'KYC Verification Action Required'
+            : 'KYC Documents Under Compliance Review',
+        message:
+          user.kycStatus === 'APPROVED'
+            ? 'Your account identity is fully verified. Higher settlement and institutional transfer limits are unlocked.'
+            : user.kycStatus === 'REJECTED'
+            ? `Your verification document was declined.${latestKyc?.rejectionReason ? ` Reason: ${latestKyc.rejectionReason}` : ''}`
+            : 'Your submitted verification document is currently queued for compliance review.',
+        status: user.kycStatus,
+        actionUrl: '/dashboard?tab=security',
+        actionLabel: 'View Security',
+        createdAt: (latestKyc?.verifiedAt || latestKyc?.createdAt || user.updatedAt).toISOString(),
+      });
+    }
+
+    // Deduplicate, apply read status, sort newest first, cap at 80
+    const seen = new Set<string>();
+    const notifications: CustomerNotificationItem[] = rawItems
+      .filter((item) => {
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 80)
+      .map((item) => {
+        const itemMs = new Date(item.createdAt).getTime();
+        const isRead =
+          readIdsSet.has(item.id) || (lastReadAllMs > 0 && itemMs <= lastReadAllMs);
+        return {
+          ...item,
+          isRead,
+        };
+      });
+
+    const summary = {
+      totalCount: notifications.length,
+      unreadCount: notifications.filter((n) => !n.isRead).length,
+      supportCount: notifications.filter((n) => n.category === 'SUPPORT').length,
+      fdCount: notifications.filter((n) => n.category === 'FD_PACKAGE').length,
+      depositWithdrawalCount: notifications.filter(
+        (n) => n.category === 'DEPOSIT' || n.category === 'WITHDRAWAL'
+      ).length,
+      transactionCount: notifications.filter((n) => n.category === 'TRANSACTION').length,
+      accountCount: notifications.filter((n) => n.category === 'ACCOUNT').length,
+    };
+
+    return { summary, notifications };
+  }
+
+  /**
+   * GET /api/v1/wallet/notifications
+   */
+  async getNotifications(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const payload = await this.buildCustomerNotifications(userId);
+      res.json({
+        success: true,
+        data: payload,
+        summary: payload.summary,
+        notifications: payload.notifications,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/wallet/notifications/read
+   */
+  async markNotificationsRead(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const { notificationIds, markAll } = req.body || {};
+      const settingKey = `notif_state_${userId}`;
+
+      const existing = await prisma.cmsSetting.findUnique({
+        where: { key: settingKey },
+      });
+
+      let state: { lastReadAllAt?: string; readIds?: string[] } = { readIds: [] };
+      if (existing?.value) {
+        try {
+          const parsed = JSON.parse(existing.value);
+          state = {
+            lastReadAllAt: parsed?.lastReadAllAt,
+            readIds: Array.isArray(parsed?.readIds) ? parsed.readIds.map(String) : [],
+          };
+        } catch {
+          state = { readIds: [] };
+        }
+      }
+
+      if (markAll) {
+        state.lastReadAllAt = new Date().toISOString();
+        state.readIds = [];
+      } else if (Array.isArray(notificationIds) && notificationIds.length > 0) {
+        const merged = Array.from(
+          new Set([...(state.readIds || []), ...notificationIds.map(String)])
+        );
+        state.readIds = merged.slice(-250);
+      }
+
+      await prisma.cmsSetting.upsert({
+        where: { key: settingKey },
+        update: {
+          value: JSON.stringify(state),
+        },
+        create: {
+          group: 'USER_NOTIFICATIONS',
+          key: settingKey,
+          value: JSON.stringify(state),
+          description: `Notification read state for customer ${userId}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        data: state,
+        lastReadAllAt: state.lastReadAllAt || null,
+        readIds: state.readIds || [],
+      });
+    } catch (err) {
+      next(err);
     }
   }
 }

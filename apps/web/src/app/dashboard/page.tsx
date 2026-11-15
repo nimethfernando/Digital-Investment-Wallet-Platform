@@ -13,8 +13,15 @@ import { QrTransferModal } from '../../components/QrTransferModal';
 import { DepositModal } from '../../components/DepositModal';
 import { ChooseSendMethodModal } from '../../components/ChooseSendMethodModal';
 import { BankAccountsModule, UserBankAccount } from '../../components/BankAccountsModule';
+import {
+  CustomerNotificationItem,
+  CustomerNotificationSummary,
+  getNotificationVisuals,
+} from '../../components/CustomerNotificationBell';
 import { getExplorerInfo } from '../../lib/blockchain';
 import {
+  Bell,
+  CheckCheck,
   Wallet,
   Users,
   TrendingUp,
@@ -217,7 +224,19 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const { user, token, isLoading: authLoading, refreshUser } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'redotpay' | 'bank_details'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'notifications' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'redotpay' | 'bank_details'>('overview');
+  const [customerNotifications, setCustomerNotifications] = useState<CustomerNotificationItem[]>([]);
+  const [notifSummary, setNotifSummary] = useState<CustomerNotificationSummary>({
+    totalCount: 0,
+    unreadCount: 0,
+    supportCount: 0,
+    fdCount: 0,
+    depositWithdrawalCount: 0,
+    transactionCount: 0,
+    accountCount: 0,
+  });
+  const [notifCategoryFilter, setNotifCategoryFilter] = useState<'ALL' | 'UNREAD' | 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT'>('ALL');
+  const [notifSearch, setNotifSearch] = useState('');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [startupInvestments, setStartupInvestments] = useState<StartupInvestmentItem[]>([]);
@@ -382,6 +401,10 @@ function DashboardContent() {
       setQrInitialAmount(payAmount);
       setQrModalTab('SEND');
       setQrModalOpen(true);
+    } else if (tab === 'notifications' || tab === 'alerts') {
+      setActiveTab('notifications');
+    } else if (tab === 'overview') {
+      setActiveTab('overview');
     } else if (tab === 'transfers' || tab === 'transfer' || tab === 'qr' || tab === 'p2p') {
       setActiveTab('transfers');
       setQrModalTab('RECEIVE');
@@ -390,10 +413,16 @@ function DashboardContent() {
       setActiveTab('packages');
     } else if (tab === 'withdraw') {
       setWithdrawModalOpen(true);
+    } else if (tab === 'withdrawals') {
+      setActiveTab('withdrawals');
+    } else if (tab === 'transactions' || tab === 'ledger') {
+      setActiveTab('transactions');
     } else if (tab === 'card') {
       setActiveTab('card');
     } else if (tab === 'support' || tab === 'inquiry' || tab === 'inquiries' || tab === 'chat') {
       setActiveTab('support');
+    } else if (tab === 'security') {
+      setActiveTab('security');
     } else if (tab === 'redotpay' || tab === 'swap' || tab === 'fx') {
       setActiveTab('redotpay');
     } else if (tab === 'bank' || tab === 'bank_details' || tab === 'bank-details' || tab === 'accounts' || tab === 'bankdetails' || tab === 'linked-accounts') {
@@ -523,12 +552,28 @@ function DashboardContent() {
     }
   }, [withdrawModalOpen]);
 
+  const syncCustomerNotifications = async () => {
+    if (!token) return;
+    try {
+      const notifRes = await api.get('/wallet/notifications');
+      const payload = notifRes.data?.data || notifRes.data;
+      if (Array.isArray(payload?.notifications)) {
+        setCustomerNotifications(payload.notifications);
+      }
+      if (payload?.summary) {
+        setNotifSummary(payload.summary);
+      }
+    } catch {
+      // non-blocking
+    }
+  };
+
   // Fetch Dashboard Data
   const fetchDashboardData = async () => {
     if (!token) return;
     setLoadingData(true);
     try {
-      const [walletRes, pkgRes, txRes, wthRes, ticketRes, depRes, investRes, tokenRes] = await Promise.all([
+      const [walletRes, pkgRes, txRes, wthRes, ticketRes, depRes, investRes, tokenRes, notifRes] = await Promise.all([
         api.get('/wallet').catch(() => ({ data: { wallet: null } })),
         api.get('/packages').catch(() => ({ data: { packages: [] } })),
         api.get('/wallet/transactions').catch(() => ({ data: { transactions: [] } })),
@@ -537,6 +582,7 @@ function DashboardContent() {
         api.get('/wallet/deposits').catch(() => ({ data: { data: [] } })),
         api.get('/investments/dashboard').catch(() => ({ data: { commitments: [], summary: null } })),
         api.get('/token/my-status').catch(() => ({ data: { earlyAccess: null, testnetBalance: 0 } })),
+        api.get('/wallet/notifications').catch(() => ({ data: { notifications: [], summary: null } })),
       ]);
 
       const resolvedWallet = walletRes.data?.wallet || walletRes.data?.data;
@@ -574,6 +620,17 @@ function DashboardContent() {
         setTokenStatus(resolvedToken);
       }
 
+      const notifPayload = notifRes.data?.data || notifRes.data;
+      if (Array.isArray(notifPayload?.notifications)) {
+        setCustomerNotifications(notifPayload.notifications);
+      }
+      if (notifPayload?.summary) {
+        setNotifSummary(notifPayload.summary);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('avora-notifications-refresh'));
+      }
+
       // Synchronize latest user state (KYC approval, roles)
       refreshUser().catch(() => {});
     } catch (err) {
@@ -586,8 +643,92 @@ function DashboardContent() {
   useEffect(() => {
     if (token) {
       fetchDashboardData();
+      const poll = setInterval(syncCustomerNotifications, 25000);
+      const onBellSync = () => syncCustomerNotifications();
+      window.addEventListener('avora-bell-read-sync', onBellSync);
+      return () => {
+        clearInterval(poll);
+        window.removeEventListener('avora-bell-read-sync', onBellSync);
+      };
     }
   }, [token]);
+
+  const navigateFromNotification = (actionUrl?: string) => {
+    if (!actionUrl) {
+      setActiveTab('notifications');
+      return;
+    }
+    if (!actionUrl.startsWith('/dashboard')) {
+      router.push(actionUrl);
+      return;
+    }
+    const queryIdx = actionUrl.indexOf('?');
+    if (queryIdx !== -1) {
+      const qs = new URLSearchParams(actionUrl.slice(queryIdx + 1));
+      const tab = qs.get('tab');
+      if (tab === 'withdraw') {
+        setWithdrawModalOpen(true);
+        return;
+      }
+      if (
+        tab === 'overview' ||
+        tab === 'notifications' ||
+        tab === 'packages' ||
+        tab === 'card' ||
+        tab === 'transactions' ||
+        tab === 'withdrawals' ||
+        tab === 'transfers' ||
+        tab === 'support' ||
+        tab === 'security' ||
+        tab === 'redotpay' ||
+        tab === 'bank_details'
+      ) {
+        setActiveTab(tab);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+    }
+    setActiveTab('overview');
+  };
+
+  const handleMarkNotificationRead = async (
+    item: CustomerNotificationItem,
+    navigate = true
+  ) => {
+    if (!item.isRead) {
+      setCustomerNotifications((prev) =>
+        prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
+      );
+      setNotifSummary((prev) => ({
+        ...prev,
+        unreadCount: Math.max(0, prev.unreadCount - 1),
+      }));
+      api
+        .post('/wallet/notifications/read', { notificationIds: [item.id] })
+        .then(() => {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('avora-notifications-refresh'));
+          }
+        })
+        .catch(() => {});
+    }
+    if (navigate) {
+      navigateFromNotification(item.actionUrl);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    setCustomerNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setNotifSummary((prev) => ({ ...prev, unreadCount: 0 }));
+    try {
+      await api.post('/wallet/notifications/read', { markAll: true });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('avora-notifications-refresh'));
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const handleCopyAccount = () => {
     navigator.clipboard.writeText(userAccountNumber);
@@ -1206,6 +1347,7 @@ function DashboardContent() {
             >
               {[
                 { key: 'overview', label: 'Overview', icon: Wallet },
+                { key: 'notifications', label: 'Notifications', icon: Bell, badgeCount: notifSummary.unreadCount },
                 { key: 'redotpay', label: 'Instant Swap & FX', icon: ArrowLeftRight },
                 { key: 'transfers', label: 'Account & QR Transfers', icon: QrCode },
                 { key: 'bank_details', label: 'Bank Details', icon: Landmark },
@@ -1215,14 +1357,14 @@ function DashboardContent() {
                 { key: 'transactions', label: 'Ledger Audit', icon: Clock },
                 { key: 'security', label: 'Security', icon: ShieldCheck },
                 { key: 'support', label: `Inquiries & Chat (${tickets.length})`, icon: MessageSquare },
-              ].map((tab) => {
+              ].map((tab: any) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.key || (tab.key === 'transfers' && (activeTab as string) === 'p2p');
                 return (
                   <button
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key as any)}
-                    className={`flex items-center gap-2 px-3.5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap shrink-0 ${
+                    className={`flex items-center gap-2 px-3.5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                       active
                         ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400'
                         : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -1230,6 +1372,11 @@ function DashboardContent() {
                   >
                     <Icon className="w-4 h-4 shrink-0" />
                     <span>{tab.label}</span>
+                    {typeof tab.badgeCount === 'number' && tab.badgeCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black leading-none">
+                        {tab.badgeCount > 99 ? '99+' : tab.badgeCount}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -1276,6 +1423,115 @@ function DashboardContent() {
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div className="space-y-8">
+            {/* Real-Time Client Notifications & Updates Bar */}
+            {customerNotifications.length > 0 && (
+              <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                      <Bell className={`w-4 h-4 ${notifSummary.unreadCount > 0 ? 'animate-pulse' : ''}`} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                          Real-Time Account Notifications
+                        </h3>
+                        {notifSummary.unreadCount > 0 ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-600 text-white">
+                            {notifSummary.unreadCount} Unread
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                            All Caught Up
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Instant updates on ticket replies, FD activations &amp; yields, deposits, withdrawals, and transfers.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {notifSummary.unreadCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleMarkAllNotificationsRead}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1 cursor-pointer"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Mark All Read</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('notifications')}
+                      className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>View All Notifications ({notifSummary.totalCount})</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {(customerNotifications.some((n) => !n.isRead)
+                    ? customerNotifications.filter((n) => !n.isRead).slice(0, 3)
+                    : customerNotifications.slice(0, 3)
+                  ).map((item) => {
+                    const visual = getNotificationVisuals(item);
+                    const Icon = visual.Icon;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between gap-2.5 ${
+                          !item.isRead
+                            ? 'bg-emerald-500/[0.06] border-emerald-500/35'
+                            : 'bg-slate-50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800'
+                        }`}
+                      >
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold ${visual.badgeClass}`}
+                            >
+                              <Icon className="w-3 h-3" />
+                              {visual.label}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {!item.isRead && (
+                                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                              )}
+                              <span className="text-[10px] text-slate-400">
+                                {new Date(item.createdAt).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-xs font-bold text-slate-900 dark:text-white line-clamp-1">
+                            {item.title}
+                          </p>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2">
+                            {item.message}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/70 dark:border-slate-800/70">
+                          <span className="text-[10px] font-mono text-slate-500 truncate">
+                            {item.referenceCode || item.status || ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleMarkNotificationRead(item, true)}
+                            className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer shrink-0"
+                          >
+                            {item.actionLabel} →
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Approved Deposit Confirmation Banner */}
             {!dismissedDepositAlert && userDeposits.find((d) => d.status === 'APPROVED') && (
               (() => {
@@ -3000,6 +3256,259 @@ function DashboardContent() {
                 <span>Open P2P Market</span>
                 <ChevronRight className="w-4 h-4" />
               </Link>
+            </div>
+          </div>
+        )}
+
+        {/* NOTIFICATIONS CENTER TAB */}
+        {activeTab === 'notifications' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* KPI Summary Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Unread Updates</span>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {notifSummary.unreadCount}
+                  <span className="text-xs font-semibold text-slate-400 ml-1.5">
+                    / {notifSummary.totalCount} total
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                  Real-time ledger &amp; ticket sync active
+                </p>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Support &amp; Ticket Replies</span>
+                <div className="text-2xl font-black text-sky-600 dark:text-sky-400">
+                  {notifSummary.supportCount}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Desk replies, status notes &amp; venture responses
+                </p>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">FD Packages &amp; Monthly Yields</span>
+                <div className="text-2xl font-black text-amber-600 dark:text-amber-400">
+                  {notifSummary.fdCount}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Activations, 1% yield credits &amp; maturities
+                </p>
+              </div>
+
+              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Deposits, Withdrawals &amp; Transfers</span>
+                <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                  {notifSummary.depositWithdrawalCount + notifSummary.transactionCount}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Funding approvals, payouts, swaps &amp; wires
+                </p>
+              </div>
+            </div>
+
+            {/* Filter & Search Toolbar */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-emerald-500" />
+                    <span>Customer Notification Center</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Every ticket response, FD lifecycle event, deposit/withdrawal approval, and completed transfer in one timeline.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={syncCustomerNotifications}
+                    className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Refresh</span>
+                  </button>
+                  {notifSummary.unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleMarkAllNotificationsRead}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                    >
+                      <CheckCheck className="w-3.5 h-3.5" />
+                      <span>Mark All Read ({notifSummary.unreadCount})</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[
+                    { key: 'ALL', label: `All (${notifSummary.totalCount})` },
+                    { key: 'UNREAD', label: `Unread (${notifSummary.unreadCount})` },
+                    { key: 'SUPPORT', label: `Tickets (${notifSummary.supportCount})` },
+                    { key: 'FD_PACKAGE', label: `FD & Yields (${notifSummary.fdCount})` },
+                    { key: 'DEPOSIT', label: 'Deposits' },
+                    { key: 'WITHDRAWAL', label: 'Withdrawals' },
+                    { key: 'TRANSACTION', label: `Transfers & Tx (${notifSummary.transactionCount})` },
+                    { key: 'ACCOUNT', label: `Account & KYC (${notifSummary.accountCount})` },
+                  ].map((pill) => (
+                    <button
+                      key={pill.key}
+                      type="button"
+                      onClick={() => setNotifCategoryFilter(pill.key as any)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                        notifCategoryFilter === pill.key
+                          ? 'bg-slate-900 text-white dark:bg-emerald-600 dark:text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {pill.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="relative w-full lg:w-72">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={notifSearch}
+                    onChange={(e) => setNotifSearch(e.target.value)}
+                    placeholder="Search reference code, title, status..."
+                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Feed Cards */}
+              {(() => {
+                const filteredNotifs = customerNotifications.filter((item) => {
+                  if (notifCategoryFilter === 'UNREAD' && item.isRead) return false;
+                  if (
+                    notifCategoryFilter !== 'ALL' &&
+                    notifCategoryFilter !== 'UNREAD' &&
+                    item.category !== notifCategoryFilter
+                  ) {
+                    return false;
+                  }
+                  if (notifSearch.trim()) {
+                    const q = notifSearch.trim().toLowerCase();
+                    const hay = `${item.title} ${item.message} ${item.referenceCode || ''} ${item.status || ''} ${item.amount || ''}`.toLowerCase();
+                    if (!hay.includes(q)) return false;
+                  }
+                  return true;
+                });
+
+                if (filteredNotifs.length === 0) {
+                  return (
+                    <div className="py-12 text-center space-y-2 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+                      <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto opacity-80" />
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                        No notifications match the current filter.
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        New ticket replies, FD payouts, deposits, withdrawals, and transfers will appear here automatically.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {filteredNotifs.map((item) => {
+                      const visual = getNotificationVisuals(item);
+                      const Icon = visual.Icon;
+                      const severityAccent =
+                        item.severity === 'CRITICAL'
+                          ? 'border-l-rose-500'
+                          : item.severity === 'WARNING'
+                          ? 'border-l-amber-500'
+                          : item.severity === 'SUCCESS'
+                          ? 'border-l-emerald-500'
+                          : 'border-l-sky-500';
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-4 rounded-2xl border border-l-4 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${severityAccent} ${
+                            !item.isRead
+                              ? 'bg-emerald-500/[0.05] border-emerald-500/30 dark:bg-emerald-500/[0.07]'
+                              : 'bg-slate-50/70 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3.5 min-w-0">
+                            <div
+                              className={`w-10 h-10 rounded-2xl border flex items-center justify-center shrink-0 ${visual.badgeClass}`}
+                            >
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div className="space-y-1.5 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold ${visual.badgeClass}`}
+                                >
+                                  {visual.label}
+                                </span>
+                                {!item.isRead && (
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-black uppercase">
+                                    New
+                                  </span>
+                                )}
+                                {item.referenceCode && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-slate-200/70 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">
+                                    {item.referenceCode}
+                                  </span>
+                                )}
+                                {item.amount && item.currency && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                                    {item.amount} {item.currency}
+                                  </span>
+                                )}
+                                {item.status && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                                    {item.status.replace(/_/g, ' ')}
+                                  </span>
+                                )}
+                                <span className="text-[11px] text-slate-400">
+                                  {new Date(item.createdAt).toLocaleString()}
+                                </span>
+                              </div>
+                              <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                {item.title}
+                              </h4>
+                              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                                {item.message}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0 sm:pl-2">
+                            {!item.isRead && (
+                              <button
+                                type="button"
+                                onClick={() => handleMarkNotificationRead(item, false)}
+                                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                              >
+                                Mark Read
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleMarkNotificationRead(item, true)}
+                              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                            >
+                              <span>{item.actionLabel}</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
