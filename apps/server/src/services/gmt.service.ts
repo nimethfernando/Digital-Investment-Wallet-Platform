@@ -131,6 +131,141 @@ export const DESTINATION_COUNTRIES = [
 ];
 
 export class GlobalMoneyTransferService {
+  private schemaEnsured = false;
+
+  /**
+   * Non-destructively ensures MySQL ENUM columns on diw_transactions and diw_ledger_journals
+   * stay in sync with schema.prisma (adds GLOBAL_TRANSFER_OUT, GLOBAL_TRANSFER, etc.).
+   */
+  async ensureSchema() {
+    if (this.schemaEnsured) return;
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE \`diw_transactions\` SET \`type\` = 'ADJUSTMENT' WHERE \`type\` = ''`
+      ).catch(() => {});
+
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE \`diw_transactions\` MODIFY COLUMN \`type\` ENUM('DEPOSIT','PACKAGE_PURCHASE','MONTHLY_RETURN','PRINCIPAL_RELEASE','WITHDRAWAL_REQUEST','WITHDRAWAL_SETTLEMENT','P2P_TRANSFER_OUT','P2P_TRANSFER_IN','EXCHANGE_BUY','EXCHANGE_SELL','CARD_PAYMENT','OTC_DEPOSIT_LOCK','OTC_DEPOSIT_REFUND','P2P_DEPOSIT_LOCK','P2P_DEPOSIT_REFUND','OTC_TRADE','GLOBAL_TRANSFER_OUT','GLOBAL_TRANSFER_FEE','INVESTMENT_ALLOCATION','INVESTMENT_FEE','INVESTMENT_PROFIT_SHARE','INVESTMENT_DISTRIBUTION','FEE','ADJUSTMENT','REVERSAL') NOT NULL`
+      );
+
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE \`diw_transactions\` MODIFY COLUMN \`status\` ENUM('PENDING','PROCESSING','COMPLETED','FAILED','CANCELLED','APPROVED','DECLINED','REVERSED') NOT NULL DEFAULT 'PENDING'`
+      );
+
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE \`diw_ledger_journals\` MODIFY COLUMN \`referenceType\` ENUM('DEPOSIT','PACKAGE_PURCHASE','MONTHLY_RETURN','PRINCIPAL_RELEASE','WITHDRAWAL_REQUEST','WITHDRAWAL_SETTLEMENT','WITHDRAWAL_REJECTED','P2P_TRANSFER','P2P_ESCROW_LOCK','P2P_ESCROW_RELEASE','EXCHANGE_BUY','EXCHANGE_SELL','OTC_DEPOSIT_LOCK','OTC_DEPOSIT_REFUND','P2P_DEPOSIT_LOCK','P2P_DEPOSIT_REFUND','OTC_TRADE_SETTLEMENT','GLOBAL_TRANSFER','INVESTMENT_ALLOCATION','INVESTMENT_PROFIT_SHARE','INVESTMENT_DISTRIBUTION','FEE','ADJUSTMENT','REVERSAL') NOT NULL`
+      );
+
+      await prisma.$executeRawUnsafe(
+        `UPDATE \`diw_transactions\` SET \`type\` = 'GLOBAL_TRANSFER_OUT' WHERE \`type\` = 'ADJUSTMENT' AND \`transactionCode\` LIKE 'TX-GMT-%'`
+      ).catch(() => {});
+
+      this.schemaEnsured = true;
+    } catch (err) {
+      console.error('[GMT] ensureSchema error:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * ISO 7064 Mod-97-10 IBAN Checksum Verification
+   */
+  private verifyIbanMod97(iban: string): boolean {
+    const rearranged = iban.slice(4) + iban.slice(0, 4);
+    let expanded = '';
+    for (let i = 0; i < rearranged.length; i++) {
+      const code = rearranged.charCodeAt(i);
+      if (code >= 65 && code <= 90) {
+        expanded += (code - 55).toString();
+      } else {
+        expanded += rearranged[i];
+      }
+    }
+    let remainder = 0;
+    for (let i = 0; i < expanded.length; i += 7) {
+      const chunk = remainder.toString() + expanded.slice(i, i + 7);
+      remainder = parseInt(chunk, 10) % 97;
+    }
+    return remainder === 1;
+  }
+
+  /**
+   * Validate Beneficiary Account Number or IBAN before dispatching wire
+   */
+  private validateAccountOrIban(rawAccount: string, countryCode: string): string {
+    const cleaned = (rawAccount || '').replace(/[\s-]/g, '').toUpperCase();
+    const cc = (countryCode || '').toUpperCase();
+
+    if (!cleaned) {
+      throw new Error('Beneficiary Account Number / IBAN is required.');
+    }
+
+    // If starts with 2 letters, treat as an IBAN and enforce structure + Mod-97 checksum
+    if (/^[A-Z]{2}/.test(cleaned)) {
+      if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(cleaned)) {
+        throw new Error(
+          'Invalid IBAN format. An IBAN must start with a 2-letter country code, 2 check digits, and 11–30 alphanumeric characters.'
+        );
+      }
+      if (!this.verifyIbanMod97(cleaned)) {
+        throw new Error(
+          'Invalid IBAN entered. The IBAN checksum failed — please double-check every character of the beneficiary IBAN.'
+        );
+      }
+      return cleaned;
+    }
+
+    // Domestic account number checks
+    if (cc === 'IN') {
+      if (!/^\d{9,18}$/.test(cleaned)) {
+        throw new Error(
+          'Invalid Indian bank account number. Please enter a 9 to 18-digit domestic bank account number (no letters or spaces).'
+        );
+      }
+      return cleaned;
+    }
+
+    if (!/^(?=(?:.*\d){6,})[A-Z0-9]{8,30}$/.test(cleaned)) {
+      throw new Error(
+        'Invalid Account Number / IBAN. Please enter a valid IBAN or a domestic account number with at least 6 digits (8–30 alphanumeric characters).'
+      );
+    }
+
+    return cleaned;
+  }
+
+  /**
+   * Validate Beneficiary SWIFT / BIC / IFSC / Routing Code before dispatching wire
+   */
+  private validateRoutingOrSwift(rawRouting: string, countryCode: string): string {
+    const cleaned = (rawRouting || '').replace(/[\s-]/g, '').toUpperCase();
+    const cc = (countryCode || '').toUpperCase();
+
+    if (!cleaned) {
+      throw new Error('SWIFT / BIC / IFSC / Routing code is required for cross-border bank transfers.');
+    }
+
+    const isIfsc = /^[A-Z]{4}0[A-Z0-9]{6}$/.test(cleaned);
+    const isSwift = /^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(cleaned);
+    const isNumericRouting = /^\d{6,12}$/.test(cleaned);
+
+    if (cc === 'IN') {
+      if (!isIfsc && !isSwift) {
+        throw new Error(
+          'Invalid India bank routing code. Enter an 11-character IFSC code (e.g. KKBK0000123, 5th character must be 0) or an 8/11-character SWIFT/BIC (e.g. KKBKINBB).'
+        );
+      }
+      return cleaned;
+    }
+
+    if (!isIfsc && !isSwift && !isNumericRouting) {
+      throw new Error(
+        'Invalid SWIFT / BIC / IFSC / Routing code. Please enter a valid 8 or 11-character SWIFT/BIC (e.g. KKBKINBB), 11-character Indian IFSC (e.g. KKBK0000123), or 6–12 digit bank routing code.'
+      );
+    }
+
+    return cleaned;
+  }
   /**
    * Calculate binding transfer quote from live market rates
    * 7.3 Exchange Rate Management: Live market reference rate with 2% margin adjustment
@@ -217,8 +352,11 @@ export class GlobalMoneyTransferService {
       recipientEmail?: string;
       transferReason?: string;
       twoFactorCode?: string;
+      termsAccepted?: boolean;
     }
   ) {
+    await this.ensureSchema();
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, status: true },
@@ -229,9 +367,24 @@ export class GlobalMoneyTransferService {
     }
 
     // Recipient detail validation
-    if (!data.recipientName || !data.recipientAccount || !data.recipientBankName) {
-      throw new Error('Recipient name, bank account number/IBAN, and bank name are required.');
+    if (!data.recipientName?.trim() || !data.recipientAccount?.trim() || !data.recipientBankName?.trim()) {
+      throw new Error('Recipient legal name, bank account number/IBAN, and bank name are required.');
     }
+
+    if (data.termsAccepted !== true) {
+      throw new Error(
+        'You must confirm the accuracy of your beneficiary bank details and accept the Remittance Terms & Conditions before funding this transfer.'
+      );
+    }
+
+    const normalizedAccount = this.validateAccountOrIban(
+      data.recipientAccount,
+      data.destinationCountryCode
+    );
+    const normalizedRouting = this.validateRoutingOrSwift(
+      data.recipientBicSwift || '',
+      data.destinationCountryCode
+    );
 
     const quote = await this.calculateQuote({
       sendingCurrency: data.sendingCurrency,
@@ -291,8 +444,8 @@ export class GlobalMoneyTransferService {
       },
       { stage: 'COMPLIANCE_SCREENED', title: 'Sanctions & KYC Screening', timestamp: new Date().toISOString(), status: 'COMPLETED', notes: 'Automated AML & OFAC checks cleared' },
       { stage: 'CONVERSION_LOCKED', title: 'Exchange Rate Guaranteed', timestamp: new Date().toISOString(), status: 'COMPLETED', notes: `Locked rate: 1 USD = ${quote.effectiveRate} ${quote.recipientCurrency}` },
-      { stage: 'PARTNER_PROCESSING', title: 'Banking Rail Routing', timestamp: null, status: 'IN_PROGRESS', notes: `Dispatched to ${data.recipientBankName} (${data.destinationCountry})` },
-      { stage: 'COMPLETED', title: 'Funds Credited to Recipient', timestamp: null, status: 'PENDING', notes: `Beneficiary account ending in ${data.recipientAccount.slice(-4)}` }
+      { stage: 'PARTNER_PROCESSING', title: 'Banking Rail Routing', timestamp: null, status: 'IN_PROGRESS', notes: `Dispatched to ${data.recipientBankName.trim()} (${data.destinationCountry})` },
+      { stage: 'COMPLETED', title: 'Funds Credited to Recipient', timestamp: null, status: 'PENDING', notes: `Beneficiary account ending in ${normalizedAccount.slice(-4)}` }
     ];
 
     const result = await prisma.$transaction(async (tx) => {
@@ -316,9 +469,9 @@ export class GlobalMoneyTransferService {
           recipientCurrency: quote.recipientCurrency,
           recipientAmount: new Decimal(quote.recipientAmount),
           recipientName: data.recipientName.trim(),
-          recipientAccount: data.recipientAccount.trim(),
+          recipientAccount: normalizedAccount,
           recipientBankName: data.recipientBankName.trim(),
-          recipientBicSwift: data.recipientBicSwift?.trim() || null,
+          recipientBicSwift: normalizedRouting,
           recipientAddress: formattedAddress?.trim() || null,
           transferReason: data.transferReason?.trim() || 'Family Support / Trade Remittance',
           referenceRate: new Decimal(quote.referenceRate),
@@ -344,7 +497,7 @@ export class GlobalMoneyTransferService {
           status: TransactionStatus.COMPLETED,
           balanceBefore: currentBal.toFixed(8),
           balanceAfter: newBal.toFixed(8),
-          notes: `Global Money Transfer to ${data.recipientName} (${data.recipientBankName} - ${data.destinationCountry}). Fee: $${quote.transferFeeAmount}`,
+          notes: `Global Money Transfer to ${data.recipientName.trim()} (${data.recipientBankName.trim()} - ${data.destinationCountry}). Fee: $${quote.transferFeeAmount}`,
           settlementReference: transferCode,
         },
       });
@@ -352,7 +505,10 @@ export class GlobalMoneyTransferService {
       return transfer;
     });
 
-    return result;
+    return {
+      ...result,
+      trackingTimeline: initialTimeline,
+    };
   }
 
   /**
@@ -377,6 +533,7 @@ export class GlobalMoneyTransferService {
    * List transfers for authenticated user
    */
   async listUserTransfers(userId: string) {
+    await this.ensureSchema();
     const list = await prisma.globalTransfer.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
@@ -393,6 +550,7 @@ export class GlobalMoneyTransferService {
    * Admin: List all global money transfers with compliance status
    */
   async listAllTransfersAdmin(status?: string) {
+    await this.ensureSchema();
     const where: any = {};
     if (status && status !== 'ALL') where.status = status;
 

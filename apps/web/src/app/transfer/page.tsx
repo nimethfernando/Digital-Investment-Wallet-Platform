@@ -32,6 +32,103 @@ import {
   GmtCountryItem as CountryItem,
 } from '../../lib/gmt-countries';
 
+function verifyIbanMod97(iban: string): boolean {
+  const rearranged = iban.slice(4) + iban.slice(0, 4);
+  let expanded = '';
+  for (let i = 0; i < rearranged.length; i++) {
+    const code = rearranged.charCodeAt(i);
+    if (code >= 65 && code <= 90) {
+      expanded += (code - 55).toString();
+    } else {
+      expanded += rearranged[i];
+    }
+  }
+  let remainder = 0;
+  for (let i = 0; i < expanded.length; i += 7) {
+    const chunk = remainder.toString() + expanded.slice(i, i + 7);
+    remainder = parseInt(chunk, 10) % 97;
+  }
+  return remainder === 1;
+}
+
+function validateAccountOrIbanClient(
+  rawAccount: string,
+  countryCode: string
+): { valid: boolean; empty: boolean; label?: string; message: string } {
+  const cleaned = (rawAccount || '').replace(/[\s-]/g, '').toUpperCase();
+  const cc = (countryCode || '').toUpperCase();
+  if (!cleaned) {
+    return { valid: false, empty: true, message: 'Account Number or IBAN is required.' };
+  }
+  if (/^[A-Z]{2}/.test(cleaned)) {
+    if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(cleaned)) {
+      return {
+        valid: false,
+        empty: false,
+        message: 'Invalid IBAN format: must start with 2 country letters, 2 check digits, and 11–30 characters.',
+      };
+    }
+    if (!verifyIbanMod97(cleaned)) {
+      return {
+        valid: false,
+        empty: false,
+        message: 'Invalid IBAN checksum (ISO Mod-97 failed). Please verify every character of the IBAN.',
+      };
+    }
+    return { valid: true, empty: false, label: 'Valid IBAN (Mod-97 Verified)', message: '' };
+  }
+  if (cc === 'IN') {
+    if (!/^\d{9,18}$/.test(cleaned)) {
+      return {
+        valid: false,
+        empty: false,
+        message: 'India bank transfers require a 9 to 18-digit domestic Account Number.',
+      };
+    }
+    return { valid: true, empty: false, label: 'Valid Indian Bank Account Number', message: '' };
+  }
+  if (!/^(?=(?:.*\d){6,})[A-Z0-9]{8,30}$/.test(cleaned)) {
+    return {
+      valid: false,
+      empty: false,
+      message: 'Enter a valid IBAN or 8–30 character Account Number containing at least 6 digits.',
+    };
+  }
+  return { valid: true, empty: false, label: 'Valid Bank Account Number', message: '' };
+}
+
+function validateRoutingOrSwiftClient(
+  rawRouting: string,
+  countryCode: string
+): { valid: boolean; empty: boolean; label?: string; message: string } {
+  const cleaned = (rawRouting || '').replace(/[\s-]/g, '').toUpperCase();
+  const cc = (countryCode || '').toUpperCase();
+  if (!cleaned) {
+    return { valid: false, empty: true, message: 'SWIFT / BIC / IFSC / Routing code is required.' };
+  }
+  const isIfsc = /^[A-Z]{4}0[A-Z0-9]{6}$/.test(cleaned);
+  const isSwift = /^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(cleaned);
+  const isNumericRouting = /^\d{6,12}$/.test(cleaned);
+
+  if (cc === 'IN') {
+    if (isIfsc) return { valid: true, empty: false, label: 'Valid IFSC Code', message: '' };
+    if (isSwift) return { valid: true, empty: false, label: 'Valid SWIFT / BIC Code', message: '' };
+    return {
+      valid: false,
+      empty: false,
+      message: 'Enter an 11-character IFSC (e.g. KKBK0000123, 5th char 0) or 8/11-character SWIFT/BIC (e.g. KKBKINBB).',
+    };
+  }
+  if (isIfsc) return { valid: true, empty: false, label: 'Valid IFSC Code', message: '' };
+  if (isSwift) return { valid: true, empty: false, label: 'Valid SWIFT / BIC Code', message: '' };
+  if (isNumericRouting) return { valid: true, empty: false, label: 'Valid Bank Routing Code', message: '' };
+  return {
+    valid: false,
+    empty: false,
+    message: 'Enter a valid 8 or 11-character SWIFT/BIC, 11-char IFSC, or 6–12 digit bank routing code.',
+  };
+}
+
 export default function GlobalMoneyTransferPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -83,6 +180,20 @@ export default function GlobalMoneyTransferPage() {
   const [recipientBicSwift, setRecipientBicSwift] = useState<string>('');
   const [recipientAddress, setRecipientAddress] = useState<string>('');
   const [transferReason, setTransferReason] = useState<string>('Family Remittance');
+
+  // Mandatory Beneficiary Verification & Terms Agreement State
+  const [confirmDetailsAccurate, setConfirmDetailsAccurate] = useState<boolean>(false);
+  const [agreeTerms, setAgreeTerms] = useState<boolean>(false);
+  const [showTermsBox, setShowTermsBox] = useState<boolean>(false);
+
+  const accountValidation = useMemo(
+    () => validateAccountOrIbanClient(recipientAccount, selectedCountry.code),
+    [recipientAccount, selectedCountry.code]
+  );
+  const routingValidation = useMemo(
+    () => validateRoutingOrSwiftClient(recipientBicSwift, selectedCountry.code),
+    [recipientBicSwift, selectedCountry.code]
+  );
 
   // Submit & Execution State
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -142,6 +253,22 @@ export default function GlobalMoneyTransferPage() {
       router.push('/login?redirect=/transfer');
       return;
     }
+
+    if (!accountValidation.valid) {
+      setSubmitError(accountValidation.message);
+      return;
+    }
+    if (!routingValidation.valid) {
+      setSubmitError(routingValidation.message);
+      return;
+    }
+    if (!confirmDetailsAccurate || !agreeTerms) {
+      setSubmitError(
+        'Please confirm that your beneficiary bank details are 100% accurate and accept the Remittance Terms & Conditions before confirming.'
+      );
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError(null);
 
@@ -159,10 +286,14 @@ export default function GlobalMoneyTransferPage() {
         recipientAddress,
         recipientEmail,
         transferReason,
+        termsAccepted: confirmDetailsAccurate && agreeTerms,
       });
 
       if (res.data?.success) {
         setActiveTransfer(res.data.data);
+        setConfirmDetailsAccurate(false);
+        setAgreeTerms(false);
+        setShowTermsBox(false);
         setStep(3);
         loadUserTransfers();
       }
@@ -433,7 +564,13 @@ export default function GlobalMoneyTransferPage() {
             )}
 
             <button
-              onClick={() => setStep(2)}
+              onClick={() => {
+                setSubmitError(null);
+                setConfirmDetailsAccurate(false);
+                setAgreeTerms(false);
+                setShowTermsBox(false);
+                setStep(2);
+              }}
               disabled={quoteLoading || !quote}
               className="w-full py-4 rounded-2xl font-bold text-sm bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
@@ -513,7 +650,13 @@ export default function GlobalMoneyTransferPage() {
             </div>
             <button
               type="button"
-              onClick={() => setStep(1)}
+              onClick={() => {
+                setSubmitError(null);
+                setConfirmDetailsAccurate(false);
+                setAgreeTerms(false);
+                setShowTermsBox(false);
+                setStep(1);
+              }}
               className="text-xs font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white underline"
             >
               Back to Quote
@@ -586,11 +729,36 @@ export default function GlobalMoneyTransferPage() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. IBAN or domestic account number"
+                  placeholder={selectedCountry.code === 'IN' ? 'e.g. 9-18 digit Account Number' : 'e.g. DE89370400440532013000 or Account No.'}
                   value={recipientAccount}
-                  onChange={(e) => setRecipientAccount(e.target.value)}
-                  className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-mono focus:border-emerald-500"
+                  onChange={(e) => setRecipientAccount(e.target.value.toUpperCase())}
+                  className={`w-full mt-1 px-4 py-2.5 rounded-xl text-xs border bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-mono ${
+                    recipientAccount.trim()
+                      ? accountValidation.valid
+                        ? 'border-emerald-500 focus:border-emerald-500'
+                        : 'border-rose-500 focus:border-rose-500'
+                      : 'border-slate-200 dark:border-slate-800 focus:border-emerald-500'
+                  }`}
                 />
+                {recipientAccount.trim() ? (
+                  accountValidation.valid ? (
+                    <p className="text-[11px] text-emerald-500 font-semibold mt-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>{accountValidation.label}</span>
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-rose-500 font-semibold mt-1 flex items-start gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>{accountValidation.message}</span>
+                    </p>
+                  )
+                ) : (
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {selectedCountry.code === 'IN'
+                      ? 'Enter 9–18 digit bank account number (no spaces or special chars).'
+                      : 'IBANs undergo live ISO Mod-97 checksum validation to prevent misrouted wires.'}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -599,11 +767,37 @@ export default function GlobalMoneyTransferPage() {
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. SBININBB001 or SWIFT"
+                  required
+                  placeholder={selectedCountry.code === 'IN' ? 'e.g. KKBK0000123 or KKBKINBB' : 'e.g. SBININBB001 or CHASUS33'}
                   value={recipientBicSwift}
-                  onChange={(e) => setRecipientBicSwift(e.target.value)}
-                  className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-mono focus:border-emerald-500"
+                  onChange={(e) => setRecipientBicSwift(e.target.value.toUpperCase())}
+                  className={`w-full mt-1 px-4 py-2.5 rounded-xl text-xs border bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-mono ${
+                    recipientBicSwift.trim()
+                      ? routingValidation.valid
+                        ? 'border-emerald-500 focus:border-emerald-500'
+                        : 'border-rose-500 focus:border-rose-500'
+                      : 'border-slate-200 dark:border-slate-800 focus:border-emerald-500'
+                  }`}
                 />
+                {recipientBicSwift.trim() ? (
+                  routingValidation.valid ? (
+                    <p className="text-[11px] text-emerald-500 font-semibold mt-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>{routingValidation.label}</span>
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-rose-500 font-semibold mt-1 flex items-start gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>{routingValidation.message}</span>
+                    </p>
+                  )
+                ) : (
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {selectedCountry.code === 'IN'
+                      ? 'Required: 11-char Indian IFSC (5th char must be 0) or 8/11-char SWIFT/BIC.'
+                      : 'Required: 8 or 11-character SWIFT/BIC, IFSC, or 6–12 digit routing code.'}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -648,10 +842,114 @@ export default function GlobalMoneyTransferPage() {
             </div>
           </div>
 
+          {/* Beneficiary Accuracy Review & Mandatory Terms & Conditions */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-300/70 dark:border-amber-700/60 space-y-4 text-xs">
+            <div className="flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-black text-amber-900 dark:text-amber-300">
+                  Beneficiary Verification &amp; Irrevocable Wire Notice
+                </p>
+                <p className="text-[11px] text-amber-800/90 dark:text-amber-200/80 leading-relaxed">
+                  Cross-border remittances are dispatched directly to clearing banks using the Account Number / IBAN and SWIFT / IFSC code entered above. Incorrect details (such as a wrong IBAN or invalid routing code) will cause wire failure, intermediary recall fees, or irreversible loss of funds.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 rounded-xl bg-white/80 dark:bg-slate-950/80 border border-amber-200/80 dark:border-slate-800 text-[11px]">
+              <div>
+                <span className="text-slate-400 block">Beneficiary Name</span>
+                <span className="font-bold text-slate-900 dark:text-white break-all">
+                  {recipientName.trim() || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block">Bank Name</span>
+                <span className="font-bold text-slate-900 dark:text-white break-all">
+                  {recipientBankName.trim() || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block">Account Number / IBAN</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white break-all">
+                  {recipientAccount.trim() || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block">SWIFT / BIC / IFSC / Routing</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white break-all">
+                  {recipientBicSwift.trim() || '—'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 pt-1">
+              <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={confirmDetailsAccurate}
+                  onChange={(e) => setConfirmDetailsAccurate(e.target.checked)}
+                  className="mt-0.5 rounded border-amber-400 text-emerald-600 focus:ring-emerald-500 shrink-0"
+                />
+                <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 leading-snug">
+                  I have carefully verified the Recipient Name, Bank Name, Account Number / IBAN, and SWIFT / BIC / IFSC / Routing code above and confirm they are 100% accurate.
+                </span>
+              </label>
+
+              <div className="space-y-2">
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={agreeTerms}
+                    onChange={(e) => setAgreeTerms(e.target.checked)}
+                    className="mt-0.5 rounded border-amber-400 text-emerald-600 focus:ring-emerald-500 shrink-0"
+                  />
+                  <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 leading-snug">
+                    I agree to the Avora Bank Global Remittance{' '}
+                    <button
+                      type="button"
+                      onClick={(ev) => {
+                        ev.preventDefault();
+                        setShowTermsBox((v) => !v);
+                      }}
+                      className="text-emerald-600 dark:text-emerald-400 underline font-bold cursor-pointer"
+                    >
+                      Terms &amp; Conditions
+                    </button>{' '}
+                    and accept full responsibility for the accuracy of the beneficiary banking details provided.
+                  </span>
+                </label>
+
+                {showTermsBox && (
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 space-y-1.5 leading-relaxed">
+                    <p className="font-bold text-slate-900 dark:text-white">
+                      Avora Bank Global Remittance Terms &amp; Conditions
+                    </p>
+                    <p>
+                      1. <strong>Wire Finality &amp; Account Accuracy:</strong> Once confirmed and funded, international payment instructions cannot be unilaterally reversed. You are solely responsible for supplying an accurate IBAN / Account Number and SWIFT / IFSC / Routing code. Incorrect beneficiary instructions may result in permanent misdelivery or correspondent bank recall charges.
+                    </p>
+                    <p>
+                      2. <strong>FX Rate &amp; Fees:</strong> Quoted exchange rates incorporate the published Avora margin adjustment and transfer fee and lock upon debit confirmation.
+                    </p>
+                    <p>
+                      3. <strong>Compliance &amp; AML Screening:</strong> All transfers remain subject to automated and manual sanctions (OFAC/EU/UN) and KYC/AML clearing before beneficiary credit.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <button
             type="submit"
-            disabled={submitting}
-            className="w-full py-4 rounded-2xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+            disabled={
+              submitting ||
+              !accountValidation.valid ||
+              !routingValidation.valid ||
+              !confirmDetailsAccurate ||
+              !agreeTerms
+            }
+            className="w-full py-4 rounded-2xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Send className="w-4 h-4" />
             <span>{submitting ? 'Confirming & Funding Transfer...' : 'Confirm and Fund Transfer'}</span>
@@ -748,7 +1046,13 @@ export default function GlobalMoneyTransferPage() {
           </div>
 
           <button
-            onClick={() => setStep(1)}
+            onClick={() => {
+              setSubmitError(null);
+              setConfirmDetailsAccurate(false);
+              setAgreeTerms(false);
+              setShowTermsBox(false);
+              setStep(1);
+            }}
             className="w-full py-3 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition-colors"
           >
             Start Another Transfer
