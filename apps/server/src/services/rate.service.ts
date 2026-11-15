@@ -1,8 +1,16 @@
+import { prisma } from '../lib/prisma';
+
 export interface LiveRatesResult {
+  base: string;
   source: string;
   lastUpdated: string;
+  timestamp: number;
   rates: Record<string, number>;
+  marketRates: Record<string, number>;
+  overrides: Record<string, number>;
 }
+
+const ADMIN_RATES_SETTING_KEY = 'admin_exchange_rate_overrides';
 
 export class RateService {
   private cachedRates: Record<string, number> = {
@@ -62,30 +70,141 @@ export class RateService {
   private lastFetched = 0;
   private lastUpdatedString: string = new Date().toISOString();
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
+  private readonly OVERRIDES_TTL_MS = 10 * 1000; // 10 seconds override cache
   private readonly SOURCE_NAME = 'Open Exchange Rates (Live Market Feed)';
   private isFetching = false;
+  private cachedOverrides: Record<string, number> = {};
+  private lastOverridesFetchTime = 0;
 
   /**
-   * Fetch live forex rates against USD with in-memory caching and fallback
+   * Invalidate cached admin exchange rate overrides immediately after admin edits
+   */
+  invalidateOverridesCache(): void {
+    this.lastOverridesFetchTime = 0;
+  }
+
+  /**
+   * Load admin-configured currency exchange rate overrides from CmsSetting
+   */
+  async getAdminOverrides(): Promise<Record<string, number>> {
+    const now = Date.now();
+    if (this.lastOverridesFetchTime > 0 && now - this.lastOverridesFetchTime < this.OVERRIDES_TTL_MS) {
+      return { ...this.cachedOverrides };
+    }
+
+    try {
+      const setting = await prisma.cmsSetting.findUnique({
+        where: { key: ADMIN_RATES_SETTING_KEY },
+      });
+
+      const parsedOverrides: Record<string, number> = {};
+      if (setting?.value) {
+        const raw = JSON.parse(setting.value);
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          for (const [key, val] of Object.entries(raw)) {
+            const upper = String(key).trim().toUpperCase();
+            const num = Number(val);
+            if (upper && upper !== 'USD' && Number.isFinite(num) && num > 0) {
+              parsedOverrides[upper] = num;
+            }
+          }
+        }
+      }
+
+      this.cachedOverrides = parsedOverrides;
+      this.lastOverridesFetchTime = now;
+      return { ...this.cachedOverrides };
+    } catch (err: any) {
+      console.warn(`[RateService] Failed to load admin rate overrides: ${err.message}`);
+      return { ...this.cachedOverrides };
+    }
+  }
+
+  /**
+   * Fetch live forex rates against USD with in-memory caching, fallback, and admin overrides
    */
   async getLiveRates(): Promise<LiveRatesResult> {
     const now = Date.now();
-    if (now - this.lastFetched < this.CACHE_TTL_MS && this.lastFetched > 0) {
-      return {
-        source: this.SOURCE_NAME,
-        lastUpdated: this.lastUpdatedString,
-        rates: { ...this.cachedRates },
-      };
+    if (!(now - this.lastFetched < this.CACHE_TTL_MS && this.lastFetched > 0)) {
+      await this.refreshRates();
     }
 
-    // Refresh rates
-    await this.refreshRates();
+    const overrides = await this.getAdminOverrides();
+    const effectiveRates: Record<string, number> = {
+      ...this.cachedRates,
+      ...overrides,
+      USD: 1.0,
+    };
+
+    const hasOverrides = Object.keys(overrides).length > 0;
 
     return {
-      source: this.SOURCE_NAME,
+      base: 'USD',
+      source: hasOverrides ? `${this.SOURCE_NAME} + Admin Rate Controls` : this.SOURCE_NAME,
       lastUpdated: this.lastUpdatedString,
-      rates: { ...this.cachedRates },
+      timestamp: this.lastFetched || Date.now(),
+      rates: effectiveRates,
+      marketRates: { ...this.cachedRates },
+      overrides,
     };
+  }
+
+  /**
+   * Get Admin FX rates overview (live market vs overrides vs effective rates)
+   */
+  async getAdminRatesOverview(): Promise<LiveRatesResult> {
+    this.invalidateOverridesCache();
+    return this.getLiveRates();
+  }
+
+  /**
+   * Persist Admin custom currency rate overrides in real time
+   */
+  async updateAdminRateOverrides(
+    updates: Record<string, number | string | null>,
+    replaceAll = false
+  ): Promise<LiveRatesResult> {
+    const nextOverrides: Record<string, number> = replaceAll ? {} : await this.getAdminOverrides();
+
+    if (updates && typeof updates === 'object') {
+      for (const [key, val] of Object.entries(updates)) {
+        const upper = String(key).trim().toUpperCase();
+        if (!upper || upper === 'USD') continue;
+        if (val === null || val === undefined || val === '') {
+          delete nextOverrides[upper];
+          continue;
+        }
+        const num = Number(val);
+        if (!Number.isFinite(num) || num <= 0) {
+          delete nextOverrides[upper];
+        } else {
+          nextOverrides[upper] = num;
+        }
+      }
+    }
+
+    await prisma.cmsSetting.upsert({
+      where: { key: ADMIN_RATES_SETTING_KEY },
+      update: { value: JSON.stringify(nextOverrides) },
+      create: {
+        group: 'COMMISSION',
+        key: ADMIN_RATES_SETTING_KEY,
+        value: JSON.stringify(nextOverrides),
+        description: 'Real-time Admin currency exchange rate overrides (units per 1 USD)',
+      },
+    });
+
+    this.invalidateOverridesCache();
+    return this.getLiveRates();
+  }
+
+  /**
+   * Force refresh live market feed from upstream API while retaining admin overrides
+   */
+  async forceRefreshMarketRates(): Promise<LiveRatesResult> {
+    this.lastFetched = 0;
+    this.invalidateOverridesCache();
+    return this.getLiveRates();
   }
 
   /**
@@ -93,10 +212,10 @@ export class RateService {
    */
   async getRate(currency: string): Promise<number> {
     const upper = currency.toUpperCase();
-    if (upper === 'USD' || upper === 'USDT') return 1.0;
+    if (upper === 'USD') return 1.0;
 
     const live = await this.getLiveRates();
-    return live.rates[upper] || this.cachedRates[upper] || 1.0;
+    return live.rates[upper] || this.cachedRates[upper] || (upper === 'USDT' || upper === 'USDC' ? 1.0 : 1.0);
   }
 
   /**

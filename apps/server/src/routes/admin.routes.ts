@@ -19,6 +19,11 @@ router.post('/users/:id/adjust-balance', requireRole([Role.ADMIN]), requireAdmin
 router.get('/settings/config', (req, res, next) => adminController.getPlatformConfig(req, res, next));
 router.post('/settings/config', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updatePlatformConfig(req, res, next));
 
+// Real-Time Exchange Rate Controls
+router.get('/rates', (req, res, next) => adminController.getExchangeRates(req, res, next));
+router.put('/rates', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateExchangeRates(req, res, next));
+router.post('/rates/refresh', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.refreshExchangeRates(req, res, next));
+
 // Package operations
 router.get('/packages', (req, res, next) => adminController.getPackages(req, res, next));
 router.post('/packages/create', requireRole([Role.ADMIN]), (req, res, next) => adminController.createPackage(req, res, next));

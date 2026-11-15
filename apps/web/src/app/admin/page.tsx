@@ -143,11 +143,31 @@ export default function AdminPortalPage() {
     startup_allocation_fee_percent: '5.0',
     startup_profit_share_percent: '5.0',
     otc_spread_percent: '1.0',
+    otc_operator_fee_percent: '1.5',
+    otc_platform_fee_percent: '0.5',
+    withdrawal_fee_percent: '0.0',
+    withdrawal_fx_spread_percent: '0.0',
     p2p_fee_percent: '0.0',
     virtual_card_issuance_fee: '10.00',
   });
   const [configLoading, setConfigLoading] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
+
+  // Real-Time Exchange Rate Controls State
+  const [adminRatesData, setAdminRatesData] = useState<{
+    source: string;
+    lastUpdated: string;
+    rates: Record<string, number>;
+    marketRates: Record<string, number>;
+    overrides: Record<string, number>;
+  } | null>(null);
+  const [fxDraftOverrides, setFxDraftOverrides] = useState<Record<string, string>>({});
+  const [fxCurrencySearch, setFxCurrencySearch] = useState('');
+  const [newFxCode, setNewFxCode] = useState('');
+  const [newFxRate, setNewFxRate] = useState('');
+  const [syncHouseP2pOnSave, setSyncHouseP2pOnSave] = useState(true);
+  const [savingFxRates, setSavingFxRates] = useState(false);
+  const [refreshingFxFeed, setRefreshingFxFeed] = useState(false);
 
   // Treasury State
   const [ledgerReconciliation, setLedgerReconciliation] = useState<any | null>(null);
@@ -413,9 +433,21 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'config') {
       setConfigLoading(true);
       try {
-        const res = await api.get('/admin/settings/config');
+        const [res, ratesRes] = await Promise.all([
+          api.get('/admin/settings/config'),
+          api.get('/admin/rates').catch(() => ({ data: { data: null } })),
+        ]);
         if (res.data?.success && res.data?.data) {
           setPlatformConfig(res.data.data);
+        }
+        if (ratesRes.data?.success && ratesRes.data?.data) {
+          const rd = ratesRes.data.data;
+          setAdminRatesData(rd);
+          const draft: Record<string, string> = {};
+          Object.entries(rd.overrides || {}).forEach(([k, v]) => {
+            draft[k] = String(v);
+          });
+          setFxDraftOverrides(draft);
         }
       } catch (e) {
         console.error('Failed to load config:', e);
@@ -914,6 +946,57 @@ export default function AdminPortalPage() {
       showToast(err.response?.data?.message || 'Failed to update platform settings', 'error');
     } finally {
       setSavingConfig(false);
+    }
+  };
+
+  const handleSaveFxRates = async (explicitOverrides?: Record<string, number | null>, replaceAll = true) => {
+    setSavingFxRates(true);
+    try {
+      const payloadOverrides: Record<string, number | null> =
+        explicitOverrides ??
+        Object.entries(fxDraftOverrides).reduce((acc, [code, valStr]) => {
+          const num = parseFloat(valStr);
+          if (valStr.trim() !== '' && Number.isFinite(num) && num > 0) {
+            acc[code.toUpperCase()] = num;
+          }
+          return acc;
+        }, {} as Record<string, number | null>);
+
+      const res = await api.put('/admin/rates', {
+        overrides: payloadOverrides,
+        replaceAll,
+        syncHouseP2pOffers: syncHouseP2pOnSave,
+      });
+
+      if (res.data?.success && res.data?.data) {
+        const rd = res.data.data;
+        setAdminRatesData(rd);
+        const draft: Record<string, string> = {};
+        Object.entries(rd.overrides || {}).forEach(([k, v]) => {
+          draft[k] = String(v);
+        });
+        setFxDraftOverrides(draft);
+        showToast(res.data.message || 'Real-time exchange rates updated across platform.');
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to update exchange rates', 'error');
+    } finally {
+      setSavingFxRates(false);
+    }
+  };
+
+  const handleRefreshFxFeed = async () => {
+    setRefreshingFxFeed(true);
+    try {
+      const res = await api.post('/admin/rates/refresh', {});
+      if (res.data?.success && res.data?.data) {
+        setAdminRatesData(res.data.data);
+        showToast('Upstream live market exchange feed refreshed.');
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to refresh market feed', 'error');
+    } finally {
+      setRefreshingFxFeed(false);
     }
   };
 
@@ -1641,7 +1724,7 @@ export default function AdminPortalPage() {
             { id: 'kyc', label: `KYC Compliance (${tabBadgeCounts.kyc})`, icon: UserCheck },
             { id: 'treasury', label: 'Treasury & Core Ledger', icon: Landmark },
             { id: 'addresses', label: 'Receiver Addresses & QR', icon: QrCode },
-            { id: 'config', label: 'Protocol Fee Controls', icon: Sliders },
+            { id: 'config', label: 'FX Rates & Fee Controls', icon: Sliders },
             { id: 'system', label: 'System & Maintenance', icon: Settings },
             { id: 'audit', label: 'Audit Logs', icon: FileText },
             { id: 'content', label: 'Auto Publisher', icon: Sparkles },
@@ -2205,6 +2288,7 @@ export default function AdminPortalPage() {
             admin2FaCode={admin2FaCode}
             onRefresh={loadData}
             onFeedback={(f) => setFeedback(f)}
+            onOpenRatesConfig={() => setActiveTab('config')}
           />
         )}
 
@@ -2228,17 +2312,18 @@ export default function AdminPortalPage() {
           />
         )}
 
-        {/* TAB: PROTOCOL FEES & CONFIG */}
+        {/* TAB: PROTOCOL FEES, FX RATES & CONFIG */}
         {activeTab === 'config' && (
+          <div className="space-y-6">
           <form onSubmit={handleSavePlatformConfig} className="space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-5 rounded-3xl border border-slate-800">
               <div>
                 <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
                   <Sliders className="w-5 h-5 text-rose-500" />
-                  <span>Platform Parameters &amp; Commission Margins</span>
+                  <span>Real-Time FX Rates, Commission Splits &amp; Platform Parameters</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Adjust Fixed Deposit engine terms, cross-border remittance fees, equity nominee splits, and OTC spreads.
+                  Control live global exchange rates, OTC 2.0% commission split (1.5% Broker + 0.5% Platform), Withdrawal pricing, Remittance margins, and FD terms.
                 </p>
               </div>
 
@@ -2498,7 +2583,103 @@ export default function AdminPortalPage() {
                         />
                         <span className="absolute right-3 top-2 text-xs text-slate-500">%</span>
                       </div>
-                      <p className="text-[10px] text-slate-500">Spread for high-volume OTC quotes (Default: 1.0%)</p>
+                      <p className="text-[10px] text-slate-500">Default benchmark spread for OTC quotes (Default: 1.0%)</p>
+                    </div>
+
+                    {/* OTC COMMISSION SPLIT ENGINE (DEFAULT 2.0% TOTAL = 1.5% BROKER + 0.5% PLATFORM) */}
+                    <div className="p-4 rounded-2xl bg-slate-950/90 border border-emerald-500/30 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-black uppercase font-mono text-emerald-400">
+                          OTC Transaction Commission Split
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold text-[10px] border border-emerald-500/30">
+                          Total Fee:{' '}
+                          {(
+                            (parseFloat(platformConfig.otc_operator_fee_percent || '1.5') || 0) +
+                            (parseFloat(platformConfig.otc_platform_fee_percent || '0.5') || 0)
+                          ).toFixed(2)}
+                          %
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            OTC Broker / Provider (%)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.05"
+                            min="0"
+                            value={platformConfig.otc_operator_fee_percent || '1.5'}
+                            onChange={(e) =>
+                              setPlatformConfig({ ...platformConfig, otc_operator_fee_percent: e.target.value })
+                            }
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            Avora Bank Platform (%)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.05"
+                            min="0"
+                            value={platformConfig.otc_platform_fee_percent || '0.5'}
+                            onChange={(e) =>
+                              setPlatformConfig({ ...platformConfig, otc_platform_fee_percent: e.target.value })
+                            }
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-slate-400">
+                        Applied automatically to OTC escrow quotes (e.g. 2.0% total = 1.5% OTC Broker + 0.5% Avora Bank).
+                      </p>
+                    </div>
+
+                    {/* WITHDRAWAL PRICING CONTROLS */}
+                    <div className="p-4 rounded-2xl bg-slate-950/90 border border-amber-500/30 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black uppercase font-mono text-amber-400">
+                          Withdrawal Pricing &amp; FX Spread Controls
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            Withdrawal Fee (%)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.05"
+                            min="0"
+                            value={platformConfig.withdrawal_fee_percent || '0.0'}
+                            onChange={(e) =>
+                              setPlatformConfig({ ...platformConfig, withdrawal_fee_percent: e.target.value })
+                            }
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-amber-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            Payout FX Spread (%)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.05"
+                            min="0"
+                            value={platformConfig.withdrawal_fx_spread_percent || '0.0'}
+                            onChange={(e) =>
+                              setPlatformConfig({ ...platformConfig, withdrawal_fx_spread_percent: e.target.value })
+                            }
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-slate-400">
+                        Real-time withdrawal fee and cross-currency payout FX spread applied during bank wire settlements.
+                      </p>
                     </div>
 
                     <div className="space-y-1">
@@ -2585,6 +2766,260 @@ export default function AdminPortalPage() {
               </div>
             )}
           </form>
+
+          {/* SECTION 3: REAL-TIME GLOBAL CURRENCY EXCHANGE RATE CONTROL CENTER */}
+          <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-black text-white text-base flex flex-wrap items-center gap-2">
+                    <span>Real-Time Global Currency Exchange Rate Control Center</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      {Object.keys(adminRatesData?.overrides || {}).length} Active Overrides
+                    </span>
+                  </h4>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Update live exchange rates per <strong>1 USD</strong> across <strong>International Remittances</strong>, <strong>OTC Quotes</strong>, <strong>P2P Liquidity</strong>, and <strong>Withdrawals</strong> in real time. Leave a currency blank to follow the upstream market feed automatically.
+                  </p>
+                  {adminRatesData && (
+                    <p className="text-[11px] font-mono text-slate-500 mt-1">
+                      Feed: {adminRatesData.source} • Updated: {new Date(adminRatesData.lastUpdated).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleRefreshFxFeed}
+                  disabled={refreshingFxFeed}
+                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingFxFeed ? 'animate-spin' : ''}`} />
+                  <span>Refresh Market Feed</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveFxRates({}, true)}
+                  disabled={savingFxRates || Object.keys(adminRatesData?.overrides || {}).length === 0}
+                  className="px-3.5 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-300 border border-amber-500/30 text-xs font-bold cursor-pointer disabled:opacity-40"
+                >
+                  Clear All Overrides
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveFxRates()}
+                  disabled={savingFxRates}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-lg shadow-emerald-600/25 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {savingFxRates ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>Save Live FX Rates</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search currency code (e.g. EUR, GBP, INR, AED, LKR, GEL, JPY)..."
+                  value={fxCurrencySearch}
+                  onChange={(e) => setFxCurrencySearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={syncHouseP2pOnSave}
+                  onChange={(e) => setSyncHouseP2pOnSave(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-500"
+                />
+                <span>Sync official @avorabank.com P2P liquidity ads when FX rates change</span>
+              </label>
+            </div>
+
+            {/* Add / Set Any Custom ISO Currency Rate */}
+            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                  Currency ISO Code
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  placeholder="e.g. CHF, BDT, TRY"
+                  value={newFxCode}
+                  onChange={(e) => setNewFxCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+                  className="w-32 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono uppercase outline-none focus:border-cyan-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                  Custom Rate (per 1 USD)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  placeholder="e.g. 0.9150"
+                  value={newFxRate}
+                  onChange={(e) => setNewFxRate(e.target.value)}
+                  className="w-44 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-cyan-500"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const code = newFxCode.trim().toUpperCase();
+                  const rateNum = parseFloat(newFxRate);
+                  if (!code || code === 'USD' || !Number.isFinite(rateNum) || rateNum <= 0) {
+                    showToast('Enter a valid non-USD currency code and positive rate.', 'error');
+                    return;
+                  }
+                  const updatedDraft = { ...fxDraftOverrides, [code]: String(rateNum) };
+                  setFxDraftOverrides(updatedDraft);
+                  setNewFxCode('');
+                  setNewFxRate('');
+                  handleSaveFxRates(
+                    Object.entries(updatedDraft).reduce((acc, [k, v]) => {
+                      const n = parseFloat(v);
+                      if (Number.isFinite(n) && n > 0) acc[k] = n;
+                      return acc;
+                    }, {} as Record<string, number | null>),
+                    true
+                  );
+                }}
+                className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold cursor-pointer"
+              >
+                + Set / Update Currency Rate
+              </button>
+            </div>
+
+            {/* Exchange Rates Table */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-800">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-950 text-slate-400 font-mono text-[10px] uppercase border-b border-slate-800">
+                    <th className="py-3 px-4">Currency</th>
+                    <th className="py-3 px-4">Live Market Feed (1 USD =)</th>
+                    <th className="py-3 px-4">Admin Custom Rate Override</th>
+                    <th className="py-3 px-4">Active Platform Rate</th>
+                    <th className="py-3 px-4 text-right">Quick Market Adjust</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70">
+                  {(() => {
+                    const pinnedOrder = [
+                      'EUR', 'GBP', 'INR', 'AED', 'LKR', 'GEL', 'CAD', 'AUD', 'SGD', 'CHF',
+                      'JPY', 'CNY', 'HKD', 'TRY', 'SAR', 'QAR', 'KWD', 'PKR', 'BDT', 'NGN',
+                      'KES', 'ZAR', 'BRL', 'MXN', 'THB', 'MYR', 'PHP', 'IDR', 'VND', 'KRW',
+                      'USDT',
+                    ];
+                    const allCodes = Array.from(
+                      new Set([
+                        ...pinnedOrder,
+                        ...Object.keys(adminRatesData?.overrides || {}),
+                        ...Object.keys(fxDraftOverrides),
+                        ...Object.keys(adminRatesData?.rates || {}),
+                      ])
+                    ).filter((c) => c !== 'USD');
+
+                    const query = fxCurrencySearch.trim().toUpperCase();
+                    const filteredCodes = query
+                      ? allCodes.filter((c) => c.includes(query))
+                      : allCodes.slice(0, 35);
+
+                    return filteredCodes.map((code) => {
+                      const marketRate = adminRatesData?.marketRates?.[code] ?? adminRatesData?.rates?.[code] ?? 1;
+                      const savedOverride = adminRatesData?.overrides?.[code];
+                      const draftVal = fxDraftOverrides[code] ?? '';
+                      const parsedDraft = parseFloat(draftVal);
+                      const hasOverride = draftVal.trim() !== '' && Number.isFinite(parsedDraft) && parsedDraft > 0;
+                      const effectiveRate = hasOverride ? parsedDraft : savedOverride || marketRate;
+
+                      return (
+                        <tr key={code} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2.5 px-4 font-mono font-black text-white">
+                            <div className="flex items-center gap-2">
+                              <span>{code}</span>
+                              {savedOverride ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  ADMIN OVERRIDE
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] bg-slate-800 text-slate-400">
+                                  LIVE FEED
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-4 font-mono text-slate-400">
+                            {Number(marketRate).toFixed(marketRate < 1 ? 6 : 4)} {code}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              placeholder={`Follow market (${Number(marketRate).toFixed(4)})`}
+                              value={draftVal}
+                              onChange={(e) =>
+                                setFxDraftOverrides((prev) => ({
+                                  ...prev,
+                                  [code]: e.target.value,
+                                }))
+                              }
+                              className="w-44 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-xs outline-none focus:border-cyan-500"
+                            />
+                          </td>
+                          <td className="py-2.5 px-4 font-mono font-bold text-emerald-400">
+                            1 USD = {Number(effectiveRate).toFixed(effectiveRate < 1 ? 6 : 4)} {code}
+                          </td>
+                          <td className="py-2.5 px-4 text-right space-x-1 whitespace-nowrap">
+                            {[-1, 1, 2].map((pct) => (
+                              <button
+                                key={pct}
+                                type="button"
+                                onClick={() => {
+                                  const base = Number(effectiveRate) || Number(marketRate) || 1;
+                                  const next = Number((base * (1 + pct / 100)).toFixed(base < 1 ? 6 : 4));
+                                  setFxDraftOverrides((prev) => ({ ...prev, [code]: String(next) }));
+                                }}
+                                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-cyan-600 text-slate-300 hover:text-white text-[10px] font-mono font-bold cursor-pointer"
+                              >
+                                {pct > 0 ? `+${pct}%` : `${pct}%`}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFxDraftOverrides((prev) => {
+                                  const copy = { ...prev };
+                                  delete copy[code];
+                                  return copy;
+                                });
+                              }}
+                              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-400 hover:text-white text-[10px] font-bold cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          </div>
         )}
 
         {/* TAB 1: TREASURY & LIQUIDITY */}

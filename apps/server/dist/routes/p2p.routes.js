@@ -13,7 +13,9 @@ router.use(auth_1.authenticateToken);
 /**
  * P2P Offers / Market Ads Management (Authenticated merchants only)
  */
+router.get('/my-offers', (req, res, next) => p2p_controller_1.p2pController.getMyOffers(req, res, next));
 router.post('/offers', (req, res, next) => p2p_controller_1.p2pController.createOffer(req, res, next));
+router.patch('/offers/:offerId', (req, res, next) => p2p_controller_1.p2pController.updateOffer(req, res, next));
 router.delete('/offers/:offerId', (req, res, next) => p2p_controller_1.p2pController.cancelOffer(req, res, next));
 /**
  * Preview recipient details with email masking & self-transfer block

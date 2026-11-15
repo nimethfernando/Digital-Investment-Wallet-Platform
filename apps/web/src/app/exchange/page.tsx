@@ -27,12 +27,33 @@ import {
   CheckCircle2,
   Ban,
   Loader2,
+  Sliders,
+  Plus,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
+
+const OTC_SETTLEMENT_PRESETS = [
+  'Physical Cash',
+  'Bank Transfer',
+  'Google Pay (GPay)',
+  'Apple Pay',
+  'Wise',
+  'Revolut',
+  'SEPA Instant',
+  'PayPal',
+  'UPI',
+  'Zelle',
+];
+
+interface CustomCurrencyRateEntry {
+  buyRate?: number | null;
+  sellRate?: number | null;
+}
 
 interface OtcDeskItem {
   id: string;
   deskCode: string;
+  userId?: string;
   deskName: string;
   country: string;
   countryCode: string;
@@ -44,6 +65,7 @@ interface OtcDeskItem {
   longitude?: number | null;
   supportedCurrencies: string[];
   settlementMethods: string[];
+  customRates?: Record<string, CustomCurrencyRateEntry>;
   securityDeposit: number | string;
   depositStatus: string;
   isOnline: boolean;
@@ -117,9 +139,25 @@ export default function ExchangeDeskPage() {
   const [locatingGps, setLocatingGps] = useState<boolean>(false);
   const [applyCurrencies, setApplyCurrencies] = useState<string>('USDT, LKR, USD');
   const [applyMethods, setApplyMethods] = useState<string>('Physical Cash, Bank Transfer');
+  const [applyBuyMargin, setApplyBuyMargin] = useState<string>('1.2');
+  const [applySellMargin, setApplySellMargin] = useState<string>('1.0');
   const [applyLoading, setApplyLoading] = useState<boolean>(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
+
+  // My OTC Desk Provider Live Rate Manager State
+  const [myDesk, setMyDesk] = useState<OtcDeskItem | null>(null);
+  const [manageDeskModalOpen, setManageDeskModalOpen] = useState<boolean>(false);
+  const [manageOnline, setManageOnline] = useState<boolean>(true);
+  const [manageBuyMargin, setManageBuyMargin] = useState<string>('1.0');
+  const [manageSellMargin, setManageSellMargin] = useState<string>('1.0');
+  const [manageCurrencies, setManageCurrencies] = useState<string>('USDT, USD');
+  const [manageMethodsList, setManageMethodsList] = useState<string[]>(['Physical Cash', 'Bank Transfer']);
+  const [manageNewMethodInput, setManageNewMethodInput] = useState<string>('');
+  const [manageCustomRates, setManageCustomRates] = useState<Record<string, { buyRate: string; sellRate: string }>>({});
+  const [manageSaving, setManageSaving] = useState<boolean>(false);
+  const [manageError, setManageError] = useState<string | null>(null);
+  const [manageSuccess, setManageSuccess] = useState<string | null>(null);
 
   // Quote & Chat Modal State
   const [chatModalOpen, setChatModalOpen] = useState<boolean>(false);
@@ -139,7 +177,7 @@ export default function ExchangeDeskPage() {
   const [releasing, setReleasing] = useState<boolean>(false);
   const [tradeActionLoading, setTradeActionLoading] = useState<boolean>(false);
 
-  // Benchmark Rates
+  // Benchmark Rates & Dynamic OTC Commission Structure (Default: 1.5% Broker + 0.5% Platform = 2.0%)
   const [baseRates, setBaseRates] = useState<Record<string, number>>({
     USD: 1.0,
     EUR: 0.896,
@@ -148,12 +186,21 @@ export default function ExchangeDeskPage() {
     GEL: 2.595,
     INR: 95.08,
   });
+  const [otcCommission, setOtcCommission] = useState<{
+    operatorFeePct: number;
+    platformFeePct: number;
+    totalFeePct: number;
+  }>({
+    operatorFeePct: 1.5,
+    platformFeePct: 0.5,
+    totalFeePct: 2.0,
+  });
   const [ratesLoading, setRatesLoading] = useState<boolean>(false);
   const [ratesSource, setRatesSource] = useState<string>('Live Market Feed');
 
   // Lock background page scroll cleanly while modal is open & allow Escape dismissal
   useEffect(() => {
-    const anyModalOpen = applyModalOpen || chatModalOpen;
+    const anyModalOpen = applyModalOpen || chatModalOpen || manageDeskModalOpen;
     const prevOverflow = document.body.style.overflow;
     if (anyModalOpen) {
       document.body.style.overflow = 'hidden';
@@ -165,6 +212,7 @@ export default function ExchangeDeskPage() {
       if (e.key === 'Escape') {
         if (applyModalOpen) setApplyModalOpen(false);
         if (chatModalOpen) setChatModalOpen(false);
+        if (manageDeskModalOpen) setManageDeskModalOpen(false);
       }
     };
     if (anyModalOpen) {
@@ -175,7 +223,7 @@ export default function ExchangeDeskPage() {
       document.body.style.overflow = prevOverflow || '';
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [applyModalOpen, chatModalOpen]);
+  }, [applyModalOpen, chatModalOpen, manageDeskModalOpen]);
 
   // Computed live Google Maps search query and embed URL for OTC application form
   const resolvedLocationQuery = useMemo(() => {
@@ -241,6 +289,13 @@ export default function ExchangeDeskPage() {
           ...prev,
           ...res.data.rates,
         }));
+        if (res.data.otcCommission) {
+          setOtcCommission({
+            operatorFeePct: Number(res.data.otcCommission.operatorFeePct ?? 1.5),
+            platformFeePct: Number(res.data.otcCommission.platformFeePct ?? 0.5),
+            totalFeePct: Number(res.data.otcCommission.totalFeePct ?? 2.0),
+          });
+        }
         if (res.data.source) setRatesSource(res.data.source);
         return;
       }
@@ -281,9 +336,9 @@ export default function ExchangeDeskPage() {
       ? baseRate * (1 + marginPct / 100)
       : baseRate * (1 - marginPct / 100);
 
-  const operatorCommission = calcAmount * 0.01;
-  const platformCommission = calcAmount * 0.005;
-  const totalCommission = calcAmount * 0.015;
+  const operatorCommission = calcAmount * (otcCommission.operatorFeePct / 100);
+  const platformCommission = calcAmount * (otcCommission.platformFeePct / 100);
+  const totalCommission = calcAmount * (otcCommission.totalFeePct / 100);
 
   const receiveAmount =
     calcDirection === 'BUY' ? calcAmount / effectiveRate : calcAmount * effectiveRate;
@@ -323,6 +378,90 @@ export default function ExchangeDeskPage() {
     }
   };
 
+  const fetchMyDesk = async () => {
+    if (!user) return;
+    try {
+      const res = await api.get('/otc/my-desk');
+      if (res.data?.success && res.data?.data) {
+        setMyDesk(res.data.data);
+      } else {
+        setMyDesk(null);
+      }
+    } catch {
+      setMyDesk(null);
+    }
+  };
+
+  const openManageDeskModal = (deskToManage: OtcDeskItem | null = myDesk) => {
+    if (!deskToManage) return;
+    setManageError(null);
+    setManageSuccess(null);
+    setManageOnline(Boolean(deskToManage.isOnline));
+    setManageBuyMargin(String(deskToManage.buyRateMarginPct ?? 1.0));
+    setManageSellMargin(String(deskToManage.sellRateMarginPct ?? 1.0));
+    setManageCurrencies((deskToManage.supportedCurrencies || ['USDT', 'USD']).join(', '));
+    setManageMethodsList(
+      Array.isArray(deskToManage.settlementMethods) && deskToManage.settlementMethods.length > 0
+        ? deskToManage.settlementMethods
+        : ['Physical Cash', 'Bank Transfer']
+    );
+    const rateDraft: Record<string, { buyRate: string; sellRate: string }> = {};
+    (deskToManage.supportedCurrencies || ['USD'])
+      .filter((c) => c !== 'USDT')
+      .forEach((c) => {
+        const cr = deskToManage.customRates?.[c] || {};
+        rateDraft[c] = {
+          buyRate: cr.buyRate ? String(cr.buyRate) : '',
+          sellRate: cr.sellRate ? String(cr.sellRate) : '',
+        };
+      });
+    setManageCustomRates(rateDraft);
+    setManageDeskModalOpen(true);
+  };
+
+  const handleSaveMyDeskRates = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setManageSaving(true);
+    setManageError(null);
+    setManageSuccess(null);
+    try {
+      const parsedCurrencies = manageCurrencies
+        .split(',')
+        .map((c) => c.trim().toUpperCase())
+        .filter(Boolean);
+      const sanitizedRates: Record<string, { buyRate?: number | null; sellRate?: number | null }> = {};
+      Object.entries(manageCustomRates).forEach(([cur, pair]) => {
+        const b = pair.buyRate ? parseFloat(pair.buyRate) : null;
+        const s = pair.sellRate ? parseFloat(pair.sellRate) : null;
+        if ((b && Number.isFinite(b) && b > 0) || (s && Number.isFinite(s) && s > 0)) {
+          sanitizedRates[cur.toUpperCase()] = {
+            ...(b && b > 0 ? { buyRate: b } : {}),
+            ...(s && s > 0 ? { sellRate: s } : {}),
+          };
+        }
+      });
+
+      const res = await api.patch('/otc/my-desk', {
+        isOnline: manageOnline,
+        buyRateMarginPct: parseFloat(manageBuyMargin) || 0,
+        sellRateMarginPct: parseFloat(manageSellMargin) || 0,
+        supportedCurrencies: parsedCurrencies.length > 0 ? parsedCurrencies : ['USDT', 'USD'],
+        settlementMethods: manageMethodsList.length > 0 ? manageMethodsList : ['Bank Transfer'],
+        customRates: sanitizedRates,
+      });
+
+      if (res.data?.success) {
+        setMyDesk(res.data.data);
+        setManageSuccess('Your OTC Desk rates, margins & payment methods have been updated live!');
+        fetchDesks();
+      }
+    } catch (err: any) {
+      setManageError(extractErrorMessage(err, 'Failed to update OTC Desk rates.'));
+    } finally {
+      setManageSaving(false);
+    }
+  };
+
   useEffect(() => {
     fetchDesks();
   }, []);
@@ -330,8 +469,10 @@ export default function ExchangeDeskPage() {
   useEffect(() => {
     if (user) {
       fetchMyTrades();
+      fetchMyDesk();
     } else {
       setMyTrades([]);
+      setMyDesk(null);
     }
   }, [user]);
 
@@ -399,8 +540,8 @@ export default function ExchangeDeskPage() {
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean),
-        buyRateMarginPct: 1.2,
-        sellRateMarginPct: 1.0,
+        buyRateMarginPct: parseFloat(applyBuyMargin) || 1.2,
+        sellRateMarginPct: parseFloat(applySellMargin) || 1.0,
       });
 
       if (res.data.success) {
@@ -408,6 +549,7 @@ export default function ExchangeDeskPage() {
           'Congratulations! Your OTC Desk with verified Google Maps location has been activated and $1,000 security deposit is locked.'
         );
         fetchDesks();
+        fetchMyDesk();
         setTimeout(() => {
           setApplyModalOpen(false);
           setApplySuccess(null);
@@ -496,7 +638,7 @@ export default function ExchangeDeskPage() {
           {
             id: 'sys-1',
             senderName: 'Avora Security Escrow',
-            message: `Trade ${res.data.data.tradeCode} started. Escrow locked by Avora Bank. Commission: 1.0% Operator, 0.5% Avora Bank. You may now message the operator.`,
+            message: `Trade ${res.data.data.tradeCode} started. Escrow locked by Avora Bank. Commission: ${otcCommission.operatorFeePct}% OTC Broker, ${otcCommission.platformFeePct}% Avora Bank. You may now message the operator.`,
             createdAt: new Date().toISOString(),
           },
         ]);
@@ -552,7 +694,7 @@ export default function ExchangeDeskPage() {
             id: `sys-${Date.now()}`,
             senderName: 'Avora Security Escrow',
             message:
-              'Escrow released! Trade marked COMPLETED. Net crypto delivered to buyer and 1.0% operator commission distributed.',
+              `Escrow released! Trade marked COMPLETED. Net crypto delivered to buyer and ${otcCommission.operatorFeePct}% OTC Broker commission distributed.`,
             createdAt: new Date().toISOString(),
           },
         ]);
@@ -649,18 +791,28 @@ export default function ExchangeDeskPage() {
         </h1>
 
         <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base leading-relaxed max-w-3xl mx-auto">
-          Connect with verified OTC desk operators worldwide. Exchange USDT for local fiat currencies (LKR, AED, GEL, USD, EUR, INR) with guaranteed escrow protection, verified Google Maps locations, direct operator chat, and a transparent 1.5% commission model.
+          Connect with verified OTC desk operators worldwide. Exchange USDT for local fiat currencies (LKR, AED, GEL, USD, EUR, INR) with guaranteed escrow protection, verified Google Maps locations, direct operator chat, and a transparent {otcCommission.totalFeePct}% commission split ({otcCommission.operatorFeePct}% OTC Broker + {otcCommission.platformFeePct}% Avora Bank).
         </p>
 
         {/* Action CTAs */}
         <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-          <button
-            onClick={() => setApplyModalOpen(true)}
-            className="px-5 py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-lg flex items-center gap-2 transition-all cursor-pointer"
-          >
-            <ShieldCheck className="w-4 h-4" />
-            <span>Apply to Operate an OTC Desk ($1,000 Deposit)</span>
-          </button>
+          {myDesk ? (
+            <button
+              onClick={() => openManageDeskModal(myDesk)}
+              className="px-5 py-3 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg flex items-center gap-2 transition-all cursor-pointer"
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Manage My OTC Desk &amp; Live Rates ({myDesk.deskCode})</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setApplyModalOpen(true)}
+              className="px-5 py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-lg flex items-center gap-2 transition-all cursor-pointer"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Apply to Operate an OTC Desk ($1,000 Deposit)</span>
+            </button>
+          )}
 
           <Link
             href="/p2p"
@@ -671,6 +823,47 @@ export default function ExchangeDeskPage() {
           </Link>
         </div>
       </div>
+
+      {/* Operator Live Rate & Pricing Control Card (Shown directly on OTC section when user operates a desk) */}
+      {user && myDesk && (
+        <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-emerald-950/90 via-slate-900 to-slate-950 border border-emerald-500/40 text-white shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider border border-emerald-500/30">
+                My OTC Provider Desk • {myDesk.isOnline ? 'ONLINE' : 'OFFLINE'}
+              </span>
+              <span className="font-mono text-xs text-slate-400">{myDesk.deskCode}</span>
+            </div>
+            <h2 className="text-lg font-black text-white">{myDesk.deskName}</h2>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 font-mono">
+              <span>Buy Margin: <strong className="text-emerald-400">+{myDesk.buyRateMarginPct}%</strong></span>
+              <span>•</span>
+              <span>Sell Margin: <strong className="text-sky-400">-{myDesk.sellRateMarginPct}%</strong></span>
+              <span>•</span>
+              <span>
+                Custom Fixed Rates:{' '}
+                <strong className="text-amber-300">
+                  {myDesk.customRates && Object.keys(myDesk.customRates).length > 0
+                    ? Object.entries(myDesk.customRates)
+                        .map(([cur, p]) => `${cur}: ${p.buyRate || '-'} / ${p.sellRate || '-'}`)
+                        .join(' | ')
+                    : 'Following Live Market + Margins'}
+                </strong>
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => openManageDeskModal(myDesk)}
+              className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md flex items-center gap-2 cursor-pointer"
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Set &amp; Update My OTC Rates</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Guest Preview Notice */}
       {!user && (
@@ -912,8 +1105,45 @@ export default function ExchangeDeskPage() {
                       </div>
                     </div>
 
-                    {/* Supported Currencies & Settlement */}
-                    <div className="space-y-1.5 text-xs">
+                    {/* Supported Currencies & Live Desk Quote Preview */}
+                    <div className="space-y-2 text-xs">
+                      {(() => {
+                        const primaryCur =
+                          desk.supportedCurrencies.find((c) => c !== 'USDT' && c === calcFiatCurrency) ||
+                          desk.supportedCurrencies.find((c) => c !== 'USDT') ||
+                          'USD';
+                        const mkt = baseRates[primaryCur] || 1;
+                        const cr = desk.customRates?.[primaryCur];
+                        const buyPreview = cr?.buyRate ? cr.buyRate : mkt * (1 + Number(desk.buyRateMarginPct || 0) / 100);
+                        const sellPreview = cr?.sellRate ? cr.sellRate : mkt * (1 - Number(desk.sellRateMarginPct || 0) / 100);
+                        const isCustom = Boolean(cr?.buyRate || cr?.sellRate);
+                        return (
+                          <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="font-bold uppercase text-slate-500">
+                                Desk {primaryCur}/USDT Quote
+                              </span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded font-mono font-bold ${
+                                  isCustom
+                                    ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300'
+                                    : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                }`}
+                              >
+                                {isCustom ? 'Custom Rate' : `+${desk.buyRateMarginPct}% / -${desk.sellRateMarginPct}%`}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between font-mono text-[11px]">
+                              <span className="text-slate-600 dark:text-slate-300">
+                                Buy USDT: <strong className="text-slate-900 dark:text-white">{buyPreview.toFixed(4)} {primaryCur}</strong>
+                              </span>
+                              <span className="text-slate-600 dark:text-slate-300">
+                                Sell USDT: <strong className="text-emerald-600 dark:text-emerald-400">{sellPreview.toFixed(4)} {primaryCur}</strong>
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                       <div className="flex flex-wrap gap-1">
                         {desk.supportedCurrencies.map((curr) => (
                           <span
@@ -932,13 +1162,23 @@ export default function ExchangeDeskPage() {
                   </div>
 
                   {/* Action Button */}
-                  <button
-                    onClick={() => handleOpenQuoteModal(desk)}
-                    className="w-full py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Chat &amp; Request Quote</span>
-                  </button>
+                  {myDesk && desk.id === myDesk.id ? (
+                    <button
+                      onClick={() => openManageDeskModal(myDesk)}
+                      className="w-full py-3 rounded-2xl font-bold text-xs bg-amber-600 hover:bg-amber-500 text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <Sliders className="w-4 h-4" />
+                      <span>Update My Desk Rates &amp; Rails</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleOpenQuoteModal(desk)}
+                      className="w-full py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>Chat &amp; Request Quote</span>
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -947,7 +1187,7 @@ export default function ExchangeDeskPage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 2: LIVE QUOTE CALCULATOR & 1.5% COMMISSION BREAKDOWN */}
+      {/* SECTION 2: LIVE QUOTE CALCULATOR & DYNAMIC COMMISSION BREAKDOWN */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
         <div className="lg:col-span-7 p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
@@ -956,7 +1196,7 @@ export default function ExchangeDeskPage() {
               Institutional OTC Rate Calculator
             </h3>
             <p className="text-xs text-slate-500">
-              Calculate instant conversion rates with explicit 1.5% transparent platform commission
+              Calculate instant conversion rates with explicit {otcCommission.totalFeePct}% transparent commission ({otcCommission.operatorFeePct}% OTC Broker + {otcCommission.platformFeePct}% Avora Bank)
             </p>
           </div>
 
@@ -1072,20 +1312,20 @@ export default function ExchangeDeskPage() {
             <div className="flex items-center justify-between text-xs font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2">
               <span className="flex items-center gap-1.5">
                 <Percent className="w-4 h-4 text-emerald-500" />
-                Commission Structure (1.5% Total)
+                Commission Structure ({otcCommission.totalFeePct}% Total)
               </span>
               <span className="font-mono text-emerald-600">${totalCommission.toFixed(2)} USD</span>
             </div>
 
             <div className="space-y-1.5 text-xs">
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span>• 1.0% Allocated to OTC Desk Operator:</span>
+                <span>• {otcCommission.operatorFeePct}% Allocated to OTC Broker / Provider:</span>
                 <span className="font-mono font-bold text-slate-900 dark:text-white">
                   ${operatorCommission.toFixed(2)} USD
                 </span>
               </div>
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span>• 0.5% Allocated to Avora Bank Platform Wallet:</span>
+                <span>• {otcCommission.platformFeePct}% Allocated to Avora Bank Platform:</span>
                 <span className="font-mono font-bold text-slate-900 dark:text-white">
                   ${platformCommission.toFixed(2)} USD
                 </span>
@@ -1099,13 +1339,13 @@ export default function ExchangeDeskPage() {
           <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white border border-indigo-900/50 shadow-xl space-y-5">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-bold">
               <DollarSign className="w-3.5 h-3.5" />
-              <span>Earn 1.0% Commission Per Trade</span>
+              <span>Earn {otcCommission.operatorFeePct}% OTC Broker Commission Per Trade</span>
             </div>
 
             <h3 className="text-xl font-black">Operate an Avora OTC Desk in Your City</h3>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Register your physical counter or remote exchange desk in Colombo, Dubai, London, or any global city with a verified Google Maps pin and optional nearby landmark. Set your margins and earn 1.0% operator commission on every completed trade.
+              Register your physical counter or remote exchange desk in Colombo, Dubai, London, or any global city with a verified Google Maps pin and optional nearby landmark. Set your own exchange rates &amp; margins and earn {otcCommission.operatorFeePct}% OTC broker commission on every completed trade ({otcCommission.platformFeePct}% Avora Bank fee).
             </p>
 
             <div className="space-y-2 text-xs text-slate-300">
@@ -1189,7 +1429,7 @@ export default function ExchangeDeskPage() {
                     Apply to Operate an OTC Desk
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Earn 1.0% operator commission • $1,000 refundable deposit
+                    Earn {otcCommission.operatorFeePct}% OTC Broker commission • {otcCommission.totalFeePct}% total fee ({otcCommission.platformFeePct}% Avora Bank) • $1,000 refundable deposit
                   </p>
                 </div>
               </div>
@@ -1395,16 +1635,68 @@ export default function ExchangeDeskPage() {
 
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Settlement Rails (Comma separated) <span className="text-rose-500">*</span>
+                    Settlement Rails (Click to toggle presets or edit comma-separated) <span className="text-rose-500">*</span>
                   </label>
+                  <div className="flex flex-wrap gap-1.5 my-1.5">
+                    {OTC_SETTLEMENT_PRESETS.map((preset) => {
+                      const currentList = applyMethods.split(',').map((s) => s.trim()).filter(Boolean);
+                      const isActive = currentList.some((m) => m.toLowerCase() === preset.toLowerCase());
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            const next = isActive
+                              ? currentList.filter((m) => m.toLowerCase() !== preset.toLowerCase())
+                              : [...currentList, preset];
+                            setApplyMethods(next.join(', '));
+                          }}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                            isActive
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      );
+                    })}
+                  </div>
                   <input
                     type="text"
                     required
-                    placeholder="Cash Office Pickup, CEFTS, Bank Transfer"
+                    placeholder="Cash Office Pickup, Bank Transfer, Google Pay, Apple Pay"
                     value={applyMethods}
                     onChange={(e) => setApplyMethods(e.target.value)}
                     className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Initial Buy USDT Margin (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={applyBuyMargin}
+                      onChange={(e) => setApplyBuyMargin(e.target.value)}
+                      className="w-full mt-1 px-3 py-2 rounded-xl text-xs font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Initial Sell USDT Margin (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={applySellMargin}
+                      onChange={(e) => setApplySellMargin(e.target.value)}
+                      className="w-full mt-1 px-3 py-2 rounded-xl text-xs font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                    />
+                  </div>
                 </div>
 
                 <button
@@ -1583,7 +1875,8 @@ export default function ExchangeDeskPage() {
                       </div>
 
                       <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Fee breakdown: 1.0% Operator (${activeQuote.operatorFee}) + 0.5% Avora Bank (${activeQuote.platformFee})
+                        {activeQuote.feeBreakdown ||
+                          `Fee breakdown: ${activeQuote.operatorFeePct ?? otcCommission.operatorFeePct}% OTC Broker ($${activeQuote.operatorFee}) + ${activeQuote.platformFeePct ?? otcCommission.platformFeePct}% Avora Bank ($${activeQuote.platformFee})`}
                       </div>
 
                       <button
@@ -1701,6 +1994,296 @@ export default function ExchangeDeskPage() {
                   </form>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 3: MANAGE MY OTC DESK RATES, MARGINS & PAYMENT RAILS */}
+      {/* ========================================================================= */}
+      {manageDeskModalOpen && myDesk && (
+        <div
+          onClick={() => setManageDeskModalOpen(false)}
+          className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-slate-950/75 backdrop-blur-sm p-3 sm:p-6 flex items-start sm:items-center justify-center animate-in fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="my-auto w-full max-w-2xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[90dvh] flex flex-col rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
+          >
+            <div className="shrink-0 px-5 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-emerald-500" />
+                  <span>Manage My OTC Desk Rates &amp; Pricing ({myDesk.deskCode})</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Commission split: {otcCommission.totalFeePct}% Total ({otcCommission.operatorFeePct}% to your OTC Broker wallet + {otcCommission.platformFeePct}% to Avora Bank)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setManageDeskModalOpen(false)}
+                className="p-2 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-6 py-5">
+              {manageError && (
+                <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300">
+                  {manageError}
+                </div>
+              )}
+              {manageSuccess && (
+                <div className="mb-4 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900 text-xs text-emerald-700 dark:text-emerald-300 font-semibold">
+                  {manageSuccess}
+                </div>
+              )}
+
+              <form onSubmit={handleSaveMyDeskRates} className="space-y-5 text-xs">
+                {/* Online Toggle & Margins */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase font-mono">
+                      Desk Availability
+                    </label>
+                    <select
+                      value={manageOnline ? 'true' : 'false'}
+                      onChange={(e) => setManageOnline(e.target.value === 'true')}
+                      className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold"
+                    >
+                      <option value="true">Online (Live Quotes)</option>
+                      <option value="false">Offline (Paused)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase font-mono">
+                      Default Buy USDT Margin (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={manageBuyMargin}
+                      onChange={(e) => setManageBuyMargin(e.target.value)}
+                      className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase font-mono">
+                      Default Sell USDT Margin (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={manageSellMargin}
+                      onChange={(e) => setManageSellMargin(e.target.value)}
+                      className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono font-bold"
+                    />
+                  </div>
+                </div>
+
+                {/* Supported Currencies */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Supported Currencies (Comma-separated ISO codes)
+                  </label>
+                  <input
+                    type="text"
+                    value={manageCurrencies}
+                    onChange={(e) => {
+                      setManageCurrencies(e.target.value);
+                      const list = e.target.value
+                        .split(',')
+                        .map((c) => c.trim().toUpperCase())
+                        .filter((c) => c && c !== 'USDT');
+                      setManageCustomRates((prev) => {
+                        const next = { ...prev };
+                        list.forEach((c) => {
+                          if (!next[c]) next[c] = { buyRate: '', sellRate: '' };
+                        });
+                        return next;
+                      });
+                    }}
+                    placeholder="USDT, USD, EUR, LKR, AED, GEL, INR"
+                    className="w-full mt-1 px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-mono font-bold"
+                  />
+                </div>
+
+                {/* Per-Currency Custom Provider Rates */}
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                  <div>
+                    <div className="text-xs font-black text-slate-900 dark:text-white">
+                      Custom Per-Currency Exchange Rates (1 USDT = Fiat)
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Set fixed custom Buy/Sell rates per currency as market conditions change, or leave blank to use Live Market Rate +/- your percentage margin.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {manageCurrencies
+                      .split(',')
+                      .map((c) => c.trim().toUpperCase())
+                      .filter((c) => c && c !== 'USDT')
+                      .map((cur) => {
+                        const mkt = baseRates[cur] || 1;
+                        const entry = manageCustomRates[cur] || { buyRate: '', sellRate: '' };
+                        return (
+                          <div
+                            key={cur}
+                            className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="font-mono font-black text-slate-900 dark:text-white">
+                                {cur} <span className="text-[11px] font-normal text-slate-400">(Market: {mkt.toFixed(4)})</span>
+                              </span>
+                              <div className="flex items-center gap-1">
+                                {[
+                                  { label: 'Market', bMul: 1, sMul: 1 },
+                                  { label: '±1%', bMul: 1.01, sMul: 0.99 },
+                                  { label: '±2%', bMul: 1.02, sMul: 0.98 },
+                                ].map((preset) => (
+                                  <button
+                                    key={preset.label}
+                                    type="button"
+                                    onClick={() =>
+                                      setManageCustomRates((prev) => ({
+                                        ...prev,
+                                        [cur]: {
+                                          buyRate: (mkt * preset.bMul).toFixed(4),
+                                          sellRate: (mkt * preset.sMul).toFixed(4),
+                                        },
+                                      }))
+                                    }
+                                    className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-emerald-600 hover:text-white text-[10px] font-mono font-bold cursor-pointer"
+                                  >
+                                    {preset.label}
+                                  </button>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setManageCustomRates((prev) => ({
+                                      ...prev,
+                                      [cur]: { buyRate: '', sellRate: '' },
+                                    }))
+                                  }
+                                  className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-rose-600 hover:text-white text-[10px] font-bold cursor-pointer"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2.5">
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500">
+                                  Buy USDT Custom Rate ({cur})
+                                </label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  placeholder={`Auto (${(mkt * (1 + (parseFloat(manageBuyMargin) || 0) / 100)).toFixed(4)})`}
+                                  value={entry.buyRate}
+                                  onChange={(e) =>
+                                    setManageCustomRates((prev) => ({
+                                      ...prev,
+                                      [cur]: { ...(prev[cur] || { sellRate: '' }), buyRate: e.target.value },
+                                    }))
+                                  }
+                                  className="w-full mt-0.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono text-xs text-slate-900 dark:text-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500">
+                                  Sell USDT Custom Rate ({cur})
+                                </label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  placeholder={`Auto (${(mkt * (1 - (parseFloat(manageSellMargin) || 0) / 100)).toFixed(4)})`}
+                                  value={entry.sellRate}
+                                  onChange={(e) =>
+                                    setManageCustomRates((prev) => ({
+                                      ...prev,
+                                      [cur]: { ...(prev[cur] || { buyRate: '' }), sellRate: e.target.value },
+                                    }))
+                                  }
+                                  className="w-full mt-0.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono text-xs text-slate-900 dark:text-white"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+
+                {/* Settlement / Payment Methods */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Accepted Settlement / Payment Methods
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from(new Set([...OTC_SETTLEMENT_PRESETS, ...manageMethodsList])).map((method) => {
+                      const active = manageMethodsList.includes(method);
+                      return (
+                        <button
+                          key={method}
+                          type="button"
+                          onClick={() =>
+                            setManageMethodsList((prev) =>
+                              active ? prev.filter((m) => m !== method) : [...prev, method]
+                            )
+                          }
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer ${
+                            active
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          {method}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Add custom settlement method..."
+                      value={manageNewMethodInput}
+                      onChange={(e) => setManageNewMethodInput(e.target.value)}
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const trimmed = manageNewMethodInput.trim();
+                        if (!trimmed) return;
+                        if (!manageMethodsList.includes(trimmed)) {
+                          setManageMethodsList((prev) => [...prev, trimmed]);
+                        }
+                        setManageNewMethodInput('');
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={manageSaving}
+                  className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg cursor-pointer disabled:opacity-50"
+                >
+                  {manageSaving ? 'Saving Live OTC Desk Rates...' : 'Save Live OTC Desk Rates & Settings'}
+                </button>
+              </form>
             </div>
           </div>
         </div>

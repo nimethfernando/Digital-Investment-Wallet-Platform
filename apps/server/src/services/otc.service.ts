@@ -6,6 +6,13 @@ import { TransactionType, TransactionStatus } from '@prisma/client';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
+export interface CustomCurrencyRateEntry {
+  buyRate?: number | null;
+  sellRate?: number | null;
+}
+
+export type CustomCurrencyRatesMap = Record<string, CustomCurrencyRateEntry>;
+
 export interface ApplyOtcDeskParams {
   deskName: string;
   country: string;
@@ -20,6 +27,7 @@ export interface ApplyOtcDeskParams {
   settlementMethods: string[];
   buyRateMarginPct?: number;
   sellRateMarginPct?: number;
+  customRates?: CustomCurrencyRatesMap;
 }
 
 interface DeskMetaPayload {
@@ -29,6 +37,7 @@ interface DeskMetaPayload {
   longitude?: number | null;
   depositCurrency?: 'USD' | 'USDT';
   adminNotes?: string;
+  customRates?: CustomCurrencyRatesMap;
 }
 
 const DEFAULT_DESK_LOCATION_FALLBACKS: Record<
@@ -134,6 +143,7 @@ export class OtcService {
     const depositCurrency: 'USD' | 'USDT' =
       parsed.depositCurrency === 'USDT' ? 'USDT' : 'USD';
     const adminNotesText = (parsed.adminNotes || '').trim() || null;
+    const customRates = this.sanitizeCustomRates(parsed.customRates);
 
     return {
       landmark,
@@ -142,12 +152,45 @@ export class OtcService {
       longitude,
       depositCurrency,
       adminNotesText,
+      customRates,
       rawMeta: parsed,
     };
   }
 
+  private sanitizeCustomRates(raw: any): CustomCurrencyRatesMap {
+    const clean: CustomCurrencyRatesMap = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return clean;
+
+    for (const [currencyKey, entry] of Object.entries(raw)) {
+      const code = String(currencyKey || '').trim().toUpperCase();
+      if (!code || !entry || typeof entry !== 'object') continue;
+      const rawBuy = (entry as any).buyRate;
+      const rawSell = (entry as any).sellRate;
+      const buyRate =
+        rawBuy !== null && rawBuy !== undefined && rawBuy !== '' && Number.isFinite(Number(rawBuy)) && Number(rawBuy) > 0
+          ? Number(rawBuy)
+          : null;
+      const sellRate =
+        rawSell !== null && rawSell !== undefined && rawSell !== '' && Number.isFinite(Number(rawSell)) && Number(rawSell) > 0
+          ? Number(rawSell)
+          : null;
+
+      if (buyRate !== null || sellRate !== null) {
+        clean[code] = {
+          ...(buyRate !== null ? { buyRate } : {}),
+          ...(sellRate !== null ? { sellRate } : {}),
+        };
+      }
+    }
+    return clean;
+  }
+
   private encodeDeskLocationMeta(input: DeskMetaPayload, existingDesk?: any): string {
     const existing = existingDesk ? this.parseDeskLocationMeta(existingDesk).rawMeta : {};
+    const nextCustomRates =
+      input.customRates !== undefined
+        ? this.sanitizeCustomRates(input.customRates)
+        : this.sanitizeCustomRates(existing.customRates);
     const merged: DeskMetaPayload = {
       ...existing,
       ...(input.landmark !== undefined ? { landmark: input.landmark.trim() || undefined } : {}),
@@ -158,6 +201,7 @@ export class OtcService {
       ...(input.longitude !== undefined ? { longitude: this.parseCoord(input.longitude) } : {}),
       ...(input.depositCurrency !== undefined ? { depositCurrency: input.depositCurrency } : {}),
       ...(input.adminNotes !== undefined ? { adminNotes: input.adminNotes.trim() || undefined } : {}),
+      customRates: nextCustomRates,
     };
     return JSON.stringify(merged);
   }
@@ -209,6 +253,7 @@ export class OtcService {
       longitude: meta.longitude,
       depositCurrency: meta.depositCurrency,
       adminNotes: meta.adminNotesText,
+      customRates: meta.customRates,
       supportedCurrencies: this.parseStringList(d.supportedCurrencies, ['USD', 'USDT']),
       settlementMethods: this.parseStringList(d.settlementMethods, ['Bank Transfer']),
       securityDeposit: new Decimal(d.securityDeposit.toString()).toFixed(2),
@@ -545,6 +590,7 @@ export class OtcService {
             latitude: lat,
             longitude: lng,
             depositCurrency,
+            customRates: data.customRates,
           },
           existingDesk
         );
@@ -684,11 +730,32 @@ export class OtcService {
   }
 
   /**
+   * Read dynamic OTC commission split from CmsSetting (Default: 1.5% OTC Broker/Provider + 0.5% Avora Bank Platform = 2.0% Total)
+   */
+  async getOtcCommissionConfig(): Promise<{
+    operatorFeePct: number;
+    platformFeePct: number;
+    totalFeePct: number;
+  }> {
+    const [opSetting, platSetting] = await Promise.all([
+      prisma.cmsSetting.findUnique({ where: { key: 'otc_operator_fee_percent' } }).catch(() => null),
+      prisma.cmsSetting.findUnique({ where: { key: 'otc_platform_fee_percent' } }).catch(() => null),
+    ]);
+
+    const parsedOp = parseFloat(opSetting?.value ?? '1.5');
+    const parsedPlat = parseFloat(platSetting?.value ?? '0.5');
+    const operatorFeePct = Number.isFinite(parsedOp) && parsedOp >= 0 ? parsedOp : 1.5;
+    const platformFeePct = Number.isFinite(parsedPlat) && parsedPlat >= 0 ? parsedPlat : 0.5;
+    const totalFeePct = Number((operatorFeePct + platformFeePct).toFixed(4));
+
+    return { operatorFeePct, platformFeePct, totalFeePct };
+  }
+
+  /**
    * Request / Generate an OTC Quote
-   * Commission Structure:
-   *  - Total Commission: 1.5%
-   *    - 1.0% allocated to OTC Operator
-   *    - 0.5% allocated to Avora Bank Platform Treasury
+   * Commission Structure (Admin-configurable, Default 2.0% Total):
+   *  - 1.5% allocated to OTC Broker/Provider
+   *  - 0.5% allocated to Avora Bank Platform Treasury
    */
   async requestQuote(
     customerId: string,
@@ -720,21 +787,37 @@ export class OtcService {
     }
 
     const fiatCur = params.fiatCurrency.toUpperCase();
-    const benchmarkRate = await rateService.getRate(fiatCur);
+    const [benchmarkRate, commission] = await Promise.all([
+      rateService.getRate(fiatCur),
+      this.getOtcCommissionConfig(),
+    ]);
+
+    const meta = this.parseDeskLocationMeta(desk);
+    const customEntry = meta.customRates?.[fiatCur];
+    const explicitCustomRate =
+      params.tradeType === 'BUY_USDT' ? customEntry?.buyRate : customEntry?.sellRate;
 
     const marginPct =
       params.tradeType === 'BUY_USDT'
         ? new Decimal(desk.buyRateMarginPct.toString())
         : new Decimal(desk.sellRateMarginPct.toString());
 
-    const effectiveRate =
-      params.tradeType === 'BUY_USDT'
-        ? new Decimal(benchmarkRate).times(new Decimal(1).plus(marginPct.div(100)))
-        : new Decimal(benchmarkRate).times(new Decimal(1).minus(marginPct.div(100)));
+    let rateMode: 'CUSTOM_PROVIDER_RATE' | 'MARKET_MARGIN' = 'MARKET_MARGIN';
+    let effectiveRate: Decimal;
+
+    if (explicitCustomRate && Number.isFinite(explicitCustomRate) && explicitCustomRate > 0) {
+      effectiveRate = new Decimal(explicitCustomRate);
+      rateMode = 'CUSTOM_PROVIDER_RATE';
+    } else {
+      effectiveRate =
+        params.tradeType === 'BUY_USDT'
+          ? new Decimal(benchmarkRate).times(new Decimal(1).plus(marginPct.div(100)))
+          : new Decimal(benchmarkRate).times(new Decimal(1).minus(marginPct.div(100)));
+    }
 
     const rawFiatAmount = cryptoAmtDec.times(effectiveRate);
-    const operatorFee = cryptoAmtDec.times(0.01);
-    const platformFee = cryptoAmtDec.times(0.005);
+    const operatorFee = cryptoAmtDec.times(new Decimal(commission.operatorFeePct).div(100));
+    const platformFee = cryptoAmtDec.times(new Decimal(commission.platformFeePct).div(100));
     const totalFee = operatorFee.plus(platformFee);
 
     const quoteCode = `QTE-${Date.now().toString().slice(-6)}`;
@@ -758,8 +841,6 @@ export class OtcService {
       },
     });
 
-    const meta = this.parseDeskLocationMeta(desk);
-
     return {
       id: quote.id,
       quoteCode: quote.quoteCode,
@@ -769,6 +850,8 @@ export class OtcService {
       landmark: meta.landmark,
       googleMapsUrl: meta.googleMapsUrl,
       tradeType: quote.tradeType,
+      rateMode,
+      benchmarkRate: new Decimal(benchmarkRate).toFixed(4),
       cryptoAmount: new Decimal(quote.cryptoAmount.toString()).toFixed(2),
       fiatAmount: new Decimal(quote.fiatAmount.toString()).toFixed(2),
       fiatCurrency: quote.fiatCurrency,
@@ -776,7 +859,10 @@ export class OtcService {
       operatorFee: new Decimal(quote.operatorFee.toString()).toFixed(4),
       platformFee: new Decimal(quote.platformFee.toString()).toFixed(4),
       totalFee: new Decimal(quote.totalFee.toString()).toFixed(4),
-      feeBreakdown: '1.0% Operator Commission + 0.5% Avora Bank Platform Fee (1.5% Total)',
+      operatorFeePct: commission.operatorFeePct,
+      platformFeePct: commission.platformFeePct,
+      totalFeePct: commission.totalFeePct,
+      feeBreakdown: `${commission.operatorFeePct}% OTC Broker/Provider + ${commission.platformFeePct}% Avora Bank Platform (${commission.totalFeePct}% Total)`,
       expiresAt: quote.expiresAt,
     };
   }
@@ -874,12 +960,20 @@ export class OtcService {
           },
         });
 
+        const opPctLabel = cryptoAmountDec.greaterThan(0)
+          ? new Decimal(quote.operatorFee.toString()).div(cryptoAmountDec).times(100).toFixed(2)
+          : '1.50';
+        const platPctLabel = cryptoAmountDec.greaterThan(0)
+          ? new Decimal(quote.platformFee.toString()).div(cryptoAmountDec).times(100).toFixed(2)
+          : '0.50';
+        const totalPctLabel = (parseFloat(opPctLabel) + parseFloat(platPctLabel)).toFixed(2);
+
         await tx.otcMessage.create({
           data: {
             tradeId: createdTrade.id,
             senderId: 'SYSTEM',
             senderName: 'Avora Security Escrow',
-            message: `Escrow for ${cryptoAmountDec.toFixed(2)} USDT has been secured by Avora Bank. Both parties may now communicate and arrange local settlement. Total Commission: 1.5% (1.0% Operator, 0.5% Platform).`,
+            message: `Escrow for ${cryptoAmountDec.toFixed(2)} USDT has been secured by Avora Bank. Both parties may now communicate and arrange local settlement. Total Commission: ${totalPctLabel}% (${opPctLabel}% OTC Broker, ${platPctLabel}% Platform).`,
           },
         });
 
@@ -1004,6 +1098,13 @@ export class OtcService {
           },
         });
 
+        const totalPctStr = cryptoAmountDec.greaterThan(0)
+          ? totalFeeDec.div(cryptoAmountDec).times(100).toFixed(2)
+          : '2.00';
+        const opPctStr = cryptoAmountDec.greaterThan(0)
+          ? operatorFeeDec.div(cryptoAmountDec).times(100).toFixed(2)
+          : '1.50';
+
         // Record immutable transaction history entries for buyer & operator
         await tx.transaction.create({
           data: {
@@ -1016,7 +1117,7 @@ export class OtcService {
             balanceBefore: buyerAvailBefore.toFixed(8),
             balanceAfter: buyerAvailAfter.toFixed(8),
             settlementReference: trade.tradeCode,
-            notes: `OTC trade ${trade.tradeCode} settled (${buyerNetCrypto.toFixed(2)} USDT net after 1.5% fee: ${operatorFeeDec.toFixed(2)} operator + ${platformFeeDec.toFixed(2)} platform)`,
+            notes: `OTC trade ${trade.tradeCode} settled (${buyerNetCrypto.toFixed(2)} USDT net after ${totalPctStr}% fee: ${operatorFeeDec.toFixed(2)} operator + ${platformFeeDec.toFixed(2)} platform)`,
           },
         });
 
@@ -1032,7 +1133,7 @@ export class OtcService {
               balanceBefore: opAvailBefore.toFixed(8),
               balanceAfter: opAvailAfter.toFixed(8),
               settlementReference: trade.tradeCode,
-              notes: `OTC Desk operator 1.0% commission credited for trade ${trade.tradeCode}`,
+              notes: `OTC Desk operator ${opPctStr}% commission credited for trade ${trade.tradeCode}`,
             },
           });
         }
@@ -1284,6 +1385,7 @@ export class OtcService {
       longitude?: number | string | null;
       settlementMethods?: string[];
       supportedCurrencies?: string[];
+      customRates?: CustomCurrencyRatesMap;
     }
   ) {
     const desk = await prisma.otcDesk.findUnique({ where: { userId } });
@@ -1291,10 +1393,10 @@ export class OtcService {
 
     const updateData: any = {};
     if (data.isOnline !== undefined) updateData.isOnline = data.isOnline;
-    if (data.buyRateMarginPct !== undefined) {
+    if (data.buyRateMarginPct !== undefined && Number.isFinite(Number(data.buyRateMarginPct))) {
       updateData.buyRateMarginPct = new Decimal(data.buyRateMarginPct).toFixed(4);
     }
-    if (data.sellRateMarginPct !== undefined) {
+    if (data.sellRateMarginPct !== undefined && Number.isFinite(Number(data.sellRateMarginPct))) {
       updateData.sellRateMarginPct = new Decimal(data.sellRateMarginPct).toFixed(4);
     }
     if (data.locationAddress !== undefined) {
@@ -1308,7 +1410,8 @@ export class OtcService {
       data.landmark !== undefined ||
       data.googleMapsUrl !== undefined ||
       data.latitude !== undefined ||
-      data.longitude !== undefined
+      data.longitude !== undefined ||
+      data.customRates !== undefined
     ) {
       if (data.googleMapsUrl && !/^https?:\/\//i.test(data.googleMapsUrl.trim())) {
         throw new Error('Google Maps link must be a valid https:// URL.');
@@ -1319,13 +1422,20 @@ export class OtcService {
           googleMapsUrl: data.googleMapsUrl,
           latitude: this.parseCoord(data.latitude),
           longitude: this.parseCoord(data.longitude),
+          customRates: data.customRates,
         },
         desk
       );
     }
-    if (data.settlementMethods) updateData.settlementMethods = JSON.stringify(data.settlementMethods);
-    if (data.supportedCurrencies) {
-      updateData.supportedCurrencies = JSON.stringify(data.supportedCurrencies);
+    if (Array.isArray(data.settlementMethods)) {
+      updateData.settlementMethods = JSON.stringify(
+        data.settlementMethods.map((m) => String(m).trim()).filter(Boolean)
+      );
+    }
+    if (Array.isArray(data.supportedCurrencies)) {
+      updateData.supportedCurrencies = JSON.stringify(
+        data.supportedCurrencies.map((c) => String(c).trim().toUpperCase()).filter(Boolean)
+      );
     }
 
     const updated = await prisma.otcDesk.update({
@@ -1442,6 +1552,7 @@ export class OtcService {
       landmark?: string;
       googleMapsUrl?: string;
       adminNotes?: string;
+      customRates?: CustomCurrencyRatesMap;
       depositAction?: 'REFUND' | 'FORFEIT';
     }
   ) {
@@ -1491,13 +1602,15 @@ export class OtcService {
         if (
           data.landmark !== undefined ||
           data.googleMapsUrl !== undefined ||
-          data.adminNotes !== undefined
+          data.adminNotes !== undefined ||
+          data.customRates !== undefined
         ) {
           updateData.adminNotes = this.encodeDeskLocationMeta(
             {
               landmark: data.landmark,
               googleMapsUrl: data.googleMapsUrl,
               adminNotes: data.adminNotes,
+              customRates: data.customRates,
             },
             freshDesk
           );
@@ -1778,6 +1891,9 @@ export class OtcService {
           });
 
           if (operatorFeeDec.greaterThan(0)) {
+            const adminOpPctStr = cryptoAmountDec.greaterThan(0)
+              ? operatorFeeDec.div(cryptoAmountDec).times(100).toFixed(2)
+              : '1.50';
             await tx.transaction.create({
               data: {
                 transactionCode: `OTCAF-${trade.tradeCode}-${Date.now().toString().slice(-4)}`,
@@ -1790,7 +1906,7 @@ export class OtcService {
                 balanceAfter: opAvailAfter.toFixed(8),
                 createdBy: adminId,
                 settlementReference: trade.tradeCode,
-                notes: `Admin ruling operator 1.0% commission on ${trade.tradeCode}`,
+                notes: `Admin ruling operator ${adminOpPctStr}% commission on ${trade.tradeCode}`,
               },
             });
           }

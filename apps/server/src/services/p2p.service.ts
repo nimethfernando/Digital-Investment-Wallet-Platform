@@ -735,12 +735,12 @@ export class P2PService {
   /**
    * List available P2P trade offers
    */
-  async getOffers(side?: 'BUY' | 'SELL', fiatCurrency?: string) {
+  async getOffers(side?: 'BUY' | 'SELL', fiatCurrency?: string, paymentMethod?: string) {
     await this.ensureP2PReady();
 
     const where: any = { status: P2POfferStatus.OPEN };
     if (side) where.side = side as P2PSide;
-    if (fiatCurrency && fiatCurrency !== 'ALL') where.fiatCurrency = fiatCurrency;
+    if (fiatCurrency && fiatCurrency !== 'ALL') where.fiatCurrency = fiatCurrency.toUpperCase();
 
     const offers = await prisma.p2POffer.findMany({
       where,
@@ -758,6 +758,58 @@ export class P2PService {
       orderBy: { createdAt: 'desc' },
     });
 
+    let mapped = offers.map((o) => ({
+      id: o.id,
+      offerCode: o.offerCode,
+      side: o.side,
+      cryptoCurrency: o.cryptoCurrency,
+      fiatCurrency: o.fiatCurrency,
+      price: new Decimal(o.price.toString()).toFixed(2),
+      totalAmount: new Decimal(o.totalAmount.toString()).toFixed(2),
+      availableAmount: new Decimal(o.availableAmount.toString()).toFixed(2),
+      minLimit: new Decimal(o.minLimit.toString()).toFixed(2),
+      maxLimit: new Decimal(o.maxLimit.toString()).toFixed(2),
+      paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
+      paymentTerms: o.paymentTerms,
+      status: o.status,
+      trader: {
+        id: o.user.id,
+        name: `${o.user.firstName || 'Avora'} ${o.user.lastName || 'Trader'}`.trim(),
+        avatar: (o.user.firstName || 'T')[0].toUpperCase(),
+        isVerified: o.user.kycStatus === 'APPROVED',
+        completionRate: '99.4%',
+        totalOrders: 650,
+      },
+      createdAt: o.createdAt,
+    }));
+
+    if (paymentMethod && paymentMethod.trim() && paymentMethod.toUpperCase() !== 'ALL') {
+      const target = paymentMethod.trim().toLowerCase();
+      mapped = mapped.filter((o) =>
+        o.paymentMethods.some((m) => m.toLowerCase().includes(target))
+      );
+    }
+
+    return mapped;
+  }
+
+  /**
+   * List authenticated provider's own P2P Offers (OPEN & PAUSED)
+   */
+  async getMyOffers(userId: string) {
+    await this.ensureP2PReady();
+
+    const offers = await prisma.p2POffer.findMany({
+      where: {
+        userId,
+        status: { in: [P2POfferStatus.OPEN, P2POfferStatus.PAUSED] },
+      },
+      include: {
+        _count: { select: { orders: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
     return offers.map((o) => ({
       id: o.id,
       offerCode: o.offerCode,
@@ -771,16 +823,133 @@ export class P2PService {
       maxLimit: new Decimal(o.maxLimit.toString()).toFixed(2),
       paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
       paymentTerms: o.paymentTerms,
-      trader: {
-        id: o.user.id,
-        name: `${o.user.firstName || 'Avora'} ${o.user.lastName || 'Trader'}`.trim(),
-        avatar: (o.user.firstName || 'T')[0].toUpperCase(),
-        isVerified: o.user.kycStatus === 'APPROVED',
-        completionRate: '99.4%',
-        totalOrders: 650,
-      },
+      status: o.status,
+      orderCount: o._count?.orders ?? 0,
       createdAt: o.createdAt,
+      updatedAt: o.updatedAt,
     }));
+  }
+
+  /**
+   * Update a provider's active P2P Offer rate, payment methods, limits, liquidity or status in real time
+   */
+  async updateOffer(
+    userId: string,
+    offerId: string,
+    data: {
+      price?: number | string;
+      totalAmount?: number | string;
+      availableAmount?: number | string;
+      minLimit?: number | string;
+      maxLimit?: number | string;
+      paymentMethods?: string[];
+      paymentTerms?: string;
+      status?: 'OPEN' | 'PAUSED' | 'CANCELLED';
+    }
+  ) {
+    const [offer, actor] = await Promise.all([
+      prisma.p2POffer.findUnique({ where: { id: offerId } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
+    ]);
+
+    if (!offer) throw new Error('Offer not found.');
+    if (offer.userId !== userId && actor?.role !== 'ADMIN') {
+      throw new Error('Unauthorized to update this P2P offer.');
+    }
+
+    if (data.status === 'CANCELLED') {
+      return this.cancelOffer(offer.userId, offerId);
+    }
+
+    const updateData: any = {};
+
+    if (data.price !== undefined && data.price !== null && String(data.price).trim() !== '') {
+      const priceDec = new Decimal(data.price.toString());
+      if (priceDec.lessThanOrEqualTo(0)) {
+        throw new Error('Exchange rate price must be greater than zero.');
+      }
+      updateData.price = priceDec.toFixed(8);
+    }
+
+    const nextMinLimit =
+      data.minLimit !== undefined && data.minLimit !== null && String(data.minLimit).trim() !== ''
+        ? new Decimal(data.minLimit.toString())
+        : new Decimal(offer.minLimit.toString());
+    const nextMaxLimit =
+      data.maxLimit !== undefined && data.maxLimit !== null && String(data.maxLimit).trim() !== ''
+        ? new Decimal(data.maxLimit.toString())
+        : new Decimal(offer.maxLimit.toString());
+
+    if (nextMinLimit.lessThanOrEqualTo(0)) {
+      throw new Error('Minimum order limit must be greater than zero.');
+    }
+    if (nextMaxLimit.lessThan(nextMinLimit)) {
+      throw new Error('Maximum order limit cannot be lower than minimum order limit.');
+    }
+    if (data.minLimit !== undefined) updateData.minLimit = nextMinLimit.toFixed(8);
+    if (data.maxLimit !== undefined) updateData.maxLimit = nextMaxLimit.toFixed(8);
+
+    if (data.availableAmount !== undefined && data.availableAmount !== null && String(data.availableAmount).trim() !== '') {
+      const availDec = new Decimal(data.availableAmount.toString());
+      if (availDec.lessThan(0)) {
+        throw new Error('Available liquidity cannot be negative.');
+      }
+      updateData.availableAmount = availDec.toFixed(8);
+      if (data.totalAmount === undefined && availDec.greaterThan(new Decimal(offer.totalAmount.toString()))) {
+        updateData.totalAmount = availDec.toFixed(8);
+      }
+    }
+
+    if (data.totalAmount !== undefined && data.totalAmount !== null && String(data.totalAmount).trim() !== '') {
+      const totalDec = new Decimal(data.totalAmount.toString());
+      if (totalDec.lessThanOrEqualTo(0)) {
+        throw new Error('Total liquidity must be greater than zero.');
+      }
+      updateData.totalAmount = totalDec.toFixed(8);
+    }
+
+    if (data.paymentMethods !== undefined) {
+      const cleanMethods = Array.isArray(data.paymentMethods)
+        ? data.paymentMethods.map((m) => String(m).trim()).filter(Boolean)
+        : [];
+      if (cleanMethods.length === 0) {
+        throw new Error('At least one payment method must be selected.');
+      }
+      updateData.paymentMethods = JSON.stringify(Array.from(new Set(cleanMethods)));
+    }
+
+    if (data.paymentTerms !== undefined) {
+      updateData.paymentTerms = String(data.paymentTerms).trim() || null;
+    }
+
+    if (data.status && (data.status === 'OPEN' || data.status === 'PAUSED')) {
+      updateData.status = data.status === 'OPEN' ? P2POfferStatus.OPEN : P2POfferStatus.PAUSED;
+    }
+
+    const updated = await prisma.p2POffer.update({
+      where: { id: offerId },
+      data: updateData,
+    });
+
+    return {
+      success: true,
+      message: `P2P Ad ${updated.offerCode} updated successfully.`,
+      offer: {
+        id: updated.id,
+        offerCode: updated.offerCode,
+        side: updated.side,
+        cryptoCurrency: updated.cryptoCurrency,
+        fiatCurrency: updated.fiatCurrency,
+        price: new Decimal(updated.price.toString()).toFixed(2),
+        totalAmount: new Decimal(updated.totalAmount.toString()).toFixed(2),
+        availableAmount: new Decimal(updated.availableAmount.toString()).toFixed(2),
+        minLimit: new Decimal(updated.minLimit.toString()).toFixed(2),
+        maxLimit: new Decimal(updated.maxLimit.toString()).toFixed(2),
+        paymentMethods: this.safeParsePaymentMethods(updated.paymentMethods),
+        paymentTerms: updated.paymentTerms,
+        status: updated.status,
+      },
+    };
   }
 
   /**

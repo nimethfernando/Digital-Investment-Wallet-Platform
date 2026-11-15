@@ -10,21 +10,35 @@ export class OtcController {
    */
   async getRates(req: Request, res: Response, next: NextFunction) {
     try {
-      const [data, marginSetting, feeSetting] = await Promise.all([
+      const [data, marginSetting, feeSetting, otcCommission, wdFeeSetting, wdSpreadSetting] = await Promise.all([
         rateService.getLiveRates(),
         prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
         prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
+        otcService.getOtcCommissionConfig(),
+        prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fee_percent' } }).catch(() => null),
+        prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fx_spread_percent' } }).catch(() => null),
       ]);
       const marginPercent = parseFloat(marginSetting?.value || '2.0');
       const feePercent = parseFloat(feeSetting?.value || '3.0');
+      const withdrawalFeePct = parseFloat(wdFeeSetting?.value || '0.0');
+      const withdrawalFxSpreadPct = parseFloat(wdSpreadSetting?.value || '0.0');
 
       res.json({
         success: true,
+        base: data.base,
+        timestamp: data.timestamp,
         source: data.source,
         lastUpdated: data.lastUpdated,
         marginPercent,
         feePercent,
         rates: data.rates,
+        marketRates: data.marketRates,
+        overrides: data.overrides,
+        otcCommission,
+        withdrawalConfig: {
+          feePct: Number.isFinite(withdrawalFeePct) && withdrawalFeePct >= 0 ? withdrawalFeePct : 0,
+          fxSpreadPct: Number.isFinite(withdrawalFxSpreadPct) && withdrawalFxSpreadPct >= 0 ? withdrawalFxSpreadPct : 0,
+        },
       });
     } catch (err) {
       next(err);
@@ -70,6 +84,7 @@ export class OtcController {
         settlementMethods,
         buyRateMarginPct,
         sellRateMarginPct,
+        customRates,
       } = req.body;
 
       if (
@@ -103,6 +118,7 @@ export class OtcController {
         settlementMethods,
         buyRateMarginPct,
         sellRateMarginPct,
+        customRates,
       });
 
       res.status(201).json({

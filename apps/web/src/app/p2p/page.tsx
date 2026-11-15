@@ -42,6 +42,7 @@ import {
   ChevronDown,
   ArrowRight,
   Headphones,
+  Sliders,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 
@@ -103,6 +104,27 @@ const COUNTRIES: CountryRail[] = [
     currency: 'USD',
     methods: ['ACH Transfer', 'Zelle', 'Domestic Wire', 'Cash App'],
   },
+];
+
+const GLOBAL_PAYMENT_METHODS = [
+  'Bank Transfer',
+  'Google Pay (GPay)',
+  'Apple Pay',
+  'Wise',
+  'Revolut',
+  'PayPal',
+  'SEPA Instant',
+  'Faster Payments (UK)',
+  'Zelle',
+  'ACH Transfer',
+  'Wire Transfer (SWIFT)',
+  'UPI',
+  'IMPS',
+  'Paytm',
+  'PhonePe',
+  'Cash App',
+  'Interac e-Transfer',
+  'Pix',
 ];
 
 interface P2POfferItem {
@@ -639,8 +661,11 @@ function P2PPageContent() {
   // P2P Market State
   const [marketSide, setMarketSide] = useState<'BUY' | 'SELL'>('BUY');
   const [selectedCountry, setSelectedCountry] = useState<CountryRail>(COUNTRIES[0]);
+  const [marketPaymentFilter, setMarketPaymentFilter] = useState<string>('ALL');
   const [offers, setOffers] = useState<P2POfferItem[]>([]);
   const [loadingOffers, setLoadingOffers] = useState(false);
+  const [myOffers, setMyOffers] = useState<any[]>([]);
+  const [loadingMyOffers, setLoadingMyOffers] = useState(false);
 
   // Orders State
   const [ordersMainTab, setOrdersMainTab] = useState<'ongoing' | 'fulfilled'>('ongoing');
@@ -715,6 +740,20 @@ function P2PPageContent() {
   const [newAdLoading, setNewAdLoading] = useState(false);
   const [newAdSuccess, setNewAdSuccess] = useState<string | null>(null);
   const [newAdError, setNewAdError] = useState<string | null>(null);
+  const [customMethodInput, setCustomMethodInput] = useState('');
+
+  // Edit Existing Ad Modal State
+  const [editingOffer, setEditingOffer] = useState<any | null>(null);
+  const [editAdPrice, setEditAdPrice] = useState('');
+  const [editAdMethods, setEditAdMethods] = useState<string[]>([]);
+  const [editAdNewMethod, setEditAdNewMethod] = useState('');
+  const [editAdAvailable, setEditAdAvailable] = useState('');
+  const [editAdMinLimit, setEditAdMinLimit] = useState('');
+  const [editAdMaxLimit, setEditAdMaxLimit] = useState('');
+  const [editAdTerms, setEditAdTerms] = useState('');
+  const [editAdStatus, setEditAdStatus] = useState<'OPEN' | 'PAUSED'>('OPEN');
+  const [editAdSaving, setEditAdSaving] = useState(false);
+  const [editAdError, setEditAdError] = useState<string | null>(null);
 
   // Keypad Handlers for Express matching Screenshot 3177171f
   const handleKeypadPress = (digit: string) => {
@@ -778,6 +817,7 @@ function P2PPageContent() {
     } else if (view === 'post-ad') {
       setBottomNav('ads');
       setActiveNav('post-ad');
+      fetchMyOffers();
     } else if (view === 'member') {
       setBottomNav('profile');
       setActiveNav('member');
@@ -921,6 +961,7 @@ function P2PPageContent() {
     if (user) {
       fetchMerchantStatus();
       fetchOrders();
+      fetchMyOffers();
     }
   }, [user]);
 
@@ -963,11 +1004,30 @@ function P2PPageContent() {
     }
   };
 
-  // Load Offers
+  // Load Offers & My Ads
+  const fetchMyOffers = async () => {
+    if (!user) return;
+    setLoadingMyOffers(true);
+    try {
+      const res = await api.get('/p2p/my-offers');
+      if (res.data?.success) {
+        setMyOffers(res.data.data || []);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch my P2P offers', e);
+    } finally {
+      setLoadingMyOffers(false);
+    }
+  };
+
   const fetchOffers = async () => {
     setLoadingOffers(true);
     try {
-      const res = await api.get(`/p2p/offers?side=${marketSide}&fiatCurrency=${selectedCountry.currency}`);
+      const methodQuery =
+        marketPaymentFilter && marketPaymentFilter !== 'ALL'
+          ? `&paymentMethod=${encodeURIComponent(marketPaymentFilter)}`
+          : '';
+      const res = await api.get(`/p2p/offers?side=${marketSide}&fiatCurrency=${selectedCountry.currency}${methodQuery}`);
       if (res.data?.success) {
         setOffers(res.data.data);
       }
@@ -980,7 +1040,7 @@ function P2PPageContent() {
 
   useEffect(() => {
     fetchOffers();
-  }, [marketSide, selectedCountry]);
+  }, [marketSide, selectedCountry, marketPaymentFilter]);
 
   const displayedOffers: P2POfferItem[] = (() => {
     const cur = selectedCountry.currency;
@@ -1043,7 +1103,14 @@ function P2PPageContent() {
       };
     });
 
-    return [...offers, deskListing, ...curatedOfflineListings];
+    const combined = [...offers, deskListing, ...curatedOfflineListings];
+    if (marketPaymentFilter && marketPaymentFilter !== 'ALL') {
+      const targetMethod = marketPaymentFilter.toLowerCase();
+      return combined.filter((item) =>
+        (item.paymentMethods || []).some((m) => m.toLowerCase().includes(targetMethod))
+      );
+    }
+    return combined;
   })();
 
   // Load Orders
@@ -1345,6 +1412,7 @@ function P2PPageContent() {
       if (res.data?.success) {
         setNewAdSuccess('Advertisement published successfully to the live P2P marketplace!');
         fetchOffers();
+        fetchMyOffers();
         setTimeout(() => {
           navigateTo('marketplace');
         }, 1200);
@@ -1353,6 +1421,77 @@ function P2PPageContent() {
       setNewAdError(extractErrorMessage(err, 'Failed to publish advertisement.'));
     } finally {
       setNewAdLoading(false);
+    }
+  };
+
+  const openEditOfferModal = (offer: any) => {
+    const cleanNum = (v: any) => String(v ?? '').replace(/,/g, '');
+    setEditingOffer(offer);
+    setEditAdPrice(cleanNum(offer.price));
+    setEditAdMethods(Array.isArray(offer.paymentMethods) && offer.paymentMethods.length > 0 ? offer.paymentMethods : ['Bank Transfer']);
+    setEditAdNewMethod('');
+    setEditAdAvailable(cleanNum(offer.availableAmount));
+    setEditAdMinLimit(cleanNum(offer.minLimit));
+    setEditAdMaxLimit(cleanNum(offer.maxLimit));
+    setEditAdTerms(offer.paymentTerms || '');
+    setEditAdStatus(offer.status === 'PAUSED' ? 'PAUSED' : 'OPEN');
+    setEditAdError(null);
+  };
+
+  const handleSaveEditedAd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOffer) return;
+    const priceNum = parseFloat(editAdPrice);
+    if (!priceNum || priceNum <= 0) {
+      setEditAdError('Please enter a valid positive exchange rate.');
+      return;
+    }
+
+    setEditAdSaving(true);
+    setEditAdError(null);
+    try {
+      const res = await api.patch(`/p2p/offers/${editingOffer.id}`, {
+        price: priceNum,
+        paymentMethods: editAdMethods.length > 0 ? editAdMethods : ['Bank Transfer'],
+        availableAmount: editAdAvailable ? parseFloat(editAdAvailable) : undefined,
+        minLimit: editAdMinLimit ? parseFloat(editAdMinLimit) : undefined,
+        maxLimit: editAdMaxLimit ? parseFloat(editAdMaxLimit) : undefined,
+        paymentTerms: editAdTerms,
+        status: editAdStatus,
+      });
+
+      if (res.data?.success) {
+        setEditingOffer(null);
+        await Promise.all([fetchMyOffers(), fetchOffers()]);
+      }
+    } catch (err: any) {
+      setEditAdError(extractErrorMessage(err, 'Failed to update advertisement.'));
+    } finally {
+      setEditAdSaving(false);
+    }
+  };
+
+  const handleToggleOfferStatus = async (offer: any) => {
+    const nextStatus = offer.status === 'PAUSED' ? 'OPEN' : 'PAUSED';
+    try {
+      const res = await api.patch(`/p2p/offers/${offer.id}`, { status: nextStatus });
+      if (res.data?.success) {
+        await Promise.all([fetchMyOffers(), fetchOffers()]);
+      }
+    } catch (err: any) {
+      alert(extractErrorMessage(err, 'Unable to change ad status.'));
+    }
+  };
+
+  const handleCancelMyOffer = async (offerId: string) => {
+    if (!confirm('Close this P2P advertisement and remove it from the marketplace?')) return;
+    try {
+      const res = await api.delete(`/p2p/offers/${offerId}`);
+      if (res.data?.success) {
+        await Promise.all([fetchMyOffers(), fetchOffers()]);
+      }
+    } catch (err: any) {
+      alert(extractErrorMessage(err, 'Unable to close advertisement.'));
     }
   };
 
@@ -2019,6 +2158,44 @@ function P2PPageContent() {
             </div>
           </div>
 
+          {/* Payment Method Filter Strip */}
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
+                <Sliders className="w-3.5 h-3.5 text-emerald-500" /> Payment Rail:
+              </span>
+              {['ALL', 'Bank Transfer', 'Google Pay (GPay)', 'Apple Pay', 'Wise', 'Revolut', 'PayPal', ...(selectedCountry.methods || []).slice(0, 2)].filter((v, i, arr) => arr.indexOf(v) === i).map((method) => {
+                const active = marketPaymentFilter === method;
+                return (
+                  <button
+                    key={method}
+                    type="button"
+                    onClick={() => setMarketPaymentFilter(method)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                      active
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {method === 'ALL' ? 'All Methods' : method}
+                  </button>
+                );
+              })}
+            </div>
+            <select
+              value={marketPaymentFilter}
+              onChange={(e) => setMarketPaymentFilter(e.target.value)}
+              className="px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+            >
+              <option value="ALL">All Payment Methods</option>
+              {Array.from(new Set([...(selectedCountry.methods || []), ...GLOBAL_PAYMENT_METHODS])).map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Offers Table */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
@@ -2053,6 +2230,37 @@ function P2PPageContent() {
               <div className="py-20 text-center text-xs text-slate-400 space-y-2">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto text-emerald-500" />
                 <span>Loading marketplace corridor...</span>
+              </div>
+            ) : displayedOffers.length === 0 ? (
+              <div className="py-16 px-4 text-center space-y-3">
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                  No P2P listings match {selectedCountry.currency} + &ldquo;{marketPaymentFilter}&rdquo;
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                  Clear the payment method filter or route a custom {selectedCountry.currency} request through our 24/7 Priority Settlement Desk.
+                </p>
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setMarketPaymentFilter('ALL')}
+                    className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+                  >
+                    Show All Methods
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openDeskConcierge({
+                        side: marketSide,
+                        currency: selectedCountry.currency,
+                        preferredMethod: marketPaymentFilter !== 'ALL' ? marketPaymentFilter : undefined,
+                      })
+                    }
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Contact P2P Desk
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2188,20 +2396,45 @@ function P2PPageContent() {
                         Request via Desk
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTradeError(null);
-                          setSelectedOfferForTrade(offer);
-                        }}
-                        className={`px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all shrink-0 cursor-pointer ${
-                          marketSide === 'BUY'
-                            ? 'bg-emerald-600 hover:bg-emerald-500'
-                            : 'bg-rose-600 hover:bg-rose-500'
-                        }`}
-                      >
-                        {marketSide === 'BUY' ? 'Buy USDT' : 'Sell USDT'}
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {user?.id && offer.trader.id === user.id ? (
+                          <button
+                            type="button"
+                            onClick={() => openEditOfferModal(offer)}
+                            className="px-4 py-2.5 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Sliders className="w-3.5 h-3.5" />
+                            <span>Edit Rate / Ad</span>
+                          </button>
+                        ) : (
+                          <>
+                            {user?.role === 'ADMIN' && (
+                              <button
+                                type="button"
+                                onClick={() => openEditOfferModal(offer)}
+                                className="px-3 py-2.5 rounded-xl font-bold text-xs bg-slate-100 dark:bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
+                                title="Admin Edit Offer Rate & Payment Methods"
+                              >
+                                Edit Rate
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTradeError(null);
+                                setSelectedOfferForTrade(offer);
+                              }}
+                              className={`px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all cursor-pointer ${
+                                marketSide === 'BUY'
+                                  ? 'bg-emerald-600 hover:bg-emerald-500'
+                                  : 'bg-rose-600 hover:bg-rose-500'
+                              }`}
+                            >
+                              {marketSide === 'BUY' ? 'Buy USDT' : 'Sell USDT'}
+                            </button>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -2666,9 +2899,22 @@ function P2PPageContent() {
 
               {/* Payment Methods */}
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Accepted Payment Methods</label>
-                <div className="flex flex-wrap gap-2">
-                  {(COUNTRIES.find((c) => c.currency === newAdCurrency)?.methods || ['Bank Transfer', 'Instant Wire', 'Local Cash']).map((method) => {
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold">
+                    Accepted Payment Methods (Multi-Select or Add Custom)
+                  </label>
+                  <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                    {newAdMethods.length} selected
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from(
+                    new Set([
+                      ...(COUNTRIES.find((c) => c.currency === newAdCurrency)?.methods || []),
+                      ...GLOBAL_PAYMENT_METHODS,
+                      ...newAdMethods,
+                    ])
+                  ).map((method) => {
                     const selected = newAdMethods.includes(method);
                     return (
                       <button
@@ -2679,9 +2925,9 @@ function P2PPageContent() {
                             prev.includes(method) ? (prev.length > 1 ? prev.filter((m) => m !== method) : prev) : [...prev, method]
                           )
                         }
-                        className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer border ${
+                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-colors cursor-pointer border ${
                           selected
-                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
                             : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white'
                         }`}
                       >
@@ -2690,22 +2936,72 @@ function P2PPageContent() {
                     );
                   })}
                 </div>
+                <div className="flex items-center gap-2 mt-2.5">
+                  <input
+                    type="text"
+                    value={customMethodInput}
+                    onChange={(e) => setCustomMethodInput(e.target.value)}
+                    placeholder="Add custom method (e.g. Stripe Link, Alipay, Venmo, Cash Deposit)"
+                    className="flex-1 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 text-xs outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const trimmed = customMethodInput.trim();
+                      if (!trimmed) return;
+                      if (!newAdMethods.includes(trimmed)) {
+                        setNewAdMethods((prev) => [...prev, trimmed]);
+                      }
+                      setCustomMethodInput('');
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold whitespace-nowrap cursor-pointer"
+                  >
+                    + Add Method
+                  </button>
+                </div>
               </div>
 
               {/* Unit Price */}
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
-                  Unit Exchange Rate ({newAdCurrency} per 1 USDT)
-                </label>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold">
+                    Unit Exchange Rate ({newAdCurrency} per 1 USDT)
+                  </label>
+                  <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                    Spot Market: {getCorridorSpotRate(newAdCurrency).toFixed(4)} {newAdCurrency}
+                  </span>
+                </div>
                 <input
                   type="number"
-                  step="0.01"
+                  step="any"
                   required
                   value={newAdPrice}
                   onChange={(e) => setNewAdPrice(e.target.value)}
                   placeholder="e.g. 305.50"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono font-bold outline-none"
                 />
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  {[
+                    { label: 'Match Spot', mult: 1.0 },
+                    { label: '-1.0%', mult: 0.99 },
+                    { label: '-0.5%', mult: 0.995 },
+                    { label: '+0.5%', mult: 1.005 },
+                    { label: '+1.0%', mult: 1.01 },
+                    { label: '+2.0%', mult: 1.02 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        const spot = getCorridorSpotRate(newAdCurrency);
+                        setNewAdPrice((spot * preset.mult).toFixed(spot >= 20 ? 2 : 4));
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-emerald-500/15 hover:text-emerald-600 dark:hover:text-emerald-400 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Total USDT Amount */}
@@ -2767,6 +3063,120 @@ function P2PPageContent() {
                 {newAdLoading ? 'Publishing Advertisement...' : 'Publish Advertisement to Marketplace'}
               </button>
             </form>
+          </div>
+
+          {/* My Active P2P Ads — Live Rate & Payment Method Manager */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-emerald-500" />
+                  <span>My Active P2P Ads — Live Rate &amp; Payment Method Manager</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Update your exchange rates, toggle Google Pay / Apple Pay / Bank Transfer rails, or pause listings in real time as market rates move.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={fetchMyOffers}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingMyOffers ? 'animate-spin' : ''}`} />
+                <span>Refresh Ads</span>
+              </button>
+            </div>
+
+            {loadingMyOffers ? (
+              <div className="py-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                <span>Loading your published P2P listings...</span>
+              </div>
+            ) : myOffers.length === 0 ? (
+              <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 text-center text-xs text-slate-500 dark:text-slate-400">
+                You have no active or paused P2P listings yet. Publish an advertisement above to manage live rates and accepted payment methods here.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {myOffers.map((ad) => (
+                  <div
+                    key={ad.id}
+                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
+                            ad.side === 'BUY'
+                              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+                          }`}
+                        >
+                          {ad.side === 'BUY' ? 'Taker Buys USDT' : 'Taker Sells USDT'}
+                        </span>
+                        <span className="font-mono text-xs font-bold text-slate-500 dark:text-slate-400">
+                          {ad.offerCode}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            ad.status === 'PAUSED'
+                              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                              : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
+                          {ad.status}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-baseline gap-3">
+                        <span className="text-lg font-black font-mono text-slate-900 dark:text-white">
+                          {Number(ad.price).toFixed(Number(ad.price) >= 20 ? 2 : 4)} {ad.fiatCurrency}
+                        </span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                          Avail: {Number(ad.availableAmount).toLocaleString()} {ad.cryptoCurrency} • Limits: {Number(ad.minLimit).toLocaleString()}–{Number(ad.maxLimit).toLocaleString()} {ad.fiatCurrency}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {(ad.paymentMethods || []).map((pm: string) => (
+                          <span
+                            key={pm}
+                            className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold text-slate-700 dark:text-slate-300"
+                          >
+                            {pm}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openEditOfferModal(ad)}
+                        className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-sm"
+                      >
+                        <Sliders className="w-3.5 h-3.5" />
+                        <span>Edit Rate &amp; Methods</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleOfferStatus(ad)}
+                        className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-bold cursor-pointer"
+                      >
+                        {ad.status === 'PAUSED' ? 'Resume' : 'Pause'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCancelMyOffer(ad.id)}
+                        className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-600 text-rose-600 dark:text-rose-400 hover:text-white text-xs font-bold cursor-pointer transition-colors"
+                      >
+                        Close Ad
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -3144,6 +3554,217 @@ function P2PPageContent() {
                 <span>{expressExecuting ? 'Starting Escrow...' : 'Confirm Order'}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------------- */}
+      {/* EDIT EXISTING P2P AD MODAL (Provider Rate & Payment Method Editor)   */}
+      {/* -------------------------------------------------------------------- */}
+      {editingOffer && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-lg w-full max-h-[90dvh] overflow-y-auto overscroll-contain space-y-5 text-white shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="font-extrabold text-base flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-emerald-400" />
+                  <span>Edit P2P Ad — {editingOffer.offerCode}</span>
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Update live exchange rate, payment methods, limits, or pause/resume visibility.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingOffer(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editAdError && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
+                {editAdError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEditedAd} className="space-y-4 text-xs">
+              {/* Unit Rate & Market Presets */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-bold text-slate-200">
+                    Unit Exchange Rate ({editingOffer.fiatCurrency} per 1 USDT)
+                  </label>
+                  <span className="font-mono text-[11px] text-slate-400">
+                    Spot: {getCorridorSpotRate(editingOffer.fiatCurrency).toFixed(4)}
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  value={editAdPrice}
+                  onChange={(e) => setEditAdPrice(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono font-bold outline-none focus:border-emerald-500"
+                />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {[
+                    { label: 'Match Spot', mult: 1.0 },
+                    { label: '-1.0%', mult: 0.99 },
+                    { label: '-0.5%', mult: 0.995 },
+                    { label: '+0.5%', mult: 1.005 },
+                    { label: '+1.0%', mult: 1.01 },
+                    { label: '+2.0%', mult: 1.02 },
+                  ].map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => {
+                        const spot = getCorridorSpotRate(editingOffer.fiatCurrency);
+                        setEditAdPrice((spot * p.mult).toFixed(spot >= 20 ? 2 : 4));
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-emerald-500/20 border border-slate-800 text-slate-300 hover:text-emerald-300 text-[11px] font-bold cursor-pointer"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Payment Methods */}
+              <div>
+                <label className="block font-bold text-slate-200 mb-1.5">
+                  Accepted Payment Methods ({editAdMethods.length} active)
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from(
+                    new Set([
+                      ...(COUNTRIES.find((c) => c.currency === editingOffer.fiatCurrency)?.methods || []),
+                      ...GLOBAL_PAYMENT_METHODS,
+                      ...editAdMethods,
+                    ])
+                  ).map((method) => {
+                    const active = editAdMethods.includes(method);
+                    return (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() =>
+                          setEditAdMethods((prev) =>
+                            prev.includes(method) ? (prev.length > 1 ? prev.filter((m) => m !== method) : prev) : [...prev, method]
+                          )
+                        }
+                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-emerald-600 text-white border-emerald-500'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        {method}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-2 mt-2.5">
+                  <input
+                    type="text"
+                    value={editAdNewMethod}
+                    onChange={(e) => setEditAdNewMethod(e.target.value)}
+                    placeholder="Add custom method (e.g. Stripe, Alipay, Venmo)"
+                    className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white placeholder:text-slate-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const trimmed = editAdNewMethod.trim();
+                      if (!trimmed) return;
+                      if (!editAdMethods.includes(trimmed)) {
+                        setEditAdMethods((prev) => [...prev, trimmed]);
+                      }
+                      setEditAdNewMethod('');
+                    }}
+                    className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer"
+                  >
+                    + Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Liquidity, Status & Order Limits */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-200 mb-1">Available Liquidity (USDT)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editAdAvailable}
+                    onChange={(e) => setEditAdAvailable(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-200 mb-1">Listing Status</label>
+                  <select
+                    value={editAdStatus}
+                    onChange={(e) => setEditAdStatus(e.target.value as 'OPEN' | 'PAUSED')}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-bold outline-none cursor-pointer"
+                  >
+                    <option value="OPEN">OPEN (Live in Marketplace)</option>
+                    <option value="PAUSED">PAUSED (Hidden Temporarily)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-200 mb-1">Min Order ({editingOffer.fiatCurrency})</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editAdMinLimit}
+                    onChange={(e) => setEditAdMinLimit(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-200 mb-1">Max Order ({editingOffer.fiatCurrency})</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editAdMaxLimit}
+                    onChange={(e) => setEditAdMaxLimit(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Terms */}
+              <div>
+                <label className="block font-bold text-slate-200 mb-1">Settlement Terms</label>
+                <textarea
+                  rows={2}
+                  value={editAdTerms}
+                  onChange={(e) => setEditAdTerms(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingOffer(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editAdSaving}
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {editAdSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>{editAdSaving ? 'Saving Updates...' : 'Save Live Rate & Methods'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -9,6 +9,7 @@ const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
 const auth_service_1 = require("./auth.service");
+const rate_service_1 = require("./rate.service");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class WithdrawalService {
@@ -142,6 +143,35 @@ class WithdrawalService {
                         ? 'Available USDT Wallet'
                         : 'Available USD Wallet';
         }
+        // 6. Compute Real-Time Currency Conversion & Withdrawal Pricing (Admin-controlled FX rates & fee/spread)
+        const [feeSetting, fxSpreadSetting] = await Promise.all([
+            prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fee_percent' } }).catch(() => null),
+            prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fx_spread_percent' } }).catch(() => null),
+        ]);
+        const feePct = Math.max(0, Number(feeSetting?.value || '0') || 0);
+        const fxSpreadPct = Math.max(0, Number(fxSpreadSetting?.value || '0') || 0);
+        const rawPayoutCurrency = String(normalizedDetails.payoutCurrency || normalizedDetails.currency || currency)
+            .trim()
+            .toUpperCase();
+        const payoutCurrency = params.payoutMethod === 'USDT_WALLET' ? 'USDT' : rawPayoutCurrency || currency;
+        const benchmarkRateNum = payoutCurrency === 'USD' || payoutCurrency === 'USDT'
+            ? 1.0
+            : await rate_service_1.rateService.getRate(payoutCurrency);
+        const benchmarkRateDec = new decimal_js_1.default(benchmarkRateNum || 1);
+        const effectiveRateDec = payoutCurrency === currency || (payoutCurrency === 'USDT' && currency === 'USDT')
+            ? new decimal_js_1.default(1)
+            : benchmarkRateDec.times(new decimal_js_1.default(1).minus(new decimal_js_1.default(fxSpreadPct).div(100)));
+        const withdrawalFeeAmount = amountDec.times(new decimal_js_1.default(feePct).div(100));
+        const netSettlementAmount = decimal_js_1.default.max(new decimal_js_1.default(0), amountDec.minus(withdrawalFeeAmount));
+        const estimatedPayoutAmount = netSettlementAmount.times(effectiveRateDec);
+        normalizedDetails.payoutCurrency = payoutCurrency;
+        normalizedDetails.benchmarkExchangeRate = Number(benchmarkRateDec.toFixed(6));
+        normalizedDetails.effectiveExchangeRate = Number(effectiveRateDec.toFixed(6));
+        normalizedDetails.withdrawalFeePct = feePct;
+        normalizedDetails.fxSpreadPct = fxSpreadPct;
+        normalizedDetails.withdrawalFeeAmount = withdrawalFeeAmount.toFixed(2);
+        normalizedDetails.netSettlementAmount = netSettlementAmount.toFixed(2);
+        normalizedDetails.estimatedPayoutAmount = estimatedPayoutAmount.toFixed(2);
         const requestCode = `WTH-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
         const idempotencyKey = `WTH-REQ-${userId}-${requestCode}`;
         const user = await prisma_1.prisma.user.findUnique({ where: { id: userId } });

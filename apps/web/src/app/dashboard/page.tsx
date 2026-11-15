@@ -316,6 +316,25 @@ function DashboardContent() {
   const [savedBankAccounts, setSavedBankAccounts] = useState<UserBankAccount[]>([]);
   const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
   const [saveBankOnWithdraw, setSaveBankOnWithdraw] = useState<boolean>(true);
+  const [wthPayoutCurrency, setWthPayoutCurrency] = useState<string>('USD');
+  const [wthFxRates, setWthFxRates] = useState<Record<string, number>>({
+    USD: 1,
+    EUR: 0.9,
+    GBP: 0.75,
+    AED: 3.6725,
+    INR: 86.4,
+    LKR: 298.5,
+    GEL: 2.78,
+    CAD: 1.38,
+    AUD: 1.54,
+    SGD: 1.32,
+    CHF: 0.89,
+    JPY: 152.3,
+  });
+  const [wthPricingConfig, setWthPricingConfig] = useState<{ feePct: number; fxSpreadPct: number }>({
+    feePct: 0,
+    fxSpreadPct: 0,
+  });
 
   // P2P Transfer Form State
   const [p2pRecipientInput, setP2PRecipientInput] = useState('');
@@ -550,6 +569,22 @@ function DashboardContent() {
       );
       setWthPackageId((firstMatured || packages[0]).id);
     }
+
+    // Fetch live Admin-controlled exchange rates & withdrawal pricing config
+    api
+      .get('/otc/rates')
+      .then((res) => {
+        if (res.data?.rates) {
+          setWthFxRates((prev) => ({ ...prev, ...res.data.rates }));
+        }
+        if (res.data?.withdrawalConfig) {
+          setWthPricingConfig({
+            feePct: Number(res.data.withdrawalConfig.feePct || 0),
+            fxSpreadPct: Number(res.data.withdrawalConfig.fxSpreadPct || 0),
+          });
+        }
+      })
+      .catch(() => {});
   }, [withdrawModalOpen]);
 
   const syncCustomerNotifications = async () => {
@@ -973,6 +1008,7 @@ function DashboardContent() {
         address: trimmedAddr,
         network: wthCryptoNetwork,
         networkLabel: wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain (BEP20)' : 'TRON Network (TRC20)',
+        payoutCurrency: 'USDT',
       };
     } else if (wthMethod === 'BANK_TRANSFER') {
       if (!wthBankName.trim() || !wthIban.trim() || !wthSwift.trim()) {
@@ -980,11 +1016,22 @@ function DashboardContent() {
         return;
       }
 
+      const targetCur = (wthPayoutCurrency || 'USD').toUpperCase();
+      const benchmarkFx = targetCur === 'USD' || targetCur === 'USDT' ? 1 : wthFxRates[targetCur] || 1;
+      const effectiveFx =
+        targetCur === effectiveCurrency
+          ? 1
+          : benchmarkFx * Math.max(0, 1 - (wthPricingConfig.fxSpreadPct || 0) / 100);
+      const netSource = Math.max(0, parsedAmount * (1 - (wthPricingConfig.feePct || 0) / 100));
+      const estLocalPayout = (netSource * effectiveFx).toFixed(2);
+
       payoutDetails = {
         ...payoutDetails,
         bankName: wthBankName.trim(),
         iban: wthIban.trim(),
         swift: wthSwift.trim(),
+        payoutCurrency: targetCur,
+        estimatedPayoutAmount: estLocalPayout,
         accountHolder: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : undefined,
       };
 
@@ -1006,10 +1053,10 @@ function DashboardContent() {
               swiftCode: wthSwift,
               routingNumber: wthSwift.length === 9 ? wthSwift : undefined,
               accountType: 'Checking',
-              currency: effectiveCurrency || 'USD',
+              currency: targetCur || effectiveCurrency || 'USD',
               payoutRail: wthSwift.length === 9 ? 'LOCAL' : 'SWIFT',
               bankCountry: 'United States',
-              nickname: `${wthBankName} (${effectiveCurrency})`,
+              nickname: `${wthBankName} (${targetCur || effectiveCurrency})`,
               isDefault: existingList.length === 0,
               createdAt: new Date().toISOString(),
             };
@@ -4300,6 +4347,9 @@ function DashboardContent() {
                               setWthBankName(acc.bankName);
                               setWthIban(acc.iban || acc.accountNumber);
                               setWthSwift(acc.swiftCode || acc.routingNumber || '');
+                              if (acc.currency) {
+                                setWthPayoutCurrency(acc.currency.toUpperCase());
+                              }
                             }
                           }
                         }}
@@ -4314,6 +4364,37 @@ function DashboardContent() {
                       </select>
                     </div>
                   )}
+
+                  {/* Target Payout Currency & Live Rate Selector */}
+                  <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                        Target Bank Payout Currency (Live Rate)
+                      </label>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold">
+                        {(() => {
+                          const cur = (wthPayoutCurrency || 'USD').toUpperCase();
+                          const rawRate = cur === 'USD' ? 1 : wthFxRates[cur] || 1;
+                          const effRate =
+                            cur === wthSelectedCurrency
+                              ? 1
+                              : rawRate * Math.max(0, 1 - (wthPricingConfig.fxSpreadPct || 0) / 100);
+                          return `1 ${wthSelectedCurrency} = ${effRate.toFixed(cur === 'JPY' || cur === 'INR' || cur === 'LKR' ? 2 : 4)} ${cur}`;
+                        })()}
+                      </span>
+                    </div>
+                    <select
+                      value={wthPayoutCurrency}
+                      onChange={(e) => setWthPayoutCurrency(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none cursor-pointer"
+                    >
+                      {['USD', 'EUR', 'GBP', 'AED', 'INR', 'LKR', 'GEL', 'CAD', 'AUD', 'SGD', 'CHF', 'JPY', 'HKD', 'TRY', 'BRL', 'MXN', 'ZAR', 'SAR', 'QAR'].map((code) => (
+                        <option key={code} value={code}>
+                          {code} — 1 {wthSelectedCurrency} = {(code === 'USD' ? 1 : wthFxRates[code] || 1).toFixed(4)} {code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-500 mb-1">Bank Name</label>
@@ -4511,6 +4592,44 @@ function DashboardContent() {
                     {(parseFloat(wthAmount || '0') || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wthSelectedCurrency}
                   </span>
                 </div>
+                {wthMethod === 'BANK_TRANSFER' && (() => {
+                  const rawAmt = parseFloat(wthAmount || '0') || 0;
+                  const targetCur = (wthPayoutCurrency || 'USD').toUpperCase();
+                  const baseRate = targetCur === 'USD' ? 1 : wthFxRates[targetCur] || 1;
+                  const effRate =
+                    targetCur === wthSelectedCurrency
+                      ? 1
+                      : baseRate * Math.max(0, 1 - (wthPricingConfig.fxSpreadPct || 0) / 100);
+                  const feeAmt = rawAmt * ((wthPricingConfig.feePct || 0) / 100);
+                  const netSourceAmt = Math.max(0, rawAmt - feeAmt);
+                  const convertedPayout = netSourceAmt * effRate;
+                  return (
+                    <>
+                      {(wthPricingConfig.feePct > 0 || wthPricingConfig.fxSpreadPct > 0) && (
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-slate-400">
+                            Pricing Fee / FX Spread ({wthPricingConfig.feePct}% fee + {wthPricingConfig.fxSpreadPct}% spread):
+                          </span>
+                          <span className="font-mono text-rose-400">
+                            -{feeAmt.toFixed(2)} {wthSelectedCurrency}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-slate-400">Applied Exchange Rate:</span>
+                        <span className="font-mono font-bold text-cyan-300">
+                          1 {wthSelectedCurrency} = {effRate.toFixed(4)} {targetCur}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs pt-1 border-t border-slate-800/70">
+                        <span className="text-slate-300 font-bold">Estimated Bank Payout:</span>
+                        <span className="font-mono font-black text-emerald-400">
+                          {convertedPayout.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {targetCur}
+                        </span>
+                      </div>
+                    </>
+                  );
+                })()}
                 <div className="flex justify-between text-[11px]">
                   <span className="text-slate-400">Remaining Source Balance:</span>
                   <span className="font-mono font-bold text-slate-200">

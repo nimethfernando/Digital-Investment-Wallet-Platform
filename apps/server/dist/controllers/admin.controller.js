@@ -17,6 +17,7 @@ const kyc_service_1 = require("../services/kyc.service");
 const p2p_service_1 = require("../services/p2p.service");
 const gmt_service_1 = require("../services/gmt.service");
 const otc_service_1 = require("../services/otc.service");
+const rate_service_1 = require("../services/rate.service");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class AdminController {
     /**
@@ -1231,8 +1232,13 @@ class AdminController {
                 startup_allocation_fee_percent: configMap['startup_allocation_fee_percent'] || '5.0',
                 startup_profit_share_percent: configMap['startup_profit_share_percent'] || '5.0',
                 otc_spread_percent: configMap['otc_spread_percent'] || '1.0',
+                otc_operator_fee_percent: configMap['otc_operator_fee_percent'] || '1.5',
+                otc_platform_fee_percent: configMap['otc_platform_fee_percent'] || '0.5',
+                withdrawal_fee_percent: configMap['withdrawal_fee_percent'] || '0.0',
+                withdrawal_fx_spread_percent: configMap['withdrawal_fx_spread_percent'] || '0.0',
                 p2p_fee_percent: configMap['p2p_fee_percent'] || '0.0',
                 virtual_card_issuance_fee: configMap['virtual_card_issuance_fee'] || '10.00',
+                admin_exchange_rate_overrides: configMap['admin_exchange_rate_overrides'] || '{}',
             };
             res.json({
                 success: true,
@@ -1253,8 +1259,35 @@ class AdminController {
             if (!settings || typeof settings !== 'object') {
                 return res.status(400).json({ success: false, message: 'Settings payload object required' });
             }
+            const allowedKeys = new Set([
+                'package_monthly_return_rate',
+                'package_lock_in_months',
+                'package_min_amount',
+                'package_max_amount',
+                'payout_day_of_month',
+                'withdrawal_processing_days',
+                'withdrawal_window_day',
+                'withdrawal_fee_percent',
+                'withdrawal_fx_spread_percent',
+                'razorpay_commission_percent',
+                'razorpay_gateway_fee_percent',
+                'razorpay_key_id',
+                'razorpay_webhook_secret',
+                'remittance_fee_percent',
+                'remittance_margin_percent',
+                'startup_allocation_fee_percent',
+                'startup_profit_share_percent',
+                'otc_spread_percent',
+                'otc_operator_fee_percent',
+                'otc_platform_fee_percent',
+                'p2p_fee_percent',
+                'virtual_card_issuance_fee',
+                'admin_exchange_rate_overrides',
+            ]);
             const updatedKeys = [];
             for (const [key, value] of Object.entries(settings)) {
+                if (!allowedKeys.has(key))
+                    continue;
                 if (value !== undefined && value !== null) {
                     let group = 'COMMISSION';
                     if (key.startsWith('package_') || key === 'payout_day_of_month')
@@ -1274,6 +1307,7 @@ class AdminController {
                     updatedKeys.push(key);
                 }
             }
+            rate_service_1.rateService.invalidateOverridesCache();
             await prisma_1.prisma.adminAuditLog.create({
                 data: {
                     userId: adminUserId,
@@ -2982,6 +3016,132 @@ class AdminController {
         }
         catch (err) {
             res.status(400).json({ success: false, message: err.message || 'Failed to resolve OTC trade' });
+        }
+    }
+    /**
+     * Admin: Get live exchange rates, market benchmark rates, active admin overrides & commission config
+     */
+    async getExchangeRates(req, res, next) {
+        try {
+            const [overview, feeSettings] = await Promise.all([
+                rate_service_1.rateService.getAdminRatesOverview(),
+                prisma_1.prisma.cmsSetting.findMany({
+                    where: {
+                        key: {
+                            in: [
+                                'otc_operator_fee_percent',
+                                'otc_platform_fee_percent',
+                                'withdrawal_fee_percent',
+                                'withdrawal_fx_spread_percent',
+                                'remittance_fee_percent',
+                                'remittance_margin_percent',
+                            ],
+                        },
+                    },
+                }),
+            ]);
+            const settingsMap = {};
+            feeSettings.forEach((s) => {
+                settingsMap[s.key] = s.value;
+            });
+            const operatorFeePct = parseFloat(settingsMap['otc_operator_fee_percent'] || '1.5');
+            const platformFeePct = parseFloat(settingsMap['otc_platform_fee_percent'] || '0.5');
+            res.json({
+                success: true,
+                data: {
+                    ...overview,
+                    pricing: {
+                        otcOperatorFeePct: operatorFeePct,
+                        otcPlatformFeePct: platformFeePct,
+                        otcTotalFeePct: Number((operatorFeePct + platformFeePct).toFixed(4)),
+                        withdrawalFeePct: parseFloat(settingsMap['withdrawal_fee_percent'] || '0.0'),
+                        withdrawalFxSpreadPct: parseFloat(settingsMap['withdrawal_fx_spread_percent'] || '0.0'),
+                        remittanceFeePct: parseFloat(settingsMap['remittance_fee_percent'] || '3.0'),
+                        remittanceMarginPct: parseFloat(settingsMap['remittance_margin_percent'] || '2.0'),
+                    },
+                },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Update real-time currency exchange rate overrides (for Remittance, OTC, P2P & Withdrawals)
+     */
+    async updateExchangeRates(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : undefined;
+            const { overrides, replaceAll, syncHouseP2pOffers } = req.body || {};
+            if (!overrides || typeof overrides !== 'object') {
+                return res.status(400).json({ success: false, message: 'Exchange rate overrides map is required' });
+            }
+            const updated = await rate_service_1.rateService.updateAdminRateOverrides(overrides, Boolean(replaceAll));
+            // Optionally sync default Avora house P2P offers when admin sets a new reference rate
+            let syncedOffersCount = 0;
+            if (syncHouseP2pOffers !== false) {
+                const touchedCurrencies = Object.keys(overrides).map((c) => c.trim().toUpperCase()).filter(Boolean);
+                if (touchedCurrencies.length > 0) {
+                    const houseOffers = await prisma_1.prisma.p2POffer.findMany({
+                        where: {
+                            offerCode: { startsWith: 'OFF-' },
+                            fiatCurrency: { in: touchedCurrencies },
+                            user: { email: { endsWith: '@avorabank.com' } },
+                            status: 'OPEN',
+                        },
+                    });
+                    for (const offer of houseOffers) {
+                        const effectiveRate = updated.rates[offer.fiatCurrency];
+                        if (!effectiveRate || effectiveRate <= 0)
+                            continue;
+                        // Maintain small market-making spread around Admin rate (BUY ads +0.5%, SELL ads -0.5%)
+                        const nextPrice = offer.side === 'BUY'
+                            ? new decimal_js_1.default(effectiveRate).times('1.005')
+                            : new decimal_js_1.default(effectiveRate).times('0.995');
+                        await prisma_1.prisma.p2POffer.update({
+                            where: { id: offer.id },
+                            data: { price: nextPrice.toFixed(4) },
+                        });
+                        syncedOffersCount += 1;
+                    }
+                }
+            }
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'UPDATE_EXCHANGE_RATES',
+                    entity: 'CmsSetting',
+                    details: JSON.stringify({
+                        updatedOverrides: overrides,
+                        replaceAll: Boolean(replaceAll),
+                        syncedOffersCount,
+                    }),
+                },
+            });
+            res.json({
+                success: true,
+                message: `Live platform exchange rates updated (${Object.keys(updated.overrides).length} active overrides${syncedOffersCount ? `, synced ${syncedOffersCount} house P2P ads` : ''}).`,
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Force refresh upstream market exchange rate feed while preserving admin overrides
+     */
+    async refreshExchangeRates(req, res, next) {
+        try {
+            const updated = await rate_service_1.rateService.forceRefreshMarketRates();
+            res.json({
+                success: true,
+                message: 'Live upstream market exchange rates refreshed.',
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
         }
     }
 }

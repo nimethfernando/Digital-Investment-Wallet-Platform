@@ -31,6 +31,7 @@ interface AdminOtcTabProps {
   admin2FaCode?: string;
   onRefresh: () => void;
   onFeedback: (feedback: { text: string; type: 'success' | 'error' } | null) => void;
+  onOpenRatesConfig?: () => void;
 }
 
 export default function AdminOtcTab({
@@ -41,11 +42,28 @@ export default function AdminOtcTab({
   admin2FaCode,
   onRefresh,
   onFeedback,
+  onOpenRatesConfig,
 }: AdminOtcTabProps) {
   const [subTab, setSubTab] = useState<'DESKS' | 'TRADES'>('DESKS');
   const [search, setSearch] = useState('');
   const [deskStatusFilter, setDeskStatusFilter] = useState('ALL');
   const [tradeStatusFilter, setTradeStatusFilter] = useState('ALL');
+  const [otcCommission, setOtcCommission] = useState<{ operatorFeePct: number; platformFeePct: number; totalFeePct: number }>({
+    operatorFeePct: 1.5,
+    platformFeePct: 0.5,
+    totalFeePct: 2.0,
+  });
+
+  React.useEffect(() => {
+    api
+      .get('/otc/rates')
+      .then((res) => {
+        if (res.data?.otcCommission) {
+          setOtcCommission(res.data.otcCommission);
+        }
+      })
+      .catch(() => {});
+  }, [desks.length]);
 
   // Desk Edit & Governance Modal
   const [editDeskModalOpen, setEditDeskModalOpen] = useState(false);
@@ -54,6 +72,7 @@ export default function AdminOtcTab({
   const [editIsOnline, setEditIsOnline] = useState(true);
   const [editBuyMargin, setEditBuyMargin] = useState('1.0');
   const [editSellMargin, setEditSellMargin] = useState('1.0');
+  const [editCustomRates, setEditCustomRates] = useState<Record<string, { buyRate?: string; sellRate?: string }>>({});
   const [editAddress, setEditAddress] = useState('');
   const [editLandmark, setEditLandmark] = useState('');
   const [editGoogleMapsUrl, setEditGoogleMapsUrl] = useState('');
@@ -77,6 +96,16 @@ export default function AdminOtcTab({
     setEditIsOnline(Boolean(desk.isOnline));
     setEditBuyMargin(String(desk.buyRateMarginPct ?? 1.0));
     setEditSellMargin(String(desk.sellRateMarginPct ?? 1.0));
+    const draftRates: Record<string, { buyRate?: string; sellRate?: string }> = {};
+    const curs: string[] = Array.isArray(desk.supportedCurrencies) ? desk.supportedCurrencies : ['USD'];
+    curs.forEach((c) => {
+      const existing = desk.customRates?.[c] || {};
+      draftRates[c] = {
+        buyRate: existing.buyRate ? String(existing.buyRate) : '',
+        sellRate: existing.sellRate ? String(existing.sellRate) : '',
+      };
+    });
+    setEditCustomRates(draftRates);
     setEditAddress(desk.locationAddress || '');
     setEditLandmark(desk.landmark || '');
     setEditGoogleMapsUrl(desk.googleMapsUrl || '');
@@ -89,6 +118,18 @@ export default function AdminOtcTab({
     if (!selectedDesk) return;
     setSavingDesk(true);
     try {
+      const sanitizedCustomRates: Record<string, { buyRate?: number | null; sellRate?: number | null }> = {};
+      Object.entries(editCustomRates).forEach(([cur, pair]) => {
+        const b = pair.buyRate ? parseFloat(pair.buyRate) : null;
+        const s = pair.sellRate ? parseFloat(pair.sellRate) : null;
+        if ((b && b > 0) || (s && s > 0)) {
+          sanitizedCustomRates[cur] = {
+            ...(b && b > 0 ? { buyRate: b } : {}),
+            ...(s && s > 0 ? { sellRate: s } : {}),
+          };
+        }
+      });
+
       const res = await api.patch(
         `/admin/otc/desks/${selectedDesk.id}`,
         {
@@ -96,6 +137,7 @@ export default function AdminOtcTab({
           isOnline: editIsOnline,
           buyRateMarginPct: parseFloat(editBuyMargin),
           sellRateMarginPct: parseFloat(editSellMargin),
+          customRates: sanitizedCustomRates,
           locationAddress: editAddress,
           landmark: editLandmark,
           googleMapsUrl: editGoogleMapsUrl,
@@ -300,15 +342,26 @@ export default function AdminOtcTab({
 
         <div className="p-4 rounded-2xl bg-slate-900 border border-amber-500/30 space-y-1">
           <div className="flex items-center justify-between text-[11px] font-bold uppercase text-amber-400">
-            <span>Settled Vol &amp; Fees</span>
+            <span>Settled Vol &amp; Split ({otcCommission.totalFeePct}%)</span>
             <DollarSign className="w-4 h-4" />
           </div>
           <div className="text-xl font-black font-mono text-white">
             {parseFloat(summary?.completedVolumeUsdt || '0').toLocaleString()} USDT
           </div>
-          <p className="text-[11px] text-emerald-400 font-mono font-bold">
-            Platform 0.5%: ${parseFloat(summary?.platformRevenueUsdt || '0').toFixed(2)}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-1 text-[10px]">
+            <span className="text-emerald-400 font-mono font-bold">
+              Broker {otcCommission.operatorFeePct}% + Bank {otcCommission.platformFeePct}% (${parseFloat(summary?.platformRevenueUsdt || '0').toFixed(2)})
+            </span>
+            {onOpenRatesConfig && (
+              <button
+                type="button"
+                onClick={onOpenRatesConfig}
+                className="text-cyan-400 hover:underline font-bold cursor-pointer"
+              >
+                Edit FX &amp; Fees →
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -444,6 +497,18 @@ export default function AdminOtcTab({
                           Buy: <span className="text-emerald-400 font-bold">+{d.buyRateMarginPct}%</span> • Sell:{' '}
                           <span className="text-sky-400 font-bold">+{d.sellRateMarginPct}%</span>
                         </div>
+                        {d.customRates && Object.keys(d.customRates).length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(d.customRates).map(([cur, pair]: [string, any]) => (
+                              <span
+                                key={cur}
+                                className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-[9px] font-mono text-amber-300"
+                              >
+                                {cur}: {pair?.buyRate ? `B ${pair.buyRate}` : ''} {pair?.sellRate ? `S ${pair.sellRate}` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <div className="flex flex-wrap gap-1 pt-0.5">
                           {(d.supportedCurrencies || []).map((c: string) => (
                             <span
@@ -622,9 +687,9 @@ export default function AdminOtcTab({
                     </td>
 
                     <td className="py-3.5 px-4 font-mono text-[11px] space-y-0.5">
-                      <div>Op (1.0%): {parseFloat(t.operatorFee).toFixed(2)} USDT</div>
+                      <div>Broker: {parseFloat(t.operatorFee).toFixed(2)} USDT</div>
                       <div className="text-emerald-400">
-                        Avora (0.5%): {parseFloat(t.platformFee).toFixed(2)} USDT
+                        Avora: {parseFloat(t.platformFee).toFixed(2)} USDT
                       </div>
                     </td>
 
@@ -766,6 +831,47 @@ export default function AdminOtcTab({
                   />
                 </div>
               </div>
+
+              {Object.keys(editCustomRates).length > 0 && (
+                <div className="p-3 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-2">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-amber-400 font-mono">
+                    Provider Custom Per-Currency Rates (Overrides Margin When Set)
+                  </div>
+                  <div className="space-y-2">
+                    {Object.entries(editCustomRates).map(([cur, pair]) => (
+                      <div key={cur} className="grid grid-cols-3 gap-2 items-center">
+                        <span className="font-mono font-bold text-white text-xs">{cur} (1 USDT =)</span>
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="Buy USDT Rate"
+                          value={pair.buyRate ?? ''}
+                          onChange={(e) =>
+                            setEditCustomRates((prev) => ({
+                              ...prev,
+                              [cur]: { ...prev[cur], buyRate: e.target.value },
+                            }))
+                          }
+                          className="px-2.5 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-[11px]"
+                        />
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="Sell USDT Rate"
+                          value={pair.sellRate ?? ''}
+                          onChange={(e) =>
+                            setEditCustomRates((prev) => ({
+                              ...prev,
+                              [cur]: { ...prev[cur], sellRate: e.target.value },
+                            }))
+                          }
+                          className="px-2.5 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-[11px]"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">

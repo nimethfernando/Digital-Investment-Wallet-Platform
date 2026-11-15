@@ -66,12 +66,46 @@ export class P2PController {
    */
   async getOffers(req: Request, res: Response, next: NextFunction) {
     try {
-      const { side, fiatCurrency } = req.query;
+      const { side, fiatCurrency, paymentMethod } = req.query;
       const offers = await p2pService.getOffers(
         side as any,
-        fiatCurrency as string
+        fiatCurrency as string,
+        paymentMethod as string
       );
       res.json({ success: true, data: offers });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Get Authenticated Provider's Own P2P Offers
+   */
+  async getMyOffers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Authentication required.' });
+      }
+      const offers = await p2pService.getMyOffers(userId);
+      res.json({ success: true, data: offers });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update a P2P Offer (Rate, Payment Methods, Limits, Status)
+   */
+  async updateOffer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Authentication required.' });
+      }
+      const offerId = req.params.offerId as string;
+      const result = await p2pService.updateOffer(userId, offerId, req.body || {});
+      res.json(result);
     } catch (err) {
       next(err);
     }
