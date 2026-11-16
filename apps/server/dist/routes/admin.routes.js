@@ -57,6 +57,7 @@ router.post('/system/purge-demo', (0, auth_1.requireRole)([client_1.Role.ADMIN])
 router.post('/users/:id/reset-password', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.resetUserPassword(req, res, next));
 router.post('/users/:id/disable-2fa', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.disableUser2FA(req, res, next));
 router.post('/users/:id/status', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateUserStatus(req, res, next));
+router.post('/users/:id/p2p-status', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateUserP2PStatus(req, res, next));
 // Global Money Transfer / Remittance Corridors
 router.get('/remittance/transfers', (req, res, next) => admin_controller_1.adminController.getRemittanceTransfers(req, res, next));
 router.patch('/remittance/transfers/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.updateRemittanceTransfer(req, res, next));
@@ -66,6 +67,7 @@ router.put('/investments/listings/:id', (0, auth_1.requireRole)([client_1.Role.A
 router.delete('/investments/listings/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.deleteStartupListing(req, res, next));
 // P2P Escrow & Dispute Resolution
 router.get('/p2p/orders', (req, res, next) => admin_controller_1.adminController.getP2POrders(req, res, next));
+router.post('/p2p/orders/:id/freeze', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.freezeP2POrder(req, res, next));
 router.post('/p2p/orders/:id/resolve', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.resolveP2PDispute(req, res, next));
 // OTC Desks & Escrow Trade Management
 router.get('/otc/desks', (req, res, next) => admin_controller_1.adminController.getOtcDesks(req, res, next));

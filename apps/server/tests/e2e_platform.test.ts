@@ -398,6 +398,65 @@ async function runE2EPlatformSuite() {
     }
   });
 
+  await assertTest('3.8: Multi-Crypto (0.005 BTC Fractional) SELL Offer Accept & Timeout Dispute Escalation', async () => {
+    await p2pService.applyP2pMerchant(seller.id);
+    const btcOfferRes = await p2pService.createOffer(seller.id, {
+      side: 'SELL',
+      cryptoCurrency: 'BTC',
+      fiatCurrency: 'USD',
+      price: '90000',
+      totalAmount: '0.1',
+      minLimit: '100',
+      maxLimit: '9000',
+      paymentMethods: ['Wire Transfer (SWIFT)'],
+    });
+    await prisma.$transaction(async (tx) => {
+      const btcBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'BTC');
+      await tx.walletBalance.update({
+        where: { id: btcBal.id },
+        data: { availableBalance: '0.01000000', lockedPrincipal: '0.00000000' },
+      });
+    });
+
+    // Taker (buyer account) sells 0.005 BTC to Seller's SELL offer -> actualSeller = buyer.id, actualBuyer/OfferMaker = seller.id
+    const btcOrd = await p2pService.createP2POrder(buyer.id, {
+      offerId: btcOfferRes.offer.id,
+      cryptoAmount: '0.005',
+      fiatAmount: '450',
+      takerSide: 'SELL',
+      selectedPaymentMethod: 'Wire Transfer (SWIFT)',
+    });
+    if (btcOrd.status !== 'PENDING' || btcOrd.cryptoAmount !== '0.005') {
+      throw new Error(`Expected PENDING & 0.005 BTC formatting, got status=${btcOrd.status}, amt=${btcOrd.cryptoAmount}`);
+    }
+
+    // Offer maker (seller.id) accepts incoming sell order
+    const acceptedBtcOrd = await p2pService.acceptOrder(btcOrd.id, seller.id);
+    if (acceptedBtcOrd.status !== 'PENDING_PAYMENT') {
+      throw new Error(`Expected PENDING_PAYMENT after maker accept, got ${acceptedBtcOrd.status}`);
+    }
+
+    // Buyer in the order (seller.id) marks fiat paid, then backdate sellerConfirmDeadlineAt
+    await p2pService.markPaymentSent(btcOrd.id, seller.id, '/uploads/receipts/btc_wire.png', `BTC-REF-${ts}`);
+    await prisma.p2POrder.update({
+      where: { id: btcOrd.id },
+      data: { sellerConfirmDeadlineAt: new Date(Date.now() - 60_000) },
+    });
+
+    const escCron = await p2pService.processOrderTimeouts();
+    const afterEsc = await prisma.p2POrder.findUnique({ where: { id: btcOrd.id } });
+    if (!afterEsc || afterEsc.status !== 'DISPUTED' || escCron.escalatedCount < 1) {
+      throw new Error(`Expected overdue PAYMENT_SENT order to auto-escalate to DISPUTED (never auto-release), got ${afterEsc?.status}`);
+    }
+
+    // Cleanly release escrowed BTC to complete test trade (via crypto-seller = buyer.id)
+    await p2pService.releaseOrderEscrow(btcOrd.id, buyer.id);
+    const makerBtcBal = await prisma.$transaction((tx) => ledgerService.lockWalletBalance(tx, sellerWallet.id, 'BTC'));
+    if (Math.abs(parseFloat(makerBtcBal.availableBalance.toString()) - 0.005) > 0.00001) {
+      throw new Error(`Expected 0.005 BTC released to maker wallet, got ${makerBtcBal.availableBalance}`);
+    }
+  });
+
   // =========================================================================
   // SECTION 4: SUPPORT TICKETS, VIRTUAL CARDS & CURRENCY SWAP
   // =========================================================================

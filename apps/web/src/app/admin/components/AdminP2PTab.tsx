@@ -21,6 +21,7 @@ import { api, resolveMediaUrl } from '../../../lib/api';
 interface P2PTabProps {
   orders: any[];
   ordersLoading: boolean;
+  admin2FaCode?: string;
   onRefresh: () => void;
   onFeedback: (feedback: { text: string; type: 'success' | 'error' } | null) => void;
 }
@@ -46,6 +47,17 @@ function formatFiatAmount(amount: string | number, currency?: string): string {
   return `${formatted} ${cur}`;
 }
 
+function formatCryptoDisplay(amount: string | number, cryptoCurrency?: string): string {
+  const cur = (cryptoCurrency || 'USDT').toUpperCase();
+  const num = parseFloat(String(amount || '0')) || 0;
+  const maxDecimals = cur === 'USDT' || cur === 'USDC' ? 4 : 6;
+  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: maxDecimals });
+}
+
+function isPdfAttachment(url?: string | null): boolean {
+  return Boolean(url && url.toLowerCase().split('?')[0].endsWith('.pdf'));
+}
+
 function formatCountdownMs(deadlineIso?: string | null, nowMs?: number): { label: string; isOverdue: boolean } | null {
   if (!deadlineIso) return null;
   const diff = new Date(deadlineIso).getTime() - (nowMs || Date.now());
@@ -65,6 +77,7 @@ function formatCountdownMs(deadlineIso?: string | null, nowMs?: number): { label
 export default function AdminP2PTab({
   orders,
   ordersLoading,
+  admin2FaCode,
   onRefresh,
   onFeedback,
 }: P2PTabProps) {
@@ -77,6 +90,7 @@ export default function AdminP2PTab({
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [resolution, setResolution] = useState<'RELEASE_TO_BUYER' | 'REFUND_TO_SELLER'>('RELEASE_TO_BUYER');
   const [resolveReason, setResolveReason] = useState('');
+  const [modal2FaCode, setModal2FaCode] = useState('');
   const [resolving, setResolving] = useState(false);
   const [freezingId, setFreezingId] = useState<string | null>(null);
 
@@ -92,6 +106,7 @@ export default function AdminP2PTab({
     setSelectedOrder(order);
     setResolution('RELEASE_TO_BUYER');
     setResolveReason('');
+    setModal2FaCode(admin2FaCode || '');
     setResolveModalOpen(true);
   };
 
@@ -130,11 +145,15 @@ export default function AdminP2PTab({
 
     setResolving(true);
     try {
+      const effective2Fa = (modal2FaCode || admin2FaCode || '').trim();
       const res = await api.post(
         `/admin/p2p/orders/${selectedOrder.id}/resolve`,
         {
           resolution,
           reason: resolveReason.trim(),
+        },
+        {
+          headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {},
         }
       );
 
@@ -284,7 +303,7 @@ export default function AdminP2PTab({
 
                       <td className="py-3.5 px-4">
                         <div className="font-mono font-bold text-white text-xs">
-                          {parseFloat(o.cryptoAmount).toFixed(2)} {cryptoCur}
+                          {formatCryptoDisplay(o.cryptoAmount, cryptoCur)} {cryptoCur}
                         </div>
                         <div className="text-[11px] text-emerald-400 font-mono font-semibold">
                           {formatFiatAmount(o.fiatAmount, fiatCur)}
@@ -458,7 +477,7 @@ export default function AdminP2PTab({
                 <div className="flex justify-between border-t border-slate-800 pt-1.5">
                   <span className="text-slate-400">Locked Escrow:</span>
                   <span className="text-amber-400 font-bold font-mono">
-                    {parseFloat(selectedOrder.cryptoAmount).toFixed(2)} {cryptoCur} ({formatFiatAmount(selectedOrder.fiatAmount, fiatCur)})
+                    {formatCryptoDisplay(selectedOrder.cryptoAmount, cryptoCur)} {cryptoCur} ({formatFiatAmount(selectedOrder.fiatAmount, fiatCur)})
                   </span>
                 </div>
               </div>
@@ -493,13 +512,28 @@ export default function AdminP2PTab({
                   )}
                 </div>
                 {selectedOrder.paymentProofUrl ? (
-                  <div className="rounded-xl overflow-hidden border border-slate-800 bg-black max-h-48 flex items-center justify-center">
-                    <img
-                      src={resolveMediaUrl(selectedOrder.paymentProofUrl)}
-                      alt="Buyer Payment Proof"
-                      className="max-h-48 object-contain"
-                    />
-                  </div>
+                  isPdfAttachment(selectedOrder.paymentProofUrl) ? (
+                    <div className="rounded-xl border border-slate-800 bg-black p-3 space-y-2 text-center">
+                      <p className="text-xs text-slate-300 font-semibold">PDF Payment Proof Attached</p>
+                      <a
+                        href={resolveMediaUrl(selectedOrder.paymentProofUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600/20 text-amber-300 border border-amber-500/30 font-bold hover:underline"
+                      >
+                        <span>Open PDF Receipt in Browser</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl overflow-hidden border border-slate-800 bg-black max-h-48 flex items-center justify-center">
+                      <img
+                        src={resolveMediaUrl(selectedOrder.paymentProofUrl)}
+                        alt="Buyer Payment Proof"
+                        className="max-h-48 object-contain"
+                      />
+                    </div>
+                  )
                 ) : (
                   <p className="text-slate-500 italic text-[11px]">No separate receipt image attached at payment confirmation (check chat attachments below).</p>
                 )}
@@ -596,6 +630,20 @@ export default function AdminP2PTab({
                       className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs outline-none focus:border-amber-500 resize-none"
                     />
                   </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                      Admin 2FA Code (Required if 2FA Enabled on Your Account)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      placeholder="6-digit OTP (if enabled)"
+                      value={modal2FaCode}
+                      onChange={(e) => setModal2FaCode(e.target.value.replace(/\D/g, ''))}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-xs outline-none focus:border-amber-500"
+                    />
+                  </div>
                 </>
               )}
 
@@ -634,7 +682,11 @@ export default function AdminP2PTab({
               </button>
             </div>
             <div className="rounded-2xl overflow-hidden border border-slate-800 max-h-[70vh] flex items-center justify-center bg-black">
-              <img src={proofModalUrl} alt="Payment Receipt Proof" className="max-h-[70vh] object-contain" />
+              {isPdfAttachment(proofModalUrl) ? (
+                <iframe src={proofModalUrl} title="Payment Receipt PDF" className="w-full h-[65vh] bg-white" />
+              ) : (
+                <img src={proofModalUrl} alt="Payment Receipt Proof" className="max-h-[70vh] object-contain" />
+              )}
             </div>
           </div>
         </div>

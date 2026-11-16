@@ -58,13 +58,35 @@ class P2PController {
         }
     }
     /**
-     * Get P2P Ads / Offers
+     * Get P2P Ads / Offers with rich filtering & sorting
      */
     async getOffers(req, res, next) {
         try {
-            const { side, fiatCurrency, paymentMethod } = req.query;
-            const offers = await p2p_service_1.p2pService.getOffers(side, fiatCurrency, paymentMethod);
+            const { side, cryptoCurrency, fiatCurrency, paymentMethod, amount, minCompletion, location, sortBy } = req.query;
+            const offers = await p2p_service_1.p2pService.getOffers({
+                side: side,
+                cryptoCurrency: cryptoCurrency,
+                fiatCurrency: fiatCurrency,
+                paymentMethod: paymentMethod,
+                amount: amount,
+                minCompletion: minCompletion,
+                location: location,
+                sortBy: sortBy,
+            });
             res.json({ success: true, data: offers });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Public P2P Trader Profile & Reviews
+     */
+    async getTraderProfile(req, res, next) {
+        try {
+            const targetUserId = String(req.params.userId);
+            const profile = await p2p_service_1.p2pService.getTraderProfile(targetUserId);
+            res.json({ success: true, data: profile });
         }
         catch (err) {
             next(err);
@@ -142,7 +164,7 @@ class P2PController {
     async createOrder(req, res, next) {
         try {
             const buyerId = req.user.id;
-            const { offerId, cryptoAmount, fiatAmount, takerSide } = req.body;
+            const { offerId, cryptoAmount, fiatAmount, takerSide, selectedPaymentMethod } = req.body;
             if (!offerId || !cryptoAmount) {
                 return res.status(400).json({
                     success: false,
@@ -154,10 +176,48 @@ class P2PController {
                 cryptoAmount,
                 fiatAmount,
                 takerSide,
+                selectedPaymentMethod,
             });
             res.status(201).json({
                 success: true,
                 message: 'Order created successfully. Escrow funds locked.',
+                data: order,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Seller accepts a PENDING order, unlocking buyer payment details & countdown
+     */
+    async acceptOrder(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const orderId = req.params.orderId;
+            const order = await p2p_service_1.p2pService.acceptOrder(orderId, userId);
+            res.json({
+                success: true,
+                message: 'Order accepted. Payment window started.',
+                data: order,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Seller declines a PENDING order before buyer payment starts
+     */
+    async declineOrder(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const orderId = req.params.orderId;
+            const reason = req.body?.reason ? String(req.body.reason) : undefined;
+            const order = await p2p_service_1.p2pService.declineOrder(orderId, userId, reason);
+            res.json({
+                success: true,
+                message: 'Order declined and escrowed crypto returned.',
                 data: order,
             });
         }
@@ -172,7 +232,8 @@ class P2PController {
         try {
             const userId = req.user.id;
             const orderId = req.params.orderId;
-            const order = await p2p_service_1.p2pService.cancelOrder(orderId, userId);
+            const reason = req.body?.reason ? String(req.body.reason) : undefined;
+            const order = await p2p_service_1.p2pService.cancelOrder(orderId, userId, reason);
             res.json({
                 success: true,
                 message: 'Order cancelled and escrowed crypto returned to seller.',
@@ -212,18 +273,41 @@ class P2PController {
         }
     }
     /**
-     * Buyer marks payment as sent
+     * Buyer marks payment as sent with optional receipt image & transaction reference
      */
     async markPaymentSent(req, res, next) {
         try {
             const userId = req.user.id;
             const orderId = req.params.orderId;
-            const { proofUrl } = req.body;
-            const order = await p2p_service_1.p2pService.markPaymentSent(orderId, userId, proofUrl);
+            const { proofUrl, paymentReference } = req.body || {};
+            const order = await p2p_service_1.p2pService.markPaymentSent(orderId, userId, proofUrl, paymentReference);
             res.json({
                 success: true,
                 message: 'Payment confirmed. Seller has been notified to release escrow.',
                 data: order,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Submit post-trade feedback / star rating for counterparty
+     */
+    async submitOrderReview(req, res, next) {
+        try {
+            const reviewerId = req.user.id;
+            const orderId = req.params.orderId;
+            const { rating, comment, isPositive } = req.body || {};
+            const review = await p2p_service_1.p2pService.submitOrderReview(orderId, reviewerId, {
+                rating,
+                comment,
+                isPositive,
+            });
+            res.status(201).json({
+                success: true,
+                message: 'Feedback submitted successfully.',
+                data: review,
             });
         }
         catch (err) {
@@ -292,11 +376,11 @@ class P2PController {
         try {
             const senderId = req.user.id;
             const orderId = req.params.orderId;
-            const { message } = req.body;
-            if (!message || !message.trim()) {
-                return res.status(400).json({ success: false, message: 'Message text cannot be empty' });
+            const { message, attachmentUrl } = req.body || {};
+            if ((!message || !message.trim()) && !attachmentUrl) {
+                return res.status(400).json({ success: false, message: 'Message text or attachment cannot be empty' });
             }
-            const msg = await p2p_service_1.p2pService.sendOrderMessage(orderId, senderId, message);
+            const msg = await p2p_service_1.p2pService.sendOrderMessage(orderId, senderId, message || '', attachmentUrl);
             res.status(201).json({ success: true, data: msg });
         }
         catch (err) {

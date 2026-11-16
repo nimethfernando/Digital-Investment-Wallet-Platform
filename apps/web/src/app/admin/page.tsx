@@ -2290,6 +2290,7 @@ export default function AdminPortalPage() {
           <AdminP2PTab
             orders={p2pOrders}
             ordersLoading={p2pLoading}
+            admin2FaCode={admin2FaCode}
             onRefresh={loadData}
             onFeedback={(f) => setFeedback(f)}
           />

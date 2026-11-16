@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generalApiLimiter = exports.p2pRateLimiter = exports.withdrawalRateLimiter = exports.authRateLimiter = void 0;
+exports.generalApiLimiter = exports.p2pActionLimiter = exports.p2pRateLimiter = exports.withdrawalRateLimiter = exports.authRateLimiter = void 0;
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 /**
  * Strict Rate Limiter for Authentication endpoints
@@ -45,6 +45,19 @@ exports.p2pRateLimiter = (0, express_rate_limit_1.default)({
     message: {
         success: false,
         message: 'P2P transfer rate limit reached. Please slow down and try again in a few minutes.',
+    },
+});
+/**
+ * Anti-spam Rate Limiter for P2P Marketplace Orders, Ads & Chat Actions
+ */
+exports.p2pActionLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 10 * 60 * 1000, // 10 minutes
+    max: 60, // 60 P2P marketplace/order mutations per 10 mins per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        success: false,
+        message: 'Too many P2P marketplace actions. Please slow down briefly before retrying.',
     },
 });
 /**

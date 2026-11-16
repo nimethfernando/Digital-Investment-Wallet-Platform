@@ -421,6 +421,18 @@ class ReturnsJobService {
             }
         });
         console.log('✅ Automated Market News Sync Cron registered (every 2 hours)');
+        // Non-destructive P2P schema & tables warm-up + automated timeout cron (every minute)
+        Promise.resolve().then(() => __importStar(require('./p2p.service'))).then(({ p2pService }) => p2pService.ensureP2PReady()).catch(() => { });
+        node_cron_1.default.schedule('* * * * *', async () => {
+            try {
+                const { p2pService } = await Promise.resolve().then(() => __importStar(require('./p2p.service')));
+                await p2pService.processOrderTimeouts();
+            }
+            catch (err) {
+                console.error('[P2P Cron] Timeout check error:', err);
+            }
+        });
+        console.log('✅ Automated P2P Timeout & Dispute Escalation Cron registered (every 1 minute)');
     }
 }
 exports.ReturnsJobService = ReturnsJobService;

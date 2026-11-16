@@ -103,8 +103,8 @@ app.use((req, res) => {
 });
 app.use(error_1.errorHandler);
 const port = process.env.PORT || config_1.config.port || 5000;
-// Listen when started directly, with PORT specified, or in non-serverless mode
-if (process.env.PORT || (!isServerless && process.env.NODE_ENV !== 'test')) {
+// Listen when started directly in non-test, non-serverless mode (or when PORT is configured outside tests)
+if (process.env.NODE_ENV !== 'test' && (process.env.PORT || !isServerless)) {
     try {
         app.listen(port, () => {
             console.log(`====================================================`);

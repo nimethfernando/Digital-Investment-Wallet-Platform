@@ -180,8 +180,6 @@ interface CuratedTraderTemplate {
   id: string;
   name: string;
   avatar: string;
-  totalOrders: number;
-  completionRate: string;
   lastSeen: string;
   spreadPct: number;
   availableUsdt: string;
@@ -197,8 +195,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_lk_1',
       name: 'Kasun Perera (Colombo FX)',
       avatar: 'K',
-      totalOrders: 618,
-      completionRate: '99.4%',
       lastSeen: 'Last seen 14m ago',
       spreadPct: 0.008,
       availableUsdt: '4,250.00',
@@ -211,8 +207,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_lk_2',
       name: 'Dilshan Wijesinghe',
       avatar: 'D',
-      totalOrders: 392,
-      completionRate: '98.9%',
       lastSeen: 'Last seen 41m ago',
       spreadPct: 0.011,
       availableUsdt: '2,800.00',
@@ -225,8 +219,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_lk_3',
       name: 'Nadeesha Fernando',
       avatar: 'N',
-      totalOrders: 845,
-      completionRate: '99.7%',
       lastSeen: 'Away • Back soon',
       spreadPct: 0.014,
       availableUsdt: '6,500.00',
@@ -239,8 +231,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_lk_4',
       name: 'Roshan De Silva',
       avatar: 'R',
-      totalOrders: 214,
-      completionRate: '98.5%',
       lastSeen: 'Last seen 2h ago',
       spreadPct: 0.018,
       availableUsdt: '1,450.00',
@@ -255,8 +245,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_in_1',
       name: 'Arjun Mehta',
       avatar: 'A',
-      totalOrders: 942,
-      completionRate: '99.6%',
       lastSeen: 'Last seen 11m ago',
       spreadPct: 0.007,
       availableUsdt: '5,400.00',
@@ -269,8 +257,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_in_2',
       name: 'Priya Nair Vault',
       avatar: 'P',
-      totalOrders: 731,
-      completionRate: '99.3%',
       lastSeen: 'Last seen 28m ago',
       spreadPct: 0.01,
       availableUsdt: '8,200.00',
@@ -283,8 +269,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_in_3',
       name: 'Rohan Kulkarni FX',
       avatar: 'R',
-      totalOrders: 519,
-      completionRate: '99.1%',
       lastSeen: 'Away • Back soon',
       spreadPct: 0.013,
       availableUsdt: '3,100.00',
@@ -297,8 +281,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_in_4',
       name: 'Vikramaditya Rao',
       avatar: 'V',
-      totalOrders: 1084,
-      completionRate: '99.8%',
       lastSeen: 'Last seen 1h ago',
       spreadPct: 0.016,
       availableUsdt: '12,000.00',
@@ -313,8 +295,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_ae_1',
       name: 'Tariq Al-Mansoor',
       avatar: 'T',
-      totalOrders: 804,
-      completionRate: '99.7%',
       lastSeen: 'Last seen 18m ago',
       spreadPct: 0.006,
       availableUsdt: '14,500.00',
@@ -327,8 +307,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_ae_2',
       name: 'Fatima Al-Zaabi OTC',
       avatar: 'F',
-      totalOrders: 629,
-      completionRate: '99.5%',
       lastSeen: 'Last seen 45m ago',
       spreadPct: 0.009,
       availableUsdt: '9,800.00',
@@ -341,8 +319,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_ae_3',
       name: 'Zayd Al-Hashimi',
       avatar: 'Z',
-      totalOrders: 412,
-      completionRate: '99.0%',
       lastSeen: 'Away • Back soon',
       spreadPct: 0.012,
       availableUsdt: '6,000.00',
@@ -355,8 +331,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_ae_4',
       name: 'Rashid Al-Maktoum Desk',
       avatar: 'R',
-      totalOrders: 1150,
-      completionRate: '99.9%',
       lastSeen: 'Last seen 3h ago',
       spreadPct: 0.015,
       availableUsdt: '25,000.00',
@@ -371,8 +345,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_ge_1',
       name: 'Giorgi Beridze',
       avatar: 'G',
-      totalOrders: 547,
-      completionRate: '99.4%',
       lastSeen: 'Last seen 16m ago',
       spreadPct: 0.007,
       availableUsdt: '4,800.00',
@@ -385,8 +357,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_ge_2',
       name: 'Nino Kvaratskhelia',
       avatar: 'N',
-      totalOrders: 418,
-      completionRate: '99.2%',
       lastSeen: 'Last seen 52m ago',
       spreadPct: 0.01,
       availableUsdt: '3,200.00',
@@ -399,8 +369,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_ge_3',
       name: 'Levan Maisuradze',
       avatar: 'L',
-      totalOrders: 289,
-      completionRate: '98.8%',
       lastSeen: 'Away • Back soon',
       spreadPct: 0.014,
       availableUsdt: '5,500.00',
@@ -413,8 +381,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_ge_4',
       name: 'Davit Gelashvili FX',
       avatar: 'D',
-      totalOrders: 690,
-      completionRate: '99.6%',
       lastSeen: 'Last seen 2h ago',
       spreadPct: 0.017,
       availableUsdt: '7,400.00',
@@ -429,8 +395,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_eu_1',
       name: 'Lukas Weber OTC',
       avatar: 'L',
-      totalOrders: 882,
-      completionRate: '99.7%',
       lastSeen: 'Last seen 9m ago',
       spreadPct: 0.006,
       availableUsdt: '11,500.00',
@@ -443,8 +407,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_eu_2',
       name: 'Sofia Conti Clearing',
       avatar: 'S',
-      totalOrders: 641,
-      completionRate: '99.4%',
       lastSeen: 'Last seen 33m ago',
       spreadPct: 0.009,
       availableUsdt: '8,400.00',
@@ -457,8 +419,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_eu_3',
       name: 'Henrik Lindqvist',
       avatar: 'H',
-      totalOrders: 475,
-      completionRate: '99.1%',
       lastSeen: 'Away • Back soon',
       spreadPct: 0.012,
       availableUsdt: '6,200.00',
@@ -471,8 +431,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_eu_4',
       name: 'Claire Beaumont',
       avatar: 'C',
-      totalOrders: 356,
-      completionRate: '98.9%',
       lastSeen: 'Last seen 2h ago',
       spreadPct: 0.015,
       availableUsdt: '4,900.00',
@@ -487,8 +445,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_us_1',
       name: 'Marcus Vance',
       avatar: 'M',
-      totalOrders: 915,
-      completionRate: '99.8%',
       lastSeen: 'Last seen 12m ago',
       spreadPct: 0.006,
       availableUsdt: '18,000.00',
@@ -501,8 +457,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_us_2',
       name: 'Elena Rostova OTC',
       avatar: 'E',
-      totalOrders: 763,
-      completionRate: '99.5%',
       lastSeen: 'Last seen 37m ago',
       spreadPct: 0.009,
       availableUsdt: '10,500.00',
@@ -515,8 +469,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_us_3',
       name: 'David Sterling',
       avatar: 'D',
-      totalOrders: 528,
-      completionRate: '99.2%',
       lastSeen: 'Away • Back soon',
       spreadPct: 0.012,
       availableUsdt: '7,200.00',
@@ -529,8 +481,6 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       id: 'off_us_4',
       name: 'Nathaniel Brooks',
       avatar: 'N',
-      totalOrders: 1120,
-      completionRate: '99.9%',
       lastSeen: 'Last seen 3h ago',
       spreadPct: 0.014,
       availableUsdt: '30,000.00',
@@ -571,6 +521,8 @@ interface P2POrderItem {
     | 'FROZEN';
   statusBadge: string;
   isSeller: boolean;
+  isOfferMaker?: boolean;
+  canAcceptDecline?: boolean;
   isFrozen?: boolean;
   frozenReason?: string | null;
   paymentProofUrl?: string;
@@ -666,6 +618,9 @@ function P2PPageContent() {
   const [liveRates, setLiveRates] = useState<Record<string, number>>({
     USD: 1.0,
     USDT: 1.0,
+    USDC: 1.0,
+    BTC: 1 / 92000,
+    ETH: 1 / 3100,
     INR: 93.88,
     EUR: 0.915,
     AED: 3.67,
@@ -887,11 +842,29 @@ function P2PPageContent() {
       ? 305.0
       : 1.0);
 
+  const getCryptoUsdSpotRate = (crypto: string) => {
+    const upper = (crypto || 'USDT').toUpperCase();
+    if (upper === 'USDT' || upper === 'USDC' || upper === 'USD') return 1.0;
+    const rate = liveRates[upper];
+    if (rate && rate > 0) return 1 / rate;
+    if (upper === 'BTC') return 92000;
+    if (upper === 'ETH') return 3100;
+    return 1.0;
+  };
+
+  const getCryptoFiatSpotRate = (crypto: string, fiat: string) =>
+    getCryptoUsdSpotRate(crypto) * getCorridorSpotRate(fiat);
+
   // Express exchange calculations
-  const expressRate = getCorridorSpotRate(expressCurrency);
+  const expressSpotRaw = getCryptoFiatSpotRate(expressCrypto, expressCurrency);
+  const expressRate = Number(expressSpotRaw.toFixed(expressSpotRaw >= 20 ? 2 : 4));
   const expressMinLimit = (175.94).toFixed(2);
   const expressMaxLimit = (500000.0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const expressCryptoCalculated = parseFloat(expressAmount || '0') > 0 ? (parseFloat(expressAmount) / expressRate).toFixed(2) : '0.00';
+  const expressDecimals = expressCrypto === 'USDT' || expressCrypto === 'USDC' ? 2 : 6;
+  const expressCryptoCalculated =
+    parseFloat(expressAmount || '0') > 0
+      ? (parseFloat(expressAmount) / (expressSpotRaw || 1)).toFixed(expressDecimals)
+      : (0).toFixed(expressDecimals);
 
   const navigateTo = (view: 'express' | 'marketplace' | 'orders' | 'chat' | 'post-ad' | 'member') => {
     setActiveChatOrder(null);
@@ -1001,17 +974,28 @@ function P2PPageContent() {
     setExpressExecuting(true);
     setExpressError(null);
     try {
-      const offersRes = await api.get(`/p2p/offers?side=${expressSide}&fiatCurrency=${expressCurrency}`);
+      const fiatNum = parseFloat(expressAmount);
+      const offersRes = await api.get(
+        `/p2p/offers?side=${expressSide}&cryptoCurrency=${expressCrypto}&fiatCurrency=${expressCurrency}&sortBy=price_asc`
+      );
       const liveList: P2POfferItem[] = offersRes.data?.success ? offersRes.data.data || [] : [];
       const cryptoNum = parseFloat(expressCryptoCalculated);
-      const fiatNum = parseFloat(expressAmount);
 
-      if (liveList.length > 0 && cryptoNum > 0) {
+      const matchedOffer = liveList.find((o) => {
+        if (user?.id && o.trader?.id === user.id) return false;
+        const avail = parseFloat(String(o.availableAmount).replace(/,/g, '')) || 0;
+        const minL = parseFloat(String(o.minLimit).replace(/,/g, '')) || 0;
+        const maxL = parseFloat(String(o.maxLimit).replace(/,/g, '')) || 0;
+        return avail >= cryptoNum && fiatNum >= minL && (maxL <= 0 || fiatNum <= maxL);
+      });
+
+      if (matchedOffer && cryptoNum > 0) {
         const res = await api.post('/p2p/orders', {
-          offerId: liveList[0].id,
+          offerId: matchedOffer.id,
           cryptoAmount: cryptoNum,
           fiatAmount: fiatNum,
           takerSide: expressSide,
+          selectedPaymentMethod: matchedOffer.paymentMethods?.[0],
         });
         if (res.data?.success) {
           setExpressOrderModalOpen(false);
@@ -1019,6 +1003,7 @@ function P2PPageContent() {
           setActiveNav('orders');
           setActiveChatOrder(res.data.data);
           fetchOrders();
+          window.dispatchEvent(new Event('avora-notifications-refresh'));
           return;
         }
       }
@@ -1415,6 +1400,7 @@ function P2PPageContent() {
         setActiveNav('orders');
         setActiveChatOrder(res.data.data);
         fetchOrders();
+        window.dispatchEvent(new Event('avora-notifications-refresh'));
       }
     } catch (err: any) {
       setTradeError(extractErrorMessage(err, 'Failed to create order. Check your wallet balance or limits.'));
@@ -1432,6 +1418,7 @@ function P2PPageContent() {
         setActiveChatOrder(res.data.data);
         fetchOrders();
         fetchActiveChatMessages(orderId);
+        window.dispatchEvent(new Event('avora-notifications-refresh'));
       }
     } catch (e: any) {
       setRoomActionError(extractErrorMessage(e, 'Unable to accept order'));
@@ -1441,7 +1428,7 @@ function P2PPageContent() {
   };
 
   const handleDeclineOrder = async (orderId: string) => {
-    const reason = prompt('Decline this pending P2P order and unlock escrow back to your wallet?\nOptional reason:', 'Unable to fulfill at this moment');
+    const reason = prompt('Decline this pending P2P order and unlock escrow back to the seller wallet?\nOptional reason:', 'Unable to fulfill at this moment');
     if (reason === null) return;
     setDecliningOrder(true);
     setRoomActionError(null);
@@ -1451,35 +1438,12 @@ function P2PPageContent() {
         setActiveChatOrder(res.data.data);
         fetchOrders();
         fetchActiveChatMessages(orderId);
+        window.dispatchEvent(new Event('avora-notifications-refresh'));
       }
     } catch (e: any) {
       setRoomActionError(extractErrorMessage(e, 'Unable to decline order'));
     } finally {
       setDecliningOrder(false);
-    }
-  };
-
-  const handleMarkPaymentSent = async (orderId: string) => {
-    setRoomActionError(null);
-    try {
-      const res = await api.post(`/p2p/orders/${orderId}/paid`);
-      if (res.data?.success) {
-        if (activeChatOrder && activeChatOrder.id === orderId) {
-          setActiveChatOrder((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  status: 'PAYMENT_SENT',
-                  statusBadge: prev.isSeller ? 'Please release funds.' : 'Waiting for seller release',
-                }
-              : null
-          );
-        }
-        fetchOrders();
-        fetchActiveChatMessages(orderId);
-      }
-    } catch (e: any) {
-      setRoomActionError(extractErrorMessage(e) || 'Failed to update payment status');
     }
   };
 
@@ -1499,10 +1463,11 @@ function P2PPageContent() {
         setReleaseConfirmOrder(null);
         setRelease2FACode('');
         if (activeChatOrder && activeChatOrder.id === orderId) {
-          setActiveChatOrder((prev) => (prev ? { ...prev, status: 'COMPLETED', statusBadge: 'Fulfilled' } : null));
+          setActiveChatOrder((prev) => (prev ? { ...prev, status: 'COMPLETED', statusBadge: 'Completed • Crypto Released' } : null));
         }
         fetchOrders();
         fetchActiveChatMessages(orderId);
+        window.dispatchEvent(new Event('avora-notifications-refresh'));
       }
     } catch (e: any) {
       setRoomActionError(extractErrorMessage(e) || 'Failed to release escrow');
@@ -1523,6 +1488,7 @@ function P2PPageContent() {
         }
         fetchOrders();
         fetchActiveChatMessages(orderId);
+        window.dispatchEvent(new Event('avora-notifications-refresh'));
       }
     } catch (e: any) {
       setRoomActionError(extractErrorMessage(e) || 'Failed to cancel order');
@@ -1545,10 +1511,11 @@ function P2PPageContent() {
         setDisputeModalOrder(null);
         setDisputeReason('');
         if (activeChatOrder && activeChatOrder.id === disputeModalOrder.id) {
-          setActiveChatOrder((prev) => (prev ? { ...prev, status: 'DISPUTED', statusBadge: 'In dispute' } : null));
+          setActiveChatOrder((prev) => (prev ? { ...prev, status: 'DISPUTED', statusBadge: 'In Dispute (Admin Reviewing)' } : null));
         }
         fetchOrders();
         fetchActiveChatMessages(disputeModalOrder.id);
+        window.dispatchEvent(new Event('avora-notifications-refresh'));
       }
     } catch (e: any) {
       setRoomActionError(extractErrorMessage(e) || 'Failed to open dispute');
@@ -1906,8 +1873,8 @@ function P2PPageContent() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {/* Seller Accept / Decline while PENDING */}
-              {isPending && isSeller && !isFrozen && (
+              {/* Offer maker Accept / Decline while PENDING */}
+              {isPending && Boolean(activeChatOrder.canAcceptDecline ?? isSeller) && !isFrozen && (
                 <>
                   <button
                     type="button"
@@ -2008,18 +1975,31 @@ function P2PPageContent() {
                   >
                     <p>{msg.message}</p>
                     {msg.attachmentUrl && (
-                      <a
-                        href={resolveMediaUrl(msg.attachmentUrl)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block rounded-xl overflow-hidden border border-white/20 bg-black/40"
-                      >
-                        <img
-                          src={resolveMediaUrl(msg.attachmentUrl)}
-                          alt="Trade Receipt"
-                          className="max-h-44 w-auto object-contain"
-                        />
-                      </a>
+                      msg.attachmentUrl.toLowerCase().split('?')[0].endsWith('.pdf') ? (
+                        <a
+                          href={resolveMediaUrl(msg.attachmentUrl)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/20 bg-black/40 text-emerald-300 font-bold hover:underline"
+                        >
+                          <FileText className="w-4 h-4 shrink-0" />
+                          <span>Open Attached PDF Receipt</span>
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                        </a>
+                      ) : (
+                        <a
+                          href={resolveMediaUrl(msg.attachmentUrl)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block rounded-xl overflow-hidden border border-white/20 bg-black/40"
+                        >
+                          <img
+                            src={resolveMediaUrl(msg.attachmentUrl)}
+                            alt="Trade Receipt"
+                            className="max-h-44 w-auto object-contain"
+                          />
+                        </a>
+                      )
                     )}
                     <div className="text-[9px] opacity-60 text-right">{msg.time}</div>
                   </div>
@@ -2076,6 +2056,7 @@ function P2PPageContent() {
               fetchActiveChatMessages(ordId);
             }
             fetchOrders();
+            window.dispatchEvent(new Event('avora-notifications-refresh'));
           }}
         />
         <P2PTraderProfileModal userId={viewingTraderId} onClose={() => setViewingTraderId(null)} />
@@ -2236,12 +2217,21 @@ function P2PPageContent() {
           </div>
 
           {/* Crypto Token Selector */}
-          <div className="flex items-center gap-1.5 pt-1">
+          <div className="flex items-center gap-2 pt-1">
             <div className="w-5 h-5 rounded-full bg-teal-500 flex items-center justify-center text-[10px] text-zinc-950 font-black shadow-sm">
-              ₮
+              {expressCrypto === 'BTC' ? '₿' : expressCrypto === 'ETH' ? 'Ξ' : expressCrypto === 'USDC' ? '$' : '₮'}
             </div>
-            <span className="text-xs font-bold text-white tracking-wide">{expressCrypto}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+            <select
+              value={expressCrypto}
+              onChange={(e) => setExpressCrypto(e.target.value)}
+              aria-label="Express Crypto Asset"
+              className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1 text-xs font-bold text-white outline-none cursor-pointer"
+            >
+              <option value="USDT">USDT</option>
+              <option value="USDC">USDC</option>
+              <option value="BTC">BTC</option>
+              <option value="ETH">ETH</option>
+            </select>
           </div>
 
           {/* Big Amount Display */}
@@ -2254,8 +2244,8 @@ function P2PPageContent() {
             {/* Real-time Exchange Rate & Limits */}
             <div className="pt-2 text-xs text-zinc-400 space-y-0.5">
               <div className="flex items-center gap-1.5 text-zinc-300 font-medium">
-                <span className="text-zinc-500">⇅ USDT</span>
-                <span>1 USDT ≈ {expressRate} {expressCurrency}</span>
+                <span className="text-zinc-500">⇅ {expressCrypto}</span>
+                <span>1 {expressCrypto} ≈ {expressRate.toLocaleString()} {expressCurrency}</span>
               </div>
               <div className="text-[11px] text-zinc-500 font-mono">
                 Limit: {expressMinLimit} - {expressMaxLimit} {expressCurrency}
@@ -2393,7 +2383,7 @@ function P2PPageContent() {
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                Buy USDT
+                Buy {marketCryptoFilter === 'ALL' ? 'Crypto' : marketCryptoFilter}
               </button>
               <button
                 onClick={() => setMarketSide('SELL')}
@@ -2403,7 +2393,7 @@ function P2PPageContent() {
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                Sell USDT
+                Sell {marketCryptoFilter === 'ALL' ? 'Crypto' : marketCryptoFilter}
               </button>
             </div>
 
@@ -3317,7 +3307,12 @@ function P2PPageContent() {
                   <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Crypto Asset</label>
                   <select
                     value={newAdCrypto}
-                    onChange={(e) => setNewAdCrypto(e.target.value as any)}
+                    onChange={(e) => {
+                      const nextCrypto = e.target.value as 'USDT' | 'USDC' | 'BTC' | 'ETH';
+                      setNewAdCrypto(nextCrypto);
+                      const nextSpot = getCryptoFiatSpotRate(nextCrypto, newAdCurrency);
+                      setNewAdPrice(nextSpot.toFixed(nextSpot >= 20 ? 2 : 4));
+                    }}
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold outline-none cursor-pointer"
                   >
                     <option value="USDT">USDT</option>
@@ -3339,7 +3334,7 @@ function P2PPageContent() {
                       setNewAdCountryName(c.name);
                       if (c.currency !== newAdCurrency) {
                         setNewAdCurrency(c.currency);
-                        const spot = getCorridorSpotRate(c.currency);
+                        const spot = getCryptoFiatSpotRate(newAdCrypto, c.currency);
                         setNewAdPrice(spot.toFixed(spot >= 20 ? 2 : 4));
                       }
                       const rail = COUNTRIES.find((r) => r.currency === c.currency);
@@ -3432,7 +3427,7 @@ function P2PPageContent() {
                     Unit Exchange Rate ({newAdCurrency} per 1 {newAdCrypto})
                   </label>
                   <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                    Spot Market: {getCorridorSpotRate(newAdCurrency).toFixed(4)} {newAdCurrency}
+                    Spot Market: {getCryptoFiatSpotRate(newAdCrypto, newAdCurrency).toFixed(getCryptoFiatSpotRate(newAdCrypto, newAdCurrency) >= 20 ? 2 : 4)} {newAdCurrency}
                   </span>
                 </div>
                 <input
@@ -3457,7 +3452,7 @@ function P2PPageContent() {
                       key={preset.label}
                       type="button"
                       onClick={() => {
-                        const spot = getCorridorSpotRate(newAdCurrency);
+                        const spot = getCryptoFiatSpotRate(newAdCrypto, newAdCurrency);
                         setNewAdPrice((spot * preset.mult).toFixed(spot >= 20 ? 2 : 4));
                       }}
                       className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-emerald-500/15 hover:text-emerald-600 dark:hover:text-emerald-400 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
@@ -3590,7 +3585,7 @@ function P2PPageContent() {
                               : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
                           }`}
                         >
-                          {ad.side === 'BUY' ? 'Taker Buys USDT' : 'Taker Sells USDT'}
+                          {ad.side === 'BUY' ? `Taker Buys ${ad.cryptoCurrency}` : `Taker Sells ${ad.cryptoCurrency}`}
                         </span>
                         <span className="font-mono text-xs font-bold text-slate-500 dark:text-slate-400">
                           {ad.offerCode}
@@ -4115,10 +4110,10 @@ function P2PPageContent() {
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="font-bold text-slate-200">
-                    Unit Exchange Rate ({editingOffer.fiatCurrency} per 1 USDT)
+                    Unit Exchange Rate ({editingOffer.fiatCurrency} per 1 {editingOffer.cryptoCurrency})
                   </label>
                   <span className="font-mono text-[11px] text-slate-400">
-                    Spot: {getCorridorSpotRate(editingOffer.fiatCurrency).toFixed(4)}
+                    Spot: {getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency).toFixed(getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency) >= 20 ? 2 : 4)}
                   </span>
                 </div>
                 <input
@@ -4142,7 +4137,7 @@ function P2PPageContent() {
                       key={p.label}
                       type="button"
                       onClick={() => {
-                        const spot = getCorridorSpotRate(editingOffer.fiatCurrency);
+                        const spot = getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency);
                         setEditAdPrice((spot * p.mult).toFixed(spot >= 20 ? 2 : 4));
                       }}
                       className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-emerald-500/20 border border-slate-800 text-slate-300 hover:text-emerald-300 text-[11px] font-bold cursor-pointer"
@@ -4215,7 +4210,7 @@ function P2PPageContent() {
               {/* Liquidity, Status & Order Limits */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-200 mb-1">Available Liquidity (USDT)</label>
+                  <label className="block font-bold text-slate-200 mb-1">Available Liquidity ({editingOffer.cryptoCurrency})</label>
                   <input
                     type="number"
                     step="any"

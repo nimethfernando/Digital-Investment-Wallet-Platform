@@ -2129,7 +2129,7 @@ export class AdminController {
               cancelledBy: resolution === 'REFUND_TO_SELLER' ? adminUserId : undefined,
               cancelReason: resolution === 'REFUND_TO_SELLER' ? reason || 'Admin dispute refund' : undefined,
               completedAt: resolution === 'RELEASE_TO_BUYER' ? now : undefined,
-              disputeReason: reason ? `[Admin ${resolution}]: ${reason}` : `Resolved by admin via ${resolution}`,
+              disputeReason: `[Admin ${resolution}]: ${reason ? String(reason).trim() : 'Manual compliance adjudication'}`,
             },
           });
 

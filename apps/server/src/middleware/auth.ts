@@ -83,13 +83,13 @@ export const requireRole = (allowedRoles: Role[]) => {
 export const requireAdmin = requireRole([Role.ADMIN]);
 export const requireStaffOrAdmin = requireRole([Role.STAFF, Role.ADMIN]);
 
-export const requireAdmin2FA = (req: Request, res: Response, next: NextFunction): void => {
+export const requireAdmin2FA = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   if (!req.user) {
     res.status(401).json({ success: false, message: 'Unauthorized' });
     return;
   }
 
-  // If 2FA is enabled on this admin/staff account, verify 2FA code is provided
+  // If 2FA is enabled on this admin/staff account, verify TOTP code cryptographically
   if (req.user.twoFactorEnabled) {
     const providedCode =
       (req.headers['x-admin-2fa'] as string) ||
@@ -97,11 +97,23 @@ export const requireAdmin2FA = (req: Request, res: Response, next: NextFunction)
       req.body?.admin2FaCode ||
       req.body?.twoFactorCode;
 
-    if (!providedCode) {
+    if (!providedCode || !String(providedCode).trim()) {
       res.status(403).json({
         success: false,
         code: '2FA_CODE_REQUIRED',
         message: 'Admin Two-Factor Authentication (2FA) code is required for this privileged operation.',
+      });
+      return;
+    }
+
+    try {
+      const { authService } = await import('../services/auth.service');
+      await authService.verify2faForUser(req.user.id || req.user.userId, String(providedCode).trim());
+    } catch (err: any) {
+      res.status(403).json({
+        success: false,
+        code: 'INVALID_2FA_CODE',
+        message: err?.message || 'Invalid Two-Factor Authentication (2FA) code.',
       });
       return;
     }

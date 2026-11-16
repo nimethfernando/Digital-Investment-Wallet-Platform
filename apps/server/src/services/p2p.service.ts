@@ -10,6 +10,7 @@ import {
   getFiatSymbol,
   safeParsePaymentMethods,
   formatFiatWithCurrency,
+  formatCryptoAmount,
   createP2PNotification,
   computeUserP2PStatsMap,
   unlockEscrowToSellerTx,
@@ -168,12 +169,17 @@ export class P2PService {
     return getFiatSymbol(currency);
   }
 
-  private getStatusBadge(status: P2POrderStatus, isSeller: boolean, isFrozen?: boolean): string {
+  private getStatusBadge(
+    status: P2POrderStatus,
+    isSeller: boolean,
+    isFrozen?: boolean,
+    canAccept?: boolean
+  ): string {
     if (isFrozen || status === P2POrderStatus.FROZEN) {
       return 'Frozen by Compliance';
     }
     if (status === P2POrderStatus.PENDING) {
-      return isSeller ? 'Action Needed: Accept or Decline' : 'Waiting for Seller to Accept';
+      return canAccept ?? isSeller ? 'Action Needed: Accept or Decline' : 'Waiting for Counterparty to Accept';
     }
     if (status === P2POrderStatus.ACCEPTED || status === P2POrderStatus.PENDING_PAYMENT) {
       return isSeller ? 'Accepted • Waiting for Buyer Payment' : 'Accepted • Please Pay Seller';
@@ -242,12 +248,15 @@ export class P2PService {
 
   private formatOrderForUser(o: any, userId: string, statsMap?: Map<string, UserP2PStats>) {
     const isSeller = o.sellerId === userId;
+    const acceptorUserId = o.offer?.userId || o.sellerId;
+    const isOfferMaker = acceptorUserId === userId;
+    const canAcceptDecline = o.status === P2POrderStatus.PENDING && !o.isFrozen && isOfferMaker;
     const counterparty = isSeller ? o.buyer : o.seller;
     const side: 'Buy' | 'Sell' = isSeller ? 'Sell' : 'Buy';
     const fiatCurrency = (o.fiatCurrency || o.offer?.fiatCurrency || 'USD').toUpperCase();
     const cryptoCurrency = (o.cryptoCurrency || o.offer?.cryptoCurrency || 'USDT').toUpperCase();
     const fiatSymbol = this.getFiatSymbol(fiatCurrency);
-    const statusBadge = this.getStatusBadge(o.status, isSeller, o.isFrozen);
+    const statusBadge = this.getStatusBadge(o.status, isSeller, o.isFrozen, isOfferMaker);
 
     const d = new Date(o.createdAt);
     const formattedDate = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
@@ -284,7 +293,7 @@ export class P2PService {
       fiatSymbol,
       fiatAmount: new Decimal(o.fiatAmount.toString()).toFixed(2),
       price: new Decimal(o.price.toString()).toFixed(2),
-      cryptoAmount: new Decimal(o.cryptoAmount.toString()).toFixed(4).replace(/\.?0+$/, (m) => (m.length > 3 ? '.00' : m)),
+      cryptoAmount: formatCryptoAmount(o.cryptoAmount, cryptoCurrency),
       selectedPaymentMethod: o.selectedPaymentMethod || this.safeParsePaymentMethods(o.offer?.paymentMethods)[0] || 'Bank Transfer',
       availablePaymentMethods: this.safeParsePaymentMethods(o.offer?.paymentMethods),
       paymentTerms: o.offer?.paymentTerms || null,
@@ -293,6 +302,8 @@ export class P2PService {
       status: o.status,
       statusBadge,
       isSeller,
+      isOfferMaker,
+      canAcceptDecline,
       isFrozen: Boolean(o.isFrozen),
       frozenReason: o.frozenReason || null,
       paymentProofUrl: o.paymentProofUrl || undefined,
@@ -1012,8 +1023,8 @@ export class P2PService {
         fiatCurrency: o.fiatCurrency,
         price: new Decimal(o.price.toString()).toFixed(2),
         priceNum: Number(o.price),
-        totalAmount: new Decimal(o.totalAmount.toString()).toFixed(4).replace(/\.?0+$/, (m) => (m.length > 3 ? '.00' : m)),
-        availableAmount: new Decimal(o.availableAmount.toString()).toFixed(4).replace(/\.?0+$/, (m) => (m.length > 3 ? '.00' : m)),
+        totalAmount: formatCryptoAmount(o.totalAmount, o.cryptoCurrency),
+        availableAmount: formatCryptoAmount(o.availableAmount, o.cryptoCurrency),
         minLimit: new Decimal(o.minLimit.toString()).toFixed(2),
         maxLimit: new Decimal(o.maxLimit.toString()).toFixed(2),
         paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
@@ -1191,7 +1202,7 @@ export class P2PService {
         cryptoCurrency: o.cryptoCurrency,
         fiatCurrency: o.fiatCurrency,
         price: new Decimal(o.price.toString()).toFixed(2),
-        availableAmount: new Decimal(o.availableAmount.toString()).toFixed(2),
+        availableAmount: formatCryptoAmount(o.availableAmount, o.cryptoCurrency),
         minLimit: new Decimal(o.minLimit.toString()).toFixed(2),
         maxLimit: new Decimal(o.maxLimit.toString()).toFixed(2),
         paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
@@ -1276,8 +1287,8 @@ export class P2PService {
       cryptoCurrency: o.cryptoCurrency,
       fiatCurrency: o.fiatCurrency,
       price: new Decimal(o.price.toString()).toFixed(2),
-      totalAmount: new Decimal(o.totalAmount.toString()).toFixed(2),
-      availableAmount: new Decimal(o.availableAmount.toString()).toFixed(2),
+      totalAmount: formatCryptoAmount(o.totalAmount, o.cryptoCurrency),
+      availableAmount: formatCryptoAmount(o.availableAmount, o.cryptoCurrency),
       minLimit: new Decimal(o.minLimit.toString()).toFixed(2),
       maxLimit: new Decimal(o.maxLimit.toString()).toFixed(2),
       paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
@@ -1421,8 +1432,8 @@ export class P2PService {
         cryptoCurrency: updated.cryptoCurrency,
         fiatCurrency: updated.fiatCurrency,
         price: new Decimal(updated.price.toString()).toFixed(2),
-        totalAmount: new Decimal(updated.totalAmount.toString()).toFixed(2),
-        availableAmount: new Decimal(updated.availableAmount.toString()).toFixed(2),
+        totalAmount: formatCryptoAmount(updated.totalAmount, updated.cryptoCurrency),
+        availableAmount: formatCryptoAmount(updated.availableAmount, updated.cryptoCurrency),
         minLimit: new Decimal(updated.minLimit.toString()).toFixed(2),
         maxLimit: new Decimal(updated.maxLimit.toString()).toFixed(2),
         paymentMethods: this.safeParsePaymentMethods(updated.paymentMethods),
@@ -1763,9 +1774,10 @@ export class P2PService {
           },
         });
 
+        const formattedCrypto = formatCryptoAmount(cryptoAmountDec, cryptoCur);
         const initMsg = isInstitutionalCounterparty
-          ? `[System] Order ${orderCode} auto-accepted by Avora Institutional Desk. Escrow of ${cryptoAmountDec.toFixed(2)} ${cryptoCur} is locked. Buyer has ${P2P_TIMERS.PAYMENT_MINUTES} minutes to pay ${formatFiatWithCurrency(fiatAmountDec, fiatCur)} via ${chosenMethod}.`
-          : `[System] Order ${orderCode} created (${cryptoAmountDec.toFixed(2)} ${cryptoCur} safely locked in Avora Escrow). Seller has ${P2P_TIMERS.ACCEPT_MINUTES} minutes to Accept or Decline before payment begins.`;
+          ? `[System] Order ${orderCode} auto-accepted by Avora Institutional Desk. Escrow of ${formattedCrypto} ${cryptoCur} is locked. Buyer has ${P2P_TIMERS.PAYMENT_MINUTES} minutes to pay ${formatFiatWithCurrency(fiatAmountDec, fiatCur)} via ${chosenMethod}.`
+          : `[System] Order ${orderCode} created (${formattedCrypto} ${cryptoCur} safely locked in Avora Escrow). Offer maker has ${P2P_TIMERS.ACCEPT_MINUTES} minutes to Accept or Decline before payment begins.`;
 
         await tx.p2PMessage.create({
           data: {
@@ -1780,30 +1792,31 @@ export class P2PService {
       { timeout: 30000, maxWait: 10000 }
     );
 
+    const formattedCrypto = formatCryptoAmount(cryptoAmountDec, cryptoCur);
     await Promise.all([
       createP2PNotification({
-        userId: sellerId,
+        userId: counterpartyId,
         type: 'P2P_NEW_ORDER',
         severity: 'INFO',
-        title: `New P2P Order #${orderCode} (${cryptoAmountDec.toFixed(2)} ${cryptoCur})`,
+        title: `New P2P Order #${orderCode} (${formattedCrypto} ${cryptoCur})`,
         message: isInstitutionalCounterparty
           ? `New order for ${formatFiatWithCurrency(fiatAmountDec, fiatCur)} via ${chosenMethod}. Escrow locked.`
-          : `Buyer requested ${cryptoAmountDec.toFixed(2)} ${cryptoCur} (${formatFiatWithCurrency(fiatAmountDec, fiatCur)}) via ${chosenMethod}. Please Accept or Decline within ${P2P_TIMERS.ACCEPT_MINUTES} minutes.`,
+          : `Counterparty requested ${formattedCrypto} ${cryptoCur} (${formatFiatWithCurrency(fiatAmountDec, fiatCur)}) via ${chosenMethod}. Please Accept or Decline within ${P2P_TIMERS.ACCEPT_MINUTES} minutes.`,
         referenceCode: orderCode,
-        amount: cryptoAmountDec.toFixed(2),
+        amount: formattedCrypto,
         currency: cryptoCur,
         status: order.status,
       }),
       createP2PNotification({
-        userId: actualBuyerId,
+        userId: takerUserId,
         type: 'P2P_ORDER_CREATED',
         severity: 'INFO',
         title: `P2P Order #${orderCode} Opened`,
         message: isInstitutionalCounterparty
-          ? `Order accepted. Transfer ${formatFiatWithCurrency(fiatAmountDec, fiatCur)} via ${chosenMethod} within ${P2P_TIMERS.PAYMENT_MINUTES} minutes.`
-          : `Escrow locked (${cryptoAmountDec.toFixed(2)} ${cryptoCur}). Waiting for seller to accept before revealing payment details.`,
+          ? `Order accepted. Settlement stage active for ${formatFiatWithCurrency(fiatAmountDec, fiatCur)} via ${chosenMethod} (${P2P_TIMERS.PAYMENT_MINUTES}m window).`
+          : `Escrow locked (${formattedCrypto} ${cryptoCur}). Waiting for merchant acceptance before payment stage begins.`,
         referenceCode: orderCode,
-        amount: cryptoAmountDec.toFixed(2),
+        amount: formattedCrypto,
         currency: cryptoCur,
         status: order.status,
       }),
@@ -1909,13 +1922,13 @@ export class P2PService {
   }
 
   /**
-   * Seller accepts a PENDING order, opening the buyer payment window & revealing payment details
+   * Counterparty / offer maker accepts a PENDING order, opening the buyer payment window & revealing payment details
    */
   async acceptOrder(orderId: string, userId: string) {
     const order = await prisma.p2POrder.findUnique({
       where: { id: orderId },
       include: {
-        buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+        buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, p2pBlocked: true, status: true } },
         seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, p2pBlocked: true, status: true } },
         offer: true,
         reviews: true,
@@ -1923,13 +1936,15 @@ export class P2PService {
     });
 
     if (!order) throw new Error('Order not found');
-    if (order.sellerId !== userId) {
-      throw new Error('Only the seller can accept this order.');
+    const acceptorUserId = order.offer?.userId || order.sellerId;
+    if (acceptorUserId !== userId) {
+      throw new Error('Only the counterparty receiving this order can accept it.');
     }
+    const actor = order.buyerId === userId ? order.buyer : order.seller;
     if (order.isFrozen) {
       throw new Error('This order is currently frozen by Compliance.');
     }
-    if (order.seller.status !== 'ACTIVE' || order.seller.p2pBlocked) {
+    if (actor.status !== 'ACTIVE' || actor.p2pBlocked) {
       throw new Error('Your P2P trading access is currently restricted.');
     }
     if (order.status !== P2POrderStatus.PENDING) {
@@ -1942,6 +1957,7 @@ export class P2PService {
     const now = new Date();
     const paymentExpiresAt = new Date(now.getTime() + P2P_TIMERS.PAYMENT_MINUTES * 60 * 1000);
     const fiatCur = (order.fiatCurrency || order.offer?.fiatCurrency || 'USD').toUpperCase();
+    const cryptoCur = (order.cryptoCurrency || order.offer?.cryptoCurrency || 'USDT').toUpperCase();
     const methodLabel = order.selectedPaymentMethod || 'Bank Transfer';
 
     const acceptedOrder = await prisma.$transaction(
@@ -1970,7 +1986,7 @@ export class P2PService {
           data: {
             orderId,
             senderId: 'SYSTEM',
-            message: `[System] Seller accepted order #${order.orderCode}. Buyer now has ${P2P_TIMERS.PAYMENT_MINUTES} minutes to pay ${formatFiatWithCurrency(order.fiatAmount.toString(), fiatCur)} via ${methodLabel} and click "I Have Paid".`,
+            message: `[System] Order #${order.orderCode} accepted. Buyer now has ${P2P_TIMERS.PAYMENT_MINUTES} minutes to pay ${formatFiatWithCurrency(order.fiatAmount.toString(), fiatCur)} via ${methodLabel} and click "I Have Paid".`,
           },
         });
 
@@ -1979,15 +1995,16 @@ export class P2PService {
       { timeout: 30000, maxWait: 10000 }
     );
 
+    const counterpartyNotifyId = order.buyerId === userId ? order.sellerId : order.buyerId;
     await createP2PNotification({
-      userId: order.buyerId,
+      userId: counterpartyNotifyId,
       type: 'P2P_ORDER_ACCEPTED',
       severity: 'SUCCESS',
-      title: `Order #${order.orderCode} Accepted — Pay Within ${P2P_TIMERS.PAYMENT_MINUTES}m`,
-      message: `Seller accepted your order for ${formatFiatWithCurrency(order.fiatAmount.toString(), fiatCur)} via ${methodLabel}. Payment details are unlocked in your Trade Room.`,
+      title: `Order #${order.orderCode} Accepted — ${P2P_TIMERS.PAYMENT_MINUTES}m Payment Window Active`,
+      message: `Counterparty accepted your order for ${formatFiatWithCurrency(order.fiatAmount.toString(), fiatCur)} via ${methodLabel}. Open your Trade Room to proceed.`,
       referenceCode: order.orderCode,
-      amount: new Decimal(order.cryptoAmount.toString()).toFixed(2),
-      currency: order.cryptoCurrency || 'USDT',
+      amount: formatCryptoAmount(order.cryptoAmount, cryptoCur),
+      currency: cryptoCur,
       status: P2POrderStatus.PENDING_PAYMENT,
     });
 
@@ -1996,7 +2013,7 @@ export class P2PService {
   }
 
   /**
-   * Seller declines a PENDING order BEFORE payment starts, returning escrowed crypto to seller
+   * Counterparty / offer maker declines a PENDING order BEFORE payment starts, returning escrowed crypto to seller
    */
   async declineOrder(orderId: string, userId: string, reason?: string) {
     const order = await prisma.p2POrder.findUnique({
@@ -2010,22 +2027,24 @@ export class P2PService {
     });
 
     if (!order) throw new Error('Order not found');
-    if (order.sellerId !== userId) {
-      throw new Error('Only the seller can decline a pending order.');
+    const acceptorUserId = order.offer?.userId || order.sellerId;
+    if (acceptorUserId !== userId) {
+      throw new Error('Only the counterparty receiving this order can decline a pending order.');
     }
     if (order.isFrozen) {
       throw new Error('This order is frozen by Compliance and cannot be declined.');
     }
     if (order.status !== P2POrderStatus.PENDING) {
       throw new Error(
-        `Cannot decline order while status is ${order.status}. Seller can only decline before accepting.`
+        `Cannot decline order while status is ${order.status}. Counterparty can only decline before accepting.`
       );
     }
 
     const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
     const cryptoCur = (order.cryptoCurrency || order.offer?.cryptoCurrency || 'USDT').toUpperCase();
+    const formattedCrypto = formatCryptoAmount(cryptoAmountDec, cryptoCur);
     const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
-    const cleanReason = reason?.trim() || 'Seller declined deal before payment window opened';
+    const cleanReason = reason?.trim() || 'Merchant declined deal before payment window opened';
 
     const declinedOrder = await prisma.$transaction(
       async (tx) => {
@@ -2061,7 +2080,7 @@ export class P2PService {
           data: {
             orderId,
             senderId: 'SYSTEM',
-            message: `[System] Order #${order.orderCode} was declined by seller (${cleanReason}). ${cryptoAmountDec.toFixed(2)} ${cryptoCur} returned to seller and buyer may trade with another vendor.`,
+            message: `[System] Order #${order.orderCode} was declined (${cleanReason}). ${formattedCrypto} ${cryptoCur} returned to seller and buyer may trade with another vendor.`,
           },
         });
 
@@ -2070,11 +2089,12 @@ export class P2PService {
       { timeout: 30000, maxWait: 10000 }
     );
 
+    const counterpartyNotifyId = order.buyerId === userId ? order.sellerId : order.buyerId;
     await createP2PNotification({
-      userId: order.buyerId,
+      userId: counterpartyNotifyId,
       type: 'P2P_ORDER_DECLINED',
       severity: 'WARNING',
-      title: `P2P Order #${order.orderCode} Declined by Seller`,
+      title: `P2P Order #${order.orderCode} Declined`,
       message: `${cleanReason}. You can immediately place an order with another vendor in the marketplace.`,
       referenceCode: order.orderCode,
       status: P2POrderStatus.DECLINED,
@@ -2491,6 +2511,7 @@ export class P2PService {
       include: {
         buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
         seller: { select: { id: true, firstName: true, lastName: true, email: true } },
+        offer: { select: { userId: true } },
       },
     });
 
@@ -2505,13 +2526,14 @@ export class P2PService {
     });
 
     const isSeller = order.sellerId === userId;
+    const isOfferMaker = (order.offer?.userId || order.sellerId) === userId;
     const counterparty = isSeller ? order.buyer : order.seller;
 
     return {
       orderId: order.id,
       orderCode: order.orderCode,
       status: order.status,
-      statusBadge: this.getStatusBadge(order.status, isSeller, order.isFrozen),
+      statusBadge: this.getStatusBadge(order.status, isSeller, order.isFrozen, isOfferMaker),
       isSeller,
       counterparty: {
         id: counterparty.id,
@@ -2610,9 +2632,10 @@ export class P2PService {
             const sellerWallet = await ledgerService.ensureWallet(ord.sellerId);
             const cryptoCur = (ord.cryptoCurrency || ord.offer?.cryptoCurrency || 'USDT').toUpperCase();
             const cryptoAmountDec = new Decimal(ord.cryptoAmount.toString());
+            const formattedCrypto = formatCryptoAmount(cryptoAmountDec, cryptoCur);
             const reason =
               ord.status === P2POrderStatus.PENDING
-                ? 'Seller did not accept within 15 minutes'
+                ? 'Offer maker did not accept within 15 minutes'
                 : 'Buyer payment window (30 minutes) expired without confirmation';
 
             await prisma.$transaction(async (tx) => {
@@ -2642,7 +2665,7 @@ export class P2PService {
                 data: {
                   orderId: ord.id,
                   senderId: 'SYSTEM',
-                  message: `[System] Order #${ord.orderCode} automatically EXPIRED (${reason}). Locked ${cryptoAmountDec.toFixed(2)} ${cryptoCur} returned safely to seller.`,
+                  message: `[System] Order #${ord.orderCode} automatically EXPIRED (${reason}). Locked ${formattedCrypto} ${cryptoCur} returned safely to seller.`,
                 },
               });
             });
@@ -2662,7 +2685,7 @@ export class P2PService {
                 type: 'P2P_ORDER_EXPIRED',
                 severity: 'INFO',
                 title: `P2P Order #${ord.orderCode} Expired — Escrow Returned`,
-                message: `${reason}. Locked ${cryptoAmountDec.toFixed(2)} ${cryptoCur} returned to your available wallet.`,
+                message: `${reason}. Locked ${formattedCrypto} ${cryptoCur} returned to your available wallet.`,
                 referenceCode: ord.orderCode,
                 status: P2POrderStatus.EXPIRED,
               }),
@@ -2759,6 +2782,13 @@ export class P2PService {
               status: P2POrderStatus.DISPUTED,
             }),
           ]);
+          notificationService
+            .sendAdminAlert(
+              `⚖️ P2P Timeout Auto-Dispute [${ord.orderCode}]`,
+              `Order ${ord.orderCode} (${formatCryptoAmount(ord.cryptoAmount, ord.cryptoCurrency)} ${ord.cryptoCurrency || 'USDT'}) auto-escalated to DISPUTED after seller confirmation window elapsed.\n180-min SLA deadline: ${disputeDeadlineAt.toISOString()}`,
+              { orderId: ord.id, orderCode: ord.orderCode }
+            )
+            .catch(() => {});
           escalatedCount += 1;
         }
       }

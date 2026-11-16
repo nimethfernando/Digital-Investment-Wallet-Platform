@@ -79,6 +79,17 @@ export function formatFiatWithCurrency(amount: number | string | Decimal, curren
   return sym.endsWith(' ') ? `${formatted} ${cur}` : `${sym}${formatted} ${cur}`;
 }
 
+export function formatCryptoAmount(amount: number | string | Decimal, cryptoCurrency?: string): string {
+  const cur = (cryptoCurrency || 'USDT').toUpperCase();
+  const dec = new Decimal(amount?.toString() || '0');
+  const maxDecimals = cur === 'USDT' || cur === 'USDC' ? 4 : 6;
+  const fixed = dec.toFixed(maxDecimals);
+  const trimmed = fixed.replace(/\.?0+$/, '');
+  if (!trimmed.includes('.')) return `${trimmed}.00`;
+  const [intPart, fracPart] = trimmed.split('.');
+  return fracPart.length < 2 ? `${intPart}.${fracPart.padEnd(2, '0')}` : trimmed;
+}
+
 export async function createP2PNotification(params: {
   userId: string;
   type: string;
@@ -139,6 +150,7 @@ export async function computeUserP2PStatsMap(userIds: string[]): Promise<Map<str
         disputedAt: true,
         disputeReason: true,
         cancelledBy: true,
+        offer: { select: { userId: true } },
       },
     }),
     prisma.p2PReview.findMany({
@@ -192,12 +204,13 @@ export async function computeUserP2PStatsMap(userIds: string[]): Promise<Map<str
           disputesLost += 1;
         }
       } else if (ord.status === P2POrderStatus.DECLINED) {
-        if (isSeller) declinedAsSeller += 1;
+        const acceptorId = ord.offer?.userId || ord.sellerId;
+        if (acceptorId === uid) declinedAsSeller += 1;
       } else if (ord.status === P2POrderStatus.EXPIRED) {
-        // Seller fault if never accepted; buyer fault if accepted but buyer never paid
-        const missedBySeller = !ord.acceptedAt && isSeller;
+        const acceptorId = ord.offer?.userId || ord.sellerId;
+        const missedByAcceptor = !ord.acceptedAt && acceptorId === uid;
         const missedByBuyer = Boolean(ord.acceptedAt) && isBuyer;
-        if (missedBySeller || missedByBuyer) {
+        if (missedByAcceptor || missedByBuyer) {
           expiredFault += 1;
         }
       }

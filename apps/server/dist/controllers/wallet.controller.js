@@ -11,6 +11,7 @@ const ledger_service_1 = require("../services/ledger.service");
 const deposit_service_1 = require("../services/deposit.service");
 const card_service_1 = require("../services/card.service");
 const package_service_1 = require("../services/package.service");
+const p2p_service_1 = require("../services/p2p.service");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 function fmtAmountDisplay(value, currency = 'USD') {
     const num = Number(value || 0);
@@ -458,7 +459,8 @@ class WalletController {
                 notifications: [],
             };
         }
-        const [kycDocuments, supportTickets, inquiries, investmentInquiries, packages, deposits, withdrawals, transactions, globalTransfers, p2pOrders, notifSetting,] = await Promise.all([
+        await p2p_service_1.p2pService.ensureP2PReady();
+        const [kycDocuments, supportTickets, inquiries, investmentInquiries, packages, deposits, withdrawals, transactions, globalTransfers, p2pOrders, persistedNotifications, notifSetting,] = await Promise.all([
             prisma_1.prisma.kycDocument.findMany({
                 where: { userId },
                 orderBy: { createdAt: 'desc' },
@@ -528,6 +530,13 @@ class WalletController {
                 orderBy: { updatedAt: 'desc' },
                 take: 20,
             }),
+            prisma_1.prisma.userNotification
+                .findMany({
+                where: { userId },
+                orderBy: { createdAt: 'desc' },
+                take: 50,
+            })
+                .catch(() => []),
             prisma_1.prisma.cmsSetting.findUnique({
                 where: { key: settingKey },
             }),
@@ -967,17 +976,34 @@ class WalletController {
                 createdAt: (gmt.completedAt || gmt.updatedAt || gmt.createdAt).toISOString(),
             });
         }
+        for (const notif of persistedNotifications) {
+            rawItems.push({
+                id: `un-${notif.id}`,
+                category: notif.category || 'TRANSACTION',
+                type: notif.type,
+                severity: notif.severity || 'INFO',
+                title: notif.title,
+                message: notif.message,
+                referenceCode: notif.referenceCode,
+                amount: notif.amount,
+                currency: notif.currency,
+                status: notif.status,
+                actionUrl: notif.actionUrl || '/p2p',
+                actionLabel: notif.actionLabel || 'View Details',
+                createdAt: notif.createdAt.toISOString(),
+            });
+        }
         for (const ord of p2pOrders) {
             const sideLabel = ord.buyerId === userId ? 'Buy' : 'Sell';
-            const fiatCur = ord.offer?.fiatCurrency || 'USD';
-            const cryptoCur = ord.offer?.cryptoCurrency || 'USDT';
+            const fiatCur = ord.fiatCurrency || ord.offer?.fiatCurrency || 'USD';
+            const cryptoCur = ord.cryptoCurrency || ord.offer?.cryptoCurrency || 'USDT';
             rawItems.push({
                 id: `p2p-${ord.id}-${ord.status}`,
                 category: 'TRANSACTION',
                 type: 'P2P_ORDER',
                 severity: ord.status === 'COMPLETED'
                     ? 'SUCCESS'
-                    : ord.status === 'DISPUTED' || ord.status === 'CANCELLED'
+                    : ['DISPUTED', 'CANCELLED', 'EXPIRED', 'DECLINED', 'FROZEN'].includes(ord.status)
                         ? 'CRITICAL'
                         : 'INFO',
                 title: `P2P Escrow [${ord.orderCode}] — ${ord.status.replace(/_/g, ' ')}`,
@@ -1094,10 +1120,20 @@ class WalletController {
             if (markAll) {
                 state.lastReadAllAt = new Date().toISOString();
                 state.readIds = [];
+                await prisma_1.prisma.userNotification.updateMany({ where: { userId, isRead: false }, data: { isRead: true } }).catch(() => { });
             }
             else if (Array.isArray(notificationIds) && notificationIds.length > 0) {
                 const merged = Array.from(new Set([...(state.readIds || []), ...notificationIds.map(String)]));
                 state.readIds = merged.slice(-250);
+                const dbNotifIds = notificationIds
+                    .map(String)
+                    .filter((nid) => nid.startsWith('un-'))
+                    .map((nid) => nid.slice(3));
+                if (dbNotifIds.length > 0) {
+                    await prisma_1.prisma.userNotification
+                        .updateMany({ where: { id: { in: dbNotifIds }, userId }, data: { isRead: true } })
+                        .catch(() => { });
+                }
             }
             await prisma_1.prisma.cmsSetting.upsert({
                 where: { key: settingKey },
