@@ -1727,7 +1727,7 @@ export default function AdminPortalPage() {
             { id: 'config', label: 'FX Rates & Fee Controls', icon: Sliders },
             { id: 'system', label: 'System & Maintenance', icon: Settings },
             { id: 'audit', label: 'Audit Logs', icon: FileText },
-            { id: 'content', label: 'Auto Publisher', icon: Sparkles },
+            { id: 'content', label: 'Articles & Research CMS', icon: Sparkles },
             { id: 'disputes', label: `Inquiries & Chat (${tabBadgeCounts.disputes})`, icon: MessageSquare },
           ].map((t) => {
             const Icon = t.icon;

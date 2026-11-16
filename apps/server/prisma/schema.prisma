@@ -568,7 +568,9 @@ model BlogPost {
   autoTrackNews Boolean          @default(true)
   lastNewsSync  DateTime?
   authorName    String           @default("Avora Bank Research Team")
+  authorRole    String?          @db.VarChar(150)
   readTime      String           @default("5 min read")
+  isFeatured    Boolean          @default(false)
   isPublished   Boolean          @default(true)
   publishedAt   DateTime         @default(now())
   updatedAt     DateTime         @updatedAt

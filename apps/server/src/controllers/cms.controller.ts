@@ -136,7 +136,8 @@ export const getBlogPosts = async (req: Request, res: Response, next: NextFuncti
 export const getBlogPost = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const slug = req.params.slug as string;
-    let blog = await cmsService.getBlogPostBySlug(slug);
+    const includeDrafts = req.query.preview === 'true';
+    let blog = await cmsService.getBlogPostBySlug(slug, includeDrafts);
     if (!blog) return res.status(404).json({ success: false, message: 'Blog post not found' });
 
     // Stale auto-refresh if auto-tracked and last sync was > 30 mins ago (keeps continuous news fresh even on serverless)
@@ -251,17 +252,35 @@ export const getAdminBlogPosts = async (req: Request, res: Response, next: NextF
   }
 };
 
+export const createAdminBlogPost = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const blog = await cmsService.createBlogPost(req.body || {});
+    res.status(201).json({
+      success: true,
+      message: `Article "${blog.title}" created successfully.`,
+      blog,
+    });
+  } catch (err: any) {
+    if (err?.message && (err.message.includes('required') || err.message.includes('already used'))) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    next(err);
+  }
+};
+
 export const updateAdminBlogPost = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    const { isPublished, autoTrackNews } = req.body;
-    const data: any = {};
-    if (typeof isPublished === 'boolean') data.isPublished = isPublished;
-    if (typeof autoTrackNews === 'boolean') data.autoTrackNews = autoTrackNews;
-
-    const updated = await prisma.blogPost.update({ where: { id }, data });
-    res.json({ success: true, blog: updated });
-  } catch (err) {
+    const updated = await cmsService.updateBlogPost(id, req.body || {});
+    res.json({
+      success: true,
+      message: `Article "${updated.title}" updated successfully.`,
+      blog: updated,
+    });
+  } catch (err: any) {
+    if (err?.message && (err.message.includes('not found') || err.message.includes('empty') || err.message.includes('already used'))) {
+      return res.status(err.message.includes('not found') ? 404 : 400).json({ success: false, message: err.message });
+    }
     next(err);
   }
 };
@@ -269,8 +288,26 @@ export const updateAdminBlogPost = async (req: Request, res: Response, next: Nex
 export const deleteAdminBlogPost = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = req.params.id as string;
-    await prisma.blogPost.delete({ where: { id } });
-    res.json({ success: true, message: 'Blog post deleted.' });
+    await cmsService.deleteBlogPost(id);
+    res.json({ success: true, message: 'Article deleted.' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const seedDefaultBlogPostsAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const restoredCount = await cmsService.ensureDefaultBlogPosts(true);
+    const blogs = await cmsService.getBlogPosts(true);
+    res.json({
+      success: true,
+      restoredCount,
+      message:
+        restoredCount > 0
+          ? `Restored ${restoredCount} default institutional research paper(s).`
+          : 'All default institutional research papers are already present.',
+      blogs,
+    });
   } catch (err) {
     next(err);
   }

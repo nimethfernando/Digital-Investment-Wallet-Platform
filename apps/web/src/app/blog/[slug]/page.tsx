@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api, resolveMediaUrl } from '../../../lib/api';
-import { BLOG_POSTS_DATA, BlogPostItem, formatBlogDate } from '../../../lib/blog-data';
+import { BLOG_POSTS_DATA, BlogPostItem, formatBlogDate, mapApiBlogToPostItem } from '../../../lib/blog-data';
 import {
   ArrowLeft,
   Clock,
@@ -65,28 +65,49 @@ export default function BlogPostDetailPage() {
   const [post, setPost] = useState<ExtendedBlogPost | null>(() => {
     return BLOG_POSTS_DATA.find((b) => b.slug === slug) || null;
   });
+  const [allPosts, setAllPosts] = useState<BlogPostItem[]>(BLOG_POSTS_DATA);
+  const [loadingPost, setLoadingPost] = useState<boolean>(true);
+
+  useEffect(() => {
+    api
+      .get('/cms/blogs')
+      .then((res) => {
+        if (Array.isArray(res.data?.blogs) && res.data.blogs.length > 0) {
+          setAllPosts(res.data.blogs.map((b: any) => mapApiBlogToPostItem(b, resolveMediaUrl)));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!slug) return;
+    setLoadingPost(true);
     const foundStatic = BLOG_POSTS_DATA.find((b) => b.slug === slug);
     if (foundStatic) {
       setPost(foundStatic);
     }
 
     api
-      .get(`/cms/blogs/${slug}`)
+      .get(`/cms/blogs/${slug}?preview=true`)
       .then((res) => {
         const b = res.data?.blog;
         if (b) {
           let parsedTakeaways = foundStatic?.keyTakeaways || [];
           try {
-            if (typeof b.keyTakeaways === 'string') {
+            if (typeof b.keyTakeaways === 'string' && b.keyTakeaways.trim()) {
               const arr = JSON.parse(b.keyTakeaways);
               if (Array.isArray(arr)) parsedTakeaways = arr;
             } else if (Array.isArray(b.keyTakeaways)) {
               parsedTakeaways = b.keyTakeaways;
             }
-          } catch {}
+          } catch {
+            if (typeof b.keyTakeaways === 'string') {
+              parsedTakeaways = b.keyTakeaways
+                .split(/\r?\n/)
+                .map((s: string) => s.replace(/^[-*•]\s*/, '').trim())
+                .filter(Boolean);
+            }
+          }
 
           let parsedHighlights: LiveHighlight[] = [];
           try {
@@ -118,7 +139,9 @@ export default function BlogPostDetailPage() {
             readTime: b.readTime || '5 min read',
             publishedAt: b.publishedAt || b.createdAt || '2026-10-20',
             authorName: b.authorName || b.author || 'Avora Institutional Research',
-            authorRole: b.ticker ? `${b.ticker} • Quantitative Equity & Macro Desk` : 'Avora Bank Research Desk',
+            authorRole:
+              b.authorRole ||
+              (b.ticker ? `${b.ticker} • Quantitative Equity & Macro Desk` : 'Avora Bank Research Desk'),
             coverImage: rawCover
               ? `${rawCover}${rawCover.endsWith('.svg') ? cacheTag : ''}`
               : 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80',
@@ -129,7 +152,7 @@ export default function BlogPostDetailPage() {
               : ['Avora Bank', 'Research'],
             content:
               typeof b.content === 'string'
-                ? b.content.split('\n\n')
+                ? b.content.split(/\n\s*\n/).map((p: string) => p.trim()).filter(Boolean)
                 : foundStatic?.content || [],
             keyTakeaways: parsedTakeaways,
             ticker: b.ticker || null,
@@ -145,9 +168,21 @@ export default function BlogPostDetailPage() {
         }
       })
       .catch(() => {
-        // Keep static post
+        // Keep static post if found
+      })
+      .finally(() => {
+        setLoadingPost(false);
       });
   }, [slug]);
+
+  if (!post && loadingPost) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-24 text-center space-y-3">
+        <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin mx-auto" />
+        <p className="text-xs text-slate-500">Loading institutional research paper...</p>
+      </div>
+    );
+  }
 
   if (!post) {
     return (
@@ -169,7 +204,7 @@ export default function BlogPostDetailPage() {
     );
   }
 
-  const relatedPosts = BLOG_POSTS_DATA.filter((p) => p.slug !== post.slug).slice(0, 3);
+  const relatedPosts = allPosts.filter((p) => p.slug !== post.slug).slice(0, 3);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 space-y-12">

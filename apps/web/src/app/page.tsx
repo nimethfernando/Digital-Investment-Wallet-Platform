@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
-import { api, extractErrorMessage } from '../lib/api';
-import { BLOG_POSTS_DATA, formatBlogDate } from '../lib/blog-data';
+import { api, extractErrorMessage, resolveMediaUrl } from '../lib/api';
+import { BLOG_POSTS_DATA, BlogPostItem, formatBlogDate, mapApiBlogToPostItem } from '../lib/blog-data';
 import { PersonaIndustryCarousel } from '../components/PersonaIndustryCarousel';
 import {
   TrendingUp,
@@ -54,6 +54,7 @@ export default function HomePage() {
   const totalMaturity = calcAmount + sixMonthReturn;
 
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [homePosts, setHomePosts] = useState<BlogPostItem[]>(BLOG_POSTS_DATA.slice(0, 3));
   
   // Hero Interactive Visual State
   const [heroVisualTab, setHeroVisualTab] = useState<'card' | 'otc'>('card');
@@ -93,6 +94,15 @@ export default function HomePage() {
         if (res.data.settings) setSettings(res.data.settings);
       })
       .catch((err) => console.log('CMS settings fetch:', err));
+
+    api.get('/cms/blogs')
+      .then((res) => {
+        if (Array.isArray(res.data?.blogs) && res.data.blogs.length > 0) {
+          const mapped = res.data.blogs.map((b: any) => mapApiBlogToPostItem(b, resolveMediaUrl));
+          setHomePosts(mapped.slice(0, 3));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const faqs = [
@@ -1080,7 +1090,7 @@ export default function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {BLOG_POSTS_DATA.slice(0, 3).map((post) => (
+          {homePosts.map((post) => (
             <article
               key={post.id}
               className="group rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden flex flex-col justify-between hover:shadow-2xl hover:border-emerald-500/50 transition-all duration-300"

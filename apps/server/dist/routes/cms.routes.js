@@ -22,8 +22,11 @@ router.post('/admin/settings', auth_1.authenticateToken, auth_1.requireAdmin, cm
 router.get('/admin/inquiries', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.getInquiries);
 router.put('/admin/inquiries/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateInquiryStatus);
 router.get('/admin/blogs', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.getAdminBlogPosts);
+router.post('/admin/blogs', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.createAdminBlogPost);
+router.post('/admin/blogs/seed-defaults', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.seedDefaultBlogPostsAdmin);
 router.post('/admin/blogs/auto-publish', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.autoPublishBlog);
 router.post('/admin/blogs/:id/sync-news', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.syncBlogNewsAdmin);
+router.put('/admin/blogs/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateAdminBlogPost);
 router.patch('/admin/blogs/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateAdminBlogPost);
 router.delete('/admin/blogs/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.deleteAdminBlogPost);
 router.get('/admin/ai-config', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.getAiPublisherConfig);

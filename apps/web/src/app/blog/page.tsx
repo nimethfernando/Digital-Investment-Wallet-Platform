@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, resolveMediaUrl } from '../../lib/api';
-import { BLOG_POSTS_DATA, BlogPostItem, formatBlogDate } from '../../lib/blog-data';
+import { BLOG_POSTS_DATA, BlogPostItem, formatBlogDate, mapApiBlogToPostItem } from '../../lib/blog-data';
 import {
   ArrowRight,
   Clock,
@@ -25,41 +25,15 @@ export default function BlogListingPage() {
     api
       .get('/cms/blogs')
       .then((res) => {
-        if (Array.isArray(res.data?.blogs) && res.data.blogs.length > 0) {
-          const mapped: BlogPostItem[] = res.data.blogs.map((b: any) => ({
-            id: b.id,
-            slug: b.slug,
-            title: b.title,
-            excerpt: b.excerpt || b.summary || '',
-            category: b.category || 'Treasury & Yield',
-            readTime: b.readTime || '5 min read',
-            publishedAt: b.publishedAt || b.createdAt || '2026-10-20',
-            authorName: b.authorName || b.author || 'Avora Institutional Research',
-            authorRole: b.ticker ? `${b.ticker} • Live News Tracked` : 'Avora Bank Research Desk',
-            coverImage:
-              resolveMediaUrl(b.coverImage) ||
-              resolveMediaUrl(b.bannerSvgUrl) ||
-              'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80',
-            isFeatured: Boolean(b.isFeatured),
-            tags: Array.isArray(b.tags)
-              ? b.tags
-              : typeof b.tags === 'string'
-              ? b.tags.split(',').map((t: string) => t.trim())
-              : ['Avora Bank', 'Research'],
-            content: typeof b.content === 'string' ? b.content.split('\n\n') : [],
-            keyTakeaways: [],
-          }));
-          // Combine DB blogs with static blogs (avoiding duplicate slugs)
-          const existingSlugs = new Set(mapped.map((m) => m.slug));
-          const merged = [
-            ...mapped,
-            ...BLOG_POSTS_DATA.filter((item) => !existingSlugs.has(item.slug)),
-          ];
-          setPosts(merged);
+        if (Array.isArray(res.data?.blogs)) {
+          const mapped: BlogPostItem[] = res.data.blogs.map((b: any) =>
+            mapApiBlogToPostItem(b, resolveMediaUrl)
+          );
+          setPosts(mapped);
         }
       })
       .catch(() => {
-        // Fallback to BLOG_POSTS_DATA
+        // Fallback to BLOG_POSTS_DATA if offline
       });
   }, []);
 

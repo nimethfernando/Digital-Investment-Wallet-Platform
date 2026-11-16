@@ -168,6 +168,8 @@ class AutoContentService {
                 ['priceChange', 'ALTER TABLE `diw_blog_posts` ADD COLUMN `priceChange` VARCHAR(64) NULL'],
                 ['autoTrackNews', 'ALTER TABLE `diw_blog_posts` ADD COLUMN `autoTrackNews` BOOLEAN NOT NULL DEFAULT true'],
                 ['lastNewsSync', 'ALTER TABLE `diw_blog_posts` ADD COLUMN `lastNewsSync` DATETIME(3) NULL'],
+                ['authorRole', 'ALTER TABLE `diw_blog_posts` ADD COLUMN `authorRole` VARCHAR(150) NULL'],
+                ['isFeatured', 'ALTER TABLE `diw_blog_posts` ADD COLUMN `isFeatured` BOOLEAN NOT NULL DEFAULT false'],
             ];
             for (const [colName, sql] of missingAlters) {
                 if (!existing.has(colName)) {

@@ -178,3 +178,69 @@ export function formatBlogDate(dateStr: string): string {
   }
 }
 
+export function mapApiBlogToPostItem(
+  b: any,
+  resolveMediaUrlFn?: (url?: string | null) => string
+): BlogPostItem {
+  const resolveUrl = resolveMediaUrlFn || ((u?: string | null) => u || '');
+  const rawCover = resolveUrl(b.coverImage) || resolveUrl(b.bannerSvgUrl);
+  const cacheTag =
+    b.lastNewsSync || b.updatedAt ? `?t=${new Date(b.lastNewsSync || b.updatedAt).getTime()}` : '';
+
+  let parsedTakeaways: string[] = [];
+  if (Array.isArray(b.keyTakeaways)) {
+    parsedTakeaways = b.keyTakeaways.map((t: any) => String(t).trim()).filter(Boolean);
+  } else if (typeof b.keyTakeaways === 'string' && b.keyTakeaways.trim()) {
+    try {
+      const arr = JSON.parse(b.keyTakeaways);
+      if (Array.isArray(arr)) {
+        parsedTakeaways = arr.map((t: any) => String(t).trim()).filter(Boolean);
+      }
+    } catch {
+      parsedTakeaways = b.keyTakeaways
+        .split(/\r?\n/)
+        .map((t: string) => t.replace(/^[-*•]\s*/, '').trim())
+        .filter(Boolean);
+    }
+  }
+
+  const parsedTags = Array.isArray(b.tags)
+    ? b.tags.map((t: any) => String(t).replace(/^#/, '').trim()).filter(Boolean)
+    : typeof b.tags === 'string' && b.tags.trim()
+    ? b.tags
+        .split(',')
+        .map((t: string) => t.replace(/^#/, '').trim())
+        .filter(Boolean)
+    : ['Avora Bank', 'Research'];
+
+  const parsedContent = Array.isArray(b.content)
+    ? b.content.map((p: any) => String(p).trim()).filter(Boolean)
+    : typeof b.content === 'string'
+    ? b.content
+        .split(/\n\s*\n/)
+        .map((p: string) => p.trim())
+        .filter(Boolean)
+    : [];
+
+  return {
+    id: b.id,
+    slug: b.slug,
+    title: b.title || 'Untitled Research Paper',
+    excerpt: b.excerpt || b.summary || '',
+    category: b.category || 'Market Research',
+    readTime: b.readTime || '5 min read',
+    publishedAt: b.publishedAt || b.createdAt || new Date().toISOString(),
+    authorName: b.authorName || b.author || 'Avora Bank Research Team',
+    authorRole:
+      b.authorRole ||
+      (b.ticker ? `${b.ticker} • Quantitative Equity & Macro Desk` : 'Avora Bank Research Desk'),
+    coverImage: rawCover
+      ? `${rawCover}${rawCover.endsWith('.svg') ? cacheTag : ''}`
+      : 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80',
+    isFeatured: Boolean(b.isFeatured),
+    tags: parsedTags.length > 0 ? parsedTags : ['Avora Bank', 'Research'],
+    content: parsedContent,
+    keyTakeaways: parsedTakeaways,
+  };
+}
+

@@ -18,8 +18,10 @@ import {
   syncBlogNewsAdmin,
   syncAllTrackedBlogs,
   getAdminBlogPosts,
+  createAdminBlogPost,
   updateAdminBlogPost,
   deleteAdminBlogPost,
+  seedDefaultBlogPostsAdmin,
   getAiPublisherConfig,
   saveAiPublisherConfig,
 } from '../controllers/cms.controller';
@@ -46,8 +48,11 @@ router.post('/admin/settings', authenticateToken, requireAdmin, updateSetting);
 router.get('/admin/inquiries', authenticateToken, requireAdmin, getInquiries);
 router.put('/admin/inquiries/:id', authenticateToken, requireAdmin, updateInquiryStatus);
 router.get('/admin/blogs', authenticateToken, requireAdmin, getAdminBlogPosts);
+router.post('/admin/blogs', authenticateToken, requireAdmin, createAdminBlogPost);
+router.post('/admin/blogs/seed-defaults', authenticateToken, requireAdmin, seedDefaultBlogPostsAdmin);
 router.post('/admin/blogs/auto-publish', authenticateToken, requireAdmin, autoPublishBlog);
 router.post('/admin/blogs/:id/sync-news', authenticateToken, requireAdmin, syncBlogNewsAdmin);
+router.put('/admin/blogs/:id', authenticateToken, requireAdmin, updateAdminBlogPost);
 router.patch('/admin/blogs/:id', authenticateToken, requireAdmin, updateAdminBlogPost);
 router.delete('/admin/blogs/:id', authenticateToken, requireAdmin, deleteAdminBlogPost);
 router.get('/admin/ai-config', authenticateToken, requireAdmin, getAiPublisherConfig);

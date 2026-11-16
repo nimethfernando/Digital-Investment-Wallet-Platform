@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.saveAiPublisherConfig = exports.getAiPublisherConfig = exports.deleteAdminBlogPost = exports.updateAdminBlogPost = exports.getAdminBlogPosts = exports.syncAllTrackedBlogs = exports.syncBlogNewsAdmin = exports.autoPublishBlog = exports.getBlogMemeMedia = exports.getBlogBannerMedia = exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getSettings = exports.subscribeNewsletter = void 0;
+exports.saveAiPublisherConfig = exports.getAiPublisherConfig = exports.seedDefaultBlogPostsAdmin = exports.deleteAdminBlogPost = exports.updateAdminBlogPost = exports.createAdminBlogPost = exports.getAdminBlogPosts = exports.syncAllTrackedBlogs = exports.syncBlogNewsAdmin = exports.autoPublishBlog = exports.getBlogMemeMedia = exports.getBlogBannerMedia = exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getSettings = exports.subscribeNewsletter = void 0;
 const zod_1 = require("zod");
 const cms_service_1 = require("../services/cms.service");
 const autoContent_service_1 = require("../services/autoContent.service");
@@ -147,7 +147,8 @@ exports.getBlogPosts = getBlogPosts;
 const getBlogPost = async (req, res, next) => {
     try {
         const slug = req.params.slug;
-        let blog = await cms_service_1.cmsService.getBlogPostBySlug(slug);
+        const includeDrafts = req.query.preview === 'true';
+        let blog = await cms_service_1.cmsService.getBlogPostBySlug(slug, includeDrafts);
         if (!blog)
             return res.status(404).json({ success: false, message: 'Blog post not found' });
         // Stale auto-refresh if auto-tracked and last sync was > 30 mins ago (keeps continuous news fresh even on serverless)
@@ -266,19 +267,37 @@ const getAdminBlogPosts = async (req, res, next) => {
     }
 };
 exports.getAdminBlogPosts = getAdminBlogPosts;
+const createAdminBlogPost = async (req, res, next) => {
+    try {
+        const blog = await cms_service_1.cmsService.createBlogPost(req.body || {});
+        res.status(201).json({
+            success: true,
+            message: `Article "${blog.title}" created successfully.`,
+            blog,
+        });
+    }
+    catch (err) {
+        if (err?.message && (err.message.includes('required') || err.message.includes('already used'))) {
+            return res.status(400).json({ success: false, message: err.message });
+        }
+        next(err);
+    }
+};
+exports.createAdminBlogPost = createAdminBlogPost;
 const updateAdminBlogPost = async (req, res, next) => {
     try {
         const id = req.params.id;
-        const { isPublished, autoTrackNews } = req.body;
-        const data = {};
-        if (typeof isPublished === 'boolean')
-            data.isPublished = isPublished;
-        if (typeof autoTrackNews === 'boolean')
-            data.autoTrackNews = autoTrackNews;
-        const updated = await prisma_1.prisma.blogPost.update({ where: { id }, data });
-        res.json({ success: true, blog: updated });
+        const updated = await cms_service_1.cmsService.updateBlogPost(id, req.body || {});
+        res.json({
+            success: true,
+            message: `Article "${updated.title}" updated successfully.`,
+            blog: updated,
+        });
     }
     catch (err) {
+        if (err?.message && (err.message.includes('not found') || err.message.includes('empty') || err.message.includes('already used'))) {
+            return res.status(err.message.includes('not found') ? 404 : 400).json({ success: false, message: err.message });
+        }
         next(err);
     }
 };
@@ -286,14 +305,32 @@ exports.updateAdminBlogPost = updateAdminBlogPost;
 const deleteAdminBlogPost = async (req, res, next) => {
     try {
         const id = req.params.id;
-        await prisma_1.prisma.blogPost.delete({ where: { id } });
-        res.json({ success: true, message: 'Blog post deleted.' });
+        await cms_service_1.cmsService.deleteBlogPost(id);
+        res.json({ success: true, message: 'Article deleted.' });
     }
     catch (err) {
         next(err);
     }
 };
 exports.deleteAdminBlogPost = deleteAdminBlogPost;
+const seedDefaultBlogPostsAdmin = async (req, res, next) => {
+    try {
+        const restoredCount = await cms_service_1.cmsService.ensureDefaultBlogPosts(true);
+        const blogs = await cms_service_1.cmsService.getBlogPosts(true);
+        res.json({
+            success: true,
+            restoredCount,
+            message: restoredCount > 0
+                ? `Restored ${restoredCount} default institutional research paper(s).`
+                : 'All default institutional research papers are already present.',
+            blogs,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.seedDefaultBlogPostsAdmin = seedDefaultBlogPostsAdmin;
 const getAiPublisherConfig = async (req, res, next) => {
     try {
         const status = await autoContent_service_1.autoContentService.getPublicAiStatus();
