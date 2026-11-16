@@ -185,8 +185,8 @@ export const Header: React.FC = () => {
       ],
     },
     {
-      id: 'insights',
-      label: t('nav.blog', 'Insights'),
+      id: 'blogs',
+      label: t('nav.blog', 'Blogs'),
       href: '/blog',
     },
     {
