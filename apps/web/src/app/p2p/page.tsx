@@ -749,6 +749,7 @@ function P2PPageContent() {
 
   // Post Ad Form State
   const [newAdSide, setNewAdSide] = useState<'BUY' | 'SELL'>('SELL');
+  const [newAdCountryCode, setNewAdCountryCode] = useState('LK');
   const [newAdCurrency, setNewAdCurrency] = useState('LKR');
   const [newAdPrice, setNewAdPrice] = useState('305.00');
   const [newAdAmount, setNewAdAmount] = useState('1000');
@@ -2905,9 +2906,14 @@ function P2PPageContent() {
               <div>
                 <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Target Currency (Global)</label>
                 <SearchableCountrySelect
-                  value={newAdCurrency}
+                  value={newAdCountryCode || newAdCurrency}
                   onChange={(c) => {
-                    setNewAdCurrency(c.currency);
+                    setNewAdCountryCode(c.code);
+                    if (c.currency !== newAdCurrency) {
+                      setNewAdCurrency(c.currency);
+                      const spot = getCorridorSpotRate(c.currency);
+                      setNewAdPrice(spot.toFixed(spot >= 20 ? 2 : 4));
+                    }
                     const rail = COUNTRIES.find((r) => r.currency === c.currency);
                     if (rail) setNewAdMethods(rail.methods.slice(0, 2));
                   }}

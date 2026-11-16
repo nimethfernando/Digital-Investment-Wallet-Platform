@@ -63,7 +63,9 @@ export const SearchableCountrySelect: React.FC<SearchableCountrySelectProps> = (
     return (
       GMT_GLOBAL_COUNTRIES.find(
         (c) => c.code.toUpperCase() === upper || c.name.toUpperCase() === upper
-      ) || null
+      ) ||
+      GMT_GLOBAL_COUNTRIES.find((c) => c.currency.toUpperCase() === upper) ||
+      null
     );
   }, [value, showAllOption, allOptionLabel]);
 
@@ -188,9 +190,7 @@ export const SearchableCountrySelect: React.FC<SearchableCountrySelectProps> = (
 
             {filteredCountries.length > 0 ? (
               filteredCountries.map((c) => {
-                const isSelected =
-                  value?.toUpperCase() === c.code.toUpperCase() ||
-                  value?.toUpperCase() === c.name.toUpperCase();
+                const isSelected = selectedItem?.code === c.code;
                 return (
                   <button
                     key={c.code}
