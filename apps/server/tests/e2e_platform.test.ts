@@ -4,6 +4,7 @@ import Decimal from 'decimal.js';
 import { ledgerService } from '../src/services/ledger.service';
 import { packageService } from '../src/services/package.service';
 import { p2pService, generateAvoraAccountNumber } from '../src/services/p2p.service';
+import { computeUserP2PStatsMap } from '../src/services/p2p.helpers';
 import { ticketService } from '../src/services/ticket.service';
 
 const prisma = new PrismaClient();
@@ -31,6 +32,9 @@ async function runE2EPlatformSuite() {
   }
 
   const ts = Date.now();
+
+  // Ensure non-destructive P2P schema upgrades are applied before creating users
+  await p2pService.ensureP2PReady();
 
   // Create Seller and Buyer test accounts
   const seller = await prisma.user.create({
@@ -160,19 +164,19 @@ async function runE2EPlatformSuite() {
   });
 
   // =========================================================================
-  // SECTION 3: 6-STEP P2P ESCROW TRADE FLOW + LIVE CHAT + DISPUTE
+  // SECTION 3: P2P FULL ESCROW + ACCEPT/DECLINE + TIMERS + REVIEWS + STATS
   // =========================================================================
-  console.log('\n--- SECTION 3: Complete 6-Step P2P Escrow Trade Flow (650 USDT @ ₹103.20 INR) ---');
+  console.log('\n--- SECTION 3: Complete P2P Escrow Trade Flow (Accept/Decline, Stage-Gated Details, Proof, SLA, Reviews) ---');
 
   let testOfferId = '';
   let testOrderId = '';
 
-  await assertTest('3.1: Step 1 & 2 - Seller posts P2P Offer (650 USDT @ ₹103.20 INR) & Buyer opens Order for ₹67,080.00', async () => {
+  await assertTest('3.1: Step 1 & 2 - Seller posts P2P Offer with Stage-Gated Details & Buyer opens Order (PENDING)', async () => {
     const offer = await prisma.p2POffer.create({
       data: {
         offerCode: `OFF-E2E-${ts}`,
         userId: seller.id,
-        side: P2PSide.BUY, // Appears on Buy board for buyers
+        side: P2PSide.BUY,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'INR',
         price: new Decimal('103.20'),
@@ -182,30 +186,41 @@ async function runE2EPlatformSuite() {
         maxLimit: new Decimal('100000.00'),
         paymentMethods: JSON.stringify(['UPI', 'IMPS', 'PhonePe', 'Google Pay']),
         paymentTerms: 'Instant UPI/IMPS transfer.',
+        paymentDetails: 'UPI: vikram@avorabank | A/C: 8822110044',
+        locationCountry: 'India',
+        locationCity: 'Mumbai',
         status: P2POfferStatus.OPEN,
       },
     });
     testOfferId = offer.id;
 
+    // Ensure public getOffers NEVER leaks paymentDetails
+    const pubOffers = await p2pService.getOffers({ side: 'BUY', fiatCurrency: 'INR' });
+    const pubFound: any = pubOffers.find((o) => o.id === testOfferId);
+    if (!pubFound || pubFound.paymentDetails) {
+      throw new Error('Stage-gated paymentDetails should NOT leak in public getOffers');
+    }
+
     const order = await p2pService.createP2POrder(buyer.id, {
       offerId: testOfferId,
       cryptoAmount: 650,
       fiatAmount: 67080,
+      selectedPaymentMethod: 'IMPS',
     });
     testOrderId = order.id;
 
     if (!order.orderCode.startsWith('OTC')) {
-      throw new Error(`Expected RedotPay-style OTC orderCode, got ${order.orderCode}`);
+      throw new Error(`Expected OTC orderCode, got ${order.orderCode}`);
     }
-    if (parseFloat(order.cryptoAmount.toString()) !== 650) {
-      throw new Error(`Expected 650 USDT cryptoAmount, got ${order.cryptoAmount}`);
+    if (order.status !== 'PENDING') {
+      throw new Error(`Expected initial human P2P order status PENDING, got ${order.status}`);
     }
-    if (parseFloat(order.fiatAmount.toString()) !== 67080) {
-      throw new Error(`Expected 67080 INR fiatAmount, got ${order.fiatAmount}`);
+    if (order.paymentDetails !== null || order.paymentDetailsUnlocked) {
+      throw new Error('Payment details must remain hidden while order is PENDING seller acceptance');
     }
   });
 
-  await assertTest('3.2: Step 3 - Verify Avora Escrow Locked Seller 650.00 USDT (Available: 0, Locked: 650)', async () => {
+  await assertTest('3.2: Step 3 - Verify Avora Escrow Locked Seller 650.00 USDT & Seller Accepts -> Reveals Details', async () => {
     const sellerBal = await prisma.walletBalance.findUnique({
       where: {
         walletId_currency: {
@@ -220,9 +235,37 @@ async function runE2EPlatformSuite() {
     if (avail !== 0 || locked !== 650) {
       throw new Error(`Expected Seller USDT Available=0 & Locked=650, got Available=${avail}, Locked=${locked}`);
     }
+
+    // Buyer cannot mark payment sent BEFORE seller accepts
+    let prematurePaidBlocked = false;
+    try {
+      await p2pService.markPaymentSent(testOrderId, buyer.id, undefined, 'REF-EARLY');
+    } catch {
+      prematurePaidBlocked = true;
+    }
+    if (!prematurePaidBlocked) {
+      throw new Error('Buyer should be blocked from marking paid before seller accepts');
+    }
+
+    await p2pService.acceptOrder(testOrderId, seller.id);
+    const buyerView = await p2pService.getOrderById(testOrderId, buyer.id);
+    if (buyerView.status !== 'PENDING_PAYMENT' || !buyerView.paymentDetailsUnlocked || !buyerView.paymentDetails) {
+      throw new Error('Accepting order should reveal stage-gated paymentDetails and enter PENDING_PAYMENT');
+    }
+
+    // Seller cannot unilaterally cancel once accepted
+    let postAcceptSellerCancelBlocked = false;
+    try {
+      await p2pService.cancelOrder(testOrderId, seller.id);
+    } catch {
+      postAcceptSellerCancelBlocked = true;
+    }
+    if (!postAcceptSellerCancelBlocked) {
+      throw new Error('Seller should NOT be allowed to cancel order once accepted');
+    }
   });
 
-  await assertTest('3.3: Step 4a - In-Order Live Chat between Buyer and Seller + 15-minute Countdown Timer', async () => {
+  await assertTest('3.3: Step 4a - In-Order Live Chat + Payment Countdown Timer', async () => {
     await p2pService.sendOrderMessage(testOrderId, buyer.id, 'Hi Vikram, sending ₹67,080 via Google Pay / IMPS now.');
     await p2pService.sendOrderMessage(testOrderId, seller.id, 'Sure Aarav, I am online and checking my bank app.');
 
@@ -234,21 +277,30 @@ async function runE2EPlatformSuite() {
     const userOrders = await p2pService.getUserOrders(buyer.id, 'ongoing');
     const found = userOrders.find((o) => o.id === testOrderId);
     if (!found || !found.timerExpiresAt) {
-      throw new Error('Order missing 15-minute timerExpiresAt countdown in ongoing orders');
+      throw new Error('Order missing timerExpiresAt countdown in ongoing orders');
     }
   });
 
-  await assertTest('3.4: Step 4b - Buyer transfers ₹67,080.00 Fiat and clicks "I Have Paid"', async () => {
-    const updated = await p2pService.markPaymentSent(testOrderId, buyer.id, 'https://avora.bank/proofs/utr-67080.png');
-    if (updated.status !== 'PAYMENT_SENT') {
-      throw new Error(`Expected status PAYMENT_SENT, got ${updated.status}`);
+  await assertTest('3.4: Step 4b - Buyer transfers ₹67,080.00 Fiat with Receipt & Unique Reference (Anti-Replay)', async () => {
+    const updated = await p2pService.markPaymentSent(
+      testOrderId,
+      buyer.id,
+      '/uploads/receipts/utr-67080.png',
+      `UTR-${ts}-67080`
+    );
+    if (updated.status !== 'PAYMENT_SENT' || !updated.paidAt) {
+      throw new Error(`Expected status PAYMENT_SENT and paidAt timestamp, got ${updated.status}`);
     }
   });
 
-  await assertTest('3.5: Step 5a - Dispute Creation & Verification ("In dispute" filter)', async () => {
-    const disputed = await p2pService.disputeOrder(testOrderId, buyer.id, 'Paid ₹67,080 via IMPS UTR #99182736, waiting for seller confirmation');
-    if (disputed.status !== 'DISPUTED') {
-      throw new Error(`Expected status DISPUTED, got ${disputed.status}`);
+  await assertTest('3.5: Step 5a - Dispute Creation with 180-Min SLA ("dispute" filter)', async () => {
+    const disputed = await p2pService.disputeOrder(
+      testOrderId,
+      buyer.id,
+      'Paid ₹67,080 via IMPS UTR, waiting for seller confirmation'
+    );
+    if (disputed.status !== 'DISPUTED' || !disputed.disputedAt || !disputed.disputeDeadlineAt) {
+      throw new Error(`Expected DISPUTED with disputedAt & disputeDeadlineAt, got ${disputed.status}`);
     }
     const disputeList = await p2pService.getUserOrders(buyer.id, 'dispute');
     if (!disputeList.some((o) => o.id === testOrderId)) {
@@ -256,13 +308,12 @@ async function runE2EPlatformSuite() {
     }
   });
 
-  await assertTest('3.6: Step 5b & 6 - Seller Confirms Bank Receipt & Releases Escrow (650 USDT -> Buyer Wallet, 0% Fee)', async () => {
+  await assertTest('3.6: Step 5b & 6 - Escrow Release (650 USDT -> Buyer), Review & Real Stats', async () => {
     const released = await p2pService.releaseOrderEscrow(testOrderId, seller.id);
     if (released.status !== 'COMPLETED') {
       throw new Error(`Expected status COMPLETED, got ${released.status}`);
     }
 
-    // Check Seller locked USDT is now 0
     const sellerBal = await prisma.walletBalance.findUnique({
       where: { walletId_currency: { walletId: sellerWallet.id, currency: 'USDT' } },
     });
@@ -270,12 +321,80 @@ async function runE2EPlatformSuite() {
       throw new Error(`Expected Seller locked USDT to be 0 after release, got ${sellerBal!.lockedPrincipal}`);
     }
 
-    // Check Buyer available USDT is now 650.00 (0% fee)
     const buyerBal = await prisma.walletBalance.findUnique({
       where: { walletId_currency: { walletId: buyerWallet.id, currency: 'USDT' } },
     });
     if (parseFloat(buyerBal!.availableBalance.toString()) !== 650) {
-      throw new Error(`Expected Buyer available USDT to be 650.00 (0% fee), got ${buyerBal!.availableBalance}`);
+      throw new Error(`Expected Buyer available USDT to be 650.00, got ${buyerBal!.availableBalance}`);
+    }
+
+    await p2pService.submitOrderReview(testOrderId, buyer.id, {
+      rating: 5,
+      isPositive: true,
+      comment: 'Fast bank release after verification!',
+    });
+
+    const statsMap = await computeUserP2PStatsMap([seller.id]);
+    const sellerStats = statsMap.get(seller.id);
+    if (!sellerStats || sellerStats.completedOrders < 1 || sellerStats.avgRating !== 5) {
+      throw new Error(`Expected real seller stats completedOrders >= 1 & avgRating 5, got ${JSON.stringify(sellerStats)}`);
+    }
+  });
+
+  await assertTest('3.7: Decline & Automated Timeout Expiry Verification', async () => {
+    const declineOffer = await prisma.p2POffer.create({
+      data: {
+        offerCode: `OFF-DEC-${ts}`,
+        userId: seller.id,
+        side: P2PSide.BUY,
+        cryptoCurrency: 'USDT',
+        fiatCurrency: 'USD',
+        price: new Decimal('1.00'),
+        totalAmount: new Decimal('100.00'),
+        availableAmount: new Decimal('100.00'),
+        minLimit: new Decimal('10.00'),
+        maxLimit: new Decimal('100.00'),
+        paymentMethods: JSON.stringify(['Bank Transfer']),
+        status: P2POfferStatus.OPEN,
+      },
+    });
+    await prisma.walletBalance.update({
+      where: { walletId_currency: { walletId: sellerWallet.id, currency: 'USDT' } },
+      data: { availableBalance: '100.00000000' },
+    });
+
+    const declinedOrd = await p2pService.createP2POrder(buyer.id, {
+      offerId: declineOffer.id,
+      cryptoAmount: 40,
+      fiatAmount: 40,
+    });
+    const declinedRes = await p2pService.declineOrder(declinedOrd.id, seller.id, 'Busy right now');
+    if (declinedRes.status !== 'DECLINED') {
+      throw new Error(`Expected DECLINED status, got ${declinedRes.status}`);
+    }
+
+    // Create another PENDING order and backdate acceptExpiresAt to verify auto-expiry cron
+    const expiredOrd = await p2pService.createP2POrder(buyer.id, {
+      offerId: declineOffer.id,
+      cryptoAmount: 25,
+      fiatAmount: 25,
+    });
+    await prisma.p2POrder.update({
+      where: { id: expiredOrd.id },
+      data: { acceptExpiresAt: new Date(Date.now() - 60_000) },
+    });
+
+    const cronRes = await p2pService.processOrderTimeouts();
+    const afterCron = await prisma.p2POrder.findUnique({ where: { id: expiredOrd.id } });
+    if (!afterCron || afterCron.status !== 'EXPIRED' || cronRes.expiredCount < 1) {
+      throw new Error(`Expected EXPIRED after processOrderTimeouts, got ${afterCron?.status}`);
+    }
+
+    const sellerBalFinal = await prisma.walletBalance.findUnique({
+      where: { walletId_currency: { walletId: sellerWallet.id, currency: 'USDT' } },
+    });
+    if (parseFloat(sellerBalFinal!.availableBalance.toString()) !== 100 || parseFloat(sellerBalFinal!.lockedPrincipal.toString()) !== 0) {
+      throw new Error(`Expected seller 100 USDT restored after decline & expiry, got avail=${sellerBalFinal!.availableBalance}`);
     }
   });
 

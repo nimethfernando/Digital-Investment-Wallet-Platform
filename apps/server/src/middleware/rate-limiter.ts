@@ -46,6 +46,20 @@ export const p2pRateLimiter = rateLimit({
 });
 
 /**
+ * Anti-spam Rate Limiter for P2P Marketplace Orders, Ads & Chat Actions
+ */
+export const p2pActionLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 60, // 60 P2P marketplace/order mutations per 10 mins per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many P2P marketplace actions. Please slow down briefly before retrying.',
+  },
+});
+
+/**
  * General Public API Rate Limiter
  */
 export const generalApiLimiter = rateLimit({

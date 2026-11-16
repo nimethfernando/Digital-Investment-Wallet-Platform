@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
-import { api, extractErrorMessage } from '../../lib/api';
+import { api, extractErrorMessage, resolveMediaUrl } from '../../lib/api';
 import {
   Users,
   FileText,
@@ -43,8 +43,15 @@ import {
   ArrowRight,
   Headphones,
   Sliders,
+  Star,
+  MapPin,
+  Paperclip,
+  Ban,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
+import { P2PTraderProfileModal } from '../../components/p2p/P2PTraderProfileModal';
+import { P2PTradeProgressAndActions } from '../../components/p2p/P2PTradeProgressAndActions';
+import { P2PPaymentProofModal } from '../../components/p2p/P2PPaymentProofModal';
 
 interface CountryRail {
   id: string;
@@ -134,12 +141,16 @@ interface P2POfferItem {
   cryptoCurrency: string;
   fiatCurrency: string;
   price: string;
+  priceNum?: number;
   totalAmount: string;
   availableAmount: string;
   minLimit: string;
   maxLimit: string;
   paymentMethods: string[];
   paymentTerms?: string;
+  paymentDetailsLocked?: boolean;
+  locationCountry?: string | null;
+  locationCity?: string | null;
   isOffline?: boolean;
   lastSeen?: string;
   isDeskConcierge?: boolean;
@@ -148,8 +159,19 @@ interface P2POfferItem {
     name: string;
     avatar: string;
     isVerified: boolean;
+    isP2pMerchant?: boolean;
+    isInstitutional?: boolean;
     completionRate: string;
+    completionRatePct?: number | null;
+    cancellationRatePct?: number;
     totalOrders: number;
+    completedOrders?: number;
+    avgRating?: number | null;
+    reviewCount?: number;
+    reputationScore?: number;
+    reputationTier?: 'INSTITUTIONAL' | 'TRUSTED' | 'STANDARD' | 'CAUTION';
+    hasDisputeWarning?: boolean;
+    accountAgeDays?: number;
   };
   createdAt: string;
 }
@@ -530,9 +552,43 @@ interface P2POrderItem {
   fiatAmount: string;
   price: string;
   cryptoAmount: string;
-  status: 'PENDING_PAYMENT' | 'PAYMENT_SENT' | 'DISPUTED' | 'COMPLETED' | 'CANCELLED';
+  selectedPaymentMethod?: string;
+  availablePaymentMethods?: string[];
+  paymentTerms?: string | null;
+  paymentDetails?: string | null;
+  paymentDetailsUnlocked?: boolean;
+  status:
+    | 'PENDING'
+    | 'ACCEPTED'
+    | 'PENDING_PAYMENT'
+    | 'PAYMENT_SENT'
+    | 'SELLER_CONFIRMING'
+    | 'DISPUTED'
+    | 'COMPLETED'
+    | 'CANCELLED'
+    | 'EXPIRED'
+    | 'DECLINED'
+    | 'FROZEN';
   statusBadge: string;
   isSeller: boolean;
+  isFrozen?: boolean;
+  frozenReason?: string | null;
+  paymentProofUrl?: string;
+  paymentReference?: string | null;
+  acceptedAt?: string | null;
+  acceptExpiresAt?: string | null;
+  paymentExpiresAt?: string | null;
+  paidAt?: string | null;
+  sellerConfirmDeadlineAt?: string | null;
+  disputedAt?: string | null;
+  disputeDeadlineAt?: string | null;
+  disputeReason?: string | null;
+  cancelReason?: string | null;
+  completedAt?: string | null;
+  hasReviewed?: boolean;
+  myReview?: { rating: number; comment?: string; isPositive: boolean } | null;
+  timerExpiresAt?: string | null;
+  timerLabel?: string | null;
   counterparty: {
     id: string;
     name: string;
@@ -541,8 +597,12 @@ interface P2POrderItem {
     accountNumber?: string;
     accountName?: string;
     phone?: string;
+    totalOrders?: number;
+    completedOrders?: number;
+    completionRate?: string;
+    avgRating?: number | null;
+    reputationTier?: string;
   };
-  paymentProofUrl?: string;
   createdAt: string;
 }
 
@@ -567,6 +627,7 @@ interface ChatMessage {
   isMe: boolean;
   isSystem: boolean;
   message: string;
+  attachmentUrl?: string;
   time: string;
   createdAt: string;
 }
@@ -658,10 +719,16 @@ function P2PPageContent() {
   // Navigation tab: 'marketplace' | 'orders' | 'member' | 'post-ad' | 'chat'
   const [activeNav, setActiveNav] = useState<'marketplace' | 'orders' | 'member' | 'post-ad' | 'chat'>('marketplace');
 
-  // P2P Market State
+  // P2P Market State & Search Filters
   const [marketSide, setMarketSide] = useState<'BUY' | 'SELL'>('BUY');
   const [selectedCountry, setSelectedCountry] = useState<CountryRail>(COUNTRIES[0]);
+  const [marketCryptoFilter, setMarketCryptoFilter] = useState<string>('ALL');
   const [marketPaymentFilter, setMarketPaymentFilter] = useState<string>('ALL');
+  const [marketAmountFilter, setMarketAmountFilter] = useState<string>('');
+  const [marketMinCompletion, setMarketMinCompletion] = useState<string>('ALL');
+  const [marketLocationFilter, setMarketLocationFilter] = useState<string>('');
+  const [marketSortBy, setMarketSortBy] = useState<string>('price_default');
+  const [viewingTraderId, setViewingTraderId] = useState<string | null>(null);
   const [offers, setOffers] = useState<P2POfferItem[]>([]);
   const [loadingOffers, setLoadingOffers] = useState(false);
   const [myOffers, setMyOffers] = useState<any[]>([]);
@@ -669,7 +736,7 @@ function P2PPageContent() {
 
   // Orders State
   const [ordersMainTab, setOrdersMainTab] = useState<'ongoing' | 'fulfilled'>('ongoing');
-  const [ordersFilterChip, setOrdersFilterChip] = useState<'all' | 'unpaid' | 'paid' | 'dispute'>('all');
+  const [ordersFilterChip, setOrdersFilterChip] = useState<'all' | 'pending' | 'unpaid' | 'paid' | 'dispute'>('all');
   const [ordersList, setOrdersList] = useState<P2POrderItem[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
 
@@ -682,7 +749,12 @@ function P2PPageContent() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInputText, setChatInputText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
+  const [uploadingChatImg, setUploadingChatImg] = useState(false);
+  const chatAttachmentInputRef = useRef<HTMLInputElement>(null);
+  const [acceptingOrder, setAcceptingOrder] = useState(false);
+  const [decliningOrder, setDecliningOrder] = useState(false);
   const [cancellingOrder, setCancellingOrder] = useState(false);
+  const [paymentModalOrder, setPaymentModalOrder] = useState<P2POrderItem | null>(null);
   const [roomActionError, setRoomActionError] = useState<string | null>(null);
   const chatMessagesContainerRef = useRef<HTMLDivElement>(null);
   const lastMsgCountRef = useRef<number>(0);
@@ -690,6 +762,7 @@ function P2PPageContent() {
   // Trade / Order Creation Modal
   const [selectedOfferForTrade, setSelectedOfferForTrade] = useState<P2POfferItem | null>(null);
   const [tradeCryptoAmount, setTradeCryptoAmount] = useState('500');
+  const [tradeSelectedMethod, setTradeSelectedMethod] = useState<string>('Bank Transfer');
   const [tradeCreating, setTradeCreating] = useState(false);
   const [tradeError, setTradeError] = useState<string | null>(null);
 
@@ -749,7 +822,9 @@ function P2PPageContent() {
 
   // Post Ad Form State
   const [newAdSide, setNewAdSide] = useState<'BUY' | 'SELL'>('SELL');
+  const [newAdCrypto, setNewAdCrypto] = useState<'USDT' | 'USDC' | 'BTC' | 'ETH'>('USDT');
   const [newAdCountryCode, setNewAdCountryCode] = useState('LK');
+  const [newAdCountryName, setNewAdCountryName] = useState('Sri Lanka');
   const [newAdCurrency, setNewAdCurrency] = useState('LKR');
   const [newAdPrice, setNewAdPrice] = useState('305.00');
   const [newAdAmount, setNewAdAmount] = useState('1000');
@@ -757,6 +832,8 @@ function P2PPageContent() {
   const [newAdMaxLimit, setNewAdMaxLimit] = useState('1000');
   const [newAdMethods, setNewAdMethods] = useState<string[]>(['Commercial Bank CEFTS', 'Bank Transfer']);
   const [newAdTerms, setNewAdTerms] = useState('Instant domestic bank transfer. 15-minute fast escrow release.');
+  const [newAdPaymentDetails, setNewAdPaymentDetails] = useState('');
+  const [newAdLocationCity, setNewAdLocationCity] = useState('');
   const [newAdLoading, setNewAdLoading] = useState(false);
   const [newAdSuccess, setNewAdSuccess] = useState<string | null>(null);
   const [newAdError, setNewAdError] = useState<string | null>(null);
@@ -771,6 +848,8 @@ function P2PPageContent() {
   const [editAdMinLimit, setEditAdMinLimit] = useState('');
   const [editAdMaxLimit, setEditAdMaxLimit] = useState('');
   const [editAdTerms, setEditAdTerms] = useState('');
+  const [editAdPaymentDetails, setEditAdPaymentDetails] = useState('');
+  const [editAdLocationCity, setEditAdLocationCity] = useState('');
   const [editAdStatus, setEditAdStatus] = useState<'OPEN' | 'PAUSED'>('OPEN');
   const [editAdSaving, setEditAdSaving] = useState(false);
   const [editAdError, setEditAdError] = useState<string | null>(null);
@@ -1043,11 +1122,17 @@ function P2PPageContent() {
   const fetchOffers = async () => {
     setLoadingOffers(true);
     try {
-      const methodQuery =
-        marketPaymentFilter && marketPaymentFilter !== 'ALL'
-          ? `&paymentMethod=${encodeURIComponent(marketPaymentFilter)}`
-          : '';
-      const res = await api.get(`/p2p/offers?side=${marketSide}&fiatCurrency=${selectedCountry.currency}${methodQuery}`);
+      const params = new URLSearchParams();
+      params.set('side', marketSide);
+      if (selectedCountry?.currency) params.set('fiatCurrency', selectedCountry.currency);
+      if (marketCryptoFilter && marketCryptoFilter !== 'ALL') params.set('cryptoCurrency', marketCryptoFilter);
+      if (marketPaymentFilter && marketPaymentFilter !== 'ALL') params.set('paymentMethod', marketPaymentFilter);
+      if (marketAmountFilter.trim()) params.set('amount', marketAmountFilter.trim());
+      if (marketMinCompletion !== 'ALL') params.set('minCompletion', marketMinCompletion);
+      if (marketLocationFilter.trim()) params.set('location', marketLocationFilter.trim());
+      if (marketSortBy && marketSortBy !== 'price_default') params.set('sortBy', marketSortBy);
+
+      const res = await api.get(`/p2p/offers?${params.toString()}`);
       if (res.data?.success) {
         setOffers(res.data.data);
       }
@@ -1060,26 +1145,29 @@ function P2PPageContent() {
 
   useEffect(() => {
     fetchOffers();
-  }, [marketSide, selectedCountry, marketPaymentFilter]);
+  }, [marketSide, selectedCountry, marketCryptoFilter, marketPaymentFilter, marketAmountFilter, marketMinCompletion, marketLocationFilter, marketSortBy]);
 
   const displayedOffers: P2POfferItem[] = (() => {
     const cur = selectedCountry.currency;
     const spot = getCorridorSpotRate(cur);
     const deskSpread = marketSide === 'BUY' ? 1.004 : 0.996;
+    const activeCrypto = marketCryptoFilter !== 'ALL' ? marketCryptoFilter : 'USDT';
 
     const deskListing: P2POfferItem = {
       id: `desk_${cur}_${marketSide}`,
       offerCode: `AVORA-DESK-${cur}`,
       side: marketSide,
-      cryptoCurrency: 'USDT',
+      cryptoCurrency: activeCrypto,
       fiatCurrency: cur,
       price: (spot * deskSpread).toFixed(2),
+      priceNum: spot * deskSpread,
       totalAmount: '50,000.00',
       availableAmount: '50,000.00',
       minLimit: cur === 'LKR' ? '10,000' : cur === 'INR' ? '2,500' : '100',
       maxLimit: cur === 'LKR' ? '5,000,000' : cur === 'INR' ? '1,000,000' : '50,000',
       paymentMethods: [...selectedCountry.methods.slice(0, 3)],
       paymentTerms: 'Official 24/7 Avora Clearing Desk. Connect directly with a specialist for guaranteed settlement.',
+      locationCountry: selectedCountry.name,
       isOffline: false,
       isDeskConcierge: true,
       trader: {
@@ -1087,8 +1175,9 @@ function P2PPageContent() {
         name: 'Avora Priority P2P Desk',
         avatar: 'A',
         isVerified: true,
-        completionRate: '100.0%',
-        totalOrders: 2480,
+        isInstitutional: true,
+        completionRate: 'Institutional 24/7 Desk',
+        totalOrders: 0,
       },
       createdAt: new Date().toISOString(),
     };
@@ -1100,15 +1189,17 @@ function P2PPageContent() {
         id: `${tpl.id}_${marketSide}`,
         offerCode: `P2P-${tpl.id.toUpperCase()}`,
         side: marketSide,
-        cryptoCurrency: 'USDT',
+        cryptoCurrency: activeCrypto,
         fiatCurrency: cur,
         price: (spot * mult).toFixed(2),
+        priceNum: spot * mult,
         totalAmount: tpl.availableUsdt,
         availableAmount: tpl.availableUsdt,
         minLimit: tpl.minFiat,
         maxLimit: tpl.maxFiat,
         paymentMethods: tpl.methods,
         paymentTerms: tpl.terms,
+        locationCountry: selectedCountry.name,
         isOffline: true,
         lastSeen: tpl.lastSeen,
         trader: {
@@ -1116,17 +1207,23 @@ function P2PPageContent() {
           name: tpl.name,
           avatar: tpl.avatar,
           isVerified: true,
-          completionRate: tpl.completionRate,
-          totalOrders: tpl.totalOrders,
+          completionRate: 'By Desk Request',
+          totalOrders: 0,
         },
         createdAt: new Date().toISOString(),
       };
     });
 
-    const combined = [...offers, deskListing, ...curatedOfflineListings];
+    let combined = [...offers];
+    if (marketMinCompletion === 'ALL' && !marketLocationFilter.trim() && !marketAmountFilter.trim()) {
+      combined = [...offers, deskListing, ...curatedOfflineListings];
+    } else if (!marketAmountFilter.trim() && !marketLocationFilter.trim()) {
+      combined = [...offers, deskListing];
+    }
+
     if (marketPaymentFilter && marketPaymentFilter !== 'ALL') {
       const targetMethod = marketPaymentFilter.toLowerCase();
-      return combined.filter((item) =>
+      combined = combined.filter((item) =>
         (item.paymentMethods || []).some((m) => m.toLowerCase().includes(targetMethod))
       );
     }
@@ -1203,18 +1300,9 @@ function P2PPageContent() {
           }
           return newMsgs;
         });
-        if (data.status) {
-          setActiveChatOrder((prev) => {
-            if (!prev || prev.id !== orderId) return prev;
-            if (prev.status === data.status && (!data.statusBadge || prev.statusBadge === data.statusBadge)) {
-              return prev;
-            }
-            return {
-              ...prev,
-              status: data.status,
-              statusBadge: data.statusBadge || prev.statusBadge,
-            };
-          });
+        if (data.status && activeChatOrder && data.status !== activeChatOrder.status) {
+          openOrderById(orderId);
+          fetchOrders();
         }
       }
     } catch (e) {
@@ -1260,10 +1348,38 @@ function P2PPageContent() {
       if (res.data?.success) {
         setChatMessages((prev) => [...prev, res.data.data]);
       }
-    } catch (e) {
-      console.warn('Failed to send message', e);
+    } catch (e: any) {
+      setRoomActionError(extractErrorMessage(e, 'Failed to send message'));
     } finally {
       setSendingMsg(false);
+    }
+  };
+
+  const handleUploadChatAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeChatOrder) return;
+    setUploadingChatImg(true);
+    setRoomActionError(null);
+    try {
+      const formData = new FormData();
+      formData.append('proof', file);
+      const upRes = await api.post('/upload/document', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (upRes.data?.url) {
+        const msgRes = await api.post(`/p2p/orders/${activeChatOrder.id}/messages`, {
+          message: `Uploaded payment/receipt image (${file.name})`,
+          attachmentUrl: upRes.data.url,
+        });
+        if (msgRes.data?.success) {
+          setChatMessages((prev) => [...prev, msgRes.data.data]);
+        }
+      }
+    } catch (err: any) {
+      setRoomActionError(extractErrorMessage(err, 'Failed to attach image in chat.'));
+    } finally {
+      setUploadingChatImg(false);
+      if (chatAttachmentInputRef.current) chatAttachmentInputRef.current.value = '';
     }
   };
 
@@ -1274,7 +1390,7 @@ function P2PPageContent() {
 
     const cryptoAmtNum = parseFloat(tradeCryptoAmount);
     if (!cryptoAmtNum || cryptoAmtNum <= 0) {
-      setTradeError('Please enter a valid USDT trade amount greater than 0.');
+      setTradeError(`Please enter a valid ${selectedOfferForTrade.cryptoCurrency} trade amount greater than 0.`);
       return;
     }
 
@@ -1290,6 +1406,7 @@ function P2PPageContent() {
         cryptoAmount: cryptoAmtNum,
         fiatAmount: fiatAmtNum,
         takerSide: marketSide,
+        selectedPaymentMethod: tradeSelectedMethod || selectedOfferForTrade.paymentMethods?.[0],
       });
 
       if (res.data?.success) {
@@ -1303,6 +1420,42 @@ function P2PPageContent() {
       setTradeError(extractErrorMessage(err, 'Failed to create order. Check your wallet balance or limits.'));
     } finally {
       setTradeCreating(false);
+    }
+  };
+
+  const handleAcceptOrder = async (orderId: string) => {
+    setAcceptingOrder(true);
+    setRoomActionError(null);
+    try {
+      const res = await api.post(`/p2p/orders/${orderId}/accept`);
+      if (res.data?.success && res.data?.data) {
+        setActiveChatOrder(res.data.data);
+        fetchOrders();
+        fetchActiveChatMessages(orderId);
+      }
+    } catch (e: any) {
+      setRoomActionError(extractErrorMessage(e, 'Unable to accept order'));
+    } finally {
+      setAcceptingOrder(false);
+    }
+  };
+
+  const handleDeclineOrder = async (orderId: string) => {
+    const reason = prompt('Decline this pending P2P order and unlock escrow back to your wallet?\nOptional reason:', 'Unable to fulfill at this moment');
+    if (reason === null) return;
+    setDecliningOrder(true);
+    setRoomActionError(null);
+    try {
+      const res = await api.post(`/p2p/orders/${orderId}/decline`, { reason });
+      if (res.data?.success && res.data?.data) {
+        setActiveChatOrder(res.data.data);
+        fetchOrders();
+        fetchActiveChatMessages(orderId);
+      }
+    } catch (e: any) {
+      setRoomActionError(extractErrorMessage(e, 'Unable to decline order'));
+    } finally {
+      setDecliningOrder(false);
     }
   };
 
@@ -1419,7 +1572,7 @@ function P2PPageContent() {
     try {
       const res = await api.post('/p2p/offers', {
         side: newAdSide,
-        cryptoCurrency: 'USDT',
+        cryptoCurrency: newAdCrypto,
         fiatCurrency: newAdCurrency,
         price: parseFloat(newAdPrice),
         totalAmount: parseFloat(newAdAmount),
@@ -1427,6 +1580,9 @@ function P2PPageContent() {
         maxLimit: parseFloat(newAdMaxLimit || (parseFloat(newAdAmount) * parseFloat(newAdPrice)).toString()),
         paymentMethods: newAdMethods.length > 0 ? newAdMethods : ['Bank Transfer'],
         paymentTerms: newAdTerms,
+        paymentDetails: newAdPaymentDetails.trim() || undefined,
+        locationCountry: newAdCountryName || selectedCountry?.name,
+        locationCity: newAdLocationCity.trim() || undefined,
       });
 
       if (res.data?.success) {
@@ -1454,6 +1610,8 @@ function P2PPageContent() {
     setEditAdMinLimit(cleanNum(offer.minLimit));
     setEditAdMaxLimit(cleanNum(offer.maxLimit));
     setEditAdTerms(offer.paymentTerms || '');
+    setEditAdPaymentDetails(offer.paymentDetails || '');
+    setEditAdLocationCity(offer.locationCity || '');
     setEditAdStatus(offer.status === 'PAUSED' ? 'PAUSED' : 'OPEN');
     setEditAdError(null);
   };
@@ -1477,6 +1635,8 @@ function P2PPageContent() {
         minLimit: editAdMinLimit ? parseFloat(editAdMinLimit) : undefined,
         maxLimit: editAdMaxLimit ? parseFloat(editAdMaxLimit) : undefined,
         paymentTerms: editAdTerms,
+        paymentDetails: editAdPaymentDetails,
+        locationCity: editAdLocationCity,
         status: editAdStatus,
       });
 
@@ -1640,11 +1800,13 @@ function P2PPageContent() {
   // ---------------------------------------------------------------------------
   if (activeChatOrder) {
     const isSeller = activeChatOrder.isSeller;
-    const isPaymentSent = activeChatOrder.status === 'PAYMENT_SENT';
-    const isPendingPayment = activeChatOrder.status === 'PENDING_PAYMENT';
+    const isPending = activeChatOrder.status === 'PENDING';
+    const isPaymentSent = activeChatOrder.status === 'PAYMENT_SENT' || activeChatOrder.status === 'SELLER_CONFIRMING';
+    const isPendingPayment = activeChatOrder.status === 'PENDING_PAYMENT' || activeChatOrder.status === 'ACCEPTED';
     const isDisputed = activeChatOrder.status === 'DISPUTED';
+    const isFrozen = Boolean(activeChatOrder.isFrozen) || activeChatOrder.status === 'FROZEN';
     const isCompleted = activeChatOrder.status === 'COMPLETED';
-    const isCancelled = activeChatOrder.status === 'CANCELLED';
+    const isCancelled = ['CANCELLED', 'DECLINED', 'EXPIRED'].includes(activeChatOrder.status);
 
     return (
       <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
@@ -1674,24 +1836,38 @@ function P2PPageContent() {
           {/* Header */}
           <div className="p-5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold text-sm">
+              <button
+                type="button"
+                onClick={() => activeChatOrder.counterparty?.id && setViewingTraderId(activeChatOrder.counterparty.id)}
+                className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold text-sm cursor-pointer hover:scale-105 transition-transform"
+                title="View Counterparty P2P Profile"
+              >
                 {activeChatOrder.counterparty?.avatar || 'T'}
-              </div>
+              </button>
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-extrabold text-sm">{activeChatOrder.counterparty?.name || 'Avora Counterparty'}</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => activeChatOrder.counterparty?.id && setViewingTraderId(activeChatOrder.counterparty.id)}
+                    className="font-extrabold text-sm hover:text-emerald-400 transition-colors cursor-pointer"
+                  >
+                    {activeChatOrder.counterparty?.name || 'Avora Counterparty'}
+                  </button>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
                     isCancelled
                       ? 'bg-rose-500/20 text-rose-400'
+                      : isFrozen
+                      ? 'bg-sky-500/20 text-sky-300'
                       : isCompleted
                       ? 'bg-emerald-500/20 text-emerald-400'
                       : 'bg-emerald-500/20 text-emerald-400'
                   }`}>
-                    {isCancelled ? 'Escrow Returned' : isCompleted ? 'Escrow Released' : 'Escrow Locked'}
+                    {isCancelled ? 'Escrow Returned' : isCompleted ? 'Escrow Released' : isFrozen ? 'Compliance Hold' : 'Escrow Locked'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400">
                   Order #{activeChatOrder.orderCode} • {activeChatOrder.side} {activeChatOrder.cryptoCurrency}
+                  {activeChatOrder.counterparty?.completionRate ? ` • ${activeChatOrder.counterparty.completionRate}` : ''}
                 </p>
               </div>
             </div>
@@ -1706,6 +1882,12 @@ function P2PPageContent() {
             </div>
           </div>
 
+          {/* 6-Step Progress, Timer, Stage-Gated Payment Details & Post-Trade Review */}
+          <P2PTradeProgressAndActions
+            order={activeChatOrder}
+            onReviewSubmitted={() => openOrderById(activeChatOrder.id)}
+          />
+
           {/* Trade Status & Action Bar */}
           <div className="p-4 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2">
@@ -1715,7 +1897,7 @@ function P2PPageContent() {
                     ? 'bg-emerald-500'
                     : isCancelled
                     ? 'bg-rose-500'
-                    : isDisputed
+                    : isDisputed || isFrozen
                     ? 'bg-amber-500'
                     : 'bg-blue-500 animate-ping'
                 }`}
@@ -1724,17 +1906,41 @@ function P2PPageContent() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {isPendingPayment && !isSeller && (
+              {/* Seller Accept / Decline while PENDING */}
+              {isPending && isSeller && !isFrozen && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleAcceptOrder(activeChatOrder.id)}
+                    disabled={acceptingOrder}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {acceptingOrder ? 'Accepting...' : 'Accept Order'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeclineOrder(activeChatOrder.id)}
+                    disabled={decliningOrder}
+                    className="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900 text-rose-300 font-semibold text-xs border border-rose-800/60 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {decliningOrder ? 'Declining...' : 'Decline Deal'}
+                  </button>
+                </>
+              )}
+
+              {/* Buyer marks payment sent (opens receipt proof modal) */}
+              {isPendingPayment && !isSeller && !isFrozen && (
                 <button
                   type="button"
-                  onClick={() => handleMarkPaymentSent(activeChatOrder.id)}
+                  onClick={() => setPaymentModalOrder(activeChatOrder)}
                   className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
                 >
                   I Have Paid Seller
                 </button>
               )}
 
-              {isPaymentSent && isSeller && (
+              {/* Seller releases escrow */}
+              {isPaymentSent && isSeller && !isFrozen && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1747,7 +1953,8 @@ function P2PPageContent() {
                 </button>
               )}
 
-              {isPendingPayment && (
+              {/* Cancel: Buyer anytime before payment; Seller only while PENDING (use Decline) */}
+              {!isFrozen && (isPending || (isPendingPayment && !isSeller)) && (
                 <button
                   type="button"
                   onClick={() => handleCancelOrder(activeChatOrder.id)}
@@ -1758,7 +1965,7 @@ function P2PPageContent() {
                 </button>
               )}
 
-              {!isCompleted && !isDisputed && !isCancelled && (
+              {!isCompleted && !isDisputed && !isCancelled && !isFrozen && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1793,25 +2000,55 @@ function P2PPageContent() {
               chatMessages.map((msg) => (
                 <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
                   <div
-                    className={`max-w-[75%] p-3.5 rounded-2xl text-xs leading-relaxed ${
+                    className={`max-w-[75%] p-3.5 rounded-2xl text-xs leading-relaxed space-y-2 ${
                       msg.isMe
                         ? 'bg-emerald-600 text-white rounded-br-none'
                         : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-bl-none'
                     }`}
                   >
                     <p>{msg.message}</p>
-                    <div className="text-[9px] opacity-60 text-right mt-1">{msg.time}</div>
+                    {msg.attachmentUrl && (
+                      <a
+                        href={resolveMediaUrl(msg.attachmentUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block rounded-xl overflow-hidden border border-white/20 bg-black/40"
+                      >
+                        <img
+                          src={resolveMediaUrl(msg.attachmentUrl)}
+                          alt="Trade Receipt"
+                          className="max-h-44 w-auto object-contain"
+                        />
+                      </a>
+                    )}
+                    <div className="text-[9px] opacity-60 text-right">{msg.time}</div>
                   </div>
                 </div>
               ))
             )}
           </div>
 
-          {/* Chat Input */}
-          <form onSubmit={handleSendMessage} className="p-4 bg-slate-900 border-t border-slate-800 flex items-center gap-3">
+          {/* Chat Input with Receipt Attachment */}
+          <form onSubmit={handleSendMessage} className="p-4 bg-slate-900 border-t border-slate-800 flex items-center gap-2.5">
+            <input
+              ref={chatAttachmentInputRef}
+              type="file"
+              accept="image/*,.pdf"
+              onChange={handleUploadChatAttachment}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => chatAttachmentInputRef.current?.click()}
+              disabled={uploadingChatImg}
+              className="p-3 rounded-2xl bg-slate-950 border border-slate-800 hover:border-emerald-500 text-slate-300 hover:text-emerald-400 transition-colors cursor-pointer disabled:opacity-50"
+              title="Attach payment proof or receipt screenshot"
+            >
+              {uploadingChatImg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+            </button>
             <input
               type="text"
-              placeholder="Type your message to counterparty..."
+              placeholder="Type message or attach receipt..."
               value={chatInputText}
               onChange={(e) => setChatInputText(e.target.value)}
               className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-slate-500 outline-none focus:border-emerald-500 transition-colors"
@@ -1828,6 +2065,20 @@ function P2PPageContent() {
         </div>
 
         {/* Action Modals inside Active Chat */}
+        <P2PPaymentProofModal
+          order={paymentModalOrder}
+          onClose={() => setPaymentModalOrder(null)}
+          onSuccess={() => {
+            const ordId = paymentModalOrder?.id;
+            setPaymentModalOrder(null);
+            if (ordId) {
+              openOrderById(ordId);
+              fetchActiveChatMessages(ordId);
+            }
+            fetchOrders();
+          }}
+        />
+        <P2PTraderProfileModal userId={viewingTraderId} onClose={() => setViewingTraderId(null)} />
         {renderDisputeModal()}
         {renderReleaseConfirmModal()}
       </div>
@@ -1879,9 +2130,9 @@ function P2PPageContent() {
             }`}
           >
             <span>Orders</span>
-            {ordersList.filter((o) => o.status === 'PENDING_PAYMENT' || o.status === 'PAYMENT_SENT').length > 0 && (
+            {ordersList.filter((o) => ['PENDING', 'ACCEPTED', 'PENDING_PAYMENT', 'PAYMENT_SENT', 'SELLER_CONFIRMING'].includes(o.status)).length > 0 && (
               <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-rose-500 text-white font-bold">
-                {ordersList.filter((o) => o.status === 'PENDING_PAYMENT' || o.status === 'PAYMENT_SENT').length}
+                {ordersList.filter((o) => ['PENDING', 'ACCEPTED', 'PENDING_PAYMENT', 'PAYMENT_SENT', 'SELLER_CONFIRMING'].includes(o.status)).length}
               </span>
             )}
           </button>
@@ -2178,11 +2429,98 @@ function P2PPageContent() {
             </div>
           </div>
 
-          {/* Payment Method Filter Strip */}
-          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex flex-wrap items-center gap-1.5">
+          {/* Advanced P2P Search & Filter Bar */}
+          <div className="space-y-3 px-4 py-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Crypto Asset</label>
+                <select
+                  value={marketCryptoFilter}
+                  onChange={(e) => setMarketCryptoFilter(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
+                >
+                  <option value="ALL">All Crypto (USDT/BTC/ETH)</option>
+                  <option value="USDT">USDT</option>
+                  <option value="USDC">USDC</option>
+                  <option value="BTC">BTC</option>
+                  <option value="ETH">ETH</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Order Amount ({selectedCountry.currency})</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={marketAmountFilter}
+                  onChange={(e) => setMarketAmountFilter(e.target.value)}
+                  placeholder={`e.g. ${selectedCountry.currency === 'LKR' ? '25000' : '500'}`}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-slate-900 dark:text-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Payment Method</label>
+                <select
+                  value={marketPaymentFilter}
+                  onChange={(e) => setMarketPaymentFilter(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
+                >
+                  <option value="ALL">All Payment Methods</option>
+                  {Array.from(new Set([...(selectedCountry.methods || []), ...GLOBAL_PAYMENT_METHODS])).map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Reputation Filter</label>
+                <select
+                  value={marketMinCompletion}
+                  onChange={(e) => setMarketMinCompletion(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
+                >
+                  <option value="ALL">All Traders</option>
+                  <option value="90">90%+ Completion</option>
+                  <option value="95">95%+ Completion</option>
+                  <option value="98">98%+ Completion</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Location / City</label>
+                <input
+                  type="text"
+                  value={marketLocationFilter}
+                  onChange={(e) => setMarketLocationFilter(e.target.value)}
+                  placeholder="e.g. Colombo, Dubai, Tbilisi"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Sort Rate / Rank</label>
+                <select
+                  value={marketSortBy}
+                  onChange={(e) => setMarketSortBy(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
+                >
+                  <option value="price_default">Newest Ads</option>
+                  <option value="price_asc">Lowest Price First</option>
+                  <option value="price_desc">Highest Price First</option>
+                  <option value="completion_desc">Highest Completion %</option>
+                  <option value="orders_desc">Most Completed Trades</option>
+                  <option value="rating_desc">Best Reputation Score</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
               <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
-                <Sliders className="w-3.5 h-3.5 text-emerald-500" /> Payment Rail:
+                <Sliders className="w-3.5 h-3.5 text-emerald-500" /> Quick Rails:
               </span>
               {['ALL', 'Bank Transfer', 'Google Pay (GPay)', 'Apple Pay', 'Wise', 'Revolut', 'PayPal', ...(selectedCountry.methods || []).slice(0, 2)].filter((v, i, arr) => arr.indexOf(v) === i).map((method) => {
                 const active = marketPaymentFilter === method;
@@ -2202,18 +2540,6 @@ function P2PPageContent() {
                 );
               })}
             </div>
-            <select
-              value={marketPaymentFilter}
-              onChange={(e) => setMarketPaymentFilter(e.target.value)}
-              className="px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
-            >
-              <option value="ALL">All Payment Methods</option>
-              {Array.from(new Set([...(selectedCountry.methods || []), ...GLOBAL_PAYMENT_METHODS])).map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
           </div>
 
           {/* Offers Table */}
@@ -2295,20 +2621,22 @@ function P2PPageContent() {
                         : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
                     }`}
                   >
-                    {/* Column 1: Trader Info */}
-                    <div className="flex items-center gap-3.5 min-w-[240px]">
+                    {/* Column 1: Trader Info (Clickable Real Profile) */}
+                    <div className="flex items-center gap-3.5 min-w-[260px]">
                       <div className="relative shrink-0">
-                        <div
+                        <button
+                          type="button"
+                          onClick={() => !offer.isOffline && !offer.isDeskConcierge && setViewingTraderId(offer.trader.id)}
                           className={`w-10 h-10 rounded-2xl border font-extrabold flex items-center justify-center text-sm ${
                             offer.isDeskConcierge
                               ? 'bg-gradient-to-br from-emerald-500 to-teal-600 border-emerald-400/50 text-white shadow-sm'
                               : offer.isOffline
                               ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
-                              : 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 cursor-pointer hover:scale-105 transition-transform'
                           }`}
                         >
                           {offer.trader.avatar}
-                        </div>
+                        </button>
                         <span
                           title={offer.isOffline ? 'Currently Offline' : 'Online Now'}
                           className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${
@@ -2318,12 +2646,25 @@ function P2PPageContent() {
                       </div>
                       <div>
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-bold text-sm text-slate-900 dark:text-white">
+                          <button
+                            type="button"
+                            onClick={() => !offer.isOffline && !offer.isDeskConcierge && setViewingTraderId(offer.trader.id)}
+                            className={`font-bold text-sm text-slate-900 dark:text-white ${
+                              !offer.isOffline && !offer.isDeskConcierge ? 'hover:text-emerald-500 cursor-pointer' : ''
+                            }`}
+                          >
                             {offer.trader.name}
-                          </span>
-                          <span title="Verified Merchant">
-                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                          </span>
+                          </button>
+                          {offer.trader.isVerified && (
+                            <span title="KYC Verified Merchant">
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                            </span>
+                          )}
+                          {offer.trader.hasDisputeWarning && (
+                            <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-500 text-[9px] font-bold">
+                              Caution
+                            </span>
+                          )}
                           {offer.isDeskConcierge ? (
                             <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
                               Online • 24/7 Desk
@@ -2338,10 +2679,29 @@ function P2PPageContent() {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
-                          <span>{offer.trader.totalOrders.toLocaleString()} orders</span>
-                          <span>•</span>
-                          <span className="text-emerald-600 dark:text-emerald-400 font-bold">{offer.trader.completionRate} completion</span>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                          {offer.isDeskConcierge || offer.isOffline ? (
+                            <span>{offer.trader.completionRate}</span>
+                          ) : (
+                            <>
+                              <span>{offer.trader.completedOrders ?? offer.trader.totalOrders} completed orders</span>
+                              <span>•</span>
+                              <span className="text-emerald-600 dark:text-emerald-400 font-bold">{offer.trader.completionRate}</span>
+                              {offer.trader.avgRating !== null && offer.trader.avgRating !== undefined && (
+                                <>
+                                  <span>•</span>
+                                  <span className="inline-flex items-center gap-0.5 text-amber-500 font-bold">
+                                    <Star className="w-3 h-3 fill-amber-500" /> {offer.trader.avgRating} ({offer.trader.reviewCount || 0})
+                                  </span>
+                                </>
+                              )}
+                            </>
+                          )}
+                          {(offer.locationCity || offer.locationCountry) && (
+                            <span className="inline-flex items-center gap-0.5 text-slate-400">
+                              <MapPin className="w-3 h-3" /> {[offer.locationCity, offer.locationCountry].filter(Boolean).join(', ')}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2442,6 +2802,7 @@ function P2PPageContent() {
                               type="button"
                               onClick={() => {
                                 setTradeError(null);
+                                setTradeSelectedMethod(offer.paymentMethods?.[0] || 'Bank Transfer');
                                 setSelectedOfferForTrade(offer);
                               }}
                               className={`px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all cursor-pointer ${
@@ -2450,7 +2811,7 @@ function P2PPageContent() {
                                   : 'bg-rose-600 hover:bg-rose-500'
                               }`}
                             >
-                              {marketSide === 'BUY' ? 'Buy USDT' : 'Sell USDT'}
+                              {marketSide === 'BUY' ? `Buy ${offer.cryptoCurrency}` : `Sell ${offer.cryptoCurrency}`}
                             </button>
                           </>
                         )}
@@ -2510,9 +2871,10 @@ function P2PPageContent() {
               {(
                 [
                   { id: 'all', label: 'All Ongoing' },
-                  { id: 'unpaid', label: 'Pending Payment' },
-                  { id: 'paid', label: 'Payment Sent' },
-                  { id: 'dispute', label: 'Disputed' },
+                  { id: 'pending', label: 'Pending Acceptance' },
+                  { id: 'unpaid', label: 'Payment Pending' },
+                  { id: 'paid', label: 'Payment Made' },
+                  { id: 'dispute', label: 'Disputed / Frozen' },
                 ] as const
               ).map((chip) => (
                 <button
@@ -2761,11 +3123,60 @@ function P2PPageContent() {
                   To protect counterparties against fraud and non-payment, Avora Bank locks a <strong>100% refundable security deposit of ${effectiveP2pDeposit.toFixed(2)} USD/USDT</strong>. When you close your merchant membership, this ${effectiveP2pDeposit} is released immediately back to your available balance.
                 </p>
 
-                <div className="pt-2">
+                <div className="pt-2 space-y-3">
+                  {merchantStatus?.p2pBlocked && (
+                    <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+                      <Ban className="w-4 h-4 shrink-0" />
+                      <span>
+                        P2P Access Restricted: {merchantStatus.p2pBlockedReason || 'Contact Compliance support.'}
+                      </span>
+                    </div>
+                  )}
+
+                  {merchantStatus?.stats && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                      <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+                        <div className="text-[10px] text-slate-400">Completed Trades</div>
+                        <div className="text-base font-black text-emerald-400 font-mono">
+                          {merchantStatus.stats.completedOrders}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+                        <div className="text-[10px] text-slate-400">Completion Rate</div>
+                        <div className="text-base font-black text-white font-mono">
+                          {merchantStatus.stats.completionRate}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+                        <div className="text-[10px] text-slate-400">Total Volume</div>
+                        <div className="text-base font-black text-white font-mono">
+                          {merchantStatus.stats.totalVolumeCrypto}
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+                        <div className="text-[10px] text-slate-400">User Rating</div>
+                        <div className="text-base font-black text-amber-400 font-mono flex items-center gap-1">
+                          <Star className="w-3.5 h-3.5 fill-amber-400" />
+                          <span>{merchantStatus.stats.avgRating ?? '—'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {user?.id && (
+                    <button
+                      type="button"
+                      onClick={() => setViewingTraderId(user.id)}
+                      className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
+                    >
+                      View My Full Public P2P Profile &amp; Counterparty Reviews
+                    </button>
+                  )}
+
                   {!merchantStatus?.isP2pMerchant ? (
                     <button
                       onClick={handleApplyMerchant}
-                      disabled={merchantLoading}
+                      disabled={merchantLoading || Boolean(merchantStatus?.p2pBlocked)}
                       className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
                     >
                       {merchantLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
@@ -2873,53 +3284,81 @@ function P2PPageContent() {
             )}
 
             <form onSubmit={handleCreateAd} className="space-y-4 text-xs">
-              {/* Side */}
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Marketplace Side</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewAdSide('SELL')}
-                    className={`py-2.5 rounded-xl font-bold transition-all cursor-pointer ${
-                      newAdSide === 'SELL'
-                        ? 'bg-rose-600 text-white shadow-sm'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
-                    }`}
+              {/* Side & Crypto Asset */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Marketplace Side</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewAdSide('SELL')}
+                      className={`py-2.5 rounded-xl font-bold transition-all cursor-pointer ${
+                        newAdSide === 'SELL'
+                          ? 'bg-rose-600 text-white shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      Taker Sells {newAdCrypto} (You Pay)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewAdSide('BUY')}
+                      className={`py-2.5 rounded-xl font-bold transition-all cursor-pointer ${
+                        newAdSide === 'BUY'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      Taker Buys {newAdCrypto} (You Receive)
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Crypto Asset</label>
+                  <select
+                    value={newAdCrypto}
+                    onChange={(e) => setNewAdCrypto(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold outline-none cursor-pointer"
                   >
-                    Taker Sells USDT (You Pay Fiat)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewAdSide('BUY')}
-                    className={`py-2.5 rounded-xl font-bold transition-all cursor-pointer ${
-                      newAdSide === 'BUY'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    Taker Buys USDT (You Receive Fiat)
-                  </button>
+                    <option value="USDT">USDT</option>
+                    <option value="USDC">USDC</option>
+                    <option value="BTC">BTC</option>
+                    <option value="ETH">ETH</option>
+                  </select>
                 </div>
               </div>
 
-              {/* Fiat Currency */}
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Target Currency (Global)</label>
-                <SearchableCountrySelect
-                  value={newAdCountryCode || newAdCurrency}
-                  onChange={(c) => {
-                    setNewAdCountryCode(c.code);
-                    if (c.currency !== newAdCurrency) {
-                      setNewAdCurrency(c.currency);
-                      const spot = getCorridorSpotRate(c.currency);
-                      setNewAdPrice(spot.toFixed(spot >= 20 ? 2 : 4));
-                    }
-                    const rail = COUNTRIES.find((r) => r.currency === c.currency);
-                    if (rail) setNewAdMethods(rail.methods.slice(0, 2));
-                  }}
-                  size="sm"
-                  className="w-full"
-                />
+              {/* Fiat Currency & City */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Target Currency (Global)</label>
+                  <SearchableCountrySelect
+                    value={newAdCountryCode || newAdCurrency}
+                    onChange={(c) => {
+                      setNewAdCountryCode(c.code);
+                      setNewAdCountryName(c.name);
+                      if (c.currency !== newAdCurrency) {
+                        setNewAdCurrency(c.currency);
+                        const spot = getCorridorSpotRate(c.currency);
+                        setNewAdPrice(spot.toFixed(spot >= 20 ? 2 : 4));
+                      }
+                      const rail = COUNTRIES.find((r) => r.currency === c.currency);
+                      if (rail) setNewAdMethods(rail.methods.slice(0, 2));
+                    }}
+                    size="sm"
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Merchant Location / City</label>
+                  <input
+                    type="text"
+                    value={newAdLocationCity}
+                    onChange={(e) => setNewAdLocationCity(e.target.value)}
+                    placeholder="e.g. Colombo, Mumbai, Dubai, Tbilisi"
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
               </div>
 
               {/* Payment Methods */}
@@ -2990,7 +3429,7 @@ function P2PPageContent() {
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                   <label className="block text-slate-700 dark:text-slate-300 font-bold">
-                    Unit Exchange Rate ({newAdCurrency} per 1 USDT)
+                    Unit Exchange Rate ({newAdCurrency} per 1 {newAdCrypto})
                   </label>
                   <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                     Spot Market: {getCorridorSpotRate(newAdCurrency).toFixed(4)} {newAdCurrency}
@@ -3032,7 +3471,7 @@ function P2PPageContent() {
               {/* Total USDT Amount */}
               <div>
                 <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
-                  Total USDT to Trade
+                  Total {newAdCrypto} to Trade
                 </label>
                 <input
                   type="number"
@@ -3066,6 +3505,20 @@ function P2PPageContent() {
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono outline-none"
                   />
                 </div>
+              </div>
+
+              {/* Stage-Gated Payment Account / Settlement Details */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  Stage-Gated Settlement Account Details (Hidden until you Accept an Order)
+                </label>
+                <textarea
+                  rows={2}
+                  value={newAdPaymentDetails}
+                  onChange={(e) => setNewAdPaymentDetails(e.target.value)}
+                  placeholder="e.g. Bank: Commercial Bank SL • A/C: 1002394857 • Name: Avora Partner Desk • Include Order ID in remarks"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 outline-none"
+                />
               </div>
 
               {/* Terms */}
@@ -3230,9 +3683,19 @@ function P2PPageContent() {
             <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Trader:</span>
-                <span className="font-bold text-white flex items-center gap-1">
-                  {selectedOfferForTrade.trader.name}
+                <button
+                  type="button"
+                  onClick={() => setViewingTraderId(selectedOfferForTrade.trader.id)}
+                  className="font-bold text-white hover:text-emerald-400 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>{selectedOfferForTrade.trader.name}</span>
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Reputation:</span>
+                <span className="text-emerald-400 font-bold">
+                  {selectedOfferForTrade.trader.completedOrders ?? selectedOfferForTrade.trader.totalOrders} trades • {selectedOfferForTrade.trader.completionRate}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -3242,17 +3705,45 @@ function P2PPageContent() {
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">Available:</span>
-                <span className="font-mono">{selectedOfferForTrade.availableAmount} {selectedOfferForTrade.cryptoCurrency}</span>
+                <span className="text-slate-400">Available / Limits:</span>
+                <span className="font-mono">
+                  {selectedOfferForTrade.availableAmount} {selectedOfferForTrade.cryptoCurrency} ({selectedOfferForTrade.minLimit}–{selectedOfferForTrade.maxLimit} {selectedOfferForTrade.fiatCurrency})
+                </span>
               </div>
+              {selectedOfferForTrade.paymentTerms && (
+                <div className="pt-1.5 border-t border-slate-800 text-[11px] text-slate-400">
+                  <span className="font-bold text-slate-300">Terms: </span>
+                  {selectedOfferForTrade.paymentTerms}
+                </div>
+              )}
             </div>
 
             <form onSubmit={handleCreateOrder} className="space-y-4 text-xs">
               <div>
-                <label className="block text-slate-300 font-bold mb-1">USDT to Trade</label>
+                <label className="block text-slate-300 font-bold mb-1.5">Select Payment Method</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(selectedOfferForTrade.paymentMethods || ['Bank Transfer']).map((pm) => (
+                    <button
+                      key={pm}
+                      type="button"
+                      onClick={() => setTradeSelectedMethod(pm)}
+                      className={`px-3 py-1.5 rounded-xl font-bold border transition-colors cursor-pointer ${
+                        tradeSelectedMethod === pm
+                          ? 'bg-emerald-600 text-white border-emerald-500'
+                          : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      {pm}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">{selectedOfferForTrade.cryptoCurrency} to Trade</label>
                 <input
                   type="number"
-                  step="0.01"
+                  step="any"
                   required
                   value={tradeCryptoAmount}
                   onChange={(e) => setTradeCryptoAmount(e.target.value)}
@@ -3265,6 +3756,11 @@ function P2PPageContent() {
                 <span className="text-base font-black text-emerald-400 font-mono">
                   {(parseFloat(tradeCryptoAmount || '0') * parseFloat(selectedOfferForTrade.price)).toFixed(2)} {selectedOfferForTrade.fiatCurrency}
                 </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-amber-300 flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5 shrink-0" />
+                <span>Seller settlement account details unlock inside the Trade Room once seller accepts your order.</span>
               </div>
 
               <button
@@ -3761,6 +4257,32 @@ function P2PPageContent() {
                 </div>
               </div>
 
+              {/* City / Location & Stage-Gated Settlement Account Details */}
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-200 mb-1">Merchant City / Location</label>
+                  <input
+                    type="text"
+                    value={editAdLocationCity}
+                    onChange={(e) => setEditAdLocationCity(e.target.value)}
+                    placeholder="e.g. Colombo, Dubai, Mumbai"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-200 mb-1">
+                    Stage-Gated Settlement Details (Revealed only after Accepting Order)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editAdPaymentDetails}
+                    onChange={(e) => setEditAdPaymentDetails(e.target.value)}
+                    placeholder="Bank Name, Account Number, UPI ID..."
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none"
+                  />
+                </div>
+              </div>
+
               {/* Terms */}
               <div>
                 <label className="block font-bold text-slate-200 mb-1">Settlement Terms</label>
@@ -3818,7 +4340,7 @@ function P2PPageContent() {
         >
           <FileText className="w-5 h-5" />
           <span className="text-[10px]">Orders</span>
-          {ordersList.filter((o) => o.status === 'PENDING_PAYMENT' || o.status === 'PAYMENT_SENT').length > 0 && (
+          {ordersList.filter((o) => ['PENDING', 'ACCEPTED', 'PENDING_PAYMENT', 'PAYMENT_SENT', 'SELLER_CONFIRMING'].includes(o.status)).length > 0 && (
             <span className="w-2 h-2 rounded-full bg-rose-500 absolute top-0 right-2" />
           )}
         </button>
@@ -3856,6 +4378,9 @@ function P2PPageContent() {
           <span className="text-[10px]">Profile</span>
         </button>
       </div>
+
+      {/* TRADER PROFILE MODAL */}
+      <P2PTraderProfileModal userId={viewingTraderId} onClose={() => setViewingTraderId(null)} />
 
     </div>
   );

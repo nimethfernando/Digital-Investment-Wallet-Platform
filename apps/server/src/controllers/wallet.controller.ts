@@ -6,6 +6,7 @@ import { ledgerService } from '../services/ledger.service';
 import { depositService } from '../services/deposit.service';
 import { cardService } from '../services/card.service';
 import { computePackageYieldSchedule } from '../services/package.service';
+import { p2pService } from '../services/p2p.service';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -510,6 +511,8 @@ export class WalletController {
       };
     }
 
+    await p2pService.ensureP2PReady();
+
     const [
       kycDocuments,
       supportTickets,
@@ -521,6 +524,7 @@ export class WalletController {
       transactions,
       globalTransfers,
       p2pOrders,
+      persistedNotifications,
       notifSetting,
     ] = await Promise.all([
       prisma.kycDocument.findMany({
@@ -592,6 +596,13 @@ export class WalletController {
         orderBy: { updatedAt: 'desc' },
         take: 20,
       }),
+      prisma.userNotification
+        .findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+        })
+        .catch(() => []),
       prisma.cmsSetting.findUnique({
         where: { key: settingKey },
       }),
@@ -1069,10 +1080,28 @@ export class WalletController {
       });
     }
 
+    for (const notif of persistedNotifications) {
+      rawItems.push({
+        id: `un-${notif.id}`,
+        category: (notif.category as any) || 'TRANSACTION',
+        type: notif.type,
+        severity: (notif.severity as any) || 'INFO',
+        title: notif.title,
+        message: notif.message,
+        referenceCode: notif.referenceCode,
+        amount: notif.amount,
+        currency: notif.currency,
+        status: notif.status,
+        actionUrl: notif.actionUrl || '/p2p',
+        actionLabel: notif.actionLabel || 'View Details',
+        createdAt: notif.createdAt.toISOString(),
+      });
+    }
+
     for (const ord of p2pOrders) {
       const sideLabel = ord.buyerId === userId ? 'Buy' : 'Sell';
-      const fiatCur = ord.offer?.fiatCurrency || 'USD';
-      const cryptoCur = ord.offer?.cryptoCurrency || 'USDT';
+      const fiatCur = ord.fiatCurrency || ord.offer?.fiatCurrency || 'USD';
+      const cryptoCur = ord.cryptoCurrency || ord.offer?.cryptoCurrency || 'USDT';
       rawItems.push({
         id: `p2p-${ord.id}-${ord.status}`,
         category: 'TRANSACTION',
@@ -1080,7 +1109,7 @@ export class WalletController {
         severity:
           ord.status === 'COMPLETED'
             ? 'SUCCESS'
-            : ord.status === 'DISPUTED' || ord.status === 'CANCELLED'
+            : ['DISPUTED', 'CANCELLED', 'EXPIRED', 'DECLINED', 'FROZEN'].includes(ord.status)
             ? 'CRITICAL'
             : 'INFO',
         title: `P2P Escrow [${ord.orderCode}] — ${ord.status.replace(/_/g, ' ')}`,
@@ -1209,11 +1238,21 @@ export class WalletController {
       if (markAll) {
         state.lastReadAllAt = new Date().toISOString();
         state.readIds = [];
+        await prisma.userNotification.updateMany({ where: { userId, isRead: false }, data: { isRead: true } }).catch(() => {});
       } else if (Array.isArray(notificationIds) && notificationIds.length > 0) {
         const merged = Array.from(
           new Set([...(state.readIds || []), ...notificationIds.map(String)])
         );
         state.readIds = merged.slice(-250);
+        const dbNotifIds = notificationIds
+          .map(String)
+          .filter((nid) => nid.startsWith('un-'))
+          .map((nid) => nid.slice(3));
+        if (dbNotifIds.length > 0) {
+          await prisma.userNotification
+            .updateMany({ where: { id: { in: dbNotifIds }, userId }, data: { isRead: true } })
+            .catch(() => {});
+        }
       }
 
       await prisma.cmsSetting.upsert({

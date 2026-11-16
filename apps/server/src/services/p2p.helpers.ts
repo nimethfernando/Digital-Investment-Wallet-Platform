@@ -1,0 +1,423 @@
+import { P2POrderStatus, P2POfferStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import Decimal from 'decimal.js';
+import { prisma } from '../lib/prisma';
+import { ledgerService } from './ledger.service';
+
+Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
+
+export const INSTITUTIONAL_DESK_EMAILS = new Set([
+  'treasury@avorabank.com',
+  'tbilisi-desk@avorabank.com',
+  'colombo.otc@avorabank.com',
+]);
+
+export function isInstitutionalDeskEmail(email?: string | null): boolean {
+  return INSTITUTIONAL_DESK_EMAILS.has((email || '').trim().toLowerCase());
+}
+
+export const P2P_TIMERS = {
+  ACCEPT_MINUTES: 15,
+  PAYMENT_MINUTES: 30,
+  SELLER_CONFIRM_MINUTES: 45,
+  DISPUTE_SLA_MINUTES: 180,
+  EXPIRING_SOON_WARN_MINUTES: 5,
+};
+
+export interface UserP2PStats {
+  userId: string;
+  totalOrders: number;
+  completedOrders: number;
+  cancelledOrders: number;
+  declinedOrders: number;
+  expiredOrders: number;
+  disputedOrders: number;
+  disputesLost: number;
+  totalVolumeCrypto: string;
+  completionRatePct: number | null;
+  completionRate: string;
+  cancellationRatePct: number;
+  avgRating: number | null;
+  reviewCount: number;
+  positiveRatePct: number | null;
+  reputationScore: number;
+  reputationTier: 'INSTITUTIONAL' | 'TRUSTED' | 'STANDARD' | 'CAUTION';
+  hasDisputeWarning: boolean;
+}
+
+export function getFiatSymbol(currency: string): string {
+  const map: Record<string, string> = {
+    INR: '₹',
+    EUR: '€',
+    GEL: '₾',
+    GBP: '£',
+    AED: 'AED ',
+    LKR: 'Rs ',
+    USD: '$',
+  };
+  return map[(currency || 'USD').toUpperCase()] || `${currency || 'USD'} `;
+}
+
+export function safeParsePaymentMethods(raw: any): string[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string') return ['Bank Transfer'];
+  try {
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed : ['Bank Transfer'];
+  } catch {
+    return raw ? [raw] : ['Bank Transfer'];
+  }
+}
+
+export function formatFiatWithCurrency(amount: number | string | Decimal, currency: string): string {
+  const cur = (currency || 'USD').toUpperCase();
+  const num = Number(amount || 0);
+  const formatted = num.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const sym = getFiatSymbol(cur);
+  return sym.endsWith(' ') ? `${formatted} ${cur}` : `${sym}${formatted} ${cur}`;
+}
+
+export async function createP2PNotification(params: {
+  userId: string;
+  type: string;
+  severity?: 'SUCCESS' | 'INFO' | 'WARNING' | 'CRITICAL';
+  title: string;
+  message: string;
+  referenceCode?: string;
+  amount?: string;
+  currency?: string;
+  status?: string;
+  actionUrl?: string;
+  actionLabel?: string;
+  category?: string;
+}) {
+  if (!params.userId || params.userId === 'SYSTEM') return;
+  try {
+    await prisma.userNotification.create({
+      data: {
+        userId: params.userId,
+        category: params.category || 'TRANSACTION',
+        type: params.type,
+        severity: params.severity || 'INFO',
+        title: params.title,
+        message: params.message,
+        referenceCode: params.referenceCode || null,
+        amount: params.amount || null,
+        currency: params.currency || null,
+        status: params.status || null,
+        actionUrl: params.actionUrl || '/p2p',
+        actionLabel: params.actionLabel || 'Open P2P',
+      },
+    });
+  } catch (err) {
+    console.warn('[P2P Notification] failed to persist notification:', err);
+  }
+}
+
+/**
+ * Compute real, live P2P trade & reputation metrics for one or more user IDs directly from MySQL.
+ */
+export async function computeUserP2PStatsMap(userIds: string[]): Promise<Map<string, UserP2PStats>> {
+  const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+  const result = new Map<string, UserP2PStats>();
+  if (uniqueIds.length === 0) return result;
+
+  const [orders, reviews, users] = await Promise.all([
+    prisma.p2POrder.findMany({
+      where: {
+        OR: [{ buyerId: { in: uniqueIds } }, { sellerId: { in: uniqueIds } }],
+      },
+      select: {
+        id: true,
+        buyerId: true,
+        sellerId: true,
+        status: true,
+        cryptoAmount: true,
+        acceptedAt: true,
+        disputedAt: true,
+        disputeReason: true,
+        cancelledBy: true,
+      },
+    }),
+    prisma.p2PReview.findMany({
+      where: { revieweeId: { in: uniqueIds } },
+      select: {
+        revieweeId: true,
+        rating: true,
+        isPositive: true,
+      },
+    }),
+    prisma.user.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, email: true, isP2pMerchant: true },
+    }),
+  ]);
+
+  const userEmailMap = new Map(users.map((u) => [u.id, u.email]));
+
+  for (const uid of uniqueIds) {
+    let completedOrders = 0;
+    let cancelledByUser = 0;
+    let totalCancelledInvolved = 0;
+    let declinedAsSeller = 0;
+    let expiredFault = 0;
+    let disputedOrders = 0;
+    let disputesLost = 0;
+    let volumeDec = new Decimal(0);
+
+    for (const ord of orders) {
+      const isBuyer = ord.buyerId === uid;
+      const isSeller = ord.sellerId === uid;
+      if (!isBuyer && !isSeller) continue;
+
+      if (ord.disputedAt || ord.status === P2POrderStatus.DISPUTED) {
+        disputedOrders += 1;
+      }
+
+      if (ord.status === P2POrderStatus.COMPLETED) {
+        completedOrders += 1;
+        volumeDec = volumeDec.plus(new Decimal(ord.cryptoAmount.toString()));
+        // If seller lost an admin dispute and funds were forcefully released to buyer
+        if (ord.disputeReason?.includes('[Admin RELEASE_TO_BUYER]') && isSeller) {
+          disputesLost += 1;
+        }
+      } else if (ord.status === P2POrderStatus.CANCELLED) {
+        totalCancelledInvolved += 1;
+        if (ord.cancelledBy === uid || (!ord.cancelledBy && isBuyer)) {
+          cancelledByUser += 1;
+        }
+        if (ord.disputeReason?.includes('[Admin REFUND_TO_SELLER]') && isBuyer) {
+          disputesLost += 1;
+        }
+      } else if (ord.status === P2POrderStatus.DECLINED) {
+        if (isSeller) declinedAsSeller += 1;
+      } else if (ord.status === P2POrderStatus.EXPIRED) {
+        // Seller fault if never accepted; buyer fault if accepted but buyer never paid
+        const missedBySeller = !ord.acceptedAt && isSeller;
+        const missedByBuyer = Boolean(ord.acceptedAt) && isBuyer;
+        if (missedBySeller || missedByBuyer) {
+          expiredFault += 1;
+        }
+      }
+    }
+
+    const userReviews = reviews.filter((r) => r.revieweeId === uid);
+    const reviewCount = userReviews.length;
+    const avgRating =
+      reviewCount > 0
+        ? Number((userReviews.reduce((sum, r) => sum + r.rating, 0) / reviewCount).toFixed(1))
+        : null;
+    const positiveRatePct =
+      reviewCount > 0
+        ? Number(((userReviews.filter((r) => r.isPositive).length / reviewCount) * 100).toFixed(1))
+        : null;
+
+    const faultTotal = cancelledByUser + expiredFault + disputesLost;
+    const denominator = completedOrders + faultTotal;
+    const completionRatePct =
+      denominator > 0 ? Number(((completedOrders / denominator) * 100).toFixed(1)) : null;
+
+    const closedTotal = completedOrders + totalCancelledInvolved + declinedAsSeller + expiredFault;
+    const cancellationRatePct =
+      closedTotal > 0
+        ? Number((((cancelledByUser + expiredFault + declinedAsSeller) / closedTotal) * 100).toFixed(1))
+        : 0;
+
+    let score = 95;
+    if (completionRatePct !== null) {
+      score = completionRatePct;
+    }
+    if (positiveRatePct !== null) {
+      score = completionRatePct !== null ? completionRatePct * 0.65 + positiveRatePct * 0.35 : positiveRatePct;
+    }
+    score -= disputesLost * 12;
+    score -= Math.max(0, disputedOrders - disputesLost) * 3;
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    const email = userEmailMap.get(uid) || '';
+    const isHouse = isInstitutionalDeskEmail(email);
+    const hasDisputeWarning = disputesLost >= 2 || (completionRatePct !== null && completionRatePct < 80 && denominator >= 3);
+
+    let reputationTier: UserP2PStats['reputationTier'] = 'STANDARD';
+    if (isHouse) {
+      reputationTier = 'INSTITUTIONAL';
+    } else if (hasDisputeWarning || score < 75) {
+      reputationTier = 'CAUTION';
+    } else if (completedOrders >= 5 && (completionRatePct ?? 100) >= 92 && score >= 88) {
+      reputationTier = 'TRUSTED';
+    }
+
+    const completionRate =
+      completionRatePct !== null ? `${completionRatePct.toFixed(1)}%` : 'New Trader';
+
+    result.set(uid, {
+      userId: uid,
+      totalOrders: completedOrders + totalCancelledInvolved + declinedAsSeller + expiredFault,
+      completedOrders,
+      cancelledOrders: cancelledByUser,
+      declinedOrders: declinedAsSeller,
+      expiredOrders: expiredFault,
+      disputedOrders,
+      disputesLost,
+      totalVolumeCrypto: volumeDec.toFixed(2),
+      completionRatePct,
+      completionRate,
+      cancellationRatePct,
+      avgRating,
+      reviewCount,
+      positiveRatePct,
+      reputationScore: score,
+      reputationTier,
+      hasDisputeWarning,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Shared atomic helper inside Prisma transaction to unlock escrowed crypto back to seller available balance
+ * and restore offer available liquidity when applicable.
+ */
+export async function unlockEscrowToSellerTx(
+  tx: any,
+  params: {
+    sellerWalletId: string;
+    cryptoCurrency: string;
+    cryptoAmountDec: Decimal;
+    offerId?: string | null;
+    orderCode: string;
+  }
+) {
+  const currency = (params.cryptoCurrency || 'USDT').toUpperCase();
+  const sellerBal = await ledgerService.lockWalletBalance(tx, params.sellerWalletId, currency);
+  const currentLocked = new Decimal(sellerBal.lockedPrincipal.toString());
+
+  if (currentLocked.lessThan(params.cryptoAmountDec)) {
+    throw new Error(
+      `Insufficient escrowed ${currency} in seller locked balance (${currentLocked.toFixed(2)} ${currency} locked, ${params.cryptoAmountDec.toFixed(2)} required) on order ${params.orderCode}.`
+    );
+  }
+
+  await tx.walletBalance.update({
+    where: { id: sellerBal.id },
+    data: {
+      lockedPrincipal: currentLocked.minus(params.cryptoAmountDec).toFixed(8),
+      availableBalance: new Decimal(sellerBal.availableBalance.toString())
+        .plus(params.cryptoAmountDec)
+        .toFixed(8),
+    },
+  });
+
+  if (params.offerId) {
+    const offer = await tx.p2POffer.findUnique({ where: { id: params.offerId } });
+    if (offer && offer.status !== P2POfferStatus.CANCELLED) {
+      const nextAvail = new Decimal(offer.availableAmount.toString()).plus(params.cryptoAmountDec);
+      const cappedAvail = nextAvail.greaterThan(new Decimal(offer.totalAmount.toString()))
+        ? new Decimal(offer.totalAmount.toString())
+        : nextAvail;
+      await tx.p2POffer.update({
+        where: { id: offer.id },
+        data: {
+          availableAmount: cappedAvail.toFixed(8),
+          status: offer.status === P2POfferStatus.FILLED ? P2POfferStatus.OPEN : offer.status,
+        },
+      });
+    }
+  }
+}
+
+/**
+ * Shared atomic helper inside Prisma transaction to release escrowed crypto from seller to buyer available balance.
+ */
+export async function releaseEscrowToBuyerTx(
+  tx: any,
+  params: {
+    order: {
+      id: string;
+      orderCode: string;
+      buyerId: string;
+      sellerId: string;
+      cryptoCurrency?: string | null;
+      cryptoAmount: any;
+    };
+    sellerWalletId: string;
+    buyerWalletId: string;
+    actorUserId: string;
+    txCodePrefix: string;
+    idempotencyPrefix: string;
+    notesPrefix: string;
+  }
+) {
+  const currency = (params.order.cryptoCurrency || 'USDT').toUpperCase();
+  const cryptoAmountDec = new Decimal(params.order.cryptoAmount.toString());
+
+  // Deterministic lock order prevents MySQL deadlocks
+  let sellerBal: any;
+  let buyerBal: any;
+  if (params.sellerWalletId <= params.buyerWalletId) {
+    sellerBal = await ledgerService.lockWalletBalance(tx, params.sellerWalletId, currency);
+    buyerBal = await ledgerService.lockWalletBalance(tx, params.buyerWalletId, currency);
+  } else {
+    buyerBal = await ledgerService.lockWalletBalance(tx, params.buyerWalletId, currency);
+    sellerBal = await ledgerService.lockWalletBalance(tx, params.sellerWalletId, currency);
+  }
+
+  const currentSellerLocked = new Decimal(sellerBal.lockedPrincipal.toString());
+  if (currentSellerLocked.lessThan(cryptoAmountDec)) {
+    throw new Error(
+      `Insufficient escrowed ${currency} in seller locked balance (${currentSellerLocked.toFixed(2)} ${currency} locked, ${cryptoAmountDec.toFixed(2)} required) on order ${params.order.orderCode}.`
+    );
+  }
+
+  const newSellerLocked = currentSellerLocked.minus(cryptoAmountDec);
+  await tx.walletBalance.update({
+    where: { id: sellerBal.id },
+    data: { lockedPrincipal: newSellerLocked.toFixed(8) },
+  });
+
+  const sellerAvailBefore = new Decimal(sellerBal.availableBalance.toString());
+  const buyerAvailBefore = new Decimal(buyerBal.availableBalance.toString());
+  const newBuyerAvail = buyerAvailBefore.plus(cryptoAmountDec);
+
+  await tx.walletBalance.update({
+    where: { id: buyerBal.id },
+    data: { availableBalance: newBuyerAvail.toFixed(8) },
+  });
+
+  await tx.transaction.create({
+    data: {
+      transactionCode: `TX-${params.txCodePrefix}O-${params.order.orderCode}`,
+      userId: params.order.sellerId,
+      type: TransactionType.P2P_TRANSFER_OUT,
+      amount: cryptoAmountDec.toFixed(8),
+      currency,
+      status: TransactionStatus.COMPLETED,
+      balanceBefore: sellerAvailBefore.toFixed(8),
+      balanceAfter: sellerAvailBefore.toFixed(8),
+      settlementReference: params.order.orderCode,
+      createdBy: params.actorUserId,
+      idempotencyKey: `${params.idempotencyPrefix}-${params.order.orderCode}-OUT`,
+      notes: `${params.notesPrefix} — escrowed ${cryptoAmountDec.toFixed(4)} ${currency} released to buyer on ${params.order.orderCode}`,
+    },
+  });
+
+  await tx.transaction.create({
+    data: {
+      transactionCode: `TX-${params.txCodePrefix}I-${params.order.orderCode}`,
+      userId: params.order.buyerId,
+      type: TransactionType.P2P_TRANSFER_IN,
+      amount: cryptoAmountDec.toFixed(8),
+      currency,
+      status: TransactionStatus.COMPLETED,
+      balanceBefore: buyerAvailBefore.toFixed(8),
+      balanceAfter: newBuyerAvail.toFixed(8),
+      settlementReference: params.order.orderCode,
+      createdBy: params.actorUserId,
+      idempotencyKey: `${params.idempotencyPrefix}-${params.order.orderCode}-IN`,
+      notes: `${params.notesPrefix} — received ${cryptoAmountDec.toFixed(4)} ${currency} from escrow on ${params.order.orderCode}`,
+    },
+  });
+}

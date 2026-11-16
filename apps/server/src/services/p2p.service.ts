@@ -4,6 +4,18 @@ import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { authService } from './auth.service';
 import { notificationService } from '../adapters/notification/notification.provider';
+import {
+  P2P_TIMERS,
+  isInstitutionalDeskEmail,
+  getFiatSymbol,
+  safeParsePaymentMethods,
+  formatFiatWithCurrency,
+  createP2PNotification,
+  computeUserP2PStatsMap,
+  unlockEscrowToSellerTx,
+  releaseEscrowToBuyerTx,
+  UserP2PStats,
+} from './p2p.helpers';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -20,9 +32,25 @@ export function generateAvoraAccountNumber(userId: string): string {
 export class P2PService {
   private schemaAndOffersEnsured = false;
 
+  private async ensureColumns(tableName: string, columns: Array<[string, string]>) {
+    for (const [col, ddl] of columns) {
+      const existing = await prisma
+        .$queryRawUnsafe<any[]>(
+          `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+          tableName,
+          col
+        )
+        .catch(() => [] as any[]);
+      const count = Number(existing?.[0]?.cnt || 0);
+      if (count === 0) {
+        await prisma.$executeRawUnsafe(ddl).catch(() => {});
+      }
+    }
+  }
+
   /**
-   * Non-destructively ensures MySQL ENUMs are in sync with schema.prisma
-   * and default institutional P2P offers & liquidity balances are seeded.
+   * Non-destructively ensures MySQL ENUMs, P2P columns/tables,
+   * and default institutional P2P offers & liquidity balances are synced.
    */
   async ensureP2PReady() {
     if (this.schemaAndOffersEnsured) return;
@@ -43,6 +71,92 @@ export class P2PService {
         `ALTER TABLE \`diw_ledger_journals\` MODIFY COLUMN \`referenceType\` ENUM('DEPOSIT','PACKAGE_PURCHASE','MONTHLY_RETURN','PRINCIPAL_RELEASE','WITHDRAWAL_REQUEST','WITHDRAWAL_SETTLEMENT','WITHDRAWAL_REJECTED','P2P_TRANSFER','P2P_ESCROW_LOCK','P2P_ESCROW_RELEASE','EXCHANGE_BUY','EXCHANGE_SELL','OTC_DEPOSIT_LOCK','OTC_DEPOSIT_REFUND','P2P_DEPOSIT_LOCK','P2P_DEPOSIT_REFUND','OTC_TRADE_SETTLEMENT','GLOBAL_TRANSFER','INVESTMENT_ALLOCATION','INVESTMENT_PROFIT_SHARE','INVESTMENT_DISTRIBUTION','FEE','ADJUSTMENT','REVERSAL') NOT NULL`
       ).catch(() => {});
 
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE \`diw_p2p_orders\` MODIFY COLUMN \`status\` ENUM('PENDING','ACCEPTED','PENDING_PAYMENT','PAYMENT_SENT','SELLER_CONFIRMING','COMPLETED','DISPUTED','CANCELLED','EXPIRED','DECLINED','FROZEN') NOT NULL DEFAULT 'PENDING'`
+      ).catch(() => {});
+
+      await this.ensureColumns('diw_users', [
+        ['p2pBlocked', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlocked` BOOLEAN NOT NULL DEFAULT false'],
+        ['p2pBlockedReason', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlockedReason` VARCHAR(500) NULL'],
+        ['p2pBlockedAt', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlockedAt` DATETIME(3) NULL'],
+      ]);
+
+      await this.ensureColumns('diw_p2p_offers', [
+        ['paymentDetails', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `paymentDetails` TEXT NULL'],
+        ['locationCountry', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `locationCountry` VARCHAR(100) NULL'],
+        ['locationCity', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `locationCity` VARCHAR(100) NULL'],
+      ]);
+
+      await this.ensureColumns('diw_p2p_orders', [
+        ['cryptoCurrency', "ALTER TABLE `diw_p2p_orders` ADD COLUMN `cryptoCurrency` VARCHAR(10) NOT NULL DEFAULT 'USDT'"],
+        ['fiatCurrency', "ALTER TABLE `diw_p2p_orders` ADD COLUMN `fiatCurrency` VARCHAR(10) NOT NULL DEFAULT 'USD'"],
+        ['selectedPaymentMethod', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `selectedPaymentMethod` VARCHAR(120) NULL'],
+        ['paymentReference', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `paymentReference` VARCHAR(191) NULL'],
+        ['acceptedAt', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `acceptedAt` DATETIME(3) NULL'],
+        ['acceptExpiresAt', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `acceptExpiresAt` DATETIME(3) NULL'],
+        ['paymentExpiresAt', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `paymentExpiresAt` DATETIME(3) NULL'],
+        ['paidAt', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `paidAt` DATETIME(3) NULL'],
+        ['sellerConfirmDeadlineAt', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `sellerConfirmDeadlineAt` DATETIME(3) NULL'],
+        ['disputedAt', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `disputedAt` DATETIME(3) NULL'],
+        ['disputeDeadlineAt', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `disputeDeadlineAt` DATETIME(3) NULL'],
+        ['disputedBy', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `disputedBy` VARCHAR(36) NULL'],
+        ['cancelledBy', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `cancelledBy` VARCHAR(36) NULL'],
+        ['cancelReason', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `cancelReason` TEXT NULL'],
+        ['isFrozen', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `isFrozen` BOOLEAN NOT NULL DEFAULT false'],
+        ['frozenReason', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `frozenReason` TEXT NULL'],
+        ['completedAt', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `completedAt` DATETIME(3) NULL'],
+      ]);
+
+      await this.ensureColumns('diw_p2p_messages', [
+        ['attachmentUrl', 'ALTER TABLE `diw_p2p_messages` ADD COLUMN `attachmentUrl` VARCHAR(500) NULL'],
+      ]);
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS \`diw_p2p_reviews\` (
+          \`id\` VARCHAR(191) NOT NULL,
+          \`orderId\` VARCHAR(191) NOT NULL,
+          \`reviewerId\` VARCHAR(191) NOT NULL,
+          \`revieweeId\` VARCHAR(191) NOT NULL,
+          \`rating\` INT NOT NULL DEFAULT 5,
+          \`isPositive\` BOOLEAN NOT NULL DEFAULT true,
+          \`comment\` VARCHAR(500) NULL,
+          \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          PRIMARY KEY (\`id\`),
+          UNIQUE INDEX \`diw_p2p_reviews_orderId_reviewerId_key\` (\`orderId\`, \`reviewerId\`),
+          INDEX \`diw_p2p_reviews_revieweeId_createdAt_idx\` (\`revieweeId\`, \`createdAt\`)
+        ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+      `).catch(() => {});
+
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS \`diw_user_notifications\` (
+          \`id\` VARCHAR(191) NOT NULL,
+          \`userId\` VARCHAR(191) NOT NULL,
+          \`category\` VARCHAR(30) NOT NULL DEFAULT 'TRANSACTION',
+          \`type\` VARCHAR(60) NOT NULL,
+          \`severity\` VARCHAR(20) NOT NULL DEFAULT 'INFO',
+          \`title\` VARCHAR(180) NOT NULL,
+          \`message\` TEXT NOT NULL,
+          \`referenceCode\` VARCHAR(60) NULL,
+          \`amount\` VARCHAR(40) NULL,
+          \`currency\` VARCHAR(16) NULL,
+          \`status\` VARCHAR(40) NULL,
+          \`actionUrl\` VARCHAR(255) NOT NULL DEFAULT '/p2p',
+          \`actionLabel\` VARCHAR(60) NOT NULL DEFAULT 'Open P2P',
+          \`isRead\` BOOLEAN NOT NULL DEFAULT false,
+          \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          PRIMARY KEY (\`id\`),
+          INDEX \`diw_user_notifications_userId_isRead_createdAt_idx\` (\`userId\`, \`isRead\`, \`createdAt\`)
+        ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+      `).catch(() => {});
+
+      // Backfill historical order fiatCurrency/cryptoCurrency from offer
+      await prisma.$executeRawUnsafe(`
+        UPDATE \`diw_p2p_orders\` o
+        JOIN \`diw_p2p_offers\` off ON o.\`offerId\` = off.\`id\`
+        SET o.\`fiatCurrency\` = off.\`fiatCurrency\`, o.\`cryptoCurrency\` = off.\`cryptoCurrency\`
+        WHERE o.\`fiatCurrency\` = 'USD' AND off.\`fiatCurrency\` <> 'USD'
+      `).catch(() => {});
+
       await this.ensureDefaultOffers();
       this.schemaAndOffersEnsured = true;
     } catch (err) {
@@ -51,59 +165,105 @@ export class P2PService {
   }
 
   private getFiatSymbol(currency: string): string {
-    const map: Record<string, string> = {
-      INR: '₹',
-      EUR: '€',
-      GEL: '₾',
-      AED: 'AED ',
-      LKR: 'Rs ',
-      USD: '$',
-    };
-    return map[(currency || 'USD').toUpperCase()] || `${currency || 'USD'} `;
+    return getFiatSymbol(currency);
   }
 
-  private getStatusBadge(status: P2POrderStatus, isSeller: boolean): string {
-    if (status === P2POrderStatus.PAYMENT_SENT) {
-      return isSeller ? 'Please release funds.' : 'Waiting for seller release';
+  private getStatusBadge(status: P2POrderStatus, isSeller: boolean, isFrozen?: boolean): string {
+    if (isFrozen || status === P2POrderStatus.FROZEN) {
+      return 'Frozen by Compliance';
     }
-    if (status === P2POrderStatus.PENDING_PAYMENT) {
-      return isSeller ? 'Waiting for buyer payment' : 'Please pay seller';
+    if (status === P2POrderStatus.PENDING) {
+      return isSeller ? 'Action Needed: Accept or Decline' : 'Waiting for Seller to Accept';
+    }
+    if (status === P2POrderStatus.ACCEPTED || status === P2POrderStatus.PENDING_PAYMENT) {
+      return isSeller ? 'Accepted • Waiting for Buyer Payment' : 'Accepted • Please Pay Seller';
+    }
+    if (status === P2POrderStatus.PAYMENT_SENT) {
+      return isSeller ? 'Payment Made • Please Confirm & Release' : 'Payment Made • Waiting for Seller Release';
+    }
+    if (status === P2POrderStatus.SELLER_CONFIRMING) {
+      return 'Seller Confirming Receipt';
     }
     if (status === P2POrderStatus.DISPUTED) {
-      return 'In dispute';
+      return 'In Dispute (Admin Reviewing)';
     }
     if (status === P2POrderStatus.COMPLETED) {
-      return 'Fulfilled';
+      return 'Completed • Crypto Released';
     }
     if (status === P2POrderStatus.CANCELLED) {
       return 'Cancelled';
+    }
+    if (status === P2POrderStatus.DECLINED) {
+      return 'Declined by Seller';
+    }
+    if (status === P2POrderStatus.EXPIRED) {
+      return 'Expired (Timed Out)';
     }
     return status;
   }
 
   private safeParsePaymentMethods(raw: any): string[] {
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw !== 'string') return ['Bank Transfer'];
-    try {
-      const parsed = JSON.parse(raw || '[]');
-      return Array.isArray(parsed) ? parsed : ['Bank Transfer'];
-    } catch {
-      return raw ? [raw] : ['Bank Transfer'];
-    }
+    return safeParsePaymentMethods(raw);
   }
 
-  private formatOrderForUser(o: any, userId: string) {
+  private resolveActiveTimer(o: any): { timerExpiresAt: string | null; timerLabel: string | null } {
+    if (o.isFrozen || o.status === P2POrderStatus.FROZEN) {
+      return { timerExpiresAt: null, timerLabel: 'Trade frozen pending compliance check' };
+    }
+    if (o.status === P2POrderStatus.PENDING) {
+      const exp = o.acceptExpiresAt
+        ? new Date(o.acceptExpiresAt)
+        : new Date(new Date(o.createdAt).getTime() + P2P_TIMERS.ACCEPT_MINUTES * 60 * 1000);
+      return { timerExpiresAt: exp.toISOString(), timerLabel: 'Seller Accept / Decline Deadline' };
+    }
+    if (o.status === P2POrderStatus.ACCEPTED || o.status === P2POrderStatus.PENDING_PAYMENT) {
+      const base = o.acceptedAt ? new Date(o.acceptedAt) : new Date(o.createdAt);
+      const exp = o.paymentExpiresAt
+        ? new Date(o.paymentExpiresAt)
+        : new Date(base.getTime() + P2P_TIMERS.PAYMENT_MINUTES * 60 * 1000);
+      return { timerExpiresAt: exp.toISOString(), timerLabel: 'Buyer Payment Window' };
+    }
+    if (o.status === P2POrderStatus.PAYMENT_SENT || o.status === P2POrderStatus.SELLER_CONFIRMING) {
+      const base = o.paidAt ? new Date(o.paidAt) : new Date(o.updatedAt || o.createdAt);
+      const exp = o.sellerConfirmDeadlineAt
+        ? new Date(o.sellerConfirmDeadlineAt)
+        : new Date(base.getTime() + P2P_TIMERS.SELLER_CONFIRM_MINUTES * 60 * 1000);
+      return { timerExpiresAt: exp.toISOString(), timerLabel: 'Seller Release Window (Escalates to Dispute on timeout)' };
+    }
+    if (o.status === P2POrderStatus.DISPUTED) {
+      const base = o.disputedAt ? new Date(o.disputedAt) : new Date(o.updatedAt || o.createdAt);
+      const exp = o.disputeDeadlineAt
+        ? new Date(o.disputeDeadlineAt)
+        : new Date(base.getTime() + P2P_TIMERS.DISPUTE_SLA_MINUTES * 60 * 1000);
+      return { timerExpiresAt: exp.toISOString(), timerLabel: '180-Min Dispute Settlement SLA' };
+    }
+    return { timerExpiresAt: null, timerLabel: null };
+  }
+
+  private formatOrderForUser(o: any, userId: string, statsMap?: Map<string, UserP2PStats>) {
     const isSeller = o.sellerId === userId;
     const counterparty = isSeller ? o.buyer : o.seller;
     const side: 'Buy' | 'Sell' = isSeller ? 'Sell' : 'Buy';
-    const fiatCurrency = o.offer?.fiatCurrency || 'USD';
+    const fiatCurrency = (o.fiatCurrency || o.offer?.fiatCurrency || 'USD').toUpperCase();
+    const cryptoCurrency = (o.cryptoCurrency || o.offer?.cryptoCurrency || 'USDT').toUpperCase();
     const fiatSymbol = this.getFiatSymbol(fiatCurrency);
-    const statusBadge = this.getStatusBadge(o.status, isSeller);
+    const statusBadge = this.getStatusBadge(o.status, isSeller, o.isFrozen);
 
     const d = new Date(o.createdAt);
     const formattedDate = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
-    const timerExpiresAt = new Date(d.getTime() + 15 * 60 * 1000).toISOString();
+    const { timerExpiresAt, timerLabel } = this.resolveActiveTimer(o);
     const lastMsg = Array.isArray(o.messages) && o.messages.length > 0 ? o.messages[0]?.message : '[System] Escrow Locked';
+
+    // Stage-gate: reveal seller payment instructions ONLY after seller accepted (not while PENDING)
+    const stageUnlockedForPayment = [
+      P2POrderStatus.ACCEPTED,
+      P2POrderStatus.PENDING_PAYMENT,
+      P2POrderStatus.PAYMENT_SENT,
+      P2POrderStatus.SELLER_CONFIRMING,
+      P2POrderStatus.DISPUTED,
+      P2POrderStatus.COMPLETED,
+      P2POrderStatus.FROZEN,
+    ].includes(o.status);
 
     const cpName =
       counterparty
@@ -112,30 +272,62 @@ export class P2PService {
           'Trader'
         : 'Avora Counterparty';
     const cpAvatar = (counterparty?.firstName || counterparty?.email || 'T')[0].toUpperCase();
+    const cpStats = counterparty?.id && statsMap ? statsMap.get(counterparty.id) : undefined;
+    const myReview = Array.isArray(o.reviews) ? o.reviews.find((r: any) => r.reviewerId === userId) || null : null;
 
     return {
       id: o.id,
       orderCode: o.orderCode,
       side,
-      cryptoCurrency: o.offer?.cryptoCurrency || 'USDT',
+      cryptoCurrency,
       fiatCurrency,
       fiatSymbol,
       fiatAmount: new Decimal(o.fiatAmount.toString()).toFixed(2),
       price: new Decimal(o.price.toString()).toFixed(2),
-      cryptoAmount: new Decimal(o.cryptoAmount.toString()).toFixed(2),
+      cryptoAmount: new Decimal(o.cryptoAmount.toString()).toFixed(4).replace(/\.?0+$/, (m) => (m.length > 3 ? '.00' : m)),
+      selectedPaymentMethod: o.selectedPaymentMethod || this.safeParsePaymentMethods(o.offer?.paymentMethods)[0] || 'Bank Transfer',
+      availablePaymentMethods: this.safeParsePaymentMethods(o.offer?.paymentMethods),
+      paymentTerms: o.offer?.paymentTerms || null,
+      paymentDetails: stageUnlockedForPayment ? (o.offer?.paymentDetails || null) : null,
+      paymentDetailsUnlocked: stageUnlockedForPayment,
       status: o.status,
       statusBadge,
       isSeller,
+      isFrozen: Boolean(o.isFrozen),
+      frozenReason: o.frozenReason || null,
       paymentProofUrl: o.paymentProofUrl || undefined,
+      paymentReference: o.paymentReference || null,
+      acceptedAt: o.acceptedAt || null,
+      acceptExpiresAt: o.acceptExpiresAt || null,
+      paymentExpiresAt: o.paymentExpiresAt || null,
+      paidAt: o.paidAt || null,
+      sellerConfirmDeadlineAt: o.sellerConfirmDeadlineAt || null,
+      disputedAt: o.disputedAt || null,
+      disputeDeadlineAt: o.disputeDeadlineAt || null,
+      disputedBy: o.disputedBy || null,
+      disputeReason: o.disputeReason || null,
+      cancelledBy: o.cancelledBy || null,
+      cancelReason: o.cancelReason || null,
+      completedAt: o.completedAt || null,
+      hasReviewed: Boolean(myReview),
+      myReview,
       counterparty: {
         id: counterparty?.id || '',
         name: cpName,
         avatar: cpAvatar,
         online: true,
+        isVerified: counterparty?.kycStatus === 'APPROVED',
+        isP2pMerchant: Boolean(counterparty?.isP2pMerchant),
+        totalOrders: cpStats?.totalOrders ?? 0,
+        completedOrders: cpStats?.completedOrders ?? 0,
+        completionRate: cpStats?.completionRate ?? 'New Trader',
+        avgRating: cpStats?.avgRating ?? null,
+        reputationTier: cpStats?.reputationTier ?? 'STANDARD',
       },
       formattedDate,
       createdAt: o.createdAt,
       timerExpiresAt,
+      timerLabel,
       lastMessage: lastMsg,
     };
   }
@@ -356,6 +548,14 @@ export class P2PService {
       where: { id: senderUserId },
     });
     if (!sender) throw new Error('Sender user not found');
+    if (sender.status !== 'ACTIVE') {
+      throw new Error('Your account is currently suspended or locked.');
+    }
+    if (sender.p2pBlocked) {
+      throw new Error(
+        `Your P2P trading access is restricted${sender.p2pBlockedReason ? `: ${sender.p2pBlockedReason}` : '. Contact compliance support.'}`
+      );
+    }
 
     // 4. Enforce Daily Velocity Limit (Default: $5,000 USD / 24 hours)
     const dailyLimitSetting = await prisma.cmsSetting.findUnique({
@@ -733,14 +933,48 @@ export class P2PService {
   }
 
   /**
-   * List available P2P trade offers
+   * List available P2P trade offers with real trader statistics, full filters, and sorting.
+   * NOTE: Never exposes sensitive stage-gated `paymentDetails` in public listings.
    */
-  async getOffers(side?: 'BUY' | 'SELL', fiatCurrency?: string, paymentMethod?: string) {
+  async getOffers(
+    sideOrFilters?:
+      | 'BUY'
+      | 'SELL'
+      | {
+          side?: 'BUY' | 'SELL';
+          cryptoCurrency?: string;
+          fiatCurrency?: string;
+          paymentMethod?: string;
+          amount?: number | string;
+          minCompletion?: number | string;
+          location?: string;
+          sortBy?: string;
+        },
+    fiatCurrencyArg?: string,
+    paymentMethodArg?: string
+  ) {
     await this.ensureP2PReady();
 
-    const where: any = { status: P2POfferStatus.OPEN };
-    if (side) where.side = side as P2PSide;
-    if (fiatCurrency && fiatCurrency !== 'ALL') where.fiatCurrency = fiatCurrency.toUpperCase();
+    const filters =
+      typeof sideOrFilters === 'object' && sideOrFilters !== null
+        ? sideOrFilters
+        : {
+            side: sideOrFilters,
+            fiatCurrency: fiatCurrencyArg,
+            paymentMethod: paymentMethodArg,
+          };
+
+    const where: any = {
+      status: P2POfferStatus.OPEN,
+      user: { status: 'ACTIVE', p2pBlocked: false },
+    };
+    if (filters.side) where.side = filters.side as P2PSide;
+    if (filters.cryptoCurrency && filters.cryptoCurrency.toUpperCase() !== 'ALL') {
+      where.cryptoCurrency = filters.cryptoCurrency.toUpperCase();
+    }
+    if (filters.fiatCurrency && filters.fiatCurrency.toUpperCase() !== 'ALL') {
+      where.fiatCurrency = filters.fiatCurrency.toUpperCase();
+    }
 
     const offers = await prisma.p2POffer.findMany({
       where,
@@ -752,45 +986,270 @@ export class P2PService {
             lastName: true,
             email: true,
             kycStatus: true,
+            isP2pMerchant: true,
+            country: true,
+            createdAt: true,
           },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    let mapped = offers.map((o) => ({
-      id: o.id,
-      offerCode: o.offerCode,
-      side: o.side,
-      cryptoCurrency: o.cryptoCurrency,
-      fiatCurrency: o.fiatCurrency,
-      price: new Decimal(o.price.toString()).toFixed(2),
-      totalAmount: new Decimal(o.totalAmount.toString()).toFixed(2),
-      availableAmount: new Decimal(o.availableAmount.toString()).toFixed(2),
-      minLimit: new Decimal(o.minLimit.toString()).toFixed(2),
-      maxLimit: new Decimal(o.maxLimit.toString()).toFixed(2),
-      paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
-      paymentTerms: o.paymentTerms,
-      status: o.status,
-      trader: {
-        id: o.user.id,
-        name: `${o.user.firstName || 'Avora'} ${o.user.lastName || 'Trader'}`.trim(),
-        avatar: (o.user.firstName || 'T')[0].toUpperCase(),
-        isVerified: o.user.kycStatus === 'APPROVED',
-        completionRate: '99.4%',
-        totalOrders: 650,
-      },
-      createdAt: o.createdAt,
-    }));
+    const makerIds = offers.map((o) => o.userId);
+    const statsMap = await computeUserP2PStatsMap(makerIds);
 
-    if (paymentMethod && paymentMethod.trim() && paymentMethod.toUpperCase() !== 'ALL') {
-      const target = paymentMethod.trim().toLowerCase();
+    let mapped = offers.map((o) => {
+      const stats = statsMap.get(o.userId);
+      const accountAgeDays = Math.max(
+        1,
+        Math.floor((Date.now() - new Date(o.user.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+      );
+      return {
+        id: o.id,
+        offerCode: o.offerCode,
+        side: o.side,
+        cryptoCurrency: o.cryptoCurrency,
+        fiatCurrency: o.fiatCurrency,
+        price: new Decimal(o.price.toString()).toFixed(2),
+        priceNum: Number(o.price),
+        totalAmount: new Decimal(o.totalAmount.toString()).toFixed(4).replace(/\.?0+$/, (m) => (m.length > 3 ? '.00' : m)),
+        availableAmount: new Decimal(o.availableAmount.toString()).toFixed(4).replace(/\.?0+$/, (m) => (m.length > 3 ? '.00' : m)),
+        minLimit: new Decimal(o.minLimit.toString()).toFixed(2),
+        maxLimit: new Decimal(o.maxLimit.toString()).toFixed(2),
+        paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
+        paymentTerms: o.paymentTerms,
+        paymentDetailsLocked: Boolean(o.paymentDetails),
+        locationCountry: o.locationCountry || o.user.country || null,
+        locationCity: o.locationCity || null,
+        status: o.status,
+        trader: {
+          id: o.user.id,
+          name: `${o.user.firstName || 'Avora'} ${o.user.lastName || 'Trader'}`.trim(),
+          avatar: (o.user.firstName || o.user.email || 'T')[0].toUpperCase(),
+          isVerified: o.user.kycStatus === 'APPROVED',
+          isP2pMerchant: Boolean(o.user.isP2pMerchant),
+          isInstitutional: isInstitutionalDeskEmail(o.user.email),
+          completionRate: stats?.completionRate ?? 'New Trader',
+          completionRatePct: stats?.completionRatePct ?? null,
+          cancellationRatePct: stats?.cancellationRatePct ?? 0,
+          totalOrders: stats?.totalOrders ?? 0,
+          completedOrders: stats?.completedOrders ?? 0,
+          avgRating: stats?.avgRating ?? null,
+          reviewCount: stats?.reviewCount ?? 0,
+          reputationScore: stats?.reputationScore ?? 95,
+          reputationTier: stats?.reputationTier ?? 'STANDARD',
+          hasDisputeWarning: Boolean(stats?.hasDisputeWarning),
+          accountAgeDays,
+        },
+        createdAt: o.createdAt,
+      };
+    });
+
+    if (filters.paymentMethod && String(filters.paymentMethod).trim() && String(filters.paymentMethod).toUpperCase() !== 'ALL') {
+      const target = String(filters.paymentMethod).trim().toLowerCase();
+      mapped = mapped.filter((o) => o.paymentMethods.some((m) => m.toLowerCase().includes(target)));
+    }
+
+    if (filters.amount !== undefined && filters.amount !== null && String(filters.amount).trim() !== '') {
+      const amt = parseFloat(String(filters.amount));
+      if (Number.isFinite(amt) && amt > 0) {
+        mapped = mapped.filter((o) => {
+          const minL = parseFloat(o.minLimit);
+          const maxL = parseFloat(o.maxLimit);
+          const maxAvailFiat = parseFloat(o.availableAmount) * o.priceNum;
+          return amt >= minL && amt <= Math.min(maxL, maxAvailFiat || maxL);
+        });
+      }
+    }
+
+    if (filters.minCompletion !== undefined && filters.minCompletion !== null && String(filters.minCompletion).trim() !== '') {
+      const minC = parseFloat(String(filters.minCompletion));
+      if (Number.isFinite(minC) && minC > 0) {
+        mapped = mapped.filter((o) => (o.trader.completionRatePct ?? 0) >= minC && o.trader.completedOrders > 0);
+      }
+    }
+
+    if (filters.location && String(filters.location).trim() && String(filters.location).toUpperCase() !== 'ALL') {
+      const loc = String(filters.location).trim().toLowerCase();
       mapped = mapped.filter((o) =>
-        o.paymentMethods.some((m) => m.toLowerCase().includes(target))
+        `${o.locationCountry || ''} ${o.locationCity || ''} ${o.fiatCurrency}`.toLowerCase().includes(loc)
       );
     }
 
+    const sort = filters.sortBy || 'price_default';
+    if (sort === 'price_asc') {
+      mapped.sort((a, b) => a.priceNum - b.priceNum);
+    } else if (sort === 'price_desc') {
+      mapped.sort((a, b) => b.priceNum - a.priceNum);
+    } else if (sort === 'completion_desc') {
+      mapped.sort((a, b) => (b.trader.completionRatePct ?? -1) - (a.trader.completionRatePct ?? -1));
+    } else if (sort === 'orders_desc') {
+      mapped.sort((a, b) => b.trader.completedOrders - a.trader.completedOrders);
+    } else if (sort === 'rating_desc') {
+      mapped.sort((a, b) => (b.trader.reputationScore ?? 0) - (a.trader.reputationScore ?? 0));
+    }
+
     return mapped;
+  }
+
+  /**
+   * Public P2P Trader Profile with live completion stats, volume, account age, and reviews
+   */
+  async getTraderProfile(targetUserId: string) {
+    await this.ensureP2PReady();
+
+    const user = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        kycStatus: true,
+        isP2pMerchant: true,
+        p2pBlocked: true,
+        status: true,
+        country: true,
+        createdAt: true,
+      },
+    });
+    if (!user) throw new Error('Trader profile not found.');
+
+    const [statsMap, reviews, openOffers] = await Promise.all([
+      computeUserP2PStatsMap([targetUserId]),
+      prisma.p2PReview.findMany({
+        where: { revieweeId: targetUserId },
+        include: {
+          reviewer: { select: { id: true, firstName: true, lastName: true, email: true } },
+          order: { select: { orderCode: true, cryptoCurrency: true, fiatCurrency: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+      }),
+      prisma.p2POffer.findMany({
+        where: { userId: targetUserId, status: P2POfferStatus.OPEN },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const stats = statsMap.get(targetUserId);
+    const accountAgeDays = Math.max(
+      1,
+      Math.floor((Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+    );
+
+    return {
+      user: {
+        id: user.id,
+        name: `${user.firstName || 'Avora'} ${user.lastName || 'Trader'}`.trim(),
+        avatar: (user.firstName || user.email || 'T')[0].toUpperCase(),
+        isVerified: user.kycStatus === 'APPROVED',
+        isP2pMerchant: Boolean(user.isP2pMerchant),
+        isInstitutional: isInstitutionalDeskEmail(user.email),
+        p2pBlocked: Boolean(user.p2pBlocked),
+        status: user.status,
+        country: user.country || 'Global',
+        joinedAt: user.createdAt,
+        accountAgeDays,
+      },
+      stats: stats || {
+        userId: targetUserId,
+        totalOrders: 0,
+        completedOrders: 0,
+        cancelledOrders: 0,
+        declinedOrders: 0,
+        expiredOrders: 0,
+        disputedOrders: 0,
+        disputesLost: 0,
+        totalVolumeCrypto: '0.00',
+        completionRatePct: null,
+        completionRate: 'New Trader',
+        cancellationRatePct: 0,
+        avgRating: null,
+        reviewCount: 0,
+        positiveRatePct: null,
+        reputationScore: 95,
+        reputationTier: 'STANDARD',
+        hasDisputeWarning: false,
+      },
+      reviews: reviews.map((r) => ({
+        id: r.id,
+        rating: r.rating,
+        isPositive: r.isPositive,
+        comment: r.comment,
+        orderCode: r.order.orderCode,
+        pair: `${r.order.cryptoCurrency}/${r.order.fiatCurrency}`,
+        reviewerName:
+          `${r.reviewer.firstName || ''} ${r.reviewer.lastName || ''}`.trim() ||
+          `${(r.reviewer.email || 'user').slice(0, 2)}***`,
+        createdAt: r.createdAt,
+      })),
+      activeOffers: openOffers.map((o) => ({
+        id: o.id,
+        offerCode: o.offerCode,
+        side: o.side,
+        cryptoCurrency: o.cryptoCurrency,
+        fiatCurrency: o.fiatCurrency,
+        price: new Decimal(o.price.toString()).toFixed(2),
+        availableAmount: new Decimal(o.availableAmount.toString()).toFixed(2),
+        minLimit: new Decimal(o.minLimit.toString()).toFixed(2),
+        maxLimit: new Decimal(o.maxLimit.toString()).toFixed(2),
+        paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
+      })),
+    };
+  }
+
+  /**
+   * Submit post-trade rating & review for counterparty after a completed P2P order
+   */
+  async submitOrderReview(
+    orderId: string,
+    reviewerId: string,
+    input: { rating: number; comment?: string; isPositive?: boolean }
+  ) {
+    const order = await prisma.p2POrder.findUnique({ where: { id: orderId } });
+    if (!order) throw new Error('Order not found');
+    if (order.buyerId !== reviewerId && order.sellerId !== reviewerId) {
+      throw new Error('Access denied to review this order.');
+    }
+    if (order.status !== P2POrderStatus.COMPLETED) {
+      throw new Error('Reviews can only be submitted after the trade is completed and crypto has been released.');
+    }
+
+    const ratingNum = Math.max(1, Math.min(5, Math.round(Number(input.rating || 5))));
+    const isPositive = input.isPositive !== undefined ? Boolean(input.isPositive) : ratingNum >= 4;
+    const revieweeId = order.buyerId === reviewerId ? order.sellerId : order.buyerId;
+
+    const existing = await prisma.p2PReview.findUnique({
+      where: { orderId_reviewerId: { orderId, reviewerId } },
+    });
+    if (existing) {
+      throw new Error('You have already submitted a rating for this trade.');
+    }
+
+    const review = await prisma.p2PReview.create({
+      data: {
+        orderId,
+        reviewerId,
+        revieweeId,
+        rating: ratingNum,
+        isPositive,
+        comment: input.comment?.trim() ? input.comment.trim().slice(0, 500) : null,
+      },
+    });
+
+    await createP2PNotification({
+      userId: revieweeId,
+      type: 'P2P_REVIEW_RECEIVED',
+      severity: isPositive ? 'SUCCESS' : 'WARNING',
+      title: `New ${ratingNum}★ P2P Feedback on ${order.orderCode}`,
+      message: input.comment?.trim()
+        ? `Counterparty left ${ratingNum}/5 rating: "${input.comment.trim().slice(0, 120)}"`
+        : `Counterparty rated your trade ${ratingNum}/5 stars.`,
+      referenceCode: order.orderCode,
+    });
+
+    return review;
   }
 
   /**
@@ -823,6 +1282,9 @@ export class P2PService {
       maxLimit: new Decimal(o.maxLimit.toString()).toFixed(2),
       paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
       paymentTerms: o.paymentTerms,
+      paymentDetails: o.paymentDetails || '',
+      locationCountry: o.locationCountry || '',
+      locationCity: o.locationCity || '',
       status: o.status,
       orderCount: o._count?.orders ?? 0,
       createdAt: o.createdAt,
@@ -831,7 +1293,7 @@ export class P2PService {
   }
 
   /**
-   * Update a provider's active P2P Offer rate, payment methods, limits, liquidity or status in real time
+   * Update a provider's active P2P Offer rate, payment methods, limits, liquidity, location or status in real time
    */
   async updateOffer(
     userId: string,
@@ -844,17 +1306,23 @@ export class P2PService {
       maxLimit?: number | string;
       paymentMethods?: string[];
       paymentTerms?: string;
+      paymentDetails?: string;
+      locationCountry?: string;
+      locationCity?: string;
       status?: 'OPEN' | 'PAUSED' | 'CANCELLED';
     }
   ) {
     const [offer, actor] = await Promise.all([
       prisma.p2POffer.findUnique({ where: { id: offerId } }),
-      prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { role: true, p2pBlocked: true, status: true } }),
     ]);
 
     if (!offer) throw new Error('Offer not found.');
     if (offer.userId !== userId && actor?.role !== 'ADMIN') {
       throw new Error('Unauthorized to update this P2P offer.');
+    }
+    if (actor?.role !== 'ADMIN' && (actor?.p2pBlocked || actor?.status !== 'ACTIVE')) {
+      throw new Error('Your P2P trading access is currently restricted.');
     }
 
     if (data.status === 'CANCELLED') {
@@ -922,6 +1390,18 @@ export class P2PService {
       updateData.paymentTerms = String(data.paymentTerms).trim() || null;
     }
 
+    if (data.paymentDetails !== undefined) {
+      updateData.paymentDetails = String(data.paymentDetails).trim() || null;
+    }
+
+    if (data.locationCountry !== undefined) {
+      updateData.locationCountry = String(data.locationCountry).trim() || null;
+    }
+
+    if (data.locationCity !== undefined) {
+      updateData.locationCity = String(data.locationCity).trim() || null;
+    }
+
     if (data.status && (data.status === 'OPEN' || data.status === 'PAUSED')) {
       updateData.status = data.status === 'OPEN' ? P2POfferStatus.OPEN : P2POfferStatus.PAUSED;
     }
@@ -947,6 +1427,9 @@ export class P2PService {
         maxLimit: new Decimal(updated.maxLimit.toString()).toFixed(2),
         paymentMethods: this.safeParsePaymentMethods(updated.paymentMethods),
         paymentTerms: updated.paymentTerms,
+        paymentDetails: updated.paymentDetails || '',
+        locationCountry: updated.locationCountry || '',
+        locationCity: updated.locationCity || '',
         status: updated.status,
       },
     };
@@ -965,6 +1448,9 @@ export class P2PService {
     maxLimit?: number | string;
     paymentMethods: string[];
     paymentTerms?: string;
+    paymentDetails?: string;
+    locationCountry?: string;
+    locationCity?: string;
   }) {
     if (!userId) {
       throw new Error('Authentication required. Please sign in before creating a P2P advertisement.');
@@ -972,15 +1458,39 @@ export class P2PService {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, isP2pMerchant: true, p2pDepositLocked: true, kycStatus: true, email: true },
+      select: {
+        id: true,
+        isP2pMerchant: true,
+        p2pDepositLocked: true,
+        p2pBlocked: true,
+        p2pBlockedReason: true,
+        status: true,
+        kycStatus: true,
+        email: true,
+        country: true,
+      },
     });
 
     if (!user) {
       throw new Error('User not found.');
     }
+    if (user.status !== 'ACTIVE') {
+      throw new Error('Your account is currently suspended or locked.');
+    }
+    if (user.p2pBlocked) {
+      throw new Error(
+        `You are currently restricted from posting P2P offers${user.p2pBlockedReason ? `: ${user.p2pBlockedReason}` : '.'}`
+      );
+    }
 
     if (!user.isP2pMerchant) {
       throw new Error('You must become an authorized P2P Member (Merchant) before posting trade advertisements. Please activate your $50 refundable security deposit.');
+    }
+
+    const allowedCryptos = ['USDT', 'USDC', 'BTC', 'ETH'];
+    const cryptoCur = (input.cryptoCurrency || 'USDT').toUpperCase();
+    if (!allowedCryptos.includes(cryptoCur)) {
+      throw new Error(`Unsupported crypto asset. Supported assets: ${allowedCryptos.join(', ')}`);
     }
 
     const priceNum = new Decimal(input.price.toString());
@@ -994,6 +1504,9 @@ export class P2PService {
 
     const minLimitNum = input.minLimit ? new Decimal(input.minLimit.toString()) : new Decimal(10);
     const maxLimitNum = input.maxLimit ? new Decimal(input.maxLimit.toString()) : amountNum.times(priceNum);
+    if (maxLimitNum.lessThan(minLimitNum)) {
+      throw new Error('Maximum order limit cannot be lower than minimum order limit.');
+    }
     const offerCode = `OFF-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const newOffer = await prisma.p2POffer.create({
@@ -1001,15 +1514,18 @@ export class P2PService {
         offerCode,
         userId,
         side: input.side === 'BUY' ? P2PSide.BUY : P2PSide.SELL,
-        cryptoCurrency: input.cryptoCurrency || 'USDT',
+        cryptoCurrency: cryptoCur,
         fiatCurrency: input.fiatCurrency.toUpperCase(),
         price: priceNum.toString(),
         totalAmount: amountNum.toString(),
         availableAmount: amountNum.toString(),
         minLimit: minLimitNum.toString(),
         maxLimit: maxLimitNum.toString(),
-        paymentMethods: JSON.stringify(input.paymentMethods || ['Bank Transfer']),
-        paymentTerms: input.paymentTerms || 'Payment via domestic instant transfer. Fast escrow release.',
+        paymentMethods: JSON.stringify(input.paymentMethods?.length ? input.paymentMethods : ['Bank Transfer']),
+        paymentTerms: input.paymentTerms?.trim() || 'Payment via domestic instant transfer. Fast escrow release.',
+        paymentDetails: input.paymentDetails?.trim() || null,
+        locationCountry: input.locationCountry?.trim() || user.country || null,
+        locationCity: input.locationCity?.trim() || null,
         status: P2POfferStatus.OPEN,
       },
     });
@@ -1051,9 +1567,23 @@ export class P2PService {
       cryptoAmount: number | string;
       fiatAmount?: number | string;
       takerSide?: 'BUY' | 'SELL';
+      selectedPaymentMethod?: string;
     }
   ) {
     await this.ensureP2PReady();
+
+    const taker = await prisma.user.findUnique({
+      where: { id: takerUserId },
+      select: { id: true, status: true, p2pBlocked: true, p2pBlockedReason: true },
+    });
+    if (!taker || taker.status !== 'ACTIVE') {
+      throw new Error('Your account is currently suspended or locked.');
+    }
+    if (taker.p2pBlocked) {
+      throw new Error(
+        `Your P2P trading access is restricted${taker.p2pBlockedReason ? `: ${taker.p2pBlockedReason}` : '. Contact support.'}`
+      );
+    }
 
     const offer = await prisma.p2POffer.findUnique({
       where: { id: params.offerId },
@@ -1063,10 +1593,20 @@ export class P2PService {
     if (!offer || offer.status !== P2POfferStatus.OPEN) {
       throw new Error('Trade offer is no longer available or was closed');
     }
+    if (offer.user.status !== 'ACTIVE' || offer.user.p2pBlocked) {
+      throw new Error('This trader is currently unavailable on the P2P desk');
+    }
 
     const cryptoAmountDec = new Decimal(params.cryptoAmount.toString());
     if (cryptoAmountDec.lessThanOrEqualTo(0)) {
       throw new Error('Trade amount must be strictly greater than 0');
+    }
+
+    const offerAvailDec = new Decimal(offer.availableAmount.toString());
+    if (cryptoAmountDec.greaterThan(offerAvailDec.plus(new Decimal('0.0001')))) {
+      throw new Error(
+        `Requested amount (${cryptoAmountDec.toFixed(2)} ${offer.cryptoCurrency}) exceeds offer available liquidity (${offerAvailDec.toFixed(2)} ${offer.cryptoCurrency}).`
+      );
     }
 
     const priceDec = new Decimal(offer.price.toString());
@@ -1074,19 +1614,38 @@ export class P2PService {
       ? new Decimal(params.fiatAmount.toString())
       : cryptoAmountDec.times(priceDec);
 
-    // Determine whether taker is buying or selling USDT:
-    // In Avora's Marketplace & Express flows, offers are listed from taker perspective (side=BUY => buy USDT; side=SELL => sell USDT).
+    const minLimitDec = new Decimal(offer.minLimit.toString());
+    const maxLimitDec = new Decimal(offer.maxLimit.toString());
+    if (fiatAmountDec.plus('0.05').lessThan(minLimitDec) || fiatAmountDec.minus('0.05').greaterThan(maxLimitDec)) {
+      throw new Error(
+        `Order total must be within merchant limits (${minLimitDec.toFixed(2)} - ${maxLimitDec.toFixed(2)} ${offer.fiatCurrency}).`
+      );
+    }
+
+    const offerMethods = this.safeParsePaymentMethods(offer.paymentMethods);
+    let chosenMethod = offerMethods[0] || 'Bank Transfer';
+    if (params.selectedPaymentMethod && params.selectedPaymentMethod.trim()) {
+      const requested = params.selectedPaymentMethod.trim();
+      const matched = offerMethods.find((m) => m.toLowerCase() === requested.toLowerCase());
+      if (!matched) {
+        throw new Error(`Payment method "${requested}" is not accepted by this offer.`);
+      }
+      chosenMethod = matched;
+    }
+
+    // Determine whether taker is buying or selling crypto:
     const takerIsBuying = (params.takerSide || offer.side) === 'BUY';
 
     let counterpartyId = offer.userId;
+    let counterpartyEmail = offer.user.email;
     if (counterpartyId === takerUserId) {
-      // Allow seamless self-testing / liquidity desk routing by falling back to Avora Treasury
       const treasuryUser = await prisma.user.findUnique({
         where: { email: 'treasury@avorabank.com' },
-        select: { id: true },
+        select: { id: true, email: true },
       });
       if (treasuryUser && treasuryUser.id !== takerUserId) {
         counterpartyId = treasuryUser.id;
+        counterpartyEmail = treasuryUser.email;
       } else {
         throw new Error('Self-trading is prohibited');
       }
@@ -1095,27 +1654,61 @@ export class P2PService {
     const actualBuyerId = takerIsBuying ? takerUserId : counterpartyId;
     const sellerId = takerIsBuying ? counterpartyId : takerUserId;
 
-    // Format RedotPay-style Order ID: OTC + YYYYMMDD + 14 random digits
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    // Anti-spam / suspicious cancel-abuse protection: block buyer with >= 5 failed orders in 24h
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recentAbuseCancels = await prisma.p2POrder.count({
+      where: {
+        buyerId: actualBuyerId,
+        createdAt: { gte: oneDayAgo },
+        OR: [
+          { status: P2POrderStatus.CANCELLED, cancelledBy: actualBuyerId },
+          { status: P2POrderStatus.EXPIRED, acceptedAt: { not: null } },
+        ],
+      },
+    });
+    if (recentAbuseCancels >= 5) {
+      await prisma.adminAuditLog
+        .create({
+          data: {
+            userId: actualBuyerId,
+            action: 'P2P_ABUSE_FLAG',
+            entity: 'P2POrder',
+            details: `Blocked rapid P2P order creation: buyer accumulated ${recentAbuseCancels} cancelled/expired orders in 24h.`,
+          },
+        })
+        .catch(() => {});
+      throw new Error(
+        'Too many cancelled or expired P2P orders in the last 24 hours. New P2P orders are temporarily paused for account protection.'
+      );
+    }
+
+    const now = new Date();
+    const isInstitutionalCounterparty = isInstitutionalDeskEmail(counterpartyEmail);
+    const acceptExpiresAt = new Date(now.getTime() + P2P_TIMERS.ACCEPT_MINUTES * 60 * 1000);
+    const paymentExpiresAt = new Date(now.getTime() + P2P_TIMERS.PAYMENT_MINUTES * 60 * 1000);
+    const cryptoCur = (offer.cryptoCurrency || 'USDT').toUpperCase();
+    const fiatCur = (offer.fiatCurrency || 'USD').toUpperCase();
+
+    // Format Order ID: OTC + YYYYMMDD + 14 random digits
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
     const randomDigits = Math.floor(10000000000000 + Math.random() * 90000000000000).toString();
     const orderCode = `OTC${dateStr}${randomDigits}`;
 
     // 1. Ensure seller wallet outside the interactive transaction
     const sellerWallet = await ledgerService.ensureWallet(sellerId);
 
-    // Execute atomic Escrow Lock on seller's wallet
+    // 2. Execute atomic Escrow Lock on seller's wallet + reserve offer liquidity
     const order = await prisma.$transaction(
       async (tx) => {
-        const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
+        const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, cryptoCur);
 
         const sellerAvail = new Decimal(sellerBal.availableBalance.toString());
         if (sellerAvail.lessThan(cryptoAmountDec)) {
           throw new Error(
-            `Seller has insufficient USDT available for escrow lock (${sellerAvail.toFixed(2)} USDT available, ${cryptoAmountDec.toFixed(2)} required)`
+            `Seller has insufficient ${cryptoCur} available for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required)`
           );
         }
 
-        // Move USDT from availableBalance to lockedPrincipal (Escrow holding)
         const newAvail = sellerAvail.minus(cryptoAmountDec);
         const newLocked = new Decimal(sellerBal.lockedPrincipal.toString()).plus(cryptoAmountDec);
 
@@ -1127,32 +1720,58 @@ export class P2PService {
           },
         });
 
-        // 2. Create P2P Order in database
+        const freshOffer = await tx.p2POffer.findUnique({ where: { id: offer.id } });
+        if (freshOffer) {
+          const freshAvail = new Decimal(freshOffer.availableAmount.toString());
+          const rem = Decimal.max(new Decimal(0), freshAvail.minus(cryptoAmountDec));
+          await tx.p2POffer.update({
+            where: { id: offer.id },
+            data: {
+              availableAmount: rem.toFixed(8),
+              status: rem.lessThanOrEqualTo(0) ? P2POfferStatus.FILLED : P2POfferStatus.OPEN,
+            },
+          });
+        }
+
+        const initialStatus = isInstitutionalCounterparty
+          ? P2POrderStatus.PENDING_PAYMENT
+          : P2POrderStatus.PENDING;
+
         const newOrder = await tx.p2POrder.create({
           data: {
             orderCode,
             offerId: offer.id,
             buyerId: actualBuyerId,
             sellerId,
+            cryptoCurrency: cryptoCur,
+            fiatCurrency: fiatCur,
             cryptoAmount: cryptoAmountDec.toFixed(8),
             fiatAmount: fiatAmountDec.toFixed(8),
             price: priceDec.toFixed(8),
-            status: P2POrderStatus.PENDING_PAYMENT,
+            selectedPaymentMethod: chosenMethod,
+            status: initialStatus,
+            acceptedAt: isInstitutionalCounterparty ? now : null,
+            acceptExpiresAt: isInstitutionalCounterparty ? null : acceptExpiresAt,
+            paymentExpiresAt: isInstitutionalCounterparty ? paymentExpiresAt : null,
             escrowJournalId: `ESCROW-${orderCode}`,
           },
           include: {
-            buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
-            seller: { select: { id: true, firstName: true, lastName: true, email: true } },
+            buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+            seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
             offer: true,
+            reviews: true,
           },
         });
 
-        // 3. Post initial system messages to chat
+        const initMsg = isInstitutionalCounterparty
+          ? `[System] Order ${orderCode} auto-accepted by Avora Institutional Desk. Escrow of ${cryptoAmountDec.toFixed(2)} ${cryptoCur} is locked. Buyer has ${P2P_TIMERS.PAYMENT_MINUTES} minutes to pay ${formatFiatWithCurrency(fiatAmountDec, fiatCur)} via ${chosenMethod}.`
+          : `[System] Order ${orderCode} created (${cryptoAmountDec.toFixed(2)} ${cryptoCur} safely locked in Avora Escrow). Seller has ${P2P_TIMERS.ACCEPT_MINUTES} minutes to Accept or Decline before payment begins.`;
+
         await tx.p2PMessage.create({
           data: {
             orderId: newOrder.id,
             senderId: 'SYSTEM',
-            message: `[System] Order ${orderCode} created. Escrow of ${cryptoAmountDec.toFixed(2)} USDT is safely locked by Avora Bank. Buyer has 15 minutes to transfer ${fiatAmountDec.toFixed(2)} ${offer.fiatCurrency}.`,
+            message: initMsg,
           },
         });
 
@@ -1161,25 +1780,70 @@ export class P2PService {
       { timeout: 30000, maxWait: 10000 }
     );
 
-    return this.formatOrderForUser(order, takerUserId);
+    await Promise.all([
+      createP2PNotification({
+        userId: sellerId,
+        type: 'P2P_NEW_ORDER',
+        severity: 'INFO',
+        title: `New P2P Order #${orderCode} (${cryptoAmountDec.toFixed(2)} ${cryptoCur})`,
+        message: isInstitutionalCounterparty
+          ? `New order for ${formatFiatWithCurrency(fiatAmountDec, fiatCur)} via ${chosenMethod}. Escrow locked.`
+          : `Buyer requested ${cryptoAmountDec.toFixed(2)} ${cryptoCur} (${formatFiatWithCurrency(fiatAmountDec, fiatCur)}) via ${chosenMethod}. Please Accept or Decline within ${P2P_TIMERS.ACCEPT_MINUTES} minutes.`,
+        referenceCode: orderCode,
+        amount: cryptoAmountDec.toFixed(2),
+        currency: cryptoCur,
+        status: order.status,
+      }),
+      createP2PNotification({
+        userId: actualBuyerId,
+        type: 'P2P_ORDER_CREATED',
+        severity: 'INFO',
+        title: `P2P Order #${orderCode} Opened`,
+        message: isInstitutionalCounterparty
+          ? `Order accepted. Transfer ${formatFiatWithCurrency(fiatAmountDec, fiatCur)} via ${chosenMethod} within ${P2P_TIMERS.PAYMENT_MINUTES} minutes.`
+          : `Escrow locked (${cryptoAmountDec.toFixed(2)} ${cryptoCur}). Waiting for seller to accept before revealing payment details.`,
+        referenceCode: orderCode,
+        amount: cryptoAmountDec.toFixed(2),
+        currency: cryptoCur,
+        status: order.status,
+      }),
+    ]);
+
+    const statsMap = await computeUserP2PStatsMap([order.buyerId, order.sellerId]);
+    return this.formatOrderForUser(order, takerUserId, statsMap);
   }
 
   /**
-   * Get user's P2P orders with filtering for RedotPay parity
+   * Get user's P2P orders with filtering
    */
   async getUserOrders(userId: string, filter?: string) {
+    await this.ensureP2PReady();
     let statusCondition: any = undefined;
 
     if (filter === 'unpaid') {
-      statusCondition = P2POrderStatus.PENDING_PAYMENT;
+      statusCondition = { in: [P2POrderStatus.PENDING, P2POrderStatus.ACCEPTED, P2POrderStatus.PENDING_PAYMENT] };
+    } else if (filter === 'pending') {
+      statusCondition = P2POrderStatus.PENDING;
     } else if (filter === 'paid') {
-      statusCondition = P2POrderStatus.PAYMENT_SENT;
+      statusCondition = { in: [P2POrderStatus.PAYMENT_SENT, P2POrderStatus.SELLER_CONFIRMING] };
     } else if (filter === 'dispute') {
-      statusCondition = P2POrderStatus.DISPUTED;
+      statusCondition = { in: [P2POrderStatus.DISPUTED, P2POrderStatus.FROZEN] };
     } else if (filter === 'fulfilled') {
-      statusCondition = { in: [P2POrderStatus.COMPLETED, P2POrderStatus.CANCELLED] };
+      statusCondition = {
+        in: [P2POrderStatus.COMPLETED, P2POrderStatus.CANCELLED, P2POrderStatus.DECLINED, P2POrderStatus.EXPIRED],
+      };
     } else if (filter === 'ongoing') {
-      statusCondition = { in: [P2POrderStatus.PENDING_PAYMENT, P2POrderStatus.PAYMENT_SENT, P2POrderStatus.DISPUTED] };
+      statusCondition = {
+        in: [
+          P2POrderStatus.PENDING,
+          P2POrderStatus.ACCEPTED,
+          P2POrderStatus.PENDING_PAYMENT,
+          P2POrderStatus.PAYMENT_SENT,
+          P2POrderStatus.SELLER_CONFIRMING,
+          P2POrderStatus.DISPUTED,
+          P2POrderStatus.FROZEN,
+        ],
+      };
     }
 
     const where: any = {
@@ -1193,9 +1857,10 @@ export class P2PService {
     const orders = await prisma.p2POrder.findMany({
       where,
       include: {
-        buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
-        seller: { select: { id: true, firstName: true, lastName: true, email: true } },
+        buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+        seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
         offer: true,
+        reviews: true,
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -1204,19 +1869,24 @@ export class P2PService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return orders.map((o) => this.formatOrderForUser(o, userId));
+    const cpIds = orders.map((o) => (o.sellerId === userId ? o.buyerId : o.sellerId));
+    const statsMap = await computeUserP2PStatsMap(cpIds);
+
+    return orders.map((o) => this.formatOrderForUser(o, userId, statsMap));
   }
 
   /**
-   * Get single P2P order with full counterparty details
+   * Get single P2P order with full counterparty details & stage-gated payment instructions
    */
   async getOrderById(orderId: string, userId: string) {
+    await this.ensureP2PReady();
     const order = await prisma.p2POrder.findUnique({
       where: { id: orderId },
       include: {
-        buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
-        seller: { select: { id: true, firstName: true, lastName: true, email: true } },
+        buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+        seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
         offer: true,
+        reviews: true,
         messages: { orderBy: { createdAt: 'asc' } },
       },
     });
@@ -1226,7 +1896,8 @@ export class P2PService {
       throw new Error('Access denied to this order');
     }
 
-    const formatted = this.formatOrderForUser(order, userId);
+    const statsMap = await computeUserP2PStatsMap([order.buyerId, order.sellerId]);
+    const formatted = this.formatOrderForUser(order, userId, statsMap);
     const latestMsg = order.messages.length > 0 ? order.messages[order.messages.length - 1].message : formatted.lastMessage;
     return {
       ...formatted,
@@ -1238,15 +1909,193 @@ export class P2PService {
   }
 
   /**
-   * Cancel an unpaid P2P order and unlock seller's escrowed USDT
+   * Seller accepts a PENDING order, opening the buyer payment window & revealing payment details
    */
-  async cancelOrder(orderId: string, userId: string) {
+  async acceptOrder(orderId: string, userId: string) {
     const order = await prisma.p2POrder.findUnique({
       where: { id: orderId },
       include: {
-        buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
-        seller: { select: { id: true, firstName: true, lastName: true, email: true } },
+        buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+        seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, p2pBlocked: true, status: true } },
         offer: true,
+        reviews: true,
+      },
+    });
+
+    if (!order) throw new Error('Order not found');
+    if (order.sellerId !== userId) {
+      throw new Error('Only the seller can accept this order.');
+    }
+    if (order.isFrozen) {
+      throw new Error('This order is currently frozen by Compliance.');
+    }
+    if (order.seller.status !== 'ACTIVE' || order.seller.p2pBlocked) {
+      throw new Error('Your P2P trading access is currently restricted.');
+    }
+    if (order.status !== P2POrderStatus.PENDING) {
+      throw new Error(`Order is already ${order.status} and cannot be accepted again.`);
+    }
+    if (order.acceptExpiresAt && new Date() > new Date(order.acceptExpiresAt)) {
+      throw new Error('Acceptance deadline has elapsed. This order is pending expiration.');
+    }
+
+    const now = new Date();
+    const paymentExpiresAt = new Date(now.getTime() + P2P_TIMERS.PAYMENT_MINUTES * 60 * 1000);
+    const fiatCur = (order.fiatCurrency || order.offer?.fiatCurrency || 'USD').toUpperCase();
+    const methodLabel = order.selectedPaymentMethod || 'Bank Transfer';
+
+    const acceptedOrder = await prisma.$transaction(
+      async (tx) => {
+        const fresh = await tx.p2POrder.findUnique({ where: { id: orderId } });
+        if (!fresh || fresh.status !== P2POrderStatus.PENDING || fresh.isFrozen) {
+          throw new Error(`Cannot accept order while status is ${fresh?.status || 'NOT_FOUND'}`);
+        }
+
+        const ord = await tx.p2POrder.update({
+          where: { id: orderId },
+          data: {
+            status: P2POrderStatus.PENDING_PAYMENT,
+            acceptedAt: now,
+            paymentExpiresAt,
+          },
+          include: {
+            buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+            seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+            offer: true,
+            reviews: true,
+          },
+        });
+
+        await tx.p2PMessage.create({
+          data: {
+            orderId,
+            senderId: 'SYSTEM',
+            message: `[System] Seller accepted order #${order.orderCode}. Buyer now has ${P2P_TIMERS.PAYMENT_MINUTES} minutes to pay ${formatFiatWithCurrency(order.fiatAmount.toString(), fiatCur)} via ${methodLabel} and click "I Have Paid".`,
+          },
+        });
+
+        return ord;
+      },
+      { timeout: 30000, maxWait: 10000 }
+    );
+
+    await createP2PNotification({
+      userId: order.buyerId,
+      type: 'P2P_ORDER_ACCEPTED',
+      severity: 'SUCCESS',
+      title: `Order #${order.orderCode} Accepted — Pay Within ${P2P_TIMERS.PAYMENT_MINUTES}m`,
+      message: `Seller accepted your order for ${formatFiatWithCurrency(order.fiatAmount.toString(), fiatCur)} via ${methodLabel}. Payment details are unlocked in your Trade Room.`,
+      referenceCode: order.orderCode,
+      amount: new Decimal(order.cryptoAmount.toString()).toFixed(2),
+      currency: order.cryptoCurrency || 'USDT',
+      status: P2POrderStatus.PENDING_PAYMENT,
+    });
+
+    const statsMap = await computeUserP2PStatsMap([acceptedOrder.buyerId, acceptedOrder.sellerId]);
+    return this.formatOrderForUser(acceptedOrder, userId, statsMap);
+  }
+
+  /**
+   * Seller declines a PENDING order BEFORE payment starts, returning escrowed crypto to seller
+   */
+  async declineOrder(orderId: string, userId: string, reason?: string) {
+    const order = await prisma.p2POrder.findUnique({
+      where: { id: orderId },
+      include: {
+        buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+        seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+        offer: true,
+        reviews: true,
+      },
+    });
+
+    if (!order) throw new Error('Order not found');
+    if (order.sellerId !== userId) {
+      throw new Error('Only the seller can decline a pending order.');
+    }
+    if (order.isFrozen) {
+      throw new Error('This order is frozen by Compliance and cannot be declined.');
+    }
+    if (order.status !== P2POrderStatus.PENDING) {
+      throw new Error(
+        `Cannot decline order while status is ${order.status}. Seller can only decline before accepting.`
+      );
+    }
+
+    const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
+    const cryptoCur = (order.cryptoCurrency || order.offer?.cryptoCurrency || 'USDT').toUpperCase();
+    const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
+    const cleanReason = reason?.trim() || 'Seller declined deal before payment window opened';
+
+    const declinedOrder = await prisma.$transaction(
+      async (tx) => {
+        const freshOrder = await tx.p2POrder.findUnique({ where: { id: orderId } });
+        if (!freshOrder || freshOrder.status !== P2POrderStatus.PENDING || freshOrder.isFrozen) {
+          throw new Error(`Cannot decline order while status is ${freshOrder?.status || 'NOT_FOUND'}.`);
+        }
+
+        await unlockEscrowToSellerTx(tx, {
+          sellerWalletId: sellerWallet.id,
+          cryptoCurrency: cryptoCur,
+          cryptoAmountDec,
+          offerId: order.offerId,
+          orderCode: order.orderCode,
+        });
+
+        const ord = await tx.p2POrder.update({
+          where: { id: orderId },
+          data: {
+            status: P2POrderStatus.DECLINED,
+            cancelledBy: userId,
+            cancelReason: cleanReason,
+          },
+          include: {
+            buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+            seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+            offer: true,
+            reviews: true,
+          },
+        });
+
+        await tx.p2PMessage.create({
+          data: {
+            orderId,
+            senderId: 'SYSTEM',
+            message: `[System] Order #${order.orderCode} was declined by seller (${cleanReason}). ${cryptoAmountDec.toFixed(2)} ${cryptoCur} returned to seller and buyer may trade with another vendor.`,
+          },
+        });
+
+        return ord;
+      },
+      { timeout: 30000, maxWait: 10000 }
+    );
+
+    await createP2PNotification({
+      userId: order.buyerId,
+      type: 'P2P_ORDER_DECLINED',
+      severity: 'WARNING',
+      title: `P2P Order #${order.orderCode} Declined by Seller`,
+      message: `${cleanReason}. You can immediately place an order with another vendor in the marketplace.`,
+      referenceCode: order.orderCode,
+      status: P2POrderStatus.DECLINED,
+    });
+
+    const statsMap = await computeUserP2PStatsMap([declinedOrder.buyerId, declinedOrder.sellerId]);
+    return this.formatOrderForUser(declinedOrder, userId, statsMap);
+  }
+
+  /**
+   * Cancel an unpaid P2P order and unlock seller's escrowed crypto.
+   * Once seller has accepted (PENDING_PAYMENT/ACCEPTED), only BUYER can cancel so seller cannot back out mid-transfer.
+   */
+  async cancelOrder(orderId: string, userId: string, reason?: string) {
+    const order = await prisma.p2POrder.findUnique({
+      where: { id: orderId },
+      include: {
+        buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+        seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+        offer: true,
+        reviews: true,
       },
     });
 
@@ -1254,47 +2103,62 @@ export class P2PService {
     if (order.buyerId !== userId && order.sellerId !== userId) {
       throw new Error('Access denied to this order');
     }
-    if (order.status !== P2POrderStatus.PENDING_PAYMENT) {
-      throw new Error(`Cannot cancel order while status is ${order.status}. Only unpaid (PENDING_PAYMENT) orders can be cancelled.`);
+    if (order.isFrozen) {
+      throw new Error('This order is frozen by Compliance and cannot be cancelled.');
+    }
+
+    const cancellableStatuses: P2POrderStatus[] = [
+      P2POrderStatus.PENDING,
+      P2POrderStatus.ACCEPTED,
+      P2POrderStatus.PENDING_PAYMENT,
+    ];
+    if (!cancellableStatuses.includes(order.status)) {
+      throw new Error(`Cannot cancel order while status is ${order.status}. Only unpaid orders can be cancelled.`);
+    }
+
+    if (
+      order.sellerId === userId &&
+      (order.status === P2POrderStatus.ACCEPTED || order.status === P2POrderStatus.PENDING_PAYMENT)
+    ) {
+      throw new Error(
+        'This order has already been accepted and entered the payment stage. Sellers cannot unilaterally cancel after accepting; wait for buyer payment or timer expiration.'
+      );
     }
 
     const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
+    const cryptoCur = (order.cryptoCurrency || order.offer?.cryptoCurrency || 'USDT').toUpperCase();
     const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
+    const cleanReason = reason?.trim() || (order.buyerId === userId ? 'Cancelled by buyer before payment' : 'Cancelled before acceptance');
 
     const cancelledOrder = await prisma.$transaction(
       async (tx) => {
-        const sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
-
-        // Re-verify order status inside locked transaction
         const freshOrder = await tx.p2POrder.findUnique({ where: { id: orderId } });
-        if (!freshOrder || freshOrder.status !== P2POrderStatus.PENDING_PAYMENT) {
+        if (!freshOrder || !cancellableStatuses.includes(freshOrder.status) || freshOrder.isFrozen) {
           throw new Error(
-            `Cannot cancel order while status is ${freshOrder?.status || 'NOT_FOUND'}. Only unpaid (PENDING_PAYMENT) orders can be cancelled.`
+            `Cannot cancel order while status is ${freshOrder?.status || 'NOT_FOUND'}. Only unpaid orders can be cancelled.`
           );
         }
 
-        const currentLocked = new Decimal(sellerBal.lockedPrincipal.toString());
-        if (currentLocked.lessThan(cryptoAmountDec)) {
-          throw new Error(
-            `Insufficient escrowed USDT in seller locked balance (${currentLocked.toFixed(2)} USDT locked, ${cryptoAmountDec.toFixed(2)} required) to cancel order ${order.orderCode}.`
-          );
-        }
-
-        await tx.walletBalance.update({
-          where: { id: sellerBal.id },
-          data: {
-            lockedPrincipal: currentLocked.minus(cryptoAmountDec).toFixed(8),
-            availableBalance: new Decimal(sellerBal.availableBalance.toString()).plus(cryptoAmountDec).toFixed(8),
-          },
+        await unlockEscrowToSellerTx(tx, {
+          sellerWalletId: sellerWallet.id,
+          cryptoCurrency: cryptoCur,
+          cryptoAmountDec,
+          offerId: order.offerId,
+          orderCode: order.orderCode,
         });
 
         const ord = await tx.p2POrder.update({
           where: { id: orderId },
-          data: { status: P2POrderStatus.CANCELLED },
+          data: {
+            status: P2POrderStatus.CANCELLED,
+            cancelledBy: userId,
+            cancelReason: cleanReason,
+          },
           include: {
-            buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
-            seller: { select: { id: true, firstName: true, lastName: true, email: true } },
+            buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+            seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
             offer: true,
+            reviews: true,
           },
         });
 
@@ -1302,7 +2166,7 @@ export class P2PService {
           data: {
             orderId,
             senderId: 'SYSTEM',
-            message: `[System] Order ${order.orderCode} was cancelled. Escrowed ${cryptoAmountDec.toFixed(2)} USDT has been unlocked back to the seller's available balance.`,
+            message: `[System] Order ${order.orderCode} was cancelled (${cleanReason}). Escrowed ${cryptoAmountDec.toFixed(2)} ${cryptoCur} has been unlocked back to the seller's available balance.`,
           },
         });
 
@@ -1311,41 +2175,104 @@ export class P2PService {
       { timeout: 30000, maxWait: 10000 }
     );
 
-    return this.formatOrderForUser(cancelledOrder, userId);
+    const counterpartyId = order.buyerId === userId ? order.sellerId : order.buyerId;
+    await createP2PNotification({
+      userId: counterpartyId,
+      type: 'P2P_ORDER_CANCELLED',
+      severity: 'WARNING',
+      title: `P2P Order #${order.orderCode} Cancelled`,
+      message: `${cleanReason}. Escrowed ${cryptoAmountDec.toFixed(2)} ${cryptoCur} has been returned to the seller.`,
+      referenceCode: order.orderCode,
+      status: P2POrderStatus.CANCELLED,
+    });
+
+    const statsMap = await computeUserP2PStatsMap([cancelledOrder.buyerId, cancelledOrder.sellerId]);
+    return this.formatOrderForUser(cancelledOrder, userId, statsMap);
   }
 
   /**
-   * Buyer confirms fiat payment was sent
+   * Buyer confirms fiat payment was sent with optional receipt image & anti-replay paymentReference
    */
-  async markPaymentSent(orderId: string, userId: string, proofUrl?: string) {
+  async markPaymentSent(orderId: string, userId: string, proofUrl?: string, paymentReference?: string) {
     const order = await prisma.p2POrder.findUnique({
       where: { id: orderId },
-      include: { buyer: true, seller: true },
+      include: { buyer: true, seller: true, offer: true },
     });
 
     if (!order) throw new Error('Order not found');
     if (order.buyerId !== userId) {
       throw new Error('Only the buyer can confirm payment');
     }
-    if (order.status !== P2POrderStatus.PENDING_PAYMENT) {
+    if (order.isFrozen) {
+      throw new Error('This order is currently frozen by Compliance.');
+    }
+    if (order.buyer.status !== 'ACTIVE' || order.buyer.p2pBlocked) {
+      throw new Error('Your P2P trading access is restricted.');
+    }
+    if (order.status === P2POrderStatus.PENDING) {
+      throw new Error('Wait for the seller to accept this order before marking payment as sent.');
+    }
+    if (order.status !== P2POrderStatus.PENDING_PAYMENT && order.status !== P2POrderStatus.ACCEPTED) {
       throw new Error(`Order is already in status: ${order.status}`);
     }
 
+    const cleanRef = paymentReference?.trim() || '';
+    if (cleanRef && cleanRef.length >= 5) {
+      const duplicate = await prisma.p2POrder.findFirst({
+        where: {
+          id: { not: orderId },
+          paymentReference: cleanRef,
+          status: {
+            in: [
+              P2POrderStatus.PAYMENT_SENT,
+              P2POrderStatus.SELLER_CONFIRMING,
+              P2POrderStatus.COMPLETED,
+              P2POrderStatus.DISPUTED,
+              P2POrderStatus.FROZEN,
+            ],
+          },
+        },
+        select: { orderCode: true },
+      });
+      if (duplicate) {
+        throw new Error(
+          `Duplicate payment reference detected (${cleanRef}). This transaction reference is already recorded on order ${duplicate.orderCode}.`
+        );
+      }
+    }
+
+    const now = new Date();
+    const sellerConfirmDeadlineAt = new Date(now.getTime() + P2P_TIMERS.SELLER_CONFIRM_MINUTES * 60 * 1000);
+    const fiatCur = (order.fiatCurrency || order.offer?.fiatCurrency || 'USD').toUpperCase();
+
     const updated = await prisma.$transaction(
       async (tx) => {
+        const fresh = await tx.p2POrder.findUnique({ where: { id: orderId } });
+        if (!fresh || (fresh.status !== P2POrderStatus.PENDING_PAYMENT && fresh.status !== P2POrderStatus.ACCEPTED)) {
+          throw new Error(`Order is already in status: ${fresh?.status || 'NOT_FOUND'}`);
+        }
+
         const ord = await tx.p2POrder.update({
           where: { id: orderId },
           data: {
             status: P2POrderStatus.PAYMENT_SENT,
             paymentProofUrl: proofUrl || null,
+            paymentReference: cleanRef || null,
+            paidAt: now,
+            sellerConfirmDeadlineAt,
           },
         });
 
+        const proofParts = [
+          cleanRef ? `Ref: ${cleanRef}` : null,
+          proofUrl ? `Receipt uploaded` : null,
+        ].filter(Boolean);
         await tx.p2PMessage.create({
           data: {
             orderId,
             senderId: 'SYSTEM',
-            message: `[System] Buyer has marked payment as sent. Seller (${order.seller.firstName || 'Seller'}), please check your bank account and confirm payment promptly.`,
+            message: `[System] Buyer marked fiat payment (${formatFiatWithCurrency(order.fiatAmount.toString(), fiatCur)}) as sent${proofParts.length ? ` (${proofParts.join(' • ')})` : ''}. Seller (${order.seller.firstName || 'Seller'}), please verify receipt and release escrow within ${P2P_TIMERS.SELLER_CONFIRM_MINUTES} minutes.`,
+            attachmentUrl: proofUrl || null,
           },
         });
 
@@ -1353,6 +2280,29 @@ export class P2PService {
       },
       { timeout: 30000, maxWait: 10000 }
     );
+
+    await Promise.all([
+      createP2PNotification({
+        userId: order.sellerId,
+        type: 'P2P_PAYMENT_SENT',
+        severity: 'WARNING',
+        title: `Buyer Paid on Order #${order.orderCode}`,
+        message: `Buyer confirmed transfer of ${formatFiatWithCurrency(order.fiatAmount.toString(), fiatCur)}${cleanRef ? ` (Ref: ${cleanRef})` : ''}. Verify your account and release ${order.cryptoCurrency || 'USDT'}.`,
+        referenceCode: order.orderCode,
+        amount: new Decimal(order.cryptoAmount.toString()).toFixed(2),
+        currency: order.cryptoCurrency || 'USDT',
+        status: P2POrderStatus.PAYMENT_SENT,
+      }),
+      createP2PNotification({
+        userId: order.buyerId,
+        type: 'P2P_PAYMENT_RECORDED',
+        severity: 'INFO',
+        title: `Payment Marked Sent on #${order.orderCode}`,
+        message: `Seller has ${P2P_TIMERS.SELLER_CONFIRM_MINUTES} minutes to verify & release crypto before automatic dispute escalation.`,
+        referenceCode: order.orderCode,
+        status: P2POrderStatus.PAYMENT_SENT,
+      }),
+    ]);
 
     return updated;
   }
@@ -1370,125 +2320,97 @@ export class P2PService {
     if (order.sellerId !== userId) {
       throw new Error('Only the seller can release escrowed funds');
     }
-    if (order.status !== P2POrderStatus.PAYMENT_SENT && order.status !== P2POrderStatus.DISPUTED) {
+    if (order.isFrozen || order.status === P2POrderStatus.FROZEN) {
+      throw new Error('This trade has been frozen by Compliance. Contact admin support.');
+    }
+    const releasableStatuses: P2POrderStatus[] = [
+      P2POrderStatus.PAYMENT_SENT,
+      P2POrderStatus.SELLER_CONFIRMING,
+      P2POrderStatus.DISPUTED,
+    ];
+    if (!releasableStatuses.includes(order.status)) {
       throw new Error(`Cannot release funds while order is in status: ${order.status}`);
     }
 
-    // Enforce 2FA Authenticator verification if user has 2FA enabled
     await authService.verify2faForUser(userId, twoFactorCode);
 
     const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
+    const cryptoCur = (order.cryptoCurrency || order.offer?.cryptoCurrency || 'USDT').toUpperCase();
+    const now = new Date();
 
-    // Ensure both wallets outside interactive transaction
     const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
     const buyerWallet = await ledgerService.ensureWallet(order.buyerId);
 
-    return await prisma.$transaction(
+    const completedOrder = await prisma.$transaction(
       async (tx) => {
-        // 1. Lock seller & buyer wallets in deterministic sorted order to prevent deadlocks
-        let sellerBal: any;
-        let buyerBal: any;
-        if (sellerWallet.id <= buyerWallet.id) {
-          sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
-          buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
-        } else {
-          buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
-          sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
-        }
-
-        // Re-verify order status inside locked transaction
         const freshOrder = await tx.p2POrder.findUnique({ where: { id: orderId } });
-        if (
-          !freshOrder ||
-          (freshOrder.status !== P2POrderStatus.PAYMENT_SENT &&
-            freshOrder.status !== P2POrderStatus.DISPUTED)
-        ) {
+        if (!freshOrder || freshOrder.isFrozen || !releasableStatuses.includes(freshOrder.status)) {
           throw new Error(
             `Cannot release funds while order is in status: ${freshOrder?.status || 'NOT_FOUND'}`
           );
         }
 
-        const currentSellerLocked = new Decimal(sellerBal.lockedPrincipal.toString());
-        if (currentSellerLocked.lessThan(cryptoAmountDec)) {
-          throw new Error(
-            'Insufficient escrowed USDT in seller locked balance to release order.'
-          );
-        }
-        const newSellerLocked = currentSellerLocked.minus(cryptoAmountDec);
-
-        await tx.walletBalance.update({
-          where: { id: sellerBal.id },
-          data: { lockedPrincipal: newSellerLocked.toFixed(8) },
+        await releaseEscrowToBuyerTx(tx, {
+          order: { ...freshOrder, cryptoCurrency: cryptoCur },
+          sellerWalletId: sellerWallet.id,
+          buyerWalletId: buyerWallet.id,
+          actorUserId: userId,
+          txCodePrefix: 'E',
+          idempotencyPrefix: 'P2P-ESCROW-REL',
+          notesPrefix: 'P2P escrow released',
         });
 
-        // 2. Credit buyer available balance
-        const sellerAvailBefore = new Decimal(sellerBal.availableBalance.toString());
-        const buyerAvailBefore = new Decimal(buyerBal.availableBalance.toString());
-        const newBuyerAvail = buyerAvailBefore.plus(cryptoAmountDec);
-
-        await tx.walletBalance.update({
-          where: { id: buyerBal.id },
-          data: { availableBalance: newBuyerAvail.toFixed(8) },
-        });
-
-        // 3. Record Transaction history entries for both parties
-        await tx.transaction.create({
-          data: {
-            transactionCode: `TX-EO-${order.orderCode}`,
-            userId: order.sellerId,
-            type: TransactionType.P2P_TRANSFER_OUT,
-            amount: cryptoAmountDec.toFixed(8),
-            currency: 'USDT',
-            status: TransactionStatus.COMPLETED,
-            balanceBefore: sellerAvailBefore.toFixed(8),
-            balanceAfter: sellerAvailBefore.toFixed(8),
-            settlementReference: order.orderCode,
-            createdBy: userId,
-            idempotencyKey: `P2P-ESCROW-REL-${order.orderCode}-OUT`,
-            notes: `P2P escrow released ${cryptoAmountDec.toFixed(2)} USDT to buyer on order ${order.orderCode}`,
-          },
-        });
-
-        await tx.transaction.create({
-          data: {
-            transactionCode: `TX-EI-${order.orderCode}`,
-            userId: order.buyerId,
-            type: TransactionType.P2P_TRANSFER_IN,
-            amount: cryptoAmountDec.toFixed(8),
-            currency: 'USDT',
-            status: TransactionStatus.COMPLETED,
-            balanceBefore: buyerAvailBefore.toFixed(8),
-            balanceAfter: newBuyerAvail.toFixed(8),
-            settlementReference: order.orderCode,
-            createdBy: userId,
-            idempotencyKey: `P2P-ESCROW-REL-${order.orderCode}-IN`,
-            notes: `Received ${cryptoAmountDec.toFixed(2)} USDT from P2P escrow on order ${order.orderCode}`,
-          },
-        });
-
-        // 4. Update order to COMPLETED
-        const completedOrder = await tx.p2POrder.update({
+        const ord = await tx.p2POrder.update({
           where: { id: orderId },
-          data: { status: P2POrderStatus.COMPLETED },
+          data: {
+            status: P2POrderStatus.COMPLETED,
+            completedAt: now,
+          },
         });
 
-        // 5. Record system completion message
         await tx.p2PMessage.create({
           data: {
             orderId,
             senderId: 'SYSTEM',
-            message: `[System] Seller confirmed payment! ${cryptoAmountDec.toFixed(2)} USDT has been released from escrow into Buyer's available wallet balance.`,
+            message: `[System] Seller confirmed payment! ${cryptoAmountDec.toFixed(2)} ${cryptoCur} has been released from escrow into Buyer's available wallet balance.`,
           },
         });
 
-        return completedOrder;
+        return ord;
       },
       { timeout: 30000, maxWait: 10000 }
     );
+
+    await Promise.all([
+      createP2PNotification({
+        userId: order.buyerId,
+        type: 'P2P_ESCROW_RELEASED',
+        severity: 'SUCCESS',
+        title: `Crypto Released on #${order.orderCode}`,
+        message: `${cryptoAmountDec.toFixed(2)} ${cryptoCur} has been credited to your wallet. You can now leave feedback for the seller.`,
+        referenceCode: order.orderCode,
+        amount: cryptoAmountDec.toFixed(2),
+        currency: cryptoCur,
+        status: P2POrderStatus.COMPLETED,
+      }),
+      createP2PNotification({
+        userId: order.sellerId,
+        type: 'P2P_ORDER_COMPLETED',
+        severity: 'SUCCESS',
+        title: `P2P Order #${order.orderCode} Completed`,
+        message: `You released ${cryptoAmountDec.toFixed(2)} ${cryptoCur} from escrow. Leave feedback for the buyer in your Trade Room.`,
+        referenceCode: order.orderCode,
+        amount: cryptoAmountDec.toFixed(2),
+        currency: cryptoCur,
+        status: P2POrderStatus.COMPLETED,
+      }),
+    ]);
+
+    return completedOrder;
   }
 
   /**
-   * Open a dispute on an ongoing order
+   * Open a dispute on an ongoing order with 180-minute Compliance SLA tracking
    */
   async disputeOrder(orderId: string, userId: string, reason: string) {
     const order = await prisma.p2POrder.findUnique({ where: { id: orderId } });
@@ -1496,9 +2418,21 @@ export class P2PService {
     if (order.buyerId !== userId && order.sellerId !== userId) {
       throw new Error('Access denied');
     }
-    if (order.status === P2POrderStatus.COMPLETED || order.status === P2POrderStatus.CANCELLED) {
+    const closedStatuses: P2POrderStatus[] = [
+      P2POrderStatus.COMPLETED,
+      P2POrderStatus.CANCELLED,
+      P2POrderStatus.DECLINED,
+      P2POrderStatus.EXPIRED,
+    ];
+    if (closedStatuses.includes(order.status)) {
       throw new Error(`Cannot dispute an already finalized order (${order.status})`);
     }
+    if (order.status === P2POrderStatus.DISPUTED) {
+      throw new Error('This order is already in dispute.');
+    }
+
+    const now = new Date();
+    const disputeDeadlineAt = new Date(now.getTime() + P2P_TIMERS.DISPUTE_SLA_MINUTES * 60 * 1000);
 
     const updated = await prisma.$transaction(
       async (tx) => {
@@ -1506,6 +2440,9 @@ export class P2PService {
           where: { id: orderId },
           data: {
             status: P2POrderStatus.DISPUTED,
+            disputedAt: now,
+            disputeDeadlineAt,
+            disputedBy: userId,
             disputeReason: reason,
           },
         });
@@ -1514,7 +2451,7 @@ export class P2PService {
           data: {
             orderId,
             senderId: 'SYSTEM',
-            message: `[System] Dispute opened by user: "${reason}". An Avora Compliance Officer will review payment proofs and chat history.`,
+            message: `[System] Dispute opened (${P2P_TIMERS.DISPUTE_SLA_MINUTES}-minute compliance SLA): "${reason}". An Avora Compliance Officer will review uploaded receipts and chat logs.`,
           },
         });
 
@@ -1522,6 +2459,25 @@ export class P2PService {
       },
       { timeout: 30000, maxWait: 10000 }
     );
+
+    const counterpartyId = order.buyerId === userId ? order.sellerId : order.buyerId;
+    await createP2PNotification({
+      userId: counterpartyId,
+      type: 'P2P_DISPUTE_OPENED',
+      severity: 'CRITICAL',
+      title: `Dispute Opened on Order #${order.orderCode}`,
+      message: `Counterparty raised a dispute: "${reason}". ${P2P_TIMERS.DISPUTE_SLA_MINUTES}-minute compliance SLA active — upload any payment proof in Trade Chat.`,
+      referenceCode: order.orderCode,
+      status: P2POrderStatus.DISPUTED,
+    });
+
+    notificationService
+      .sendAdminAlert(
+        `⚖️ P2P Dispute Opened [${order.orderCode}]`,
+        `Order ${order.orderCode} (${new Decimal(order.cryptoAmount.toString()).toFixed(2)} ${order.cryptoCurrency || 'USDT'}) escalated to DISPUTED.\nReason: ${reason}\n180-min SLA deadline: ${disputeDeadlineAt.toISOString()}`,
+        { orderId: order.id, orderCode: order.orderCode }
+      )
+      .catch(() => {});
 
     return updated;
   }
@@ -1555,7 +2511,7 @@ export class P2PService {
       orderId: order.id,
       orderCode: order.orderCode,
       status: order.status,
-      statusBadge: this.getStatusBadge(order.status, isSeller),
+      statusBadge: this.getStatusBadge(order.status, isSeller, order.isFrozen),
       isSeller,
       counterparty: {
         id: counterparty.id,
@@ -1572,6 +2528,7 @@ export class P2PService {
           isMe: m.senderId === userId,
           isSystem: m.senderId === 'SYSTEM',
           message: m.message,
+          attachmentUrl: m.attachmentUrl || undefined,
           time: timeStr,
           createdAt: m.createdAt,
         };
@@ -1580,20 +2537,27 @@ export class P2PService {
   }
 
   /**
-   * In-Order Chat: Send message
+   * In-Order Chat: Send message (with optional uploaded image/proof attachment)
    */
-  async sendOrderMessage(orderId: string, senderId: string, messageText: string) {
-    const order = await prisma.p2POrder.findUnique({ where: { id: orderId } });
+  async sendOrderMessage(orderId: string, senderId: string, messageText: string, attachmentUrl?: string) {
+    const [order, sender] = await Promise.all([
+      prisma.p2POrder.findUnique({ where: { id: orderId } }),
+      prisma.user.findUnique({ where: { id: senderId }, select: { p2pBlocked: true, status: true } }),
+    ]);
     if (!order) throw new Error('Order not found');
     if (order.buyerId !== senderId && order.sellerId !== senderId) {
       throw new Error('Access denied');
+    }
+    if (sender?.status !== 'ACTIVE' || sender?.p2pBlocked) {
+      throw new Error('Your P2P trading/messaging access is restricted.');
     }
 
     const msg = await prisma.p2PMessage.create({
       data: {
         orderId,
         senderId,
-        message: messageText.trim(),
+        message: messageText?.trim() || (attachmentUrl ? '[Uploaded Attachment]' : ''),
+        attachmentUrl: attachmentUrl || null,
       },
     });
 
@@ -1604,13 +2568,210 @@ export class P2PService {
       isMe: true,
       isSystem: false,
       message: msg.message,
+      attachmentUrl: msg.attachmentUrl || undefined,
       time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
       createdAt: msg.createdAt,
     };
   }
 
   /**
-   * Get all active P2P conversations for Chat Hub (Screenshots 1, 2, 3)
+   * Automated P2P Timer & Timeout Processor (called every 1 minute by scheduler)
+   * - Unaccepted PENDING orders past acceptExpiresAt -> EXPIRED (escrow unlocked back to seller)
+   * - Unpaid PENDING_PAYMENT / ACCEPTED orders past paymentExpiresAt -> EXPIRED (escrow unlocked back to seller)
+   * - Unpaid orders with <= 5 mins remaining -> warning notification to buyer
+   * - Paid PAYMENT_SENT orders past sellerConfirmDeadlineAt -> auto-escalated to DISPUTED (NEVER auto-releases crypto!)
+   */
+  async processOrderTimeouts() {
+    try {
+      await this.ensureP2PReady();
+      const now = new Date();
+      const warnHorizon = new Date(now.getTime() + P2P_TIMERS.EXPIRING_SOON_WARN_MINUTES * 60 * 1000);
+
+      // 1 & 2. Auto-expire unaccepted PENDING or unpaid PENDING_PAYMENT/ACCEPTED orders
+      const candidates = await prisma.p2POrder.findMany({
+        where: {
+          isFrozen: false,
+          status: { in: [P2POrderStatus.PENDING, P2POrderStatus.ACCEPTED, P2POrderStatus.PENDING_PAYMENT] },
+        },
+        include: { offer: true },
+        take: 100,
+      });
+
+      let expiredCount = 0;
+      for (const ord of candidates) {
+        const deadline =
+          ord.status === P2POrderStatus.PENDING
+            ? ord.acceptExpiresAt || new Date(new Date(ord.createdAt).getTime() + P2P_TIMERS.ACCEPT_MINUTES * 60 * 1000)
+            : ord.paymentExpiresAt ||
+              new Date(new Date(ord.acceptedAt || ord.createdAt).getTime() + P2P_TIMERS.PAYMENT_MINUTES * 60 * 1000);
+
+        if (deadline <= now) {
+          try {
+            const sellerWallet = await ledgerService.ensureWallet(ord.sellerId);
+            const cryptoCur = (ord.cryptoCurrency || ord.offer?.cryptoCurrency || 'USDT').toUpperCase();
+            const cryptoAmountDec = new Decimal(ord.cryptoAmount.toString());
+            const reason =
+              ord.status === P2POrderStatus.PENDING
+                ? 'Seller did not accept within 15 minutes'
+                : 'Buyer payment window (30 minutes) expired without confirmation';
+
+            await prisma.$transaction(async (tx) => {
+              const fresh = await tx.p2POrder.findUnique({ where: { id: ord.id } });
+              if (
+                !fresh ||
+                fresh.isFrozen ||
+                ![P2POrderStatus.PENDING, P2POrderStatus.ACCEPTED, P2POrderStatus.PENDING_PAYMENT].includes(fresh.status as any)
+              ) {
+                return;
+              }
+              await unlockEscrowToSellerTx(tx, {
+                sellerWalletId: sellerWallet.id,
+                cryptoCurrency: cryptoCur,
+                cryptoAmountDec,
+                offerId: ord.offerId,
+                orderCode: ord.orderCode,
+              });
+              await tx.p2POrder.update({
+                where: { id: ord.id },
+                data: {
+                  status: P2POrderStatus.EXPIRED,
+                  cancelReason: reason,
+                },
+              });
+              await tx.p2PMessage.create({
+                data: {
+                  orderId: ord.id,
+                  senderId: 'SYSTEM',
+                  message: `[System] Order #${ord.orderCode} automatically EXPIRED (${reason}). Locked ${cryptoAmountDec.toFixed(2)} ${cryptoCur} returned safely to seller.`,
+                },
+              });
+            });
+
+            await Promise.all([
+              createP2PNotification({
+                userId: ord.buyerId,
+                type: 'P2P_ORDER_EXPIRED',
+                severity: 'WARNING',
+                title: `P2P Order #${ord.orderCode} Expired`,
+                message: `${reason}. Escrow returned to seller.`,
+                referenceCode: ord.orderCode,
+                status: P2POrderStatus.EXPIRED,
+              }),
+              createP2PNotification({
+                userId: ord.sellerId,
+                type: 'P2P_ORDER_EXPIRED',
+                severity: 'INFO',
+                title: `P2P Order #${ord.orderCode} Expired — Escrow Returned`,
+                message: `${reason}. Locked ${cryptoAmountDec.toFixed(2)} ${cryptoCur} returned to your available wallet.`,
+                referenceCode: ord.orderCode,
+                status: P2POrderStatus.EXPIRED,
+              }),
+            ]);
+            expiredCount += 1;
+          } catch (e) {
+            console.warn(`[P2P Timeout] Failed expiring ${ord.orderCode}:`, e);
+          }
+        } else if (
+          (ord.status === P2POrderStatus.PENDING_PAYMENT || ord.status === P2POrderStatus.ACCEPTED) &&
+          deadline <= warnHorizon
+        ) {
+          const alreadyWarned = await prisma.userNotification
+            .findFirst({
+              where: {
+                userId: ord.buyerId,
+                type: 'P2P_PAYMENT_EXPIRING_SOON',
+                referenceCode: ord.orderCode,
+              },
+            })
+            .catch(() => null);
+          if (!alreadyWarned) {
+            const minsLeft = Math.max(1, Math.ceil((deadline.getTime() - now.getTime()) / 60000));
+            await createP2PNotification({
+              userId: ord.buyerId,
+              type: 'P2P_PAYMENT_EXPIRING_SOON',
+              severity: 'WARNING',
+              title: `Payment Window Expiring (${minsLeft}m left) — #${ord.orderCode}`,
+              message: `Complete your payment and click "I Have Paid" within ${minsLeft} minute(s) before order #${ord.orderCode} expires.`,
+              referenceCode: ord.orderCode,
+              status: ord.status,
+            });
+          }
+        }
+      }
+
+      // 3. Auto-escalate paid orders where seller did not confirm/release in time (NEVER auto-release crypto)
+      const paidCandidates = await prisma.p2POrder.findMany({
+        where: {
+          isFrozen: false,
+          status: { in: [P2POrderStatus.PAYMENT_SENT, P2POrderStatus.SELLER_CONFIRMING] },
+        },
+        take: 100,
+      });
+
+      let escalatedCount = 0;
+      for (const ord of paidCandidates) {
+        const confirmDeadline =
+          ord.sellerConfirmDeadlineAt ||
+          new Date(new Date(ord.paidAt || ord.updatedAt).getTime() + P2P_TIMERS.SELLER_CONFIRM_MINUTES * 60 * 1000);
+        if (confirmDeadline <= now) {
+          const disputeDeadlineAt = new Date(now.getTime() + P2P_TIMERS.DISPUTE_SLA_MINUTES * 60 * 1000);
+          const autoReason = `Auto-escalated after seller failed to respond within ${P2P_TIMERS.SELLER_CONFIRM_MINUTES} minutes of buyer payment confirmation`;
+          await prisma.$transaction(async (tx) => {
+            const fresh = await tx.p2POrder.findUnique({ where: { id: ord.id } });
+            if (!fresh || fresh.isFrozen || ![P2POrderStatus.PAYMENT_SENT, P2POrderStatus.SELLER_CONFIRMING].includes(fresh.status as any)) {
+              return;
+            }
+            await tx.p2POrder.update({
+              where: { id: ord.id },
+              data: {
+                status: P2POrderStatus.DISPUTED,
+                disputedAt: now,
+                disputeDeadlineAt,
+                disputeReason: autoReason,
+              },
+            });
+            await tx.p2PMessage.create({
+              data: {
+                orderId: ord.id,
+                senderId: 'SYSTEM',
+                message: `[System] Order #${ord.orderCode} auto-escalated to DISPUTED because seller confirmation window expired. Funds stay protected in escrow for Compliance review (180-min SLA).`,
+              },
+            });
+          });
+
+          await Promise.all([
+            createP2PNotification({
+              userId: ord.buyerId,
+              type: 'P2P_DISPUTE_ESCALATED',
+              severity: 'WARNING',
+              title: `Order #${ord.orderCode} Escalated to Dispute Review`,
+              message: `Seller did not respond in time. Escrow remains protected — Admin Compliance is reviewing under the 180-minute SLA.`,
+              referenceCode: ord.orderCode,
+              status: P2POrderStatus.DISPUTED,
+            }),
+            createP2PNotification({
+              userId: ord.sellerId,
+              type: 'P2P_DISPUTE_ESCALATED',
+              severity: 'CRITICAL',
+              title: `Action Overdue: #${ord.orderCode} Escalated to Dispute`,
+              message: `Confirmation window expired. Escrow is frozen in Dispute Review.`,
+              referenceCode: ord.orderCode,
+              status: P2POrderStatus.DISPUTED,
+            }),
+          ]);
+          escalatedCount += 1;
+        }
+      }
+
+      return { expiredCount, escalatedCount };
+    } catch (err) {
+      console.warn('[P2P Cron] processOrderTimeouts error:', err);
+      return { expiredCount: 0, escalatedCount: 0 };
+    }
+  }
+
+  /**
+   * Get all active P2P conversations for Chat Hub
    */
   async getUserChats(userId: string) {
     const orders = await prisma.p2POrder.findMany({
@@ -1647,13 +2808,13 @@ export class P2PService {
         },
         lastMessage: lastMsg?.message || '[System] Order Created',
         time: timeStr,
-        unread: o.status === P2POrderStatus.PAYMENT_SENT && isSeller,
+        unread: (o.status === P2POrderStatus.PAYMENT_SENT && isSeller) || (o.status === P2POrderStatus.PENDING && isSeller),
       };
     });
   }
 
   /**
-   * Get current user's P2P merchant status and deposit info ($50 security deposit model)
+   * Get current user's P2P merchant status, restriction flag, real stats, and deposit info
    */
   async getP2pMerchantStatus(userId: string) {
     const depositSetting = await prisma.cmsSetting
@@ -1669,18 +2830,26 @@ export class P2PService {
         depositRequired: DEPOSIT_REQUIRED,
         isKycApproved: false,
         kycStatus: 'NOT_STARTED',
+        p2pBlocked: false,
+        p2pBlockedReason: null,
+        stats: null,
       };
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        isP2pMerchant: true,
-        p2pDepositLocked: true,
-        kycStatus: true,
-      },
-    });
+    const [user, statsMap] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          isP2pMerchant: true,
+          p2pDepositLocked: true,
+          kycStatus: true,
+          p2pBlocked: true,
+          p2pBlockedReason: true,
+        },
+      }),
+      computeUserP2PStatsMap([userId]),
+    ]);
 
     if (!user) throw new Error('User not found');
 
@@ -1690,6 +2859,9 @@ export class P2PService {
       depositRequired: DEPOSIT_REQUIRED,
       isKycApproved: user.kycStatus === 'APPROVED',
       kycStatus: user.kycStatus,
+      p2pBlocked: Boolean(user.p2pBlocked),
+      p2pBlockedReason: user.p2pBlockedReason || null,
+      stats: statsMap.get(userId) || null,
     };
   }
 
@@ -1704,11 +2876,14 @@ export class P2PService {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, kycStatus: true, isP2pMerchant: true, p2pDepositLocked: true, status: true },
+      select: { id: true, kycStatus: true, isP2pMerchant: true, p2pDepositLocked: true, status: true, p2pBlocked: true },
     });
 
     if (!user || user.status !== 'ACTIVE') {
       throw new Error('User account is not active.');
+    }
+    if (user.p2pBlocked) {
+      throw new Error('Your account is restricted from P2P trading.');
     }
 
     if (user.isP2pMerchant && Number(user.p2pDepositLocked || 0) >= 50) {
@@ -1835,10 +3010,19 @@ export class P2PService {
     }
 
     // Safety check: Ensure no open or disputed orders
+    const activeP2pStatuses: P2POrderStatus[] = [
+      P2POrderStatus.PENDING,
+      P2POrderStatus.ACCEPTED,
+      P2POrderStatus.PENDING_PAYMENT,
+      P2POrderStatus.PAYMENT_SENT,
+      P2POrderStatus.SELLER_CONFIRMING,
+      P2POrderStatus.DISPUTED,
+      P2POrderStatus.FROZEN,
+    ];
     const activeOrders = await prisma.p2POrder.findMany({
       where: {
         OR: [{ buyerId: userId }, { sellerId: userId }],
-        status: { in: [P2POrderStatus.PENDING_PAYMENT, P2POrderStatus.PAYMENT_SENT, P2POrderStatus.DISPUTED] },
+        status: { in: activeP2pStatuses },
       },
     });
 
@@ -1867,7 +3051,7 @@ export class P2PService {
       const activeInsideCount = await tx.p2POrder.count({
         where: {
           OR: [{ buyerId: userId }, { sellerId: userId }],
-          status: { in: [P2POrderStatus.PENDING_PAYMENT, P2POrderStatus.PAYMENT_SENT, P2POrderStatus.DISPUTED] },
+          status: { in: activeP2pStatuses },
         },
       });
       if (activeInsideCount > 0) {

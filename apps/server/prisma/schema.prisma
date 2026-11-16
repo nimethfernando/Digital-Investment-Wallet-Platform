@@ -131,11 +131,17 @@ enum P2POfferStatus {
 }
 
 enum P2POrderStatus {
+  PENDING
+  ACCEPTED
   PENDING_PAYMENT
   PAYMENT_SENT
+  SELLER_CONFIRMING
   COMPLETED
   DISPUTED
   CANCELLED
+  EXPIRED
+  DECLINED
+  FROZEN
 }
 
 enum InquiryType {
@@ -213,6 +219,9 @@ model User {
   otcDepositLocked       Decimal    @default(0.00000000) @db.Decimal(20, 8)
   p2pDepositLocked       Decimal    @default(0.00000000) @db.Decimal(20, 8)
   isP2pMerchant          Boolean    @default(false)
+  p2pBlocked             Boolean    @default(false)
+  p2pBlockedReason       String?    @db.VarChar(500)
+  p2pBlockedAt           DateTime?
   lastLoginAt            DateTime?
   createdAt              DateTime   @default(now())
   updatedAt              DateTime   @updatedAt
@@ -227,6 +236,9 @@ model User {
   p2pOffers             P2POffer[]
   p2pOrdersAsBuyer      P2POrder[]          @relation("BuyerOrders")
   p2pOrdersAsSeller     P2POrder[]          @relation("SellerOrders")
+  p2pReviewsGiven       P2PReview[]         @relation("P2PReviewsGiven")
+  p2pReviewsReceived    P2PReview[]         @relation("P2PReviewsReceived")
+  notifications         UserNotification[]
   auditLogs             AdminAuditLog[]
   inquiries             Inquiry[]
   transactions          Transaction[]
@@ -475,6 +487,9 @@ model P2POffer {
   maxLimit        Decimal        @db.Decimal(20, 8)
   paymentMethods  String         @db.Text // JSON: ["Bank Transfer", "Tbilisi Cash", "Wise"]
   paymentTerms    String?        @db.Text
+  paymentDetails  String?        @db.Text // Stage-gated settlement info revealed only after seller accepts order
+  locationCountry String?        @db.VarChar(100)
+  locationCity    String?        @db.VarChar(100)
   status          P2POfferStatus @default(OPEN)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -485,37 +500,59 @@ model P2POffer {
 }
 
 model P2POrder {
-  id                String         @id @default(uuid())
-  orderCode         String         @unique @db.VarChar(30)
-  offerId           String
-  offer             P2POffer       @relation(fields: [offerId], references: [id], onDelete: Cascade)
-  buyerId           String
-  buyer             User           @relation("BuyerOrders", fields: [buyerId], references: [id])
-  sellerId          String
-  seller            User           @relation("SellerOrders", fields: [sellerId], references: [id])
-  cryptoAmount      Decimal        @db.Decimal(20, 8)
-  fiatAmount        Decimal        @db.Decimal(20, 8)
-  price             Decimal        @db.Decimal(20, 8)
-  escrowJournalId   String?        @db.VarChar(36)
-  paymentProofUrl   String?        @db.VarChar(500)
-  status            P2POrderStatus @default(PENDING_PAYMENT)
-  disputeReason     String?        @db.Text
-  disputeResolvedBy String?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  id                       String         @id @default(uuid())
+  orderCode                String         @unique @db.VarChar(30)
+  offerId                  String
+  offer                    P2POffer       @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  buyerId                  String
+  buyer                    User           @relation("BuyerOrders", fields: [buyerId], references: [id])
+  sellerId                 String
+  seller                   User           @relation("SellerOrders", fields: [sellerId], references: [id])
+  cryptoCurrency           String         @default("USDT") @db.VarChar(10)
+  fiatCurrency             String         @default("USD") @db.VarChar(10)
+  cryptoAmount             Decimal        @db.Decimal(20, 8)
+  fiatAmount               Decimal        @db.Decimal(20, 8)
+  price                    Decimal        @db.Decimal(20, 8)
+  selectedPaymentMethod    String?        @db.VarChar(120)
+  escrowJournalId          String?        @db.VarChar(36)
+  paymentProofUrl          String?        @db.VarChar(500)
+  paymentReference         String?        @db.VarChar(191)
+  status                   P2POrderStatus @default(PENDING)
+  acceptedAt               DateTime?
+  acceptExpiresAt          DateTime?
+  paymentExpiresAt         DateTime?
+  paidAt                   DateTime?
+  sellerConfirmDeadlineAt  DateTime?
+  disputedAt               DateTime?
+  disputeDeadlineAt        DateTime?
+  disputedBy               String?        @db.VarChar(36)
+  disputeReason            String?        @db.Text
+  disputeResolvedBy        String?
+  cancelledBy              String?        @db.VarChar(36)
+  cancelReason             String?        @db.Text
+  isFrozen                 Boolean        @default(false)
+  frozenReason             String?        @db.Text
+  completedAt              DateTime?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
 
   messages P2PMessage[]
+  reviews  P2PReview[]
 
+  @@index([status, acceptExpiresAt])
+  @@index([status, paymentExpiresAt])
+  @@index([status, sellerConfirmDeadlineAt])
   @@map("diw_p2p_orders")
 }
 
 model P2PMessage {
-  id        String   @id @default(uuid())
-  orderId   String
-  order     P2POrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  senderId  String
-  message   String   @db.Text
-  createdAt DateTime @default(now())
+  id            String   @id @default(uuid())
+  orderId       String
+  order         P2POrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  senderId      String
+  message       String   @db.Text
+  attachmentUrl String?  @db.VarChar(500)
+  createdAt     DateTime @default(now())
 
   @@map("diw_p2p_messages")
 }
@@ -1014,4 +1051,44 @@ model InvestmentInquiry {
 
   @@index([listingId, status])
   @@map("diw_investment_inquiries")
+}
+
+model P2PReview {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      P2POrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reviewerId String
+  reviewer   User     @relation("P2PReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
+  revieweeId String
+  reviewee   User     @relation("P2PReviewsReceived", fields: [revieweeId], references: [id], onDelete: Cascade)
+  rating     Int      @default(5) // 1..5 stars
+  isPositive Boolean  @default(true)
+  comment    String?  @db.VarChar(500)
+  createdAt  DateTime @default(now())
+
+  @@unique([orderId, reviewerId])
+  @@index([revieweeId, createdAt])
+  @@map("diw_p2p_reviews")
+}
+
+model UserNotification {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category      String   @default("TRANSACTION") @db.VarChar(30)
+  type          String   @db.VarChar(60)
+  severity      String   @default("INFO") @db.VarChar(20) // SUCCESS, INFO, WARNING, CRITICAL
+  title         String   @db.VarChar(180)
+  message       String   @db.Text
+  referenceCode String?  @db.VarChar(60)
+  amount        String?  @db.VarChar(40)
+  currency      String?  @db.VarChar(16)
+  status        String?  @db.VarChar(40)
+  actionUrl     String   @default("/p2p") @db.VarChar(255)
+  actionLabel   String   @default("View") @db.VarChar(60)
+  isRead        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@map("diw_user_notifications")
 }

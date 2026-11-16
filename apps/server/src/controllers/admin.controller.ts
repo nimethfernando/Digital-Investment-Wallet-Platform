@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
-import { PackageStatus, DepositStatus, WithdrawalStatus, Role, KycStatus, UserStatus, P2POrderStatus, TransactionType, TransactionStatus } from '@prisma/client';
+import { PackageStatus, DepositStatus, WithdrawalStatus, Role, KycStatus, UserStatus, P2POrderStatus, P2POfferStatus, TransactionType, TransactionStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { packageService, computePackageYieldSchedule } from '../services/package.service';
@@ -9,7 +9,13 @@ import { returnsJobService } from '../services/returns.job';
 import { ledgerService } from '../services/ledger.service';
 import { withdrawalService } from '../services/withdrawal.service';
 import { kycService } from '../services/kyc.service';
-import { generateAvoraAccountNumber } from '../services/p2p.service';
+import { generateAvoraAccountNumber, p2pService } from '../services/p2p.service';
+import {
+  releaseEscrowToBuyerTx,
+  unlockEscrowToSellerTx,
+  createP2PNotification,
+  formatFiatWithCurrency,
+} from '../services/p2p.helpers';
 import { globalMoneyTransferService } from '../services/gmt.service';
 import { otcService } from '../services/otc.service';
 import { rateService } from '../services/rate.service';
@@ -1057,6 +1063,7 @@ export class AdminController {
    */
   async getUsers(req: Request, res: Response, next: NextFunction) {
     try {
+      await p2pService.ensureP2PReady();
       const { search, role, kycStatus, page, limit } = req.query;
       const pageNum = page ? parseInt(page as string, 10) : 1;
       const limitNum = limit ? parseInt(limit as string, 10) : 50;
@@ -1127,6 +1134,10 @@ export class AdminController {
           isWithdrawalLocked: isLocked,
           withdrawalLockedUntil: u.withdrawalLockedUntil,
           status: u.status,
+          isP2pMerchant: Boolean(u.isP2pMerchant),
+          p2pBlocked: Boolean(u.p2pBlocked),
+          p2pBlockedReason: u.p2pBlockedReason || null,
+          p2pBlockedAt: u.p2pBlockedAt || null,
           balances: {
             USD: parseFloat(usdBal).toFixed(2),
             USDT: parseFloat(usdtBal).toFixed(2),
@@ -1592,6 +1603,65 @@ export class AdminController {
   }
 
   /**
+   * Admin: Block, suspend, or reinstate a user specifically for P2P trading without freezing whole account
+   */
+  async updateUserP2PStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { p2pBlocked, reason } = req.body || {};
+      const blocked = Boolean(p2pBlocked);
+      const cleanReason = reason ? String(reason).trim() : null;
+
+      const user = await prisma.user.update({
+        where: { id },
+        data: {
+          p2pBlocked: blocked,
+          p2pBlockedReason: blocked ? cleanReason || 'Restricted by Compliance' : null,
+          p2pBlockedAt: blocked ? new Date() : null,
+        },
+      });
+
+      if (blocked) {
+        await prisma.p2POffer.updateMany({
+          where: { userId: id, status: P2POfferStatus.OPEN },
+          data: { status: P2POfferStatus.PAUSED },
+        });
+      }
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: blocked ? 'ADMIN_P2P_USER_BLOCKED' : 'ADMIN_P2P_USER_UNBLOCKED',
+          entity: 'User',
+          entityId: id,
+          details: `Admin ${blocked ? 'blocked' : 'unblocked'} P2P trading access for ${user.email}. Reason: ${cleanReason || 'N/A'}`,
+        },
+      });
+
+      await createP2PNotification({
+        userId: id,
+        category: 'ACCOUNT',
+        type: blocked ? 'P2P_ADMIN_BLOCKED' : 'P2P_ADMIN_UNBLOCKED',
+        severity: blocked ? 'CRITICAL' : 'SUCCESS',
+        title: blocked ? 'P2P Trading Access Restricted' : 'P2P Trading Access Restored',
+        message: blocked
+          ? `Your P2P trading access was restricted by Compliance${cleanReason ? `: ${cleanReason}` : '.'}`
+          : 'Your P2P marketplace trading access has been restored by Compliance.',
+      });
+
+      res.json({
+        success: true,
+        message: `P2P trading ${blocked ? 'restricted' : 'restored'} for ${user.email}`,
+        p2pBlocked: user.p2pBlocked,
+        p2pBlockedReason: user.p2pBlockedReason,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * List global remittance transfers
    */
   async getRemittanceTransfers(req: Request, res: Response, next: NextFunction) {
@@ -1837,13 +1907,14 @@ export class AdminController {
   }
 
   /**
-   * List P2P orders with search & status filters
+   * List P2P orders with full chat transcripts, timestamps, payment proof, and currency context
    */
   async getP2POrders(req: Request, res: Response, next: NextFunction) {
     try {
+      await p2pService.ensureP2PReady();
       const { status, page, limit } = req.query;
       const pageNum = page ? parseInt(page as string, 10) : 1;
-      const limitNum = limit ? parseInt(limit as string, 10) : 30;
+      const limitNum = limit ? parseInt(limit as string, 10) : 50;
       const skip = (pageNum - 1) * limitNum;
 
       const where: any = {};
@@ -1855,9 +1926,11 @@ export class AdminController {
         prisma.p2POrder.findMany({
           where,
           include: {
-            buyer: { select: { id: true, email: true, firstName: true, lastName: true } },
-            seller: { select: { id: true, email: true, firstName: true, lastName: true } },
+            buyer: { select: { id: true, email: true, firstName: true, lastName: true, p2pBlocked: true } },
+            seller: { select: { id: true, email: true, firstName: true, lastName: true, p2pBlocked: true } },
             offer: true,
+            messages: { orderBy: { createdAt: 'asc' } },
+            reviews: true,
           },
           orderBy: { createdAt: 'desc' },
           skip,
@@ -1866,9 +1939,15 @@ export class AdminController {
         prisma.p2POrder.count({ where }),
       ]);
 
+      const enriched = orders.map((o) => ({
+        ...o,
+        cryptoCurrency: (o.cryptoCurrency || o.offer?.cryptoCurrency || 'USDT').toUpperCase(),
+        fiatCurrency: (o.fiatCurrency || o.offer?.fiatCurrency || 'USD').toUpperCase(),
+      }));
+
       res.json({
         success: true,
-        data: orders,
+        data: enriched,
         meta: {
           total,
           page: pageNum,
@@ -1882,7 +1961,100 @@ export class AdminController {
   }
 
   /**
-   * Resolve P2P Escrow Dispute
+   * Admin: Freeze or Unfreeze a suspicious P2P Escrow Order
+   */
+  async freezeP2POrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { freeze, reason } = req.body || {};
+      const shouldFreeze = Boolean(freeze);
+      const cleanReason = reason ? String(reason).trim() : null;
+
+      const order = await prisma.p2POrder.findUnique({ where: { id } });
+      if (!order) {
+        return res.status(404).json({ success: false, message: 'P2P Order not found' });
+      }
+      if ([P2POrderStatus.COMPLETED, P2POrderStatus.CANCELLED, P2POrderStatus.DECLINED, P2POrderStatus.EXPIRED].includes(order.status as any)) {
+        return res.status(400).json({ success: false, message: `Cannot freeze a finalized order (${order.status})` });
+      }
+
+      const nextStatus = shouldFreeze
+        ? P2POrderStatus.FROZEN
+        : order.disputedAt
+        ? P2POrderStatus.DISPUTED
+        : order.paidAt
+        ? P2POrderStatus.PAYMENT_SENT
+        : P2POrderStatus.PENDING_PAYMENT;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.p2POrder.update({
+          where: { id },
+          data: {
+            isFrozen: shouldFreeze,
+            frozenReason: shouldFreeze ? cleanReason || 'Frozen by Compliance review' : null,
+            status: nextStatus,
+          },
+        });
+        await tx.p2PMessage.create({
+          data: {
+            orderId: id,
+            senderId: 'SYSTEM',
+            message: shouldFreeze
+              ? `[System] Order #${order.orderCode} FROZEN by Compliance (${cleanReason || 'Security inspection'}). Funds remain locked until admin releases or refunds.`
+              : `[System] Compliance freeze lifted on Order #${order.orderCode}. Status resumed to ${nextStatus}.`,
+          },
+        });
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: shouldFreeze ? 'ADMIN_FREEZE_P2P_ORDER' : 'ADMIN_UNFREEZE_P2P_ORDER',
+          entity: 'P2POrder',
+          entityId: id,
+          details: `Admin ${shouldFreeze ? 'froze' : 'unfroze'} P2P order ${order.orderCode}. Reason: ${cleanReason || 'N/A'}`,
+        },
+      });
+
+      await Promise.all([
+        createP2PNotification({
+          userId: order.buyerId,
+          type: shouldFreeze ? 'P2P_ADMIN_FROZEN' : 'P2P_ADMIN_UNFROZEN',
+          severity: shouldFreeze ? 'CRITICAL' : 'INFO',
+          title: `Order #${order.orderCode} ${shouldFreeze ? 'Frozen by Admin' : 'Unfrozen'}`,
+          message: shouldFreeze
+            ? `Trade held for compliance review: ${cleanReason || 'Security verification required.'}`
+            : 'Compliance hold lifted. Trade resumed.',
+          referenceCode: order.orderCode,
+          status: nextStatus,
+        }),
+        createP2PNotification({
+          userId: order.sellerId,
+          type: shouldFreeze ? 'P2P_ADMIN_FROZEN' : 'P2P_ADMIN_UNFROZEN',
+          severity: shouldFreeze ? 'CRITICAL' : 'INFO',
+          title: `Order #${order.orderCode} ${shouldFreeze ? 'Frozen by Admin' : 'Unfrozen'}`,
+          message: shouldFreeze
+            ? `Escrow held for compliance review: ${cleanReason || 'Security verification required.'}`
+            : 'Compliance hold lifted. Trade resumed.',
+          referenceCode: order.orderCode,
+          status: nextStatus,
+        }),
+      ]);
+
+      res.json({
+        success: true,
+        message: `Order ${order.orderCode} ${shouldFreeze ? 'frozen' : 'unfrozen'} successfully.`,
+        isFrozen: shouldFreeze,
+        status: nextStatus,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Resolve P2P Escrow Dispute (or manually cancel/settle active/frozen trade)
    */
   async resolveP2PDispute(req: Request, res: Response, next: NextFunction) {
     try {
@@ -1903,133 +2075,77 @@ export class AdminController {
         return res.status(404).json({ success: false, message: 'P2P Order not found' });
       }
 
-      const nextStatus = resolution === 'RELEASE_TO_BUYER' ? P2POrderStatus.COMPLETED : P2POrderStatus.CANCELLED;
-      const shouldSettleEscrow =
-        order.status !== P2POrderStatus.COMPLETED && order.status !== P2POrderStatus.CANCELLED;
-
-      if (shouldSettleEscrow) {
-        const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
-        const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
-        const buyerWallet = await ledgerService.ensureWallet(order.buyerId);
-
-        await prisma.$transaction(
-          async (tx) => {
-            // Lock wallets in deterministic sorted ID order to prevent deadlocks
-            let sellerBal: any;
-            let buyerBal: any;
-            if (sellerWallet.id <= buyerWallet.id) {
-              sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
-              buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
-            } else {
-              buyerBal = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USDT');
-              sellerBal = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
-            }
-
-            // Re-verify order status inside locked transaction
-            const freshOrder = await tx.p2POrder.findUnique({ where: { id } });
-            if (
-              !freshOrder ||
-              freshOrder.status === P2POrderStatus.COMPLETED ||
-              freshOrder.status === P2POrderStatus.CANCELLED
-            ) {
-              throw new Error(`Order ${order.orderCode} has already been finalized (${freshOrder?.status || 'NOT_FOUND'}).`);
-            }
-
-            const currentSellerLocked = new Decimal(sellerBal.lockedPrincipal.toString());
-            if (currentSellerLocked.lessThan(cryptoAmountDec)) {
-              throw new Error(
-                `Insufficient escrowed USDT in seller locked balance (${currentSellerLocked.toFixed(2)} USDT locked, ${cryptoAmountDec.toFixed(2)} required) to resolve dispute for order ${order.orderCode}.`
-              );
-            }
-            const nextSellerLocked = currentSellerLocked.minus(cryptoAmountDec);
-
-            if (resolution === 'RELEASE_TO_BUYER') {
-              await tx.walletBalance.update({
-                where: { id: sellerBal.id },
-                data: { lockedPrincipal: nextSellerLocked.toFixed(8) },
-              });
-
-              const sellerAvailBefore = new Decimal(sellerBal.availableBalance.toString());
-              const buyerAvailBefore = new Decimal(buyerBal.availableBalance.toString());
-              const nextBuyerAvail = buyerAvailBefore.plus(cryptoAmountDec);
-
-              await tx.walletBalance.update({
-                where: { id: buyerBal.id },
-                data: {
-                  availableBalance: nextBuyerAvail.toFixed(8),
-                },
-              });
-
-              await tx.transaction.create({
-                data: {
-                  transactionCode: `TX-DO-${order.orderCode}`,
-                  userId: order.sellerId,
-                  type: TransactionType.P2P_TRANSFER_OUT,
-                  amount: cryptoAmountDec.toFixed(8),
-                  currency: 'USDT',
-                  status: TransactionStatus.COMPLETED,
-                  balanceBefore: sellerAvailBefore.toFixed(8),
-                  balanceAfter: sellerAvailBefore.toFixed(8),
-                  settlementReference: order.orderCode,
-                  createdBy: adminUserId,
-                  idempotencyKey: `P2P-DISP-REL-${order.orderCode}-OUT`,
-                  notes: `P2P dispute resolved (${resolution}) — escrowed ${cryptoAmountDec.toFixed(2)} USDT released to buyer on ${order.orderCode}`,
-                },
-              });
-
-              await tx.transaction.create({
-                data: {
-                  transactionCode: `TX-DI-${order.orderCode}`,
-                  userId: order.buyerId,
-                  type: TransactionType.P2P_TRANSFER_IN,
-                  amount: cryptoAmountDec.toFixed(8),
-                  currency: 'USDT',
-                  status: TransactionStatus.COMPLETED,
-                  balanceBefore: buyerAvailBefore.toFixed(8),
-                  balanceAfter: nextBuyerAvail.toFixed(8),
-                  settlementReference: order.orderCode,
-                  createdBy: adminUserId,
-                  idempotencyKey: `P2P-DISP-REL-${order.orderCode}-IN`,
-                  notes: `P2P dispute resolved (${resolution}) — ${cryptoAmountDec.toFixed(2)} USDT credited from escrow on ${order.orderCode}`,
-                },
-              });
-            } else {
-              await tx.walletBalance.update({
-                where: { id: sellerBal.id },
-                data: {
-                  lockedPrincipal: nextSellerLocked.toFixed(8),
-                  availableBalance: new Decimal(sellerBal.availableBalance.toString())
-                    .plus(cryptoAmountDec)
-                    .toFixed(8),
-                },
-              });
-            }
-
-            await tx.p2POrder.update({
-              where: { id },
-              data: {
-                status: nextStatus,
-                disputeResolvedBy: adminUserId,
-                disputeReason: reason ? `[Admin ${resolution}]: ${reason}` : `Resolved by admin via ${resolution}`,
-              },
-            });
-
-            await tx.p2PMessage.create({
-              data: {
-                orderId: id,
-                senderId: 'SYSTEM',
-                message:
-                  resolution === 'RELEASE_TO_BUYER'
-                    ? `[System] Dispute resolved by Avora Compliance (${resolution}). ${cryptoAmountDec.toFixed(2)} USDT released from escrow to the buyer's wallet. Note: ${reason || 'N/A'}`
-                    : `[System] Dispute resolved by Avora Compliance (${resolution}). ${cryptoAmountDec.toFixed(2)} USDT unlocked back to the seller's available balance. Note: ${reason || 'N/A'}`,
-              },
-            });
-          },
-          { timeout: 30000, maxWait: 10000 }
-        );
-      } else {
+      const finalizedStatuses: P2POrderStatus[] = [
+        P2POrderStatus.COMPLETED,
+        P2POrderStatus.CANCELLED,
+        P2POrderStatus.DECLINED,
+        P2POrderStatus.EXPIRED,
+      ];
+      if (finalizedStatuses.includes(order.status as P2POrderStatus)) {
         throw new Error(`Order ${order.orderCode} is already ${order.status} and cannot be resolved again.`);
       }
+
+      const nextStatus = resolution === 'RELEASE_TO_BUYER' ? P2POrderStatus.COMPLETED : P2POrderStatus.CANCELLED;
+      const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
+      const cryptoCur = (order.cryptoCurrency || order.offer?.cryptoCurrency || 'USDT').toUpperCase();
+      const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
+      const buyerWallet = await ledgerService.ensureWallet(order.buyerId);
+      const now = new Date();
+
+      await prisma.$transaction(
+        async (tx) => {
+          const freshOrder = await tx.p2POrder.findUnique({ where: { id } });
+          if (!freshOrder || finalizedStatuses.includes(freshOrder.status as P2POrderStatus)) {
+            throw new Error(`Order ${order.orderCode} has already been finalized (${freshOrder?.status || 'NOT_FOUND'}).`);
+          }
+
+          if (resolution === 'RELEASE_TO_BUYER') {
+            await releaseEscrowToBuyerTx(tx, {
+              order: { ...freshOrder, cryptoCurrency: cryptoCur },
+              sellerWalletId: sellerWallet.id,
+              buyerWalletId: buyerWallet.id,
+              actorUserId: adminUserId,
+              txCodePrefix: 'D',
+              idempotencyPrefix: 'P2P-DISP-REL',
+              notesPrefix: `P2P dispute resolved (${resolution})`,
+            });
+          } else {
+            await unlockEscrowToSellerTx(tx, {
+              sellerWalletId: sellerWallet.id,
+              cryptoCurrency: cryptoCur,
+              cryptoAmountDec,
+              offerId: order.offerId,
+              orderCode: order.orderCode,
+            });
+          }
+
+          await tx.p2POrder.update({
+            where: { id },
+            data: {
+              status: nextStatus,
+              isFrozen: false,
+              frozenReason: null,
+              disputeResolvedBy: adminUserId,
+              cancelledBy: resolution === 'REFUND_TO_SELLER' ? adminUserId : undefined,
+              cancelReason: resolution === 'REFUND_TO_SELLER' ? reason || 'Admin dispute refund' : undefined,
+              completedAt: resolution === 'RELEASE_TO_BUYER' ? now : undefined,
+              disputeReason: reason ? `[Admin ${resolution}]: ${reason}` : `Resolved by admin via ${resolution}`,
+            },
+          });
+
+          await tx.p2PMessage.create({
+            data: {
+              orderId: id,
+              senderId: 'SYSTEM',
+              message:
+                resolution === 'RELEASE_TO_BUYER'
+                  ? `[System] Dispute resolved by Avora Compliance (${resolution}). ${cryptoAmountDec.toFixed(2)} ${cryptoCur} released from escrow to the buyer's wallet. Note: ${reason || 'N/A'}`
+                  : `[System] Dispute resolved by Avora Compliance (${resolution}). ${cryptoAmountDec.toFixed(2)} ${cryptoCur} unlocked back to the seller's available balance. Note: ${reason || 'N/A'}`,
+            },
+          });
+        },
+        { timeout: 30000, maxWait: 10000 }
+      );
 
       await prisma.adminAuditLog.create({
         data: {
@@ -2041,9 +2157,34 @@ export class AdminController {
         },
       });
 
+      await Promise.all([
+        createP2PNotification({
+          userId: order.buyerId,
+          type: 'P2P_DISPUTE_RESOLVED',
+          severity: resolution === 'RELEASE_TO_BUYER' ? 'SUCCESS' : 'CRITICAL',
+          title: `Dispute Ruling on #${order.orderCode}: ${resolution === 'RELEASE_TO_BUYER' ? 'Released to Buyer' : 'Refunded to Seller'}`,
+          message: reason || `Admin finalized order ${order.orderCode} via ${resolution}.`,
+          referenceCode: order.orderCode,
+          amount: cryptoAmountDec.toFixed(2),
+          currency: cryptoCur,
+          status: nextStatus,
+        }),
+        createP2PNotification({
+          userId: order.sellerId,
+          type: 'P2P_DISPUTE_RESOLVED',
+          severity: resolution === 'REFUND_TO_SELLER' ? 'SUCCESS' : 'WARNING',
+          title: `Dispute Ruling on #${order.orderCode}: ${resolution === 'RELEASE_TO_BUYER' ? 'Released to Buyer' : 'Refunded to Seller'}`,
+          message: reason || `Admin finalized order ${order.orderCode} via ${resolution}.`,
+          referenceCode: order.orderCode,
+          amount: cryptoAmountDec.toFixed(2),
+          currency: cryptoCur,
+          status: nextStatus,
+        }),
+      ]);
+
       res.json({
         success: true,
-        message: `Order ${order.orderCode} dispute resolved with status ${nextStatus}`,
+        message: `Order ${order.orderCode} resolved with status ${nextStatus}`,
         resolution,
       });
     } catch (err) {
@@ -2275,10 +2416,11 @@ export class AdminController {
         orderBy: { createdAt: 'asc' },
       }),
       prisma.p2POrder.findMany({
-        where: { status: P2POrderStatus.DISPUTED },
+        where: { status: { in: [P2POrderStatus.DISPUTED, P2POrderStatus.FROZEN] } },
         include: {
           buyer: { select: { id: true, email: true, firstName: true, lastName: true } },
           seller: { select: { id: true, email: true, firstName: true, lastName: true } },
+          offer: { select: { fiatCurrency: true, cryptoCurrency: true } },
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -2725,27 +2867,29 @@ export class AdminController {
       alerts.push(item);
     }
 
-    // Disputed P2P Orders
+    // Disputed / Frozen P2P Orders
     for (const p2p of disputedP2PList) {
       const buyerName = `${p2p.buyer?.firstName || ''} ${p2p.buyer?.lastName || ''}`.trim() || p2p.buyer?.email || 'Buyer';
       const amountFixed = new Decimal(p2p.cryptoAmount.toString()).toFixed(2);
-      const age = this.computeAgeInfo(p2p.createdAt, now, 24);
+      const cryptoCur = (p2p.cryptoCurrency || p2p.offer?.cryptoCurrency || 'USDT').toUpperCase();
+      const fiatCur = (p2p.fiatCurrency || p2p.offer?.fiatCurrency || 'USD').toUpperCase();
+      const age = this.computeAgeInfo(p2p.disputedAt || p2p.createdAt, now, 3);
       const item = {
         id: `P2P-${p2p.id}`,
         entityId: p2p.id,
         code: p2p.orderCode,
         category: 'P2P_DISPUTE',
-        typeLabel: 'P2P Escrow Dispute',
-        title: `P2P Dispute: ${p2p.orderCode} (${amountFixed} USDT)`,
-        description: `${buyerName} vs ${p2p.seller?.email || 'Seller'} • Requires compliance escrow decision`,
+        typeLabel: p2p.status === 'FROZEN' ? 'P2P Order Frozen' : 'P2P Escrow Dispute',
+        title: `P2P ${p2p.status === 'FROZEN' ? 'Frozen' : 'Dispute'}: ${p2p.orderCode} (${amountFixed} ${cryptoCur})`,
+        description: `${buyerName} vs ${p2p.seller?.email || 'Seller'} (${formatFiatWithCurrency(p2p.fiatAmount.toString(), fiatCur)}) • 180m SLA compliance review`,
         customerId: p2p.buyerId,
         customerName: buyerName,
         customerEmail: p2p.buyer?.email || '',
         amount: amountFixed,
-        currency: 'USDT',
+        currency: cryptoCur,
         status: p2p.status,
         targetTab: 'p2p',
-        requestDate: p2p.createdAt.toISOString(),
+        requestDate: (p2p.disputedAt || p2p.createdAt).toISOString(),
         createdDate: p2p.createdAt.toISOString(),
         ageMs: age.ageMs,
         ageHours: age.ageHours,

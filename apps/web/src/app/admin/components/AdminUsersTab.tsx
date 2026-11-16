@@ -131,6 +131,38 @@ export default function AdminUsersTab({
     }
   };
 
+  const handleToggleP2PBlock = async (userId: string, currentlyBlocked: boolean, email: string) => {
+    let reason = '';
+    if (!currentlyBlocked) {
+      reason = prompt(`Restrict P2P trading for ${email}?\nEnter compliance reason (optional):`, 'Suspicious P2P activity') ?? '';
+    } else if (!confirm(`Restore P2P marketplace access for ${email}?`)) {
+      return;
+    }
+
+    try {
+      const res = await api.post(`/admin/users/${userId}/p2p-status`, {
+        p2pBlocked: !currentlyBlocked,
+        reason: reason.trim() || undefined,
+      });
+      if (res.data?.success) {
+        onFeedback({
+          text: res.data.message || (!currentlyBlocked ? 'User blocked from P2P trading' : 'P2P trading restored'),
+          type: 'success',
+        });
+        onRefresh();
+        if (selectedUser?.id === userId) {
+          setSelectedUser({
+            ...selectedUser,
+            p2pBlocked: !currentlyBlocked,
+            p2pBlockedReason: !currentlyBlocked ? reason.trim() || 'Restricted by Compliance' : null,
+          });
+        }
+      }
+    } catch (e: any) {
+      onFeedback({ text: e.response?.data?.message || 'Failed to update P2P restriction', type: 'error' });
+    }
+  };
+
   const handleUpdateStatus = async (userId: string, newStatus: string) => {
     try {
       const res = await api.post(`/admin/users/${userId}/status`, { status: newStatus });
@@ -390,6 +422,11 @@ export default function AdminUsersTab({
                             <Lock className="w-2.5 h-2.5" /> FROZEN
                           </span>
                         )}
+                        {u.p2pBlocked && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-0.5">
+                            <UserX className="w-2.5 h-2.5" /> P2P BANNED
+                          </span>
+                        )}
                       </div>
                       <div>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -503,6 +540,19 @@ export default function AdminUsersTab({
                           title={u.isWithdrawalLocked ? 'Unlock User Withdrawals' : 'Freeze / Lock Withdrawals'}
                         >
                           {u.isWithdrawalLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                        </button>
+
+                        {/* Toggle P2P Trading Block */}
+                        <button
+                          onClick={() => handleToggleP2PBlock(u.id, !!u.p2pBlocked, u.email)}
+                          className={`p-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                            u.p2pBlocked
+                              ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                              : 'bg-slate-800 text-slate-400 hover:bg-rose-950/50 hover:text-rose-300'
+                          }`}
+                          title={u.p2pBlocked ? 'Restore P2P Trading Access' : 'Block / Restrict User P2P Trading'}
+                        >
+                          {u.p2pBlocked ? <UserCheck2 className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </td>
@@ -723,6 +773,17 @@ export default function AdminUsersTab({
                   className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer"
                 >
                   {selectedUser.status === 'SUSPENDED' ? 'Unsuspend Account' : 'Suspend Account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleP2PBlock(selectedUser.id, !!selectedUser.p2pBlocked, selectedUser.email)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    selectedUser.p2pBlocked
+                      ? 'bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30'
+                      : 'bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/30'
+                  }`}
+                >
+                  {selectedUser.p2pBlocked ? 'Unblock P2P Trading' : 'Restrict P2P Access'}
                 </button>
                 <button
                   type="button"

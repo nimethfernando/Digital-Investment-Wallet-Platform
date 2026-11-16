@@ -18,6 +18,9 @@ export const resolveMediaUrl = (url?: string | null): string => {
   if (url.startsWith('/api/v1/')) {
     return `${getBaseUrl().replace(/\/+$/, '')}${url.slice('/api/v1'.length)}`;
   }
+  if (url.startsWith('/uploads/')) {
+    return `${getBaseUrl().replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '')}${url}`;
+  }
   return url;
 };
 

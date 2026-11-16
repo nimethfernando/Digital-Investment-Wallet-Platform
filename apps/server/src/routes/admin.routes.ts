@@ -99,6 +99,7 @@ router.post(
 router.post('/users/:id/reset-password', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resetUserPassword(req, res, next));
 router.post('/users/:id/disable-2fa', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.disableUser2FA(req, res, next));
 router.post('/users/:id/status', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUserStatus(req, res, next));
+router.post('/users/:id/p2p-status', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUserP2PStatus(req, res, next));
 
 // Global Money Transfer / Remittance Corridors
 router.get('/remittance/transfers', (req, res, next) => adminController.getRemittanceTransfers(req, res, next));
@@ -111,6 +112,7 @@ router.delete('/investments/listings/:id', requireRole([Role.ADMIN]), requireAdm
 
 // P2P Escrow & Dispute Resolution
 router.get('/p2p/orders', (req, res, next) => adminController.getP2POrders(req, res, next));
+router.post('/p2p/orders/:id/freeze', requireRole([Role.ADMIN]), (req, res, next) => adminController.freezeP2POrder(req, res, next));
 router.post('/p2p/orders/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resolveP2PDispute(req, res, next));
 
 // OTC Desks & Escrow Trade Management
