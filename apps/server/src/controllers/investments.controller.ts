@@ -39,12 +39,12 @@ export class InvestmentsController {
 
   /**
    * POST /api/v1/investments/fee-quote
-   * Calculate 5% investment allocation fee breakdown
+   * Calculate dynamic investment allocation fee breakdown
    */
-  calculateFee(req: Request, res: Response, next: NextFunction) {
+  async calculateFee(req: Request, res: Response, next: NextFunction) {
     try {
       const { grossAmount } = req.body;
-      const breakdown = investmentsService.calculateInvestmentFee(parseFloat(grossAmount));
+      const breakdown = await investmentsService.calculateInvestmentFee(parseFloat(grossAmount));
       res.json({ success: true, data: breakdown });
     } catch (err) {
       next(err);
@@ -53,7 +53,7 @@ export class InvestmentsController {
 
   /**
    * POST /api/v1/investments/invest
-   * Commit and fund investment from wallet (with 5% allocation fee)
+   * Commit and fund investment from wallet (with dynamic allocation fee)
    */
   async invest(req: Request, res: Response, next: NextFunction) {
     try {
@@ -67,7 +67,7 @@ export class InvestmentsController {
       });
       res.status(201).json({
         success: true,
-        message: `Successfully allocated $${commitment.netInvestedAmount} USD to startup (Total debited: $${commitment.grossAmount} USD including 5% platform fee)!`,
+        message: `Successfully allocated $${commitment.netInvestedAmount} USD to startup (Total debited: $${commitment.grossAmount} USD including ${Number(commitment.allocationFeePct).toFixed(1)}% platform fee)!`,
         data: commitment,
       });
     } catch (err) {

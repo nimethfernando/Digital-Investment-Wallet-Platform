@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.saveAiPublisherConfig = exports.getAiPublisherConfig = exports.seedDefaultBlogPostsAdmin = exports.deleteAdminBlogPost = exports.updateAdminBlogPost = exports.createAdminBlogPost = exports.getAdminBlogPosts = exports.syncAllTrackedBlogs = exports.syncBlogNewsAdmin = exports.autoPublishBlog = exports.getBlogMemeMedia = exports.getBlogBannerMedia = exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getSettings = exports.subscribeNewsletter = void 0;
+exports.saveAiPublisherConfig = exports.getAiPublisherConfig = exports.syncBlogTokensAdmin = exports.seedDefaultBlogPostsAdmin = exports.deleteAdminBlogPost = exports.updateAdminBlogPost = exports.createAdminBlogPost = exports.getAdminBlogPosts = exports.syncAllTrackedBlogs = exports.syncBlogNewsAdmin = exports.autoPublishBlog = exports.getBlogMemeMedia = exports.getBlogBannerMedia = exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getPlatformVariables = exports.getSettings = exports.subscribeNewsletter = void 0;
 const zod_1 = require("zod");
 const cms_service_1 = require("../services/cms.service");
 const autoContent_service_1 = require("../services/autoContent.service");
@@ -30,14 +30,35 @@ const subscribeNewsletter = async (req, res, next) => {
 exports.subscribeNewsletter = subscribeNewsletter;
 const getSettings = async (req, res, next) => {
     try {
-        const settings = await cms_service_1.cmsService.getPublicSettings();
-        res.json({ success: true, settings });
+        const [settings, variables] = await Promise.all([
+            cms_service_1.cmsService.getPublicSettings(),
+            cms_service_1.cmsService.getPlatformTemplateVars(),
+        ]);
+        res.json({ success: true, settings, variables });
     }
     catch (err) {
         next(err);
     }
 };
 exports.getSettings = getSettings;
+const getPlatformVariables = async (req, res, next) => {
+    try {
+        const [variables, settings] = await Promise.all([
+            cms_service_1.cmsService.getPlatformTemplateVars(),
+            cms_service_1.cmsService.getPublicSettings(),
+        ]);
+        res.json({
+            success: true,
+            variables,
+            catalog: cms_service_1.cmsService.getBlogTemplateTokensCatalog(),
+            settings,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.getPlatformVariables = getPlatformVariables;
 const updateSetting = async (req, res, next) => {
     try {
         const { key, value, group } = req.body;
@@ -148,7 +169,8 @@ const getBlogPost = async (req, res, next) => {
     try {
         const slug = req.params.slug;
         const includeDrafts = req.query.preview === 'true';
-        let blog = await cms_service_1.cmsService.getBlogPostBySlug(slug, includeDrafts);
+        const raw = req.query.raw === 'true';
+        let blog = await cms_service_1.cmsService.getBlogPostBySlug(slug, includeDrafts, raw);
         if (!blog)
             return res.status(404).json({ success: false, message: 'Blog post not found' });
         // Stale auto-refresh if auto-tracked and last sync was > 30 mins ago (keeps continuous news fresh even on serverless)
@@ -316,13 +338,15 @@ exports.deleteAdminBlogPost = deleteAdminBlogPost;
 const seedDefaultBlogPostsAdmin = async (req, res, next) => {
     try {
         const restoredCount = await cms_service_1.cmsService.ensureDefaultBlogPosts(true);
+        const updatedTokensCount = await cms_service_1.cmsService.migrateSeededArticlesToDynamicTokens(true);
         const blogs = await cms_service_1.cmsService.getBlogPosts(true);
         res.json({
             success: true,
             restoredCount,
-            message: restoredCount > 0
-                ? `Restored ${restoredCount} default institutional research paper(s).`
-                : 'All default institutional research papers are already present.',
+            updatedTokensCount,
+            message: restoredCount > 0 || updatedTokensCount > 0
+                ? `Restored ${restoredCount} default paper(s) & synced ${updatedTokensCount} paper(s) with live rate tokens.`
+                : 'All default institutional research papers are present and synced.',
             blogs,
         });
     }
@@ -331,6 +355,24 @@ const seedDefaultBlogPostsAdmin = async (req, res, next) => {
     }
 };
 exports.seedDefaultBlogPostsAdmin = seedDefaultBlogPostsAdmin;
+const syncBlogTokensAdmin = async (req, res, next) => {
+    try {
+        const updatedTokensCount = await cms_service_1.cmsService.migrateSeededArticlesToDynamicTokens(true);
+        const blogs = await cms_service_1.cmsService.getBlogPosts(true);
+        res.json({
+            success: true,
+            updatedTokensCount,
+            message: updatedTokensCount > 0
+                ? `Converted ${updatedTokensCount} article(s) to live dynamic rate tokens.`
+                : 'All default articles are already using live dynamic rate tokens.',
+            blogs,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.syncBlogTokensAdmin = syncBlogTokensAdmin;
 const getAiPublisherConfig = async (req, res, next) => {
     try {
         const status = await autoContent_service_1.autoContentService.getPublicAiStatus();

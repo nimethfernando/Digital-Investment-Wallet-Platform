@@ -6,6 +6,7 @@ const auth_1 = require("../middleware/auth");
 const router = (0, express_1.Router)();
 // Public & User CMS/Ticket routes
 router.get('/settings', cms_controller_1.getSettings);
+router.get('/variables', cms_controller_1.getPlatformVariables);
 router.get('/sections/:page', cms_controller_1.getPageSections);
 router.get('/blogs', cms_controller_1.getBlogPosts);
 router.get('/blogs/cron-sync', cms_controller_1.syncAllTrackedBlogs);
@@ -24,6 +25,7 @@ router.put('/admin/inquiries/:id', auth_1.authenticateToken, auth_1.requireAdmin
 router.get('/admin/blogs', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.getAdminBlogPosts);
 router.post('/admin/blogs', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.createAdminBlogPost);
 router.post('/admin/blogs/seed-defaults', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.seedDefaultBlogPostsAdmin);
+router.post('/admin/blogs/sync-tokens', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.syncBlogTokensAdmin);
 router.post('/admin/blogs/auto-publish', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.autoPublishBlog);
 router.post('/admin/blogs/:id/sync-news', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.syncBlogNewsAdmin);
 router.put('/admin/blogs/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateAdminBlogPost);

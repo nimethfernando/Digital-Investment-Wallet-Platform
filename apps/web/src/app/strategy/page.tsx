@@ -1,7 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { api } from '../../lib/api';
+import { buildPlatformVariablesFromSettings } from '../../lib/blog-data';
 import {
   TrendingUp,
   ShieldCheck,
@@ -18,6 +20,18 @@ import {
 } from 'lucide-react';
 
 export default function StrategyPage() {
+  const [settings, setSettings] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    api.get('/cms/settings')
+      .then((res) => {
+        if (res.data?.settings) setSettings(res.data.settings);
+      })
+      .catch(() => {});
+  }, []);
+
+  const vars = buildPlatformVariablesFromSettings(settings);
+
   const strategies = [
     {
       title: 'Algorithmic & Quantitative Arbitrage',
@@ -32,7 +46,7 @@ export default function StrategyPage() {
       allocation: '30%',
       riskLevel: 'Low',
       description:
-        'Market-making spreads (typically 1.0% to 1.5%) generated from our physical OTC cash desk in Tbilisi (Freedom Square) and direct institutional bank settlement rails (USD, EUR, GEL, INR). High capital velocity ensures returns are backed by immediate trading volume.',
+        `Market-making commissions (${vars.otc_total_fee} total split: ${vars.otc_broker_fee} Broker + ${vars.otc_platform_fee} Platform) generated from our physical OTC cash desk in Tbilisi (Freedom Square) and direct institutional bank settlement rails (USD, EUR, GEL, INR). High capital velocity ensures returns are backed by immediate trading volume.`,
       metrics: ['Instant Settlement', 'Physical Tbilisi Counter', 'High Daily Velocity'],
     },
     {
@@ -66,7 +80,7 @@ export default function StrategyPage() {
           Diversified Capital Strategy & Disclosures
         </h1>
         <p className="text-slate-600 dark:text-slate-400 text-base leading-relaxed">
-          How Avora Bank funds its 1% monthly target package distributions: our multi-pillar yield model, capital preservation framework, and legal disclosure standards.
+          How Avora Bank funds its {vars.monthly_return} monthly target package distributions: our multi-pillar yield model, capital preservation framework, and legal disclosure standards.
         </p>
       </div>
 
@@ -118,7 +132,7 @@ export default function StrategyPage() {
             <span>Structured Liquidity Architecture</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-black">
-            Why the 6-Month Lock-in and 1st-of-Month Settlement?
+            Why the {vars.lock_in_months}-Month Lock-in and {vars.withdrawal_window_day}-of-Month Settlement?
           </h2>
           <p className="text-slate-300 text-sm leading-relaxed">
             In standard retail platforms, sudden liquidity withdrawals cause cascade liquidations and insolvency. Avora Bank solves this through programmatic capital cycles:
@@ -129,21 +143,21 @@ export default function StrategyPage() {
           <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
             <div className="text-sm font-bold text-emerald-400">Term Stability</div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              The 6-month lock-in guarantees that arbitrage bots and market-making desks have consistent balance sheet depth to capture spreads without premature unwinding.
+              The {vars.lock_in_months}-month lock-in guarantees that arbitrage bots and market-making desks have consistent balance sheet depth to capture spreads without premature unwinding.
             </p>
           </div>
 
           <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
             <div className="text-sm font-bold text-emerald-400">Predictable Yields</div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              1% monthly returns are generated from active desk volume and credited directly into your Avora ledger wallet on the 1st day of each calendar month.
+              {vars.monthly_return} monthly returns are generated from active desk volume and credited directly into your Avora ledger wallet on the {vars.payout_day} day of each calendar month.
             </p>
           </div>
 
           <div className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-            <div className="text-sm font-bold text-emerald-400">15-Day Settlement Window</div>
+            <div className="text-sm font-bold text-emerald-400">{vars.withdrawal_processing_days}-Day Settlement Window</div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Opening withdrawal requests exclusively on the 1st of each month provides our treasury desk a controlled 15-day window to settle bank wires or prepare Tbilisi cash.
+              Opening withdrawal requests on the {vars.withdrawal_window_day} of each month provides our treasury desk a controlled {vars.withdrawal_processing_days}-day window to settle bank wires or prepare Tbilisi cash.
             </p>
           </div>
         </div>

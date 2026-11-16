@@ -723,10 +723,29 @@ function P2PPageContent() {
 
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
 
-  // $50 Merchant Security Deposit State
+  // Dynamic Merchant Security Deposit & Fee State
   const [merchantStatus, setMerchantStatus] = useState<any>(null);
   const [merchantLoading, setMerchantLoading] = useState(false);
   const [merchantMsg, setMerchantMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [p2pPlatformDeposit, setP2pPlatformDeposit] = useState<number>(50);
+  const [p2pPlatformFeePct, setP2pPlatformFeePct] = useState<string>('0.0');
+
+  useEffect(() => {
+    api.get('/cms/settings')
+      .then((res) => {
+        const s = res.data?.settings;
+        if (s?.p2p_security_deposit_usd) {
+          const parsed = parseFloat(s.p2p_security_deposit_usd);
+          if (Number.isFinite(parsed) && parsed >= 0) setP2pPlatformDeposit(parsed);
+        }
+        if (s?.p2p_fee_percent !== undefined) {
+          setP2pPlatformFeePct(s.p2p_fee_percent || '0.0');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const effectiveP2pDeposit = Number(merchantStatus?.depositRequired ?? p2pPlatformDeposit ?? 50);
 
   // Post Ad Form State
   const [newAdSide, setNewAdSide] = useState<'BUY' | 'SELL'>('SELL');
@@ -977,7 +996,7 @@ function P2PPageContent() {
     } catch (err: any) {
       setMerchantMsg({
         type: 'error',
-        text: err.response?.data?.message || 'Failed to activate Merchant status. Ensure you have $50 USD/USDT available balance.',
+        text: err.response?.data?.message || `Failed to activate Merchant status. Ensure you have $${effectiveP2pDeposit} USD/USDT available balance.`,
       });
     } finally {
       setMerchantLoading(false);
@@ -985,7 +1004,7 @@ function P2PPageContent() {
   };
 
   const handleRefundMerchant = async () => {
-    if (!confirm('Are you sure you want to close your P2P Merchant status and refund your $50 deposit?')) return;
+    if (!confirm(`Are you sure you want to close your P2P Merchant status and refund your $${effectiveP2pDeposit} deposit?`)) return;
     setMerchantLoading(true);
     setMerchantMsg(null);
     try {
@@ -1387,7 +1406,7 @@ function P2PPageContent() {
   const handleCreateAd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!merchantStatus?.isP2pMerchant) {
-      setNewAdError('You must become an authorized P2P Member ($50 refundable security deposit) before publishing ads.');
+      setNewAdError(`You must become an authorized P2P Member ($${effectiveP2pDeposit} refundable security deposit) before publishing ads.`);
       navigateTo('member');
       return;
     }
@@ -2738,7 +2757,7 @@ function P2PPageContent() {
                 )}
 
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  To protect counterparties against fraud and non-payment, Avora Bank locks a <strong>100% refundable security deposit of $50.00 USD/USDT</strong>. When you close your merchant membership, this $50 is released immediately back to your available balance.
+                  To protect counterparties against fraud and non-payment, Avora Bank locks a <strong>100% refundable security deposit of ${effectiveP2pDeposit.toFixed(2)} USD/USDT</strong>. When you close your merchant membership, this ${effectiveP2pDeposit} is released immediately back to your available balance.
                 </p>
 
                 <div className="pt-2">
@@ -2749,7 +2768,7 @@ function P2PPageContent() {
                       className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
                     >
                       {merchantLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                      <span>Lock $50 Security Deposit &amp; Become P2P Member</span>
+                      <span>Lock ${effectiveP2pDeposit} Security Deposit &amp; Become P2P Member</span>
                     </button>
                   ) : (
                     <div className="flex flex-col sm:flex-row items-center gap-3">
@@ -2765,7 +2784,7 @@ function P2PPageContent() {
                         disabled={merchantLoading}
                         className="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-400 font-bold text-xs border border-slate-700 transition-all cursor-pointer"
                       >
-                        Close Status &amp; Refund $50
+                        Close Status &amp; Refund ${effectiveP2pDeposit}
                       </button>
                     </div>
                   )}
@@ -2792,7 +2811,7 @@ function P2PPageContent() {
               </div>
               <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">Verified Trust Badge</h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Your listings display the verified $50 Bond badge, unlocking maximum order completion rates from retail traders.
+                Your listings display the verified ${effectiveP2pDeposit} Bond badge, unlocking maximum order completion rates from retail traders.
               </p>
             </div>
 
@@ -2800,9 +2819,9 @@ function P2PPageContent() {
               <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
                 <Sparkles className="w-4 h-4" />
               </div>
-              <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">0% Platform Maker Fee</h4>
+              <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">{parseFloat(p2pPlatformFeePct) || 0}% Platform Maker Fee</h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Avora Bank charges 0% fees on P2P marketplace maker volume. You keep 100% of the bid-ask trading spreads.
+                Avora Bank charges {parseFloat(p2pPlatformFeePct) || 0}% fees on P2P marketplace maker volume. Traders benefit from competitive bid-ask spreads.
               </p>
             </div>
 
@@ -2835,7 +2854,7 @@ function P2PPageContent() {
                 <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
                 <div>
                   <span className="font-bold">P2P Member Status Required:</span>
-                  <p className="mt-0.5">Please lock the $50 refundable security deposit under the "P2P Member" tab before posting advertisements.</p>
+                  <p className="mt-0.5">Please lock the ${effectiveP2pDeposit} refundable security deposit under the "P2P Member" tab before posting advertisements.</p>
                 </div>
               </div>
             )}

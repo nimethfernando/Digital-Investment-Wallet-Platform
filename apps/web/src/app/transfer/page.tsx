@@ -202,6 +202,15 @@ export default function GlobalMoneyTransferPage() {
 
   // Previous Transfers List
   const [myTransfers, setMyTransfers] = useState<any[]>([]);
+  const [cmsSettings, setCmsSettings] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    api.get('/cms/settings')
+      .then((res) => {
+        if (res.data?.settings) setCmsSettings(res.data.settings);
+      })
+      .catch(() => {});
+  }, []);
 
   // Calculate live quote
   const fetchQuote = async () => {
@@ -317,7 +326,7 @@ export default function GlobalMoneyTransferPage() {
           Cross-Border <span className="text-emerald-600 dark:text-emerald-400">Global Remittance</span>
         </h1>
         <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
-          Send funds directly to bank accounts worldwide in local currencies. Guaranteed exchange rates, transparent 3% transfer fee, automated sanctions screening, and delivery within 2 business days.
+          Send funds directly to bank accounts worldwide in local currencies. Guaranteed exchange rates, transparent {quote?.transferFeePct ?? cmsSettings.remittance_fee_percent ?? '3.0'}% transfer fee, automated sanctions screening, and delivery within {cmsSettings.remittance_delivery_days || '2'} business days.
         </p>
       </div>
 
@@ -380,7 +389,7 @@ export default function GlobalMoneyTransferPage() {
                 </label>
                 <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                   <Globe className="w-3.5 h-3.5" />
-                  <span>110+ Countries Supported</span>
+                  <span>{cmsSettings.remittance_countries_count || '110+'} Countries Supported</span>
                 </span>
               </div>
 

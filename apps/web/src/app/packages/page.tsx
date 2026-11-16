@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
+import { buildPlatformVariablesFromSettings } from '../../lib/blog-data';
 import {
   Coins,
   ShieldCheck,
@@ -39,24 +40,88 @@ export default function PackagesPage() {
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [isDepositModalOpen, setIsDepositModalOpen] = useState<boolean>(false);
   const [createdPackageCode, setCreatedPackageCode] = useState<string | null>(null);
+  const [pkgConfig, setPkgConfig] = useState<{
+    minAmount: number;
+    maxAmount: number;
+    monthlyReturnRate: number;
+    lockInMonths: number;
+    payoutDayOfMonth: number;
+    availableTerms: Array<{ months: number; monthlyRate: number; aprLabel: string; name: string }>;
+  }>({
+    minAmount: 1000,
+    maxAmount: 10000,
+    monthlyReturnRate: 0.01,
+    lockInMonths: 6,
+    payoutDayOfMonth: 1,
+    availableTerms: [
+      { months: 3, monthlyRate: 0.008, aprLabel: '9.6% APR', name: '3 Months (Quarterly)' },
+      { months: 6, monthlyRate: 0.01, aprLabel: '12.0% APR', name: '6 Months (Classic)' },
+      { months: 12, monthlyRate: 0.0125, aprLabel: '15.0% APR', name: '12 Months (Annual Maximizer)' },
+    ],
+  });
+  const [cmsSettings, setCmsSettings] = useState<Record<string, string>>({});
 
-  const terms = [
-    { months: 3, label: '3 Months', sublabel: 'Quarterly', rate: 0.008, apr: '9.6% APR' },
-    { months: 6, label: '6 Months', sublabel: 'Classic (Recommended)', rate: 0.010, apr: '12.0% APR' },
-    { months: 12, label: '12 Months', sublabel: 'Annual Maximizer', rate: 0.0125, apr: '15.0% APR' },
-  ];
+  useEffect(() => {
+    api.get('/packages/tiers')
+      .then((res) => {
+        if (res.data?.success && res.data?.data) {
+          const d = res.data.data;
+          setPkgConfig((prev) => ({
+            ...prev,
+            minAmount: Number(d.minAmount) || 1000,
+            maxAmount: Number(d.maxAmount) || 10000,
+            monthlyReturnRate: Number(d.monthlyReturnRate) || 0.01,
+            lockInMonths: Number(d.lockInMonths) || 6,
+            payoutDayOfMonth: Number(d.payoutDayOfMonth) || 1,
+            availableTerms: Array.isArray(d.availableTerms) && d.availableTerms.length > 0 ? d.availableTerms : prev.availableTerms,
+          }));
+          if (d.lockInMonths) setSelectedTerm(Number(d.lockInMonths));
+        }
+      })
+      .catch(() => {});
 
-  const currentTermObj = terms.find((t) => t.months === selectedTerm) || terms[1];
+    api.get('/cms/settings')
+      .then((res) => {
+        if (res.data?.settings) setCmsSettings(res.data.settings);
+      })
+      .catch(() => {});
+  }, []);
+
+  const vars = buildPlatformVariablesFromSettings(cmsSettings);
+  const terms = pkgConfig.availableTerms.map((t) => ({
+    months: t.months,
+    label: `${t.months} Months`,
+    sublabel: t.name,
+    rate: t.monthlyRate,
+    apr: t.aprLabel,
+  }));
+
+  const currentTermObj = terms.find((t) => t.months === selectedTerm) || terms[1] || terms[0];
+  const minPkg = pkgConfig.minAmount;
+  const maxPkg = pkgConfig.maxAmount;
+  const effectiveSelectedAmount = Math.min(Math.max(selectedAmount, minPkg), maxPkg);
   const monthlyRate = currentTermObj.rate;
-  const monthlyEst = selectedAmount * monthlyRate;
+  const monthlyEst = effectiveSelectedAmount * monthlyRate;
   const totalReturnsEst = monthlyEst * selectedTerm;
-  const totalMaturity = selectedAmount + totalReturnsEst;
+  const totalMaturity = effectiveSelectedAmount + totalReturnsEst;
+
+  const t1Max = Math.round(minPkg + (maxPkg - minPkg) * 0.2);
+  const t2Min = Math.round(minPkg + (maxPkg - minPkg) * 0.25);
+  const t2Max = Math.round(minPkg + (maxPkg - minPkg) * 0.65);
+  const t3Min = Math.round(minPkg + (maxPkg - minPkg) * 0.72);
 
   const tiers = [
-    { title: 'Core Package', min: 1000, max: 2500, desc: 'Entry-level digital capital allocation with monthly distributions.' },
-    { title: 'Growth Package', min: 3000, max: 7000, desc: 'Balanced medium allocation with predictable monthly target credits.' },
-    { title: 'Prime Package', min: 7500, max: 10000, desc: 'Maximum single package size with VIP counter settlement priority.' },
+    { title: 'Core Package', min: minPkg, max: t1Max, desc: 'Entry-level digital capital allocation with monthly distributions.' },
+    { title: 'Growth Package', min: t2Min, max: t2Max, desc: 'Balanced medium allocation with predictable monthly target credits.' },
+    { title: 'Prime Package', min: t3Min, max: maxPkg, desc: 'Maximum single package size with VIP counter settlement priority.' },
   ];
+
+  const rzpCommPct = Math.max(0, parseFloat(cmsSettings.razorpay_commission_percent || '5.0') || 5.0);
+  const rzpGatewayPct = Math.max(0, parseFloat(cmsSettings.razorpay_gateway_fee_percent || '3.0') || 3.0);
+  const rzpSpreadPct = Math.max(0, Number((rzpCommPct - rzpGatewayPct).toFixed(2)));
+  const presetAmounts = Array.from(
+    new Set([minPkg, t1Max, Math.round((minPkg + maxPkg) / 2), t3Min, maxPkg])
+  ).sort((a, b) => a - b);
 
   const handlePurchase = async () => {
     if (!user) {
@@ -73,7 +138,7 @@ export default function PackagesPage() {
 
     try {
       const res = await api.post('/packages/purchase', {
-        amount: selectedAmount,
+        amount: effectiveSelectedAmount,
         depositMethod,
         lockInMonths: selectedTerm,
       });
@@ -112,7 +177,7 @@ export default function PackagesPage() {
           Avora Fixed Deposit Packages
         </h1>
         <p className="text-slate-600 dark:text-slate-400 text-base leading-relaxed">
-          Predictable capital deployment with flexible terms (3, 6, or 12 months) and guaranteed double-entry ledger settlement on the 1st of every month.
+          Predictable capital deployment with flexible terms and guaranteed double-entry ledger settlement on the {vars.payout_day} of every month.
         </p>
       </div>
 
@@ -180,7 +245,7 @@ export default function PackagesPage() {
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Credited 1st of each month via double-entry ledger</span>
+                <span>Credited {vars.payout_day} of each month via double-entry ledger</span>
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -210,7 +275,7 @@ export default function PackagesPage() {
             </span>
           </div>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Choose your package amount from $1,000 to $10,000 USD. You can hold multiple packages simultaneously.
+            Choose your package amount from ${minPkg.toLocaleString()} to ${maxPkg.toLocaleString()} USD. You can hold multiple packages simultaneously.
           </p>
         </div>
 
@@ -219,27 +284,27 @@ export default function PackagesPage() {
           <div className="flex justify-between items-center">
             <span className="text-xs uppercase font-bold text-slate-500">Package Value</span>
             <span className="font-mono text-3xl font-black text-emerald-600 dark:text-emerald-400">
-              ${selectedAmount.toLocaleString()} USD
+              ${effectiveSelectedAmount.toLocaleString()} USD
             </span>
           </div>
 
           <input
             type="range"
-            min="1000"
-            max="10000"
+            min={minPkg}
+            max={maxPkg}
             step="500"
-            value={selectedAmount}
+            value={effectiveSelectedAmount}
             onChange={(e) => setSelectedAmount(Number(e.target.value))}
             className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-600"
           />
 
           <div className="flex flex-wrap gap-2 pt-1">
-            {[1000, 2500, 5000, 7500, 10000].map((amt) => (
+            {presetAmounts.map((amt) => (
               <button
                 key={amt}
                 onClick={() => setSelectedAmount(amt)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-colors ${
-                  selectedAmount === amt
+                  effectiveSelectedAmount === amt
                     ? 'bg-emerald-600 text-white'
                     : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
                 }`}
@@ -310,7 +375,9 @@ export default function PackagesPage() {
                 <CreditCard className="w-4 h-4 text-blue-600" />
                 <span className="text-xs font-bold text-slate-900 dark:text-white">Razorpay (Card / UPI)</span>
               </div>
-              <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">5.0% Fee (3% RZP + 2% Avora)</span>
+              <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">
+                {rzpCommPct.toFixed(1)}% Fee ({rzpGatewayPct.toFixed(1)}% RZP + {rzpSpreadPct.toFixed(1)}% Avora)
+              </span>
             </button>
 
             <button
@@ -349,11 +416,13 @@ export default function PackagesPage() {
           {depositMethod === 'RAZORPAY' && (
             <div className="p-3.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-500/25 text-xs text-slate-700 dark:text-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <span className="font-bold text-blue-700 dark:text-blue-300">Razorpay 5.0% Commission Breakdown: </span>
-                <span>3.0% Razorpay Gateway Fee (${(selectedAmount * 0.03).toFixed(2)}) + 2.0% Avora Margin (${(selectedAmount * 0.02).toFixed(2)}) = +${(selectedAmount * 0.05).toFixed(2)} USD</span>
+                <span className="font-bold text-blue-700 dark:text-blue-300">Razorpay {rzpCommPct.toFixed(1)}% Commission Breakdown: </span>
+                <span>
+                  {rzpGatewayPct.toFixed(1)}% Razorpay Gateway Fee (${((effectiveSelectedAmount * rzpGatewayPct) / 100).toFixed(2)}) + {rzpSpreadPct.toFixed(1)}% Avora Margin (${((effectiveSelectedAmount * rzpSpreadPct) / 100).toFixed(2)}) = +${((effectiveSelectedAmount * rzpCommPct) / 100).toFixed(2)} USD
+                </span>
               </div>
               <span className="font-mono font-bold text-blue-700 dark:text-blue-300 shrink-0">
-                Total Payable: ${(selectedAmount * 1.05).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                Total Payable: ${(effectiveSelectedAmount * (1 + rzpCommPct / 100)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </span>
             </div>
           )}
@@ -365,7 +434,7 @@ export default function PackagesPage() {
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
               <span className="font-bold">Required Risk Notice: </span>
-              All returns stated are proposed and target performance benchmarks, subject to digital market risks and platform terms. Capital is locked for a strict term of {selectedTerm} calendar months. Monthly returns are credited on the 1st of each month.
+              All returns stated are proposed and target performance benchmarks, subject to digital market risks and platform terms. Capital is locked for a strict term of {selectedTerm} calendar months. Monthly returns are credited on the {vars.payout_day} of each month.
             </div>
           </div>
 
@@ -425,7 +494,7 @@ export default function PackagesPage() {
               </>
             ) : (
               <>
-                Confirm & Activate {selectedTerm}-Month FD Package (${selectedAmount.toLocaleString()} USD)
+                Confirm & Activate {selectedTerm}-Month FD Package (${effectiveSelectedAmount.toLocaleString()} USD)
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
@@ -450,7 +519,7 @@ export default function PackagesPage() {
       <DepositModal
         isOpen={isDepositModalOpen}
         onClose={() => setIsDepositModalOpen(false)}
-        initialAmount={selectedAmount}
+        initialAmount={effectiveSelectedAmount}
         initialRail={depositMethod === 'BANK_WIRE' ? 'BANK_WIRE' : depositMethod === 'RAZORPAY' ? 'RAZORPAY' : 'USDT'}
         initialNetwork="TRC20"
         intendedPackageCode={createdPackageCode || undefined}

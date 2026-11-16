@@ -30,8 +30,28 @@ export const subscribeNewsletter = async (req: Request, res: Response, next: Nex
 
 export const getSettings = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const settings = await cmsService.getPublicSettings();
-    res.json({ success: true, settings });
+    const [settings, variables] = await Promise.all([
+      cmsService.getPublicSettings(),
+      cmsService.getPlatformTemplateVars(),
+    ]);
+    res.json({ success: true, settings, variables });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getPlatformVariables = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const [variables, settings] = await Promise.all([
+      cmsService.getPlatformTemplateVars(),
+      cmsService.getPublicSettings(),
+    ]);
+    res.json({
+      success: true,
+      variables,
+      catalog: cmsService.getBlogTemplateTokensCatalog(),
+      settings,
+    });
   } catch (err) {
     next(err);
   }
@@ -137,7 +157,8 @@ export const getBlogPost = async (req: Request, res: Response, next: NextFunctio
   try {
     const slug = req.params.slug as string;
     const includeDrafts = req.query.preview === 'true';
-    let blog = await cmsService.getBlogPostBySlug(slug, includeDrafts);
+    const raw = req.query.raw === 'true';
+    let blog = await cmsService.getBlogPostBySlug(slug, includeDrafts, raw);
     if (!blog) return res.status(404).json({ success: false, message: 'Blog post not found' });
 
     // Stale auto-refresh if auto-tracked and last sync was > 30 mins ago (keeps continuous news fresh even on serverless)
@@ -298,14 +319,34 @@ export const deleteAdminBlogPost = async (req: Request, res: Response, next: Nex
 export const seedDefaultBlogPostsAdmin = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const restoredCount = await cmsService.ensureDefaultBlogPosts(true);
+    const updatedTokensCount = await cmsService.migrateSeededArticlesToDynamicTokens(true);
     const blogs = await cmsService.getBlogPosts(true);
     res.json({
       success: true,
       restoredCount,
+      updatedTokensCount,
       message:
-        restoredCount > 0
-          ? `Restored ${restoredCount} default institutional research paper(s).`
-          : 'All default institutional research papers are already present.',
+        restoredCount > 0 || updatedTokensCount > 0
+          ? `Restored ${restoredCount} default paper(s) & synced ${updatedTokensCount} paper(s) with live rate tokens.`
+          : 'All default institutional research papers are present and synced.',
+      blogs,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const syncBlogTokensAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const updatedTokensCount = await cmsService.migrateSeededArticlesToDynamicTokens(true);
+    const blogs = await cmsService.getBlogPosts(true);
+    res.json({
+      success: true,
+      updatedTokensCount,
+      message:
+        updatedTokensCount > 0
+          ? `Converted ${updatedTokensCount} article(s) to live dynamic rate tokens.`
+          : 'All default articles are already using live dynamic rate tokens.',
       blogs,
     });
   } catch (err) {

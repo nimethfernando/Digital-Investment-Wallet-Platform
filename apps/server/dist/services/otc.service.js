@@ -443,7 +443,11 @@ class OtcService {
         if (user.otcDesk && user.otcDesk.status !== 'CLOSED') {
             throw new Error('You already have an active or pending OTC desk registered.');
         }
-        const DEPOSIT_REQUIRED = new decimal_js_1.default('1000.00');
+        const depositSetting = await prisma_1.prisma.cmsSetting
+            .findUnique({ where: { key: 'otc_security_deposit_usd' } })
+            .catch(() => null);
+        const depositNum = parseFloat(depositSetting?.value || '1000.00');
+        const DEPOSIT_REQUIRED = new decimal_js_1.default(Number.isFinite(depositNum) && depositNum >= 0 ? depositNum : 1000);
         const wallet = await ledger_service_1.ledgerService.ensureWallet(userId);
         const deskCode = `OTC-${(data.countryCode || 'INT').toUpperCase()}-${Date.now().toString().slice(-4)}`;
         const txCode = `OTCD-${Date.now().toString().slice(-6)}`;
@@ -471,7 +475,7 @@ class OtcService {
                 currentAvail = usdtAvail;
             }
             else {
-                throw new Error(`Insufficient funds. An OTC Desk operator requires a security deposit of $1,000.00 USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`);
+                throw new Error(`Insufficient funds. An OTC Desk operator requires a security deposit of $${DEPOSIT_REQUIRED.toFixed(2)} USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`);
             }
             const newAvail = currentAvail.minus(DEPOSIT_REQUIRED);
             await tx.walletBalance.update({
@@ -494,7 +498,7 @@ class OtcService {
                     status: client_1.TransactionStatus.COMPLETED,
                     balanceBefore: currentAvail.toFixed(8),
                     balanceAfter: newAvail.toFixed(8),
-                    notes: `Security deposit of $1,000 locked for OTC Desk (${data.deskName} - ${data.city}, ${data.country})`,
+                    notes: `Security deposit of $${DEPOSIT_REQUIRED.toFixed(2)} locked for OTC Desk (${data.deskName} - ${data.city}, ${data.country})`,
                     settlementReference: deskCode,
                 },
             });

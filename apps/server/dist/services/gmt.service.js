@@ -242,10 +242,11 @@ class GlobalMoneyTransferService {
         const fromPerUsd = live.rates[fromCur] || 1.0;
         const toPerUsd = live.rates[toCur] || 1.0;
         const refRate = new decimal_js_1.default(toPerUsd).dividedBy(new decimal_js_1.default(fromPerUsd));
-        // Dynamic Admin Exchange Rate Margin & Platform Fee from database (No-loss protection)
-        const [marginSetting, feeSetting] = await Promise.all([
+        // Dynamic Admin Exchange Rate Margin, Platform Fee & Delivery Window from database
+        const [marginSetting, feeSetting, deliverySetting] = await Promise.all([
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
+            prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'remittance_delivery_days' } }).catch(() => null),
         ]);
         // Admin Exchange Rate Adjustment (reduction to recipient currency rate so bank never incurs forex loss)
         const rateAdjustmentPct = new decimal_js_1.default(marginSetting?.value || '2.00');
@@ -257,9 +258,10 @@ class GlobalMoneyTransferService {
         const totalPaidAmount = sendAmtDec.plus(transferFeeAmount);
         // Recipient receives
         const recipientAmount = sendAmtDec.times(effectiveRate);
-        // Estimated delivery: Up to 2 business days
+        // Estimated delivery window
+        const deliveryDaysNum = Math.max(1, parseInt(deliverySetting?.value || '2', 10) || 2);
         const deliveryDate = new Date();
-        deliveryDate.setDate(deliveryDate.getDate() + 2);
+        deliveryDate.setDate(deliveryDate.getDate() + deliveryDaysNum);
         return {
             sendingAmount: sendAmtDec.toFixed(2),
             sendingCurrency: fromCur,
@@ -274,7 +276,7 @@ class GlobalMoneyTransferService {
             totalPaidAmount: totalPaidAmount.toFixed(2),
             rateSource: live.source,
             rateLastUpdated: live.lastUpdated,
-            estimatedDeliveryWindow: 'Up to 2 business days',
+            estimatedDeliveryWindow: `Up to ${deliveryDaysNum} business day${deliveryDaysNum === 1 ? '' : 's'}`,
             estimatedDeliveryDate: deliveryDate.toISOString(),
             quoteValidSeconds: 120,
         };

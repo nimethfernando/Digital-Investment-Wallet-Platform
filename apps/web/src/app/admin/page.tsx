@@ -131,6 +131,7 @@ export default function AdminPortalPage() {
     package_lock_in_months: '6',
     package_min_amount: '1000',
     package_max_amount: '10000',
+    package_early_exit_penalty_pct: '5.00',
     payout_day_of_month: '1',
     withdrawal_processing_days: '15',
     withdrawal_window_day: '1',
@@ -140,14 +141,21 @@ export default function AdminPortalPage() {
     razorpay_key_secret: '',
     remittance_fee_percent: '3.0',
     remittance_margin_percent: '2.0',
+    remittance_corridors_count: '7',
+    remittance_countries_count: '110+',
+    remittance_delivery_days: '2',
     startup_allocation_fee_percent: '5.0',
     startup_profit_share_percent: '5.0',
+    startup_min_investment_usd: '250',
     otc_spread_percent: '1.0',
     otc_operator_fee_percent: '1.5',
     otc_platform_fee_percent: '0.5',
+    otc_security_deposit_usd: '1000',
     withdrawal_fee_percent: '0.0',
     withdrawal_fx_spread_percent: '0.0',
     p2p_fee_percent: '0.0',
+    p2p_security_deposit_usd: '50',
+    p2p_daily_limit_usd: '5000',
     virtual_card_issuance_fee: '10.00',
   });
   const [configLoading, setConfigLoading] = useState(false);
@@ -298,6 +306,14 @@ export default function AdminPortalPage() {
           }
         })
         .catch((err) => console.error('Initial analytics preload error:', err));
+
+      api.get('/admin/settings/config')
+        .then((res) => {
+          if (res.data?.success && res.data?.data) {
+            setPlatformConfig((prev) => ({ ...prev, ...res.data.data }));
+          }
+        })
+        .catch(() => {});
     }
   }, [token, isAdmin]);
 
@@ -1759,6 +1775,7 @@ export default function AdminPortalPage() {
             analytics={overviewAnalytics}
             commandCenter={commandCenterSummary}
             ledgerReconciliation={ledgerReconciliation}
+            corridorsCount={platformConfig.remittance_corridors_count || '7'}
             onNavigateTab={(tab) => {
               setActiveTab(tab as any);
             }}
@@ -2327,7 +2344,15 @@ export default function AdminPortalPage() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('content')}
+                  className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Articles &amp; Research CMS</span>
+                </button>
                 <button
                   type="button"
                   onClick={loadData}
@@ -2385,7 +2410,9 @@ export default function AdminPortalPage() {
                         />
                         <span className="absolute right-3 top-2 text-xs text-slate-500">% / month</span>
                       </div>
-                      <p className="text-[10px] text-slate-500">Currently 1.00% monthly (Annualized 12.00% APR)</p>
+                      <p className="text-[10px] text-slate-500">
+                        Currently {(parseFloat(platformConfig.package_monthly_return_rate || '0.01') * 100).toFixed(2)}% monthly (Annualized {(parseFloat(platformConfig.package_monthly_return_rate || '0.01') * 1200).toFixed(2)}% APR)
+                      </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -2443,17 +2470,150 @@ export default function AdminPortalPage() {
                       </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
-                        Withdrawal Processing Queue (Days)
-                      </label>
-                      <input
-                        type="number"
-                        value={platformConfig.withdrawal_processing_days || '15'}
-                        onChange={(e) => setPlatformConfig({ ...platformConfig, withdrawal_processing_days: e.target.value })}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
-                      />
-                      <p className="text-[10px] text-slate-500">Maturity queue duration before settlement release</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                          Withdrawal Processing Queue (Days)
+                        </label>
+                        <input
+                          type="number"
+                          value={platformConfig.withdrawal_processing_days || '15'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, withdrawal_processing_days: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                          Withdrawal Window Day (1-28)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="28"
+                          value={platformConfig.withdrawal_window_day || '1'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, withdrawal_window_day: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                          Early Exit Penalty (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={platformConfig.package_early_exit_penalty_pct || '5.00'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, package_early_exit_penalty_pct: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                          Startup Min Investment ($)
+                        </label>
+                        <input
+                          type="number"
+                          step="10"
+                          value={platformConfig.startup_min_investment_usd || '250'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, startup_min_investment_usd: e.target.value })}
+                          className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Remittance Corridors & Countries Reach */}
+                    <div className="p-4 rounded-2xl bg-slate-950/90 border border-cyan-500/30 space-y-3">
+                      <span className="text-[11px] font-black uppercase font-mono text-cyan-400 block">
+                        Global Remittance Corridors &amp; Delivery Reach
+                      </span>
+                      <div className="grid grid-cols-3 gap-2.5">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            Corridors Count
+                          </label>
+                          <input
+                            type="text"
+                            value={platformConfig.remittance_corridors_count || '7'}
+                            onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_corridors_count: e.target.value })}
+                            placeholder="7"
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            Countries Label
+                          </label>
+                          <input
+                            type="text"
+                            value={platformConfig.remittance_countries_count || '110+'}
+                            onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_countries_count: e.target.value })}
+                            placeholder="110+"
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            Delivery (Days)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={platformConfig.remittance_delivery_days || '2'}
+                            onChange={(e) => setPlatformConfig({ ...platformConfig, remittance_delivery_days: e.target.value })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* OTC & P2P Security Bonds & Limits */}
+                    <div className="p-4 rounded-2xl bg-slate-950/90 border border-indigo-500/30 space-y-3">
+                      <span className="text-[11px] font-black uppercase font-mono text-indigo-400 block">
+                        OTC &amp; P2P Security Bonds &amp; Transfer Limits
+                      </span>
+                      <div className="grid grid-cols-3 gap-2.5">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            OTC Deposit ($)
+                          </label>
+                          <input
+                            type="number"
+                            step="50"
+                            value={platformConfig.otc_security_deposit_usd || '1000'}
+                            onChange={(e) => setPlatformConfig({ ...platformConfig, otc_security_deposit_usd: e.target.value })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            P2P Deposit ($)
+                          </label>
+                          <input
+                            type="number"
+                            step="10"
+                            value={platformConfig.p2p_security_deposit_usd || '50'}
+                            onChange={(e) => setPlatformConfig({ ...platformConfig, p2p_security_deposit_usd: e.target.value })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            P2P 24h Limit ($)
+                          </label>
+                          <input
+                            type="number"
+                            step="100"
+                            value={platformConfig.p2p_daily_limit_usd || '5000'}
+                            onChange={(e) => setPlatformConfig({ ...platformConfig, p2p_daily_limit_usd: e.target.value })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -4850,6 +5010,7 @@ export default function AdminPortalPage() {
         {activeTab === 'content' && (
           <AutoContentPublisher
             onFeedback={(text, type) => setFeedback({ text, type })}
+            onOpenRatesConfig={() => setActiveTab('config')}
           />
         )}
 
@@ -5571,7 +5732,7 @@ export default function AdminPortalPage() {
               <div className="font-bold text-white text-sm">{selectedListing.companyName}</div>
               <div className="text-slate-400">Total Funds Raised: <span className="font-mono text-white font-bold">${parseFloat(selectedListing.verifiedFundsRaised || '0').toLocaleString()} USD</span></div>
               <div className="text-emerald-400 text-[11px] font-bold">
-                * Note: Principal is returned 100% fee-free. Avora Bank deducts 5% profit-share fee strictly from net profits.
+                * Note: Principal is returned 100% fee-free. Avora Bank deducts {platformConfig.startup_profit_share_percent || '5.0'}% profit-share fee strictly from net profits.
               </div>
             </div>
 

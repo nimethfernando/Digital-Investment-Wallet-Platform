@@ -3,7 +3,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { api, extractErrorMessage, resolveMediaUrl } from '../../../lib/api';
-import { formatBlogDate } from '../../../lib/blog-data';
+import {
+  formatBlogDate,
+  buildPlatformVariablesFromSettings,
+  interpolatePlatformTokens,
+} from '../../../lib/blog-data';
 import {
   Sparkles,
   Rocket,
@@ -33,6 +37,7 @@ import {
   ChevronDown,
   ChevronUp,
   RotateCcw,
+  Sliders,
 } from 'lucide-react';
 
 interface AdminBlogItem {
@@ -142,8 +147,10 @@ function toDateInputValue(dateStr?: string | null): string {
 
 export default function AutoContentPublisher({
   onFeedback,
+  onOpenRatesConfig,
 }: {
   onFeedback?: (msg: string, type: 'success' | 'error') => void;
+  onOpenRatesConfig?: () => void;
 }) {
   // Articles List & Filter State
   const [posts, setPosts] = useState<AdminBlogItem[]>([]);
@@ -152,6 +159,18 @@ export default function AutoContentPublisher({
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PUBLISHED' | 'DRAFT' | 'FEATURED'>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [restoringDefaults, setRestoringDefaults] = useState(false);
+
+  // Live Platform Variables for Dynamic Blog Tokens
+  const [liveVars, setLiveVars] = useState<Record<string, string>>(() =>
+    buildPlatformVariablesFromSettings()
+  );
+  const [tokenCatalog, setTokenCatalog] = useState<
+    Array<{ token: string; key: string; label: string; group: string }>
+  >([]);
+  const [activeEditorField, setActiveEditorField] = useState<
+    'title' | 'summary' | 'takeaways' | 'content'
+  >('content');
+  const [showTokenPicker, setShowTokenPicker] = useState(true);
 
   // Article Create / Edit Modal State
   const [editorOpen, setEditorOpen] = useState(false);
@@ -199,9 +218,10 @@ export default function AutoContentPublisher({
   const loadPostsAndStatus = async () => {
     setLoadingPosts(true);
     try {
-      const [blogsRes, aiRes] = await Promise.all([
+      const [blogsRes, aiRes, varsRes] = await Promise.all([
         api.get('/cms/admin/blogs'),
         api.get('/cms/admin/ai-config'),
+        api.get('/cms/variables').catch(() => ({ data: null })),
       ]);
       if (Array.isArray(blogsRes.data?.blogs)) {
         setPosts(blogsRes.data.blogs);
@@ -209,10 +229,28 @@ export default function AutoContentPublisher({
       if (aiRes.data?.status) {
         setAiStatus(aiRes.data.status);
       }
+      if (varsRes.data?.variables) {
+        setLiveVars(varsRes.data.variables);
+      }
+      if (Array.isArray(varsRes.data?.catalog)) {
+        setTokenCatalog(varsRes.data.catalog);
+      }
     } catch {
       // ignore initial load hiccup
     } finally {
       setLoadingPosts(false);
+    }
+  };
+
+  const insertTokenIntoActiveField = (token: string) => {
+    if (activeEditorField === 'title') {
+      setFormTitle((prev) => `${prev}${prev && !prev.endsWith(' ') ? ' ' : ''}${token}`);
+    } else if (activeEditorField === 'summary') {
+      setFormSummary((prev) => `${prev}${prev && !prev.endsWith(' ') ? ' ' : ''}${token}`);
+    } else if (activeEditorField === 'takeaways') {
+      setFormKeyTakeaways((prev) => `${prev}${prev && !prev.endsWith(' ') && !prev.endsWith('\n') ? ' ' : ''}${token}`);
+    } else {
+      setFormContent((prev) => `${prev}${prev && !prev.endsWith(' ') && !prev.endsWith('\n') ? ' ' : ''}${token}`);
     }
   };
 
@@ -541,6 +579,17 @@ export default function AutoContentPublisher({
               <Plus className="w-4 h-4" />
               <span>+ Create New Article</span>
             </button>
+
+            {onOpenRatesConfig && (
+              <button
+                type="button"
+                onClick={onOpenRatesConfig}
+                className="px-4 py-3 rounded-2xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Sliders className="w-3.5 h-3.5 text-rose-400" />
+                <span>Platform Rates &amp; Fees Settings</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -956,14 +1005,20 @@ export default function AutoContentPublisher({
 
                       {/* Title */}
                       <h4 className="text-sm sm:text-base font-bold text-white leading-snug">
-                        {p.title}
+                        {interpolatePlatformTokens(p.title, liveVars)}
                       </h4>
 
                       {/* Excerpt */}
                       {p.summary && (
                         <p className="text-xs text-slate-400 line-clamp-2">
-                          {p.summary}
+                          {interpolatePlatformTokens(p.summary, liveVars)}
                         </p>
+                      )}
+
+                      {(p.title.includes('{{') || p.summary.includes('{{') || p.content.includes('{{')) && (
+                        <div className="text-[10px] font-mono text-cyan-400">
+                          Synced with Live Platform Rate Variables
+                        </div>
                       )}
 
                       {/* Tags & Slug */}
@@ -1137,12 +1192,12 @@ export default function AutoContentPublisher({
                 </div>
 
                 <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight">
-                  {formTitle || 'Untitled Research Article'}
+                  {interpolatePlatformTokens(formTitle || 'Untitled Research Article', liveVars)}
                 </h1>
 
                 {formSummary && (
                   <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
-                    {formSummary}
+                    {interpolatePlatformTokens(formSummary, liveVars)}
                   </p>
                 )}
 
@@ -1174,7 +1229,7 @@ export default function AutoContentPublisher({
                     <ul className="space-y-1.5 text-xs text-slate-200">
                       {formKeyTakeaways
                         .split(/\r?\n/)
-                        .map((l) => l.replace(/^[-*•]\s*/, '').trim())
+                        .map((l) => interpolatePlatformTokens(l.replace(/^[-*•]\s*/, '').trim(), liveVars))
                         .filter(Boolean)
                         .map((pt, idx) => (
                           <li key={idx} className="flex items-start gap-2">
@@ -1187,7 +1242,7 @@ export default function AutoContentPublisher({
                 )}
 
                 <div className="space-y-4 text-sm text-slate-200 leading-relaxed">
-                  {formContent
+                  {interpolatePlatformTokens(formContent, liveVars)
                     .split(/\n\s*\n/)
                     .map((b) => b.trim())
                     .filter(Boolean)
@@ -1235,6 +1290,7 @@ export default function AutoContentPublisher({
                       type="text"
                       required
                       value={formTitle}
+                      onFocus={() => setActiveEditorField('title')}
                       onChange={(e) => {
                         const val = e.target.value;
                         setFormTitle(val);
@@ -1429,6 +1485,7 @@ export default function AutoContentPublisher({
                     rows={2}
                     required
                     value={formSummary}
+                    onFocus={() => setActiveEditorField('summary')}
                     onChange={(e) => setFormSummary(e.target.value)}
                     placeholder="Short 1-2 sentence executive summary displayed on article cards and underneath the headline..."
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 focus:border-emerald-500 text-white outline-none leading-relaxed"
@@ -1443,12 +1500,71 @@ export default function AutoContentPublisher({
                   <textarea
                     rows={3}
                     value={formKeyTakeaways}
+                    onFocus={() => setActiveEditorField('takeaways')}
                     onChange={(e) => setFormKeyTakeaways(e.target.value)}
                     placeholder={
                       'Every transaction generates balanced debit and credit journal entries.\nBalances record before-and-after snapshots with cryptographic idempotency keys.'
                     }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 focus:border-emerald-500 text-white outline-none leading-relaxed"
                   />
+                </div>
+
+                {/* Live Platform Variables Helper Bar */}
+                <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-cyan-500/30 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-cyan-400">
+                        Insert Live Platform Rate Variable (Auto-Updates When Admin Settings Change)
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Click a variable below to append it to your{' '}
+                        <strong className="text-white uppercase">{activeEditorField}</strong> field. Example:{' '}
+                        <code className="text-emerald-400">{'{{fx_margin}}'}</code> currently renders as{' '}
+                        <strong className="text-emerald-300">{liveVars.fx_margin || '2%'}</strong>.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowTokenPicker((v) => !v)}
+                      className="text-[10px] font-bold text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      {showTokenPicker ? 'Collapse Variables' : 'Show Variables'}
+                    </button>
+                  </div>
+
+                  {showTokenPicker && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {(tokenCatalog.length > 0
+                        ? tokenCatalog
+                        : [
+                            { token: '{{fx_margin}}', key: 'fx_margin', label: 'FX Margin', group: 'Remittance' },
+                            { token: '{{transfer_fee}}', key: 'transfer_fee', label: 'Transfer Fee', group: 'Remittance' },
+                            { token: '{{corridors_count}}', key: 'corridors_count', label: 'Corridors', group: 'Remittance' },
+                            { token: '{{fee_model_slash}}', key: 'fee_model_slash', label: 'Startup Split', group: 'Venture' },
+                            { token: '{{allocation_fee}}', key: 'allocation_fee', label: 'Allocation Fee', group: 'Venture' },
+                            { token: '{{profit_share_fee}}', key: 'profit_share_fee', label: 'Profit Share', group: 'Venture' },
+                            { token: '{{monthly_return_decimal}}', key: 'monthly_return_decimal', label: 'FD Yield', group: 'FD' },
+                            { token: '{{lock_in_months}}', key: 'lock_in_months', label: 'Lock Months', group: 'FD' },
+                            { token: '{{package_min}}', key: 'package_min', label: 'Min Package', group: 'FD' },
+                            { token: '{{package_max}}', key: 'package_max', label: 'Max Package', group: 'FD' },
+                            { token: '{{otc_total_fee}}', key: 'otc_total_fee', label: 'OTC Fee', group: 'OTC' },
+                            { token: '{{otc_deposit}}', key: 'otc_deposit', label: 'OTC Deposit', group: 'OTC' },
+                            { token: '{{p2p_deposit}}', key: 'p2p_deposit', label: 'P2P Deposit', group: 'P2P' },
+                          ]
+                      ).map((item) => (
+                        <button
+                          key={item.token}
+                          type="button"
+                          onClick={() => insertTokenIntoActiveField(item.token)}
+                          title={`${item.label} (${item.group}) -> Current live value: ${liveVars[item.key] || ''}`}
+                          className="px-2 py-1 rounded-lg bg-slate-950 hover:bg-cyan-500/15 border border-slate-800 hover:border-cyan-500/40 text-[10px] font-mono text-slate-300 hover:text-cyan-300 cursor-pointer flex items-center gap-1 transition-colors"
+                        >
+                          <span className="font-bold text-cyan-400">{item.token}</span>
+                          <span className="text-slate-500">({liveVars[item.key] || '—'})</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Main Article Body Copy */}
@@ -1478,6 +1594,7 @@ export default function AutoContentPublisher({
                     rows={12}
                     required
                     value={formContent}
+                    onFocus={() => setActiveEditorField('content')}
                     onChange={(e) => setFormContent(e.target.value)}
                     placeholder={
                       'Write or paste your full article body copy here...\n\n## Architectural Overview\nSeparate paragraphs with a blank line to format clean institutional sections.'

@@ -164,6 +164,141 @@ export const BLOG_POSTS_DATA: BlogPostItem[] = [
   },
 ];
 
+export const DEFAULT_PUBLIC_PLATFORM_SETTINGS: Record<string, string> = {
+  package_monthly_return_rate: '0.0100',
+  package_lock_in_months: '6',
+  package_min_amount: '1000',
+  package_max_amount: '10000',
+  package_early_exit_penalty_pct: '5.00',
+  payout_day_of_month: '1',
+  withdrawal_processing_days: '15',
+  withdrawal_window_day: '1',
+  withdrawal_fee_percent: '0.0',
+  withdrawal_fx_spread_percent: '0.0',
+  razorpay_commission_percent: '5.0',
+  razorpay_gateway_fee_percent: '3.0',
+  remittance_fee_percent: '3.0',
+  remittance_margin_percent: '2.0',
+  remittance_corridors_count: '7',
+  remittance_countries_count: '110+',
+  remittance_delivery_days: '2',
+  startup_allocation_fee_percent: '5.0',
+  startup_profit_share_percent: '5.0',
+  startup_min_investment_usd: '250',
+  otc_spread_percent: '1.0',
+  otc_operator_fee_percent: '1.5',
+  otc_platform_fee_percent: '0.5',
+  otc_security_deposit_usd: '1000',
+  p2p_security_deposit_usd: '50',
+  p2p_daily_limit_usd: '5000',
+  p2p_fee_percent: '0.0',
+  virtual_card_issuance_fee: '10.00',
+};
+
+export function formatOrdinalDay(dayNum: number): string {
+  const n = Math.floor(dayNum);
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
+
+export function buildPlatformVariablesFromSettings(
+  settingsInput?: Record<string, string>
+): Record<string, string> {
+  const cfg = { ...DEFAULT_PUBLIC_PLATFORM_SETTINGS, ...(settingsInput || {}) };
+  const pct = (n: number, d?: number) =>
+    !Number.isFinite(n)
+      ? '0%'
+      : typeof d === 'number'
+      ? `${n.toFixed(d)}%`
+      : `${Number(n.toFixed(4)).toString()}%`;
+  const slash = (n: number) => (!Number.isFinite(n) ? '0' : Number(n.toFixed(4)).toString());
+  const usd = (n: number) => {
+    if (!Number.isFinite(n)) return '$0';
+    const hasFrac = Math.round(n * 100) % 100 !== 0;
+    return `$${n.toLocaleString('en-US', {
+      minimumFractionDigits: hasFrac ? 2 : 0,
+      maximumFractionDigits: hasFrac ? 2 : 0,
+    })}`;
+  };
+
+  const fxMargin = parseFloat(cfg.remittance_margin_percent || '2.0');
+  const transferFee = parseFloat(cfg.remittance_fee_percent || '3.0');
+  const allocFee = parseFloat(cfg.startup_allocation_fee_percent || '5.0');
+  const profitShare = parseFloat(cfg.startup_profit_share_percent || '5.0');
+  const monthlyRate = parseFloat(cfg.package_monthly_return_rate || '0.01') * 100;
+  const lockInMonths = parseInt(cfg.package_lock_in_months || cfg.package_min_lockin_months || '6', 10);
+  const pkgMin = parseFloat(cfg.package_min_amount || '1000');
+  const pkgMax = parseFloat(cfg.package_max_amount || '10000');
+  const payoutDay = parseInt(cfg.payout_day_of_month || '1', 10);
+  const wdDay = parseInt(cfg.withdrawal_window_day || '1', 10);
+  const wdProc = parseInt(cfg.withdrawal_processing_days || '15', 10);
+  const wdFee = parseFloat(cfg.withdrawal_fee_percent || '0.0');
+  const wdSpread = parseFloat(cfg.withdrawal_fx_spread_percent || '0.0');
+  const otcOp = parseFloat(cfg.otc_operator_fee_percent || '1.5');
+  const otcPlat = parseFloat(cfg.otc_platform_fee_percent || '0.5');
+  const otcSpread = parseFloat(cfg.otc_spread_percent || '1.0');
+  const otcDep = parseFloat(cfg.otc_security_deposit_usd || '1000');
+  const p2pDep = parseFloat(cfg.p2p_security_deposit_usd || '50');
+  const p2pLimit = parseFloat(cfg.p2p_daily_limit_usd || '5000');
+  const startupMin = parseFloat(cfg.startup_min_investment_usd || '250');
+  const cardFee = parseFloat(cfg.virtual_card_issuance_fee || '10');
+  const rzpFee = parseFloat(cfg.razorpay_commission_percent || '5.0');
+
+  return {
+    fx_margin: pct(fxMargin),
+    fx_margin_decimal: pct(fxMargin, 1),
+    transfer_fee: pct(transferFee),
+    transfer_fee_decimal: pct(transferFee, 1),
+    corridors_count: (cfg.remittance_corridors_count || '7').trim(),
+    countries_count: (cfg.remittance_countries_count || '110+').trim(),
+    delivery_days: (cfg.remittance_delivery_days || '2').trim(),
+    allocation_fee: pct(allocFee),
+    profit_share_fee: pct(profitShare),
+    fee_model_slash: `${slash(allocFee)}/${slash(profitShare)}`,
+    startup_min_investment: usd(startupMin),
+    monthly_return: pct(monthlyRate),
+    monthly_return_decimal: pct(monthlyRate, 1),
+    lock_in_months: String(Number.isFinite(lockInMonths) && lockInMonths > 0 ? lockInMonths : 6),
+    package_min: usd(pkgMin),
+    package_max: usd(pkgMax),
+    payout_day: formatOrdinalDay(Number.isFinite(payoutDay) ? payoutDay : 1),
+    withdrawal_window_day: formatOrdinalDay(Number.isFinite(wdDay) ? wdDay : 1),
+    withdrawal_processing_days: String(Number.isFinite(wdProc) ? wdProc : 15),
+    withdrawal_fee: pct(wdFee),
+    withdrawal_fx_spread: pct(wdSpread),
+    otc_total_fee: pct(otcOp + otcPlat, 1),
+    otc_broker_fee: pct(otcOp, 1),
+    otc_platform_fee: pct(otcPlat, 1),
+    otc_spread: pct(otcSpread, 1),
+    otc_deposit: usd(otcDep),
+    p2p_deposit: usd(p2pDep),
+    p2p_daily_limit: usd(p2pLimit),
+    card_issuance_fee: usd(cardFee),
+    razorpay_fee: pct(rzpFee),
+  };
+}
+
+export function interpolatePlatformTokens(
+  input: string,
+  vars?: Record<string, string>
+): string {
+  if (!input || !input.includes('{{')) return input;
+  const resolvedVars = vars || buildPlatformVariablesFromSettings();
+  return input.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) =>
+    resolvedVars[key] !== undefined ? resolvedVars[key] : match
+  );
+}
+
 export function formatBlogDate(dateStr: string): string {
   try {
     const d = new Date(dateStr);

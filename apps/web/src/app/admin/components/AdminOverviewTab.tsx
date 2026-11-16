@@ -43,6 +43,7 @@ interface OverviewProps {
   onNavigateTab: (tab: string) => void;
   onTriggerYieldRun: () => void;
   runningReturns: boolean;
+  corridorsCount?: string;
 }
 
 export default function AdminOverviewTab({
@@ -52,6 +53,7 @@ export default function AdminOverviewTab({
   onNavigateTab,
   onTriggerYieldRun,
   runningReturns,
+  corridorsCount,
 }: OverviewProps) {
   const formatMoney = (val: string | number) => {
     return parseFloat(val?.toString() || '0').toLocaleString('en-US', {
@@ -328,7 +330,7 @@ export default function AdminOverviewTab({
             <Globe className="w-4 h-4 text-teal-400" />
           </div>
           <div className="text-xl font-bold text-white font-mono">{analytics?.totalTransfers || 0} Orders</div>
-          <p className="text-[10px] text-slate-500">7 Corridors (INR, LKR, AED, GEL, etc.)</p>
+          <p className="text-[10px] text-slate-500">{corridorsCount || '7'} Corridors (INR, LKR, AED, GEL, etc.)</p>
         </div>
 
         {/* Venture Startups */}

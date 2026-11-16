@@ -1,8 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLanguage } from '../../context/LanguageContext';
+import { api } from '../../lib/api';
+import { buildPlatformVariablesFromSettings } from '../../lib/blog-data';
 import {
   UserCheck,
   PackageCheck,
@@ -13,6 +15,17 @@ import {
 
 export default function HowItWorksPage() {
   const { t } = useLanguage();
+  const [settings, setSettings] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    api.get('/cms/settings')
+      .then((res) => {
+        if (res.data?.settings) setSettings(res.data.settings);
+      })
+      .catch(() => {});
+  }, []);
+
+  const vars = buildPlatformVariablesFromSettings(settings);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 space-y-16">
@@ -55,7 +68,7 @@ export default function HowItWorksPage() {
               Package Selection & Capital Allocation
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Choose your package amount from USD 1,000 to USD 10,000. You may acquire multiple packages concurrently. You can fund via wallet balance, USDT, bank wire, or in person at our Tbilisi counter.
+              Choose your package amount from {vars.package_min} to {vars.package_max} USD. You may acquire multiple packages concurrently. You can fund via wallet balance, USDT, bank wire, or in person at our Tbilisi counter.
             </p>
           </div>
         </div>
@@ -67,10 +80,10 @@ export default function HowItWorksPage() {
           <div className="space-y-3 flex-1">
             <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <CalendarCheck className="w-5 h-5 text-blue-500" />
-              Automated Monthly 1% Return Distribution
+              Automated Monthly {vars.monthly_return} Return Distribution
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Every month on the anniversary payout day, our automated scheduler calculates your 1.0% proposed return and credits it directly to your available wallet balance via an immutable ledger journal entry.
+              Every month on the anniversary payout day, our automated scheduler calculates your {vars.monthly_return_decimal} proposed return and credits it directly to your available wallet balance via an immutable ledger journal entry.
             </p>
           </div>
         </div>
@@ -82,10 +95,10 @@ export default function HowItWorksPage() {
           <div className="space-y-3 flex-1">
             <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Banknote className="w-5 h-5 text-blue-500" />
-              1st-of-Month Withdrawal Window & Settlement Desk
+              {vars.withdrawal_window_day}-of-Month Withdrawal Window &amp; Settlement Desk
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Withdrawal requests open on the 1st of each calendar month. Investors can request withdrawals for accumulated returns or released principal (after the 6-month lock-in). Settlements undergo administrative review and are disbursed via bank wire, USDT wallet, or cash collection in Tbilisi.
+              Withdrawal requests open on the {vars.withdrawal_window_day} of each calendar month. Investors can request withdrawals for accumulated returns or released principal (after the {vars.lock_in_months}-month lock-in). Settlements undergo administrative review ({vars.withdrawal_processing_days}-day queue) and are disbursed via bank wire, USDT wallet, or cash collection in Tbilisi.
             </p>
           </div>
         </div>

@@ -144,6 +144,16 @@ export default function ExchangeDeskPage() {
   const [applyLoading, setApplyLoading] = useState<boolean>(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
+  const [otcDepositUsd, setOtcDepositUsd] = useState<number>(1000);
+
+  useEffect(() => {
+    api.get('/cms/settings')
+      .then((res) => {
+        const dep = parseFloat(res.data?.settings?.otc_security_deposit_usd || '1000');
+        if (Number.isFinite(dep) && dep >= 0) setOtcDepositUsd(dep);
+      })
+      .catch(() => {});
+  }, []);
 
   // My OTC Desk Provider Live Rate Manager State
   const [myDesk, setMyDesk] = useState<OtcDeskItem | null>(null);
@@ -546,7 +556,7 @@ export default function ExchangeDeskPage() {
 
       if (res.data.success) {
         setApplySuccess(
-          'Congratulations! Your OTC Desk with verified Google Maps location has been activated and $1,000 security deposit is locked.'
+          `Congratulations! Your OTC Desk with verified Google Maps location has been activated and $${otcDepositUsd.toLocaleString()} security deposit is locked.`
         );
         fetchDesks();
         fetchMyDesk();
@@ -559,7 +569,7 @@ export default function ExchangeDeskPage() {
       setApplyError(
         extractErrorMessage(
           err,
-          'Failed to activate OTC Desk. Ensure you have $1,000 USD/USDT available balance.'
+          `Failed to activate OTC Desk. Ensure you have $${otcDepositUsd.toLocaleString()} USD/USDT available balance.`
         )
       );
     } finally {
@@ -1072,7 +1082,7 @@ export default function ExchangeDeskPage() {
                         <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <div>
                           <div className="font-bold text-emerald-800 dark:text-emerald-200">
-                            $1,000 Security Deposit Protected
+                            ${Number(desk.securityDeposit || otcDepositUsd).toLocaleString()} Security Deposit Protected
                           </div>
                           <div className="text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
                             Custody locked by Avora Bank
@@ -1351,7 +1361,7 @@ export default function ExchangeDeskPage() {
             <div className="space-y-2 text-xs text-slate-300">
               <div className="flex items-center gap-2">
                 <Check className="w-4 h-4 text-emerald-400" />
-                <span>$1,000 security deposit locked safely from available balance</span>
+                <span>${otcDepositUsd.toLocaleString()} security deposit locked safely from available balance</span>
               </div>
               <div className="flex items-center gap-2">
                 <Check className="w-4 h-4 text-emerald-400" />
@@ -1463,10 +1473,10 @@ export default function ExchangeDeskPage() {
                 <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200 text-xs space-y-1">
                   <span className="font-bold flex items-center gap-1.5">
                     <Lock className="w-3.5 h-3.5" />
-                    Security Deposit Mandate ($1,000 USD/USDT)
+                    Security Deposit Mandate (${otcDepositUsd.toLocaleString()} USD/USDT)
                   </span>
                   <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
-                    An OTC Desk requires $1,000 locked from your available balance plus a verified physical location on Google Maps. Deposit is 100% refundable when you close your desk.
+                    An OTC Desk requires ${otcDepositUsd.toLocaleString()} locked from your available balance plus a verified physical location on Google Maps. Deposit is 100% refundable when you close your desk.
                   </p>
                 </div>
 

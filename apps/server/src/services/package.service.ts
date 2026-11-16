@@ -133,8 +133,11 @@ export class PackageService {
             'package_min_amount',
             'package_max_amount',
             'package_monthly_return_rate',
+            'package_lock_in_months',
             'package_min_lockin_months',
             'package_early_exit_penalty_pct',
+            'payout_day_of_month',
+            'withdrawal_processing_days',
           ],
         },
       },
@@ -145,17 +148,31 @@ export class PackageService {
       return acc;
     }, {} as Record<string, string>);
 
+    const baseRate = parseFloat(settingsMap['package_monthly_return_rate'] || '0.0100');
+    const lockInMonths = parseInt(
+      settingsMap['package_lock_in_months'] || settingsMap['package_min_lockin_months'] || '6',
+      10
+    );
+    const shortRate = Number((baseRate * 0.8).toFixed(4));
+    const longRate = Number((baseRate * 1.25).toFixed(4));
+
+    const baseApr = (baseRate * 12 * 100).toFixed(1);
+    const shortApr = (shortRate * 12 * 100).toFixed(1);
+    const longApr = (longRate * 12 * 100).toFixed(1);
+
     return {
       minAmount: parseFloat(settingsMap['package_min_amount'] || '1000'),
       maxAmount: parseFloat(settingsMap['package_max_amount'] || '10000'),
-      monthlyReturnRate: parseFloat(settingsMap['package_monthly_return_rate'] || '0.0100'), // 1%
-      lockInMonths: parseInt(settingsMap['package_min_lockin_months'] || '6', 10),
+      monthlyReturnRate: baseRate,
+      lockInMonths,
       earlyExitPenaltyPct: parseFloat(settingsMap['package_early_exit_penalty_pct'] || '5.00'),
+      payoutDayOfMonth: parseInt(settingsMap['payout_day_of_month'] || '1', 10),
+      withdrawalProcessingDays: parseInt(settingsMap['withdrawal_processing_days'] || '15', 10),
       availableTerms: [
-        { months: 3, monthlyRate: 0.008, aprLabel: '9.6% APR', name: '3 Months (Quarterly)' },
-        { months: 6, monthlyRate: 0.010, aprLabel: '12.0% APR', name: '6 Months (Classic)' },
-        { months: 12, monthlyRate: 0.0125, aprLabel: '15.0% APR', name: '12 Months (Annual Maximizer)' },
-      ],
+        { months: 3, monthlyRate: shortRate, aprLabel: `${shortApr}% APR`, name: '3 Months (Quarterly)' },
+        { months: lockInMonths, monthlyRate: baseRate, aprLabel: `${baseApr}% APR`, name: `${lockInMonths} Months (Classic)` },
+        { months: 12, monthlyRate: longRate, aprLabel: `${longApr}% APR`, name: '12 Months (Annual Maximizer)' },
+      ].filter((term, idx, arr) => arr.findIndex((t) => t.months === term.months) === idx),
     };
   }
 
@@ -268,14 +285,13 @@ export class PackageService {
 
     const idempotencyKey = `PKG-BUY-${userId}-${Date.now()}`;
 
-    // Calculate term duration and yield rate based on FD selection
-    const termMonths = params.lockInMonths && [3, 6, 12].includes(params.lockInMonths)
+    // Calculate term duration and yield rate based on Admin FD configuration & selection
+    const validTerms = new Set([3, 6, 12, rules.lockInMonths]);
+    const termMonths = params.lockInMonths && validTerms.has(params.lockInMonths)
       ? params.lockInMonths
       : rules.lockInMonths;
-    let termRate = rules.monthlyReturnRate;
-    if (termMonths === 3) termRate = 0.008;
-    else if (termMonths === 6) termRate = 0.010;
-    else if (termMonths === 12) termRate = 0.0125;
+    const matchedTerm = rules.availableTerms.find((t) => t.months === termMonths);
+    const termRate = matchedTerm ? matchedTerm.monthlyRate : rules.monthlyReturnRate;
 
     // Case 1: Instant purchase from Wallet Available Balance
     if (params.depositMethod === 'WALLET_BALANCE') {

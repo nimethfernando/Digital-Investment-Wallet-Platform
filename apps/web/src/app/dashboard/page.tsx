@@ -108,8 +108,10 @@ interface StartupInvestmentItem {
   id: string;
   investmentCode: string;
   grossAmount: string;
+  allocationFeePct?: number | string | null;
   allocationFeeAmount: string;
   netInvestedAmount: string;
+  profitShareFeePct?: number | string | null;
   instrument: string;
   ownershipPct?: string | null;
   currentValuation?: string | number | null;
@@ -1784,7 +1786,7 @@ function DashboardContent() {
                     ${parseFloat(startupSummary?.totalNetInvested || startupInvestments.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0).toFixed(2)).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                   </div>
                   <p className="text-[11px] text-slate-400">
-                    {startupInvestments.length > 0 ? '5% Profit-Share model active' : 'Zero venture commitments'}
+                    {startupInvestments.length > 0 ? `${startupSummary?.feeRules?.profitShareFeePct || '5.0%'} Profit-Share model active` : 'Zero venture commitments'}
                   </p>
                 </div>
 
@@ -2455,7 +2457,7 @@ function DashboardContent() {
                               <span className="font-bold text-slate-900 dark:text-white">${parseFloat(inv.grossAmount).toLocaleString()} USD</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-500">5% Allocation Fee:</span>
+                              <span className="text-slate-500">{Number(inv.allocationFeePct ?? (parseFloat(startupSummary?.feeRules?.allocationFeePct || '5') || 5))}% Allocation Fee:</span>
                               <span className="text-amber-600 font-mono">${parseFloat(inv.allocationFeeAmount).toFixed(2)} USD</span>
                             </div>
                             <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1">
@@ -2470,7 +2472,7 @@ function DashboardContent() {
                           <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-[11px] text-amber-800 dark:text-amber-200 space-y-1">
                             <strong className="block font-bold">Return &amp; Exit Payout Terms:</strong>
                             <p className="leading-relaxed">
-                              Upon an acquisition, dividend distribution, or IPO, your full principal is returned 100% fee-free. Avora Bank applies a 5% profit-share fee strictly to net profits generated above your principal. Proceeds land directly in your internal USD balance.
+                              Upon an acquisition, dividend distribution, or IPO, your full principal is returned 100% fee-free. Avora Bank applies a {Number(inv.profitShareFeePct ?? (parseFloat(startupSummary?.feeRules?.profitShareFeePct || '5') || 5))}% profit-share fee strictly to net profits generated above your principal. Proceeds land directly in your internal USD balance.
                             </p>
                           </div>
 

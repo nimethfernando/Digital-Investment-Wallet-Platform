@@ -218,25 +218,64 @@ export class InvestmentsService {
   }
 
   /**
-   * Calculate 5% Investment Allocation Fee (Added On Top)
+   * Read dynamic Startup Equity fee & limit parameters from CmsSetting
    */
-  calculateInvestmentFee(targetInvestment: number) {
+  async getStartupFeeConfig(): Promise<{
+    allocationFeePct: number;
+    profitSharePct: number;
+    minInvestmentUsd: number;
+  }> {
+    const settings = await prisma.cmsSetting
+      .findMany({
+        where: {
+          key: {
+            in: [
+              'startup_allocation_fee_percent',
+              'startup_profit_share_percent',
+              'startup_min_investment_usd',
+            ],
+          },
+        },
+      })
+      .catch(() => []);
+    const map: Record<string, string> = {};
+    settings.forEach((s) => {
+      map[s.key] = s.value;
+    });
+
+    const alloc = parseFloat(map['startup_allocation_fee_percent'] || '5.0');
+    const profit = parseFloat(map['startup_profit_share_percent'] || '5.0');
+    const minInv = parseFloat(map['startup_min_investment_usd'] || '250');
+
+    return {
+      allocationFeePct: Number.isFinite(alloc) && alloc >= 0 ? alloc : 5.0,
+      profitSharePct: Number.isFinite(profit) && profit >= 0 ? profit : 5.0,
+      minInvestmentUsd: Number.isFinite(minInv) && minInv > 0 ? minInv : 250,
+    };
+  }
+
+  /**
+   * Calculate dynamic Investment Allocation Fee (Added On Top)
+   */
+  async calculateInvestmentFee(targetInvestment: number) {
     if (!targetInvestment || targetInvestment <= 0) {
       throw new Error('Please enter a valid investment amount.');
     }
+    const feeCfg = await this.getStartupFeeConfig();
     const netDec = new Decimal(targetInvestment);
-    const ALLOCATION_FEE_PCT = new Decimal('5.00'); // 5%
+    const ALLOCATION_FEE_PCT = new Decimal(feeCfg.allocationFeePct);
     const allocationFeeAmount = netDec.times(ALLOCATION_FEE_PCT.dividedBy(100));
     const totalRequired = netDec.plus(allocationFeeAmount);
 
     return {
       investmentAmount: netDec.toFixed(2),
       allocationFeePct: ALLOCATION_FEE_PCT.toFixed(2),
+      profitShareFeePct: new Decimal(feeCfg.profitSharePct).toFixed(2),
       allocationFeeAmount: allocationFeeAmount.toFixed(2),
       totalRequired: totalRequired.toFixed(2),
       grossContribution: totalRequired.toFixed(2),
       netAmountAllocated: netDec.toFixed(2),
-      feeDescription: '5% Platform Allocation Fee added to startup investment',
+      feeDescription: `${feeCfg.allocationFeePct}% Platform Allocation Fee added to startup investment`,
     };
   }
 
@@ -281,8 +320,9 @@ export class InvestmentsService {
       throw new Error(`Minimum investment for this campaign is $${minInv.toFixed(2)} USD.`);
     }
 
-    const feeCalc = this.calculateInvestmentFee(data.grossAmount);
-    const totalToDebit = new Decimal(feeCalc.totalRequired); // Target investment + 5% fee
+    const feeCalc = await this.calculateInvestmentFee(data.grossAmount);
+    const totalToDebit = new Decimal(feeCalc.totalRequired); // Target investment + platform allocation fee
+    const profitShareDec = new Decimal(feeCalc.profitShareFeePct || '5.00');
 
     // Check wallet balance
     const wallet = await ledgerService.ensureWallet(userId);
@@ -310,7 +350,7 @@ export class InvestmentsService {
       currentBal = usdtAvail;
     } else {
       throw new Error(
-        `Insufficient funds. Investment requires $${totalToDebit.toFixed(2)} ($${netDec.toFixed(2)} allocated to startup + $${feeCalc.allocationFeeAmount} 5% fee). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
+        `Insufficient funds. Investment requires $${totalToDebit.toFixed(2)} ($${netDec.toFixed(2)} allocated to startup + $${feeCalc.allocationFeeAmount} (${feeCalc.allocationFeePct}% fee)). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
       );
     }
 
@@ -350,7 +390,7 @@ export class InvestmentsService {
           realizedProceeds: new Decimal('0.00'),
           returnOfCapital: new Decimal('0.00'),
           eligibleNetProfit: new Decimal('0.00'),
-          profitShareFeePct: new Decimal('5.00'),
+          profitShareFeePct: profitShareDec,
           profitShareFeeAmount: new Decimal('0.00'),
           netDistributedProfit: new Decimal('0.00'),
           settlementReference: investmentCode,
@@ -369,7 +409,7 @@ export class InvestmentsService {
           status: TransactionStatus.COMPLETED,
           balanceBefore: currentBal.toFixed(8),
           balanceAfter: newBal.toFixed(8),
-          notes: `Investment in ${campaign.companyName} (Startup Allocation: $${netDec.toFixed(2)}, 5% Fee: $${feeCalc.allocationFeeAmount}, Total Debited: $${totalToDebit.toFixed(2)})`,
+          notes: `Investment in ${campaign.companyName} (Startup Allocation: $${netDec.toFixed(2)}, ${feeCalc.allocationFeePct}% Fee: $${feeCalc.allocationFeeAmount}, Total Debited: $${totalToDebit.toFixed(2)})`,
           settlementReference: investmentCode,
         },
       });
@@ -414,6 +454,8 @@ export class InvestmentsService {
     const deadline = new Date();
     deadline.setDate(deadline.getDate() + 60); // 60-day campaign
 
+    const feeCfg = await this.getStartupFeeConfig();
+
     const listing = await prisma.startupListing.create({
       data: {
         slug,
@@ -427,7 +469,7 @@ export class InvestmentsService {
         instrument: data.instrument || 'SAFE',
         valuation: new Decimal(data.valuation),
         fundingTarget: new Decimal(data.fundingTarget),
-        minInvestment: new Decimal(data.minInvestment || 250),
+        minInvestment: new Decimal(data.minInvestment || feeCfg.minInvestmentUsd || 250),
         deadline,
         status: 'UNDER_REVIEW',
         dueDiligenceStatus: 'UNDER_REVIEW',
@@ -552,6 +594,8 @@ export class InvestmentsService {
       totalNetDistributedProfit = totalNetDistributedProfit.plus(new Decimal(c.netDistributedProfit.toString()));
     }
 
+    const feeCfg = await this.getStartupFeeConfig();
+
     return {
       summary: {
         totalInvestmentsCount: commitments.length,
@@ -563,8 +607,8 @@ export class InvestmentsService {
         totalProfitShareFees: totalProfitShareFees.toFixed(2),
         totalNetDistributedProfit: totalNetDistributedProfit.toFixed(2),
         feeRules: {
-          allocationFeePct: '5.0%',
-          profitShareFeePct: '5.0%',
+          allocationFeePct: `${feeCfg.allocationFeePct}%`,
+          profitShareFeePct: `${feeCfg.profitSharePct}%`,
           profitShareBasis: 'Eligible net realized profit only (no fees on unrealized valuation)',
         },
       },

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getSettings,
+  getPlatformVariables,
   updateSetting,
   getPageSections,
   getAllSections,
@@ -22,6 +23,7 @@ import {
   updateAdminBlogPost,
   deleteAdminBlogPost,
   seedDefaultBlogPostsAdmin,
+  syncBlogTokensAdmin,
   getAiPublisherConfig,
   saveAiPublisherConfig,
 } from '../controllers/cms.controller';
@@ -31,6 +33,7 @@ const router = Router();
 
 // Public & User CMS/Ticket routes
 router.get('/settings', getSettings);
+router.get('/variables', getPlatformVariables);
 router.get('/sections/:page', getPageSections);
 router.get('/blogs', getBlogPosts);
 router.get('/blogs/cron-sync', syncAllTrackedBlogs);
@@ -50,6 +53,7 @@ router.put('/admin/inquiries/:id', authenticateToken, requireAdmin, updateInquir
 router.get('/admin/blogs', authenticateToken, requireAdmin, getAdminBlogPosts);
 router.post('/admin/blogs', authenticateToken, requireAdmin, createAdminBlogPost);
 router.post('/admin/blogs/seed-defaults', authenticateToken, requireAdmin, seedDefaultBlogPostsAdmin);
+router.post('/admin/blogs/sync-tokens', authenticateToken, requireAdmin, syncBlogTokensAdmin);
 router.post('/admin/blogs/auto-publish', authenticateToken, requireAdmin, autoPublishBlog);
 router.post('/admin/blogs/:id/sync-news', authenticateToken, requireAdmin, syncBlogNewsAdmin);
 router.put('/admin/blogs/:id', authenticateToken, requireAdmin, updateAdminBlogPost);

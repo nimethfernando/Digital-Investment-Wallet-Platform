@@ -517,7 +517,11 @@ export class OtcService {
       throw new Error('You already have an active or pending OTC desk registered.');
     }
 
-    const DEPOSIT_REQUIRED = new Decimal('1000.00');
+    const depositSetting = await prisma.cmsSetting
+      .findUnique({ where: { key: 'otc_security_deposit_usd' } })
+      .catch(() => null);
+    const depositNum = parseFloat(depositSetting?.value || '1000.00');
+    const DEPOSIT_REQUIRED = new Decimal(Number.isFinite(depositNum) && depositNum >= 0 ? depositNum : 1000);
     const wallet = await ledgerService.ensureWallet(userId);
     const deskCode = `OTC-${(data.countryCode || 'INT').toUpperCase()}-${Date.now().toString().slice(-4)}`;
     const txCode = `OTCD-${Date.now().toString().slice(-6)}`;
@@ -550,7 +554,7 @@ export class OtcService {
           currentAvail = usdtAvail;
         } else {
           throw new Error(
-            `Insufficient funds. An OTC Desk operator requires a security deposit of $1,000.00 USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
+            `Insufficient funds. An OTC Desk operator requires a security deposit of $${DEPOSIT_REQUIRED.toFixed(2)} USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
           );
         }
 
@@ -578,7 +582,7 @@ export class OtcService {
             status: TransactionStatus.COMPLETED,
             balanceBefore: currentAvail.toFixed(8),
             balanceAfter: newAvail.toFixed(8),
-            notes: `Security deposit of $1,000 locked for OTC Desk (${data.deskName} - ${data.city}, ${data.country})`,
+            notes: `Security deposit of $${DEPOSIT_REQUIRED.toFixed(2)} locked for OTC Desk (${data.deskName} - ${data.city}, ${data.country})`,
             settlementReference: deskCode,
           },
         });

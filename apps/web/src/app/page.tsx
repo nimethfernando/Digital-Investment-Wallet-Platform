@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { api, extractErrorMessage, resolveMediaUrl } from '../lib/api';
-import { BLOG_POSTS_DATA, BlogPostItem, formatBlogDate, mapApiBlogToPostItem } from '../lib/blog-data';
+import { BLOG_POSTS_DATA, BlogPostItem, formatBlogDate, mapApiBlogToPostItem, buildPlatformVariablesFromSettings } from '../lib/blog-data';
 import { PersonaIndustryCarousel } from '../components/PersonaIndustryCarousel';
 import {
   TrendingUp,
@@ -49,12 +49,24 @@ export default function HomePage() {
   const { user } = useAuth();
 
   const [calcAmount, setCalcAmount] = useState<number>(5000);
-  const monthlyReturn = calcAmount * 0.01;
-  const sixMonthReturn = monthlyReturn * 6;
-  const totalMaturity = calcAmount + sixMonthReturn;
-
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [homePosts, setHomePosts] = useState<BlogPostItem[]>(BLOG_POSTS_DATA.slice(0, 3));
+
+  const platformVars = buildPlatformVariablesFromSettings(settings);
+  const monthlyRateDec = Math.max(0, parseFloat(settings.package_monthly_return_rate || '0.01') || 0.01);
+  const lockInMonthsNum = Math.max(1, parseInt(settings.package_lock_in_months || settings.package_min_lockin_months || '6', 10) || 6);
+  const pkgMinNum = Math.max(100, parseFloat(settings.package_min_amount || '1000') || 1000);
+  const pkgMaxNum = Math.max(pkgMinNum, parseFloat(settings.package_max_amount || '10000') || 10000);
+  const clampedCalcAmount = Math.min(Math.max(calcAmount, pkgMinNum), pkgMaxNum);
+  const dynamicMonthlyReturn = clampedCalcAmount * monthlyRateDec;
+  const dynamicTermReturn = dynamicMonthlyReturn * lockInMonthsNum;
+  const dynamicTotalMaturity = clampedCalcAmount + dynamicTermReturn;
+
+  const tier1Upper = Math.round(pkgMinNum + (pkgMaxNum - pkgMinNum) * 0.2);
+  const tier2Lower = Math.round(pkgMinNum + (pkgMaxNum - pkgMinNum) * 0.25);
+  const tier2Upper = Math.round(pkgMinNum + (pkgMaxNum - pkgMinNum) * 0.65);
+  const tier3Lower = Math.round(pkgMinNum + (pkgMaxNum - pkgMinNum) * 0.72);
+  const midPresetAmt = Math.round((pkgMinNum + pkgMaxNum) / 2);
   
   // Hero Interactive Visual State
   const [heroVisualTab, setHeroVisualTab] = useState<'card' | 'otc'>('card');
@@ -111,23 +123,23 @@ export default function HomePage() {
       category: 'yield' as const,
       badge: 'Fixed Yield Packages',
       q: 'What is the package investment structure at Avora Bank?',
-      a: 'Investment packages range from USD 1,000 to USD 10,000 per package. Every package generates a unique immutable Package ID in our ledger, allowing you to track purchase dates, 6-month lock-in status, and target 1% monthly return independently.',
-      highlights: ['Multi-package portfolio capability', 'Independent 6-month vault lock-in', '1% monthly return credited on 1st of month'],
+      a: `Investment packages range from USD ${pkgMinNum.toLocaleString()} to USD ${pkgMaxNum.toLocaleString()} per package. Every package generates a unique immutable Package ID in our ledger, allowing you to track purchase dates, ${platformVars.lock_in_months}-month lock-in status, and target ${platformVars.monthly_return} monthly return independently.`,
+      highlights: ['Multi-package portfolio capability', `Independent ${platformVars.lock_in_months}-month vault lock-in`, `${platformVars.monthly_return} monthly return credited on ${platformVars.payout_day} of month`],
     },
     {
       id: '02',
       category: 'yield' as const,
       badge: 'Monthly Returns',
       q: 'How are monthly returns credited and calculated?',
-      a: 'A target yield of 1.0% per month is calculated on active packages and credited automatically into your Avora internal wallet balance on the 1st of each calendar month via our atomic double-entry ledger. All distributions are immediately compounding or withdrawable.',
-      highlights: ['Automated 1st-of-month ledger crediting', 'Audited before-and-after balance logs', 'Zero manual claim actions required'],
+      a: `A target yield of ${platformVars.monthly_return_decimal} per month is calculated on active packages and credited automatically into your Avora internal wallet balance on the ${platformVars.payout_day} of each calendar month via our atomic double-entry ledger. All distributions are immediately compounding or withdrawable.`,
+      highlights: [`Automated ${platformVars.payout_day}-of-month ledger crediting`, 'Audited before-and-after balance logs', 'Zero manual claim actions required'],
     },
     {
       id: '03',
       category: 'yield' as const,
       badge: 'Settlement Windows',
       q: 'How does the two-stage withdrawal settlement work?',
-      a: 'Withdrawal requests for monthly yields or matured principal open exclusively on the 1st of each calendar month. Requests enter a 15-day administrative settlement queue where compliance checks are conducted, after which disbursements are executed via SWIFT/SEPA wire or direct USDT wallet transfer.',
+      a: `Withdrawal requests for monthly yields or matured principal open on the ${platformVars.withdrawal_window_day} of each calendar month. Requests enter a ${platformVars.withdrawal_processing_days}-day administrative settlement queue where compliance checks are conducted, after which disbursements are executed via SWIFT/SEPA wire or direct USDT wallet transfer.`,
       highlights: ['Orderly treasury liquidity management', 'Settlement via verified bank wire or USDT', 'Automatic anti-fraud & compliance clearance'],
     },
     {
@@ -152,15 +164,15 @@ export default function HomePage() {
       badge: 'OTC Liquidity Rails',
       q: 'How does digital OTC settlement operate globally?',
       a: 'Avora Bank provides 24/7 institutional digital OTC settlement for large volume transactions. Trades settle directly to your verified bank wire (SEPA/SWIFT) or TRC-20/ERC-20 USDT wallet with tight benchmark spreads, zero slippage, and cryptographic double-entry ledger security.',
-      highlights: ['Direct SEPA, SWIFT & USDT settlement rails', 'Tight institutional spreads (1.0% – 1.5%)', 'Dedicated partner desks in Dubai & Colombo'],
+      highlights: ['Direct SEPA, SWIFT & USDT settlement rails', `Transparent ${platformVars.otc_total_fee} total fee (${platformVars.otc_broker_fee} Broker + ${platformVars.otc_platform_fee} Platform)`, 'Dedicated partner desks in Dubai & Colombo'],
     },
     {
       id: '07',
       category: 'otc' as const,
       badge: 'Global Remittance',
       q: 'What are the fees and delivery times for cross-border remittance?',
-      a: 'Our global remittance service connects to 110+ destination countries. Transfers feature guaranteed exchange rates with transparent margin adjustments and a 3.0% flat transfer fee. Most corridors settle within 1 to 2 business days directly into the recipient\'s local bank account.',
-      highlights: ['110+ searchable countries worldwide', 'Real-time transparent fee & quote breakdown', 'Fast delivery directly to local recipient accounts'],
+      a: `Our global remittance service connects to ${platformVars.countries_count} destination countries across ${platformVars.corridors_count} primary corridors. Transfers feature guaranteed exchange rates with transparent ${platformVars.fx_margin} margin adjustments and a ${platformVars.transfer_fee} flat transfer fee. Most corridors settle within ${platformVars.delivery_days} business days directly into the recipient's local bank account.`,
+      highlights: [`${platformVars.countries_count} searchable countries worldwide`, 'Real-time transparent fee & quote breakdown', 'Fast delivery directly to local recipient accounts'],
     },
     {
       id: '08',
@@ -168,7 +180,7 @@ export default function HomePage() {
       badge: 'P2P Escrow',
       q: 'How does the P2P Escrow Trading Board protect buyers and sellers?',
       a: 'Our P2P marketplace features automated ledger escrow locking. When a trade is initiated, the seller\'s USDT is securely locked inside the Avora Vault until the seller verifies fiat payment receipt across regional payment rails (such as UPI, UAE Bank Transfer, BenefitPay, etc.). Disputes are mediated 24/7 by compliance officers.',
-      highlights: ['Vault escrow lock on trade creation', 'Zero counterparty risk for buyers', '10+ regional payment rails supported'],
+      highlights: ['Vault escrow lock on trade creation', 'Zero counterparty risk for buyers', 'Global payment rails supported'],
     },
     {
       id: '09',
@@ -183,8 +195,8 @@ export default function HomePage() {
       category: 'security' as const,
       badge: 'Capital Protection',
       q: 'How does Avora Bank guarantee principal safety during market volatility?',
-      a: 'Avora Bank isolates investment package principals from speculative trading activities. Capital is backed by structured OTC spread revenue (1.0%–1.5% fee splits), high capital velocity liquidity pools, and conservative treasury reserves, ensuring your principal remains insulated from crypto market volatility.',
-      highlights: ['Isolated package vaults with 6-month terms', 'Non-speculative revenue from high-turnover OTC spreads', 'Full reserve backing with multi-sig protection'],
+      a: `Avora Bank isolates investment package principals from speculative trading activities. Capital is backed by structured OTC commission revenue (${platformVars.otc_total_fee} fee splits), high capital velocity liquidity pools, and conservative treasury reserves, ensuring your principal remains insulated from crypto market volatility.`,
+      highlights: [`Isolated package vaults with ${platformVars.lock_in_months}-month terms`, 'Non-speculative revenue from high-turnover OTC spreads', 'Full reserve backing with multi-sig protection'],
     },
   ];
 
@@ -226,7 +238,7 @@ export default function HomePage() {
               </h1>
 
               <p className="text-sm sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
-                Fixed-term digital investment packages ($1,000–$10,000) with 1% target monthly return, 6-month lock-in, virtual cards, and institutional OTC settlement operating daily until 21:00 GCC time.
+                Fixed-term digital investment packages ({platformVars.package_min}–{platformVars.package_max}) with {platformVars.monthly_return} target monthly return, {platformVars.lock_in_months}-month lock-in, virtual cards, and institutional OTC settlement operating daily until 21:00 GCC time.
               </p>
 
               <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 pt-2">
@@ -489,7 +501,7 @@ export default function HomePage() {
                         </span>
                       </div>
                       <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold">
-                        1.5% FEE SPLIT
+                        {platformVars.otc_total_fee} FEE SPLIT
                       </span>
                     </div>
 
@@ -672,14 +684,14 @@ export default function HomePage() {
                   <Globe className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
-                  7 CORRIDORS
+                  {platformVars.corridors_count} CORRIDORS
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
                 Global Remittance Corridors
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Send USD/EUR directly to bank accounts in India (INR), Sri Lanka (LKR), UAE (AED), Georgia (GEL), EU (SEPA), and UK (GBP) with 2% margin and 3% transfer fee.
+                Send USD/EUR directly to bank accounts across {platformVars.countries_count} countries including India (INR), Sri Lanka (LKR), UAE (AED), Georgia (GEL), EU (SEPA), and UK (GBP) with {platformVars.fx_margin} margin and {platformVars.transfer_fee} transfer fee.
               </p>
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
@@ -711,7 +723,7 @@ export default function HomePage() {
                 Startup Equity Portal
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Crowdfunding nominee platform. Invest as low as $250 in verified seed and growth startups. Transparent 5% allocation fee and 5% profit-sharing on net realized exits.
+                Crowdfunding nominee platform. Invest as low as {platformVars.startup_min_investment} in verified seed and growth startups. Transparent {platformVars.allocation_fee} allocation fee and {platformVars.profit_share_fee} profit-sharing on net realized exits.
               </p>
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
@@ -736,14 +748,14 @@ export default function HomePage() {
                   <TrendingUp className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  1.0% / MO
+                  {platformVars.monthly_return_decimal} / MO
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
                 Digital Fixed Deposits
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Packages from $1,000 to $10,000 with independent 6-month lock-in periods, monthly yield distributions credited to your internal ledger balance on the 1st of each month.
+                Packages from {platformVars.package_min} to {platformVars.package_max} with independent {platformVars.lock_in_months}-month lock-in periods, monthly yield distributions credited to your internal ledger balance on the {platformVars.payout_day} of each month.
               </p>
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
@@ -931,7 +943,7 @@ export default function HomePage() {
               Interactive Investment Package Calculator
             </h3>
             <p className="text-xs text-slate-500">
-              Calculate projected 1% monthly return and 6-month maturity distributions for Avora Bank packages
+              Calculate projected {platformVars.monthly_return} monthly return and {platformVars.lock_in_months}-month maturity distributions for Avora Bank packages
             </p>
           </div>
 
@@ -939,9 +951,9 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             {/* Tier 1: Core */}
             <div 
-              onClick={() => setCalcAmount(2500)}
+              onClick={() => setCalcAmount(tier1Upper)}
               className={`cursor-pointer p-6 rounded-3xl transition-all duration-300 relative border ${
-                calcAmount >= 1000 && calcAmount <= 2500
+                clampedCalcAmount >= pkgMinNum && clampedCalcAmount <= tier1Upper
                   ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 shadow-[0_0_30px_rgba(16,185,129,0.2)] scale-[1.02]'
                   : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-700'
               }`}
@@ -950,23 +962,23 @@ export default function HomePage() {
                 <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold">
                   TIER 01 // CORE
                 </span>
-                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">1.0% / MO</span>
+                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">{platformVars.monthly_return_decimal} / MO</span>
               </div>
-              <h4 className="text-xl font-black text-slate-900 dark:text-white">$1,000 – $2,500</h4>
+              <h4 className="text-xl font-black text-slate-900 dark:text-white">${pkgMinNum.toLocaleString()} – ${tier1Upper.toLocaleString()}</h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                Entry capital deployment with automated 1st-of-month ledger credits.
+                Entry capital deployment with automated {platformVars.payout_day}-of-month ledger credits.
               </p>
               <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between text-xs font-mono">
                 <span className="text-slate-400">Term:</span>
-                <span className="text-slate-800 dark:text-slate-200 font-bold">6 Months Lock-In</span>
+                <span className="text-slate-800 dark:text-slate-200 font-bold">{platformVars.lock_in_months} Months Lock-In</span>
               </div>
             </div>
 
             {/* Tier 2: Growth (Featured) */}
             <div 
-              onClick={() => setCalcAmount(5000)}
+              onClick={() => setCalcAmount(midPresetAmt)}
               className={`cursor-pointer p-6 rounded-3xl transition-all duration-300 relative border ${
-                calcAmount >= 3000 && calcAmount <= 7000
+                clampedCalcAmount > tier1Upper && clampedCalcAmount < tier3Lower
                   ? 'border-cyan-500 bg-cyan-50/70 dark:bg-cyan-950/40 shadow-[0_0_35px_rgba(6,182,212,0.25)] scale-[1.03]'
                   : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-700'
               }`}
@@ -978,23 +990,23 @@ export default function HomePage() {
                 <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-bold">
                   TIER 02 // GROWTH
                 </span>
-                <span className="text-xs font-mono font-bold text-cyan-600 dark:text-cyan-400">1.0% / MO</span>
+                <span className="text-xs font-mono font-bold text-cyan-600 dark:text-cyan-400">{platformVars.monthly_return_decimal} / MO</span>
               </div>
-              <h4 className="text-xl font-black text-slate-900 dark:text-white">$3,000 – $7,000</h4>
+              <h4 className="text-xl font-black text-slate-900 dark:text-white">${tier2Lower.toLocaleString()} – ${tier2Upper.toLocaleString()}</h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
                 Balanced liquidity allocation with priority withdrawal settlement windows.
               </p>
               <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between text-xs font-mono">
                 <span className="text-slate-400">Term:</span>
-                <span className="text-slate-800 dark:text-slate-200 font-bold">6 Months Lock-In</span>
+                <span className="text-slate-800 dark:text-slate-200 font-bold">{platformVars.lock_in_months} Months Lock-In</span>
               </div>
             </div>
 
             {/* Tier 3: Prime */}
             <div 
-              onClick={() => setCalcAmount(10000)}
+              onClick={() => setCalcAmount(pkgMaxNum)}
               className={`cursor-pointer p-6 rounded-3xl transition-all duration-300 relative border ${
-                calcAmount >= 7500 && calcAmount <= 10000
+                clampedCalcAmount >= tier3Lower
                   ? 'border-purple-500 bg-purple-50/70 dark:bg-purple-950/40 shadow-[0_0_30px_rgba(168,85,247,0.2)] scale-[1.02]'
                   : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-700'
               }`}
@@ -1003,15 +1015,15 @@ export default function HomePage() {
                 <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-700 dark:text-purple-300 font-bold">
                   TIER 03 // PRIME
                 </span>
-                <span className="text-xs font-mono font-bold text-purple-600 dark:text-purple-400">1.0% / MO</span>
+                <span className="text-xs font-mono font-bold text-purple-600 dark:text-purple-400">{platformVars.monthly_return_decimal} / MO</span>
               </div>
-              <h4 className="text-xl font-black text-slate-900 dark:text-white">$7,500 – $10,000</h4>
+              <h4 className="text-xl font-black text-slate-900 dark:text-white">${tier3Lower.toLocaleString()} – ${pkgMaxNum.toLocaleString()}</h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
                 Maximum monthly returns with VIP OTC settlement priority.
               </p>
               <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between text-xs font-mono">
                 <span className="text-slate-400">Term:</span>
-                <span className="text-slate-800 dark:text-slate-200 font-bold">6 Months Lock-In</span>
+                <span className="text-slate-800 dark:text-slate-200 font-bold">{platformVars.lock_in_months} Months Lock-In</span>
               </div>
             </div>
           </div>
@@ -1019,38 +1031,38 @@ export default function HomePage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between text-xs font-bold text-slate-900 dark:text-white">
               <span>Select Package Size (USD):</span>
-              <span className="font-mono text-emerald-600 dark:text-emerald-400 text-lg">${calcAmount.toLocaleString()} USD</span>
+              <span className="font-mono text-emerald-600 dark:text-emerald-400 text-lg">${clampedCalcAmount.toLocaleString()} USD</span>
             </div>
 
             <input
               type="range"
-              min="1000"
-              max="10000"
+              min={pkgMinNum}
+              max={pkgMaxNum}
               step="500"
-              value={calcAmount}
+              value={clampedCalcAmount}
               onChange={(e) => setCalcAmount(Number(e.target.value))}
               className="w-full accent-emerald-600 cursor-pointer"
             />
 
             <div className="flex justify-between text-[11px] text-slate-400 font-mono">
-              <span>$1,000 (Min)</span>
-              <span>$5,000</span>
-              <span>$10,000 (Max per Package)</span>
+              <span>${pkgMinNum.toLocaleString()} (Min)</span>
+              <span>${midPresetAmt.toLocaleString()}</span>
+              <span>${pkgMaxNum.toLocaleString()} (Max per Package)</span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950">
-              <span className="text-xs text-slate-500">1% Monthly Return</span>
-              <p className="text-xl font-black font-mono text-emerald-600 mt-1">${monthlyReturn.toFixed(2)} USD</p>
+              <span className="text-xs text-slate-500">{platformVars.monthly_return} Monthly Return</span>
+              <p className="text-xl font-black font-mono text-emerald-600 mt-1">${dynamicMonthlyReturn.toFixed(2)} USD</p>
             </div>
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950">
-              <span className="text-xs text-slate-500">Total 6-Month Returns</span>
-              <p className="text-xl font-black font-mono text-emerald-600 mt-1">${sixMonthReturn.toFixed(2)} USD</p>
+              <span className="text-xs text-slate-500">Total {platformVars.lock_in_months}-Month Returns</span>
+              <p className="text-xl font-black font-mono text-emerald-600 mt-1">${dynamicTermReturn.toFixed(2)} USD</p>
             </div>
             <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900">
               <span className="text-xs text-emerald-800 dark:text-emerald-300 font-bold">Total Capital + Returns</span>
-              <p className="text-xl font-black font-mono text-emerald-700 dark:text-emerald-300 mt-1">${totalMaturity.toFixed(2)} USD</p>
+              <p className="text-xl font-black font-mono text-emerald-700 dark:text-emerald-300 mt-1">${dynamicTotalMaturity.toFixed(2)} USD</p>
             </div>
           </div>
 

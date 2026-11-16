@@ -98,6 +98,15 @@ export default function InvestmentsMarketplacePage() {
   // Investor Dashboard Drawer
   const [dashboardOpen, setDashboardOpen] = useState<boolean>(false);
   const [investorData, setInvestorData] = useState<any>(null);
+  const [feeConfig, setFeeConfig] = useState<{
+    allocationFeePct: number;
+    profitSharePct: number;
+    minInvestmentUsd: number;
+  }>({
+    allocationFeePct: 5.0,
+    profitSharePct: 5.0,
+    minInvestmentUsd: 250,
+  });
 
   // Load Campaigns
   const fetchCampaigns = async () => {
@@ -125,6 +134,21 @@ export default function InvestmentsMarketplacePage() {
     fetchCampaigns();
   }, [industryFilter, countryFilter, instrumentFilter]);
 
+  useEffect(() => {
+    api.get('/cms/settings')
+      .then((res) => {
+        const s = res.data?.settings;
+        if (s) {
+          setFeeConfig({
+            allocationFeePct: Math.max(0, parseFloat(s.startup_allocation_fee_percent || '5.0') || 5.0),
+            profitSharePct: Math.max(0, parseFloat(s.startup_profit_share_percent || '5.0') || 5.0),
+            minInvestmentUsd: Math.max(50, parseFloat(s.startup_min_investment_usd || '250') || 250),
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Load Investor Dashboard
   const loadInvestorDashboard = async () => {
     if (!user) return;
@@ -142,8 +166,8 @@ export default function InvestmentsMarketplacePage() {
     if (user) loadInvestorDashboard();
   }, [user]);
 
-  // Calculate 5% Allocation Fee Added On Top
-  const allocationFee = investAmount * 0.05;
+  // Calculate Dynamic Allocation Fee Added On Top
+  const allocationFee = investAmount * (feeConfig.allocationFeePct / 100);
   const totalRequired = investAmount + allocationFee;
 
   // Handle Invest Submit
@@ -244,7 +268,7 @@ export default function InvestmentsMarketplacePage() {
         </h1>
 
         <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed max-w-3xl mx-auto">
-          Access verified startups and venture equity from $250. Transparent 5% allocation fee, zero fees on unrealized gains, and 5% profit-sharing on realized net exits.
+          Access verified startups and venture equity from ${feeConfig.minInvestmentUsd.toLocaleString()}. Transparent {feeConfig.allocationFeePct}% allocation fee, zero fees on unrealized gains, and {feeConfig.profitSharePct}% profit-sharing on realized net exits.
         </p>
 
         {/* Action CTAs & Fee Badges */}
@@ -274,8 +298,8 @@ export default function InvestmentsMarketplacePage() {
             <Percent className="w-3.5 h-3.5 text-emerald-500" />
             Fee Structure:
           </span>
-          <span>• 5% Platform Allocation Fee (Added to investment)</span>
-          <span>• 5% Profit-Sharing Fee (On realized net profit only)</span>
+          <span>• {feeConfig.allocationFeePct}% Platform Allocation Fee (Added to investment)</span>
+          <span>• {feeConfig.profitSharePct}% Profit-Sharing Fee (On realized net profit only)</span>
           <span className="text-emerald-600 font-bold">• 0% Fee on Unrealized Valuation</span>
         </div>
       </div>
@@ -532,7 +556,7 @@ export default function InvestmentsMarketplacePage() {
                   <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">${investAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
                 </div>
                 <div className="flex justify-between text-slate-600 dark:text-slate-400 font-medium">
-                  <span>+ 5% Platform Allocation Fee:</span>
+                  <span>+ {feeConfig.allocationFeePct}% Platform Allocation Fee:</span>
                   <span className="font-mono text-amber-600 dark:text-amber-400 font-semibold">+${allocationFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
                 </div>
                 <div className="flex justify-between font-black text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2.5 text-sm">
@@ -543,9 +567,9 @@ export default function InvestmentsMarketplacePage() {
 
               {/* 2. Profit-Sharing Disclosure */}
               <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/40 border border-emerald-500/30 text-xs text-emerald-800 dark:text-emerald-200 space-y-1">
-                <span className="font-bold">Avora 5% Profit-Sharing Model:</span>
+                <span className="font-bold">Avora {feeConfig.profitSharePct}% Profit-Sharing Model:</span>
                 <p className="text-[11px] leading-relaxed text-emerald-700 dark:text-emerald-300">
-                  Avora Bank receives 5% of eligible net profit upon realized exit distributions. No fees are ever charged on unrealized paper valuations.
+                  Avora Bank receives {feeConfig.profitSharePct}% of eligible net profit upon realized exit distributions. No fees are ever charged on unrealized paper valuations.
                 </p>
               </div>
 
@@ -759,7 +783,7 @@ export default function InvestmentsMarketplacePage() {
                   ${investorData.summary.totalGrossCommitted} USD
                 </span>
                 <div className="text-[11px] text-amber-500">
-                  5% Fee Deducted: ${investorData.summary.totalAllocationFees}
+                  {feeConfig.allocationFeePct}% Fee Deducted: ${investorData.summary.totalAllocationFees}
                 </div>
               </div>
 
@@ -779,7 +803,7 @@ export default function InvestmentsMarketplacePage() {
                   ${investorData.summary.totalEligibleNetProfit} USD
                 </span>
                 <div className="text-[11px] text-emerald-500">
-                  Avora 5% Profit Share: ${investorData.summary.totalProfitShareFees}
+                  Avora {feeConfig.profitSharePct}% Profit Share: ${investorData.summary.totalProfitShareFees}
                 </div>
               </div>
 
@@ -817,7 +841,7 @@ export default function InvestmentsMarketplacePage() {
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-500">
                         <div>Gross: <span className="font-mono font-bold text-slate-800 dark:text-slate-200">${c.grossAmount}</span></div>
-                        <div>5% Fee: <span className="font-mono text-amber-500">${c.allocationFeeAmount}</span></div>
+                        <div>Fee: <span className="font-mono text-amber-500">${c.allocationFeeAmount}</span></div>
                         <div>Net: <span className="font-mono font-bold text-emerald-600">${c.netInvestedAmount}</span></div>
                       </div>
                     </div>

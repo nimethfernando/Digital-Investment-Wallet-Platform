@@ -926,6 +926,11 @@ export class AdminController {
         return res.status(400).json({ success: false, message: 'Please provide either totalProceeds or exitMultiplier' });
       }
 
+      const profitShareSetting = await prisma.cmsSetting.findUnique({
+        where: { key: 'startup_profit_share_percent' },
+      });
+      const configuredProfitFeePct = new Decimal(profitShareSetting?.value || '5.00');
+
       const distributedRecords = [];
       let totalDistributedGross = new Decimal(0);
       let totalPlatformFees = new Decimal(0);
@@ -941,8 +946,8 @@ export class AdminController {
         const capitalReturn = Decimal.min(grossInvestorProceeds, netInvested);
         const eligibleProfit = Decimal.max(grossInvestorProceeds.minus(netInvested), new Decimal(0));
 
-        // 5% profit-share fee strictly on net profit
-        const profitFeePct = new Decimal(5.00);
+        // Admin-configurable profit-share fee strictly on net profit
+        const profitFeePct = configuredProfitFeePct;
         const platformFeeAmount = eligibleProfit.times(profitFeePct.dividedBy(100));
         const netCashPayout = capitalReturn.plus(eligibleProfit.minus(platformFeeAmount));
 
@@ -1313,7 +1318,7 @@ export class AdminController {
     try {
       const settings = await prisma.cmsSetting.findMany({
         where: {
-          group: { in: ['INVESTMENT', 'COMMISSION', 'WITHDRAWAL'] },
+          group: { in: ['INVESTMENT', 'COMMISSION', 'WITHDRAWAL', 'REMITTANCE', 'OTC', 'P2P', 'CARDS'] },
         },
       });
 
@@ -1325,28 +1330,36 @@ export class AdminController {
       const defaults = {
         // Fixed Deposit (FD) Engine Defaults
         package_monthly_return_rate: configMap['package_monthly_return_rate'] || '0.0100', // 1.00%
-        package_lock_in_months: configMap['package_lock_in_months'] || '6',
+        package_lock_in_months: configMap['package_lock_in_months'] || configMap['package_min_lockin_months'] || '6',
         package_min_amount: configMap['package_min_amount'] || '1000',
         package_max_amount: configMap['package_max_amount'] || '10000',
+        package_early_exit_penalty_pct: configMap['package_early_exit_penalty_pct'] || '5.00',
         payout_day_of_month: configMap['payout_day_of_month'] || '1',
         withdrawal_processing_days: configMap['withdrawal_processing_days'] || '15',
         withdrawal_window_day: configMap['withdrawal_window_day'] || '1',
 
-        // Platform Commissions & Fees Defaults
+        // Platform Commissions, Fees & Bond Defaults
         razorpay_commission_percent: configMap['razorpay_commission_percent'] || '5.0',
         razorpay_gateway_fee_percent: configMap['razorpay_gateway_fee_percent'] || '3.0',
         razorpay_key_id: configMap['razorpay_key_id'] || process.env.RAZORPAY_KEY_ID || '',
         razorpay_webhook_secret: configMap['razorpay_webhook_secret'] || process.env.RAZORPAY_WEBHOOK_SECRET || '',
         remittance_fee_percent: configMap['remittance_fee_percent'] || '3.0',
         remittance_margin_percent: configMap['remittance_margin_percent'] || '2.0',
+        remittance_corridors_count: configMap['remittance_corridors_count'] || '7',
+        remittance_countries_count: configMap['remittance_countries_count'] || '110+',
+        remittance_delivery_days: configMap['remittance_delivery_days'] || '2',
         startup_allocation_fee_percent: configMap['startup_allocation_fee_percent'] || '5.0',
         startup_profit_share_percent: configMap['startup_profit_share_percent'] || '5.0',
+        startup_min_investment_usd: configMap['startup_min_investment_usd'] || '250',
         otc_spread_percent: configMap['otc_spread_percent'] || '1.0',
         otc_operator_fee_percent: configMap['otc_operator_fee_percent'] || '1.5',
         otc_platform_fee_percent: configMap['otc_platform_fee_percent'] || '0.5',
+        otc_security_deposit_usd: configMap['otc_security_deposit_usd'] || '1000',
         withdrawal_fee_percent: configMap['withdrawal_fee_percent'] || '0.0',
         withdrawal_fx_spread_percent: configMap['withdrawal_fx_spread_percent'] || '0.0',
         p2p_fee_percent: configMap['p2p_fee_percent'] || '0.0',
+        p2p_security_deposit_usd: configMap['p2p_security_deposit_usd'] || '50',
+        p2p_daily_limit_usd: configMap['p2p_daily_limit_usd'] || '5000',
         virtual_card_issuance_fee: configMap['virtual_card_issuance_fee'] || '10.00',
         admin_exchange_rate_overrides: configMap['admin_exchange_rate_overrides'] || '{}',
       };
@@ -1375,8 +1388,10 @@ export class AdminController {
       const allowedKeys = new Set([
         'package_monthly_return_rate',
         'package_lock_in_months',
+        'package_min_lockin_months',
         'package_min_amount',
         'package_max_amount',
+        'package_early_exit_penalty_pct',
         'payout_day_of_month',
         'withdrawal_processing_days',
         'withdrawal_window_day',
@@ -1388,12 +1403,19 @@ export class AdminController {
         'razorpay_webhook_secret',
         'remittance_fee_percent',
         'remittance_margin_percent',
+        'remittance_corridors_count',
+        'remittance_countries_count',
+        'remittance_delivery_days',
         'startup_allocation_fee_percent',
         'startup_profit_share_percent',
+        'startup_min_investment_usd',
         'otc_spread_percent',
         'otc_operator_fee_percent',
         'otc_platform_fee_percent',
+        'otc_security_deposit_usd',
         'p2p_fee_percent',
+        'p2p_security_deposit_usd',
+        'p2p_daily_limit_usd',
         'virtual_card_issuance_fee',
         'admin_exchange_rate_overrides',
       ]);
@@ -1406,10 +1428,13 @@ export class AdminController {
           let group = 'COMMISSION';
           if (key.startsWith('package_') || key === 'payout_day_of_month') group = 'INVESTMENT';
           if (key.startsWith('withdrawal_')) group = 'WITHDRAWAL';
+          if (key.startsWith('remittance_')) group = 'REMITTANCE';
+          if (key.startsWith('otc_')) group = 'OTC';
+          if (key.startsWith('p2p_')) group = 'P2P';
 
           await prisma.cmsSetting.upsert({
             where: { key },
-            update: { value: String(value) },
+            update: { value: String(value), group },
             create: {
               group,
               key,
@@ -1418,6 +1443,19 @@ export class AdminController {
             },
           });
           updatedKeys.push(key);
+
+          if (key === 'package_lock_in_months') {
+            await prisma.cmsSetting.upsert({
+              where: { key: 'package_min_lockin_months' },
+              update: { value: String(value), group: 'INVESTMENT' },
+              create: {
+                group: 'INVESTMENT',
+                key: 'package_min_lockin_months',
+                value: String(value),
+                description: 'Synced FD lock-in duration in months',
+              },
+            });
+          }
         }
       }
 

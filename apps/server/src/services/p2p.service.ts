@@ -1656,11 +1656,17 @@ export class P2PService {
    * Get current user's P2P merchant status and deposit info ($50 security deposit model)
    */
   async getP2pMerchantStatus(userId: string) {
+    const depositSetting = await prisma.cmsSetting
+      .findUnique({ where: { key: 'p2p_security_deposit_usd' } })
+      .catch(() => null);
+    const depositNum = parseFloat(depositSetting?.value || '50.0');
+    const DEPOSIT_REQUIRED = Number.isFinite(depositNum) && depositNum >= 0 ? depositNum : 50.0;
+
     if (!userId) {
       return {
         isP2pMerchant: false,
         p2pDepositLocked: 0,
-        depositRequired: 50.0,
+        depositRequired: DEPOSIT_REQUIRED,
         isKycApproved: false,
         kycStatus: 'NOT_STARTED',
       };
@@ -1678,7 +1684,6 @@ export class P2PService {
 
     if (!user) throw new Error('User not found');
 
-    const DEPOSIT_REQUIRED = 50.0;
     return {
       isP2pMerchant: Boolean(user.isP2pMerchant),
       p2pDepositLocked: Number(user.p2pDepositLocked || 0),
@@ -1717,7 +1722,11 @@ export class P2PService {
       });
     }
 
-    const DEPOSIT_REQUIRED = new Decimal('50.00');
+    const depositSetting = await prisma.cmsSetting
+      .findUnique({ where: { key: 'p2p_security_deposit_usd' } })
+      .catch(() => null);
+    const depositNum = parseFloat(depositSetting?.value || '50.00');
+    const DEPOSIT_REQUIRED = new Decimal(Number.isFinite(depositNum) && depositNum >= 0 ? depositNum : 50);
     const wallet = await ledgerService.ensureWallet(userId);
     const txCode = `P2PD-${Date.now().toString().slice(-6)}`;
 
@@ -1733,7 +1742,7 @@ export class P2PService {
       if (!freshUser || freshUser.status !== 'ACTIVE') {
         throw new Error('User account is not active.');
       }
-      if (freshUser.isP2pMerchant && Number(freshUser.p2pDepositLocked || 0) >= 50) {
+      if (freshUser.isP2pMerchant && Number(freshUser.p2pDepositLocked || 0) >= DEPOSIT_REQUIRED.toNumber()) {
         throw new Error('You are already an authorized P2P Merchant with a locked security deposit.');
       }
 
@@ -1754,7 +1763,7 @@ export class P2PService {
         currentAvail = usdtAvail;
       } else {
         throw new Error(
-          `Insufficient funds. P2P Marketplace merchant status requires a security deposit of $50.00 USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
+          `Insufficient funds. P2P Marketplace merchant status requires a security deposit of $${DEPOSIT_REQUIRED.toFixed(2)} USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
         );
       }
 
@@ -1788,7 +1797,7 @@ export class P2PService {
           status: TransactionStatus.COMPLETED,
           balanceBefore: currentAvail.toFixed(8),
           balanceAfter: newAvail.toFixed(8),
-          notes: 'Security deposit of $50 locked for Avora Bank P2P Marketplace Merchant status',
+          notes: `Security deposit of $${DEPOSIT_REQUIRED.toFixed(2)} locked for Avora Bank P2P Marketplace Merchant status`,
           settlementReference: txCode,
         },
       });
@@ -1796,9 +1805,9 @@ export class P2PService {
 
     return {
       success: true,
-      message: 'Successfully activated P2P Merchant status! $50 security deposit is securely locked by Avora Bank.',
+      message: `Successfully activated P2P Merchant status! $${DEPOSIT_REQUIRED.toFixed(2)} security deposit is securely locked by Avora Bank.`,
       isP2pMerchant: true,
-      p2pDepositLocked: 50,
+      p2pDepositLocked: DEPOSIT_REQUIRED.toNumber(),
     };
   }
 
@@ -1901,7 +1910,7 @@ export class P2PService {
           status: TransactionStatus.COMPLETED,
           balanceBefore: currentUsdAvail.toFixed(8),
           balanceAfter: newUsdAvail.toFixed(8),
-          notes: 'Security deposit of $50 refunded upon closing P2P Merchant status',
+          notes: `Security deposit of $${lockedAmt.toFixed(2)} refunded upon closing P2P Merchant status`,
           settlementReference: txCode,
         },
       });
@@ -1909,7 +1918,7 @@ export class P2PService {
 
     return {
       success: true,
-      message: 'P2P Merchant status closed and $50 security deposit refunded to your available balance.',
+      message: `P2P Merchant status closed and $${depositAmount.toFixed(2)} security deposit refunded to your available balance.`,
       isP2pMerchant: false,
       p2pDepositLocked: 0,
     };
