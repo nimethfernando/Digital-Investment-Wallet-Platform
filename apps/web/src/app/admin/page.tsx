@@ -177,9 +177,12 @@ export default function AdminPortalPage() {
   const [savingFxRates, setSavingFxRates] = useState(false);
   const [refreshingFxFeed, setRefreshingFxFeed] = useState(false);
 
-  // Treasury State
+  // Treasury & Commission Claim State
   const [ledgerReconciliation, setLedgerReconciliation] = useState<any | null>(null);
   const [platformRevenue, setPlatformRevenue] = useState<any | null>(null);
+  const [claimingRevenue, setClaimingRevenue] = useState(false);
+  const [claimCurrency, setClaimCurrency] = useState('ALL');
+  const [claimAmount, setClaimAmount] = useState('');
   const [runningReturns, setRunningReturns] = useState(false);
   const [admin2FaCode, setAdmin2FaCode] = useState('');
 
@@ -350,6 +353,9 @@ export default function AdminPortalPage() {
           setOverviewAnalytics(anRes.data.data);
           if (anRes.data.data?.commandCenter) {
             setCommandCenter(anRes.data.data.commandCenter);
+          }
+          if (anRes.data.data?.platformRevenueSummary) {
+            setPlatformRevenue(anRes.data.data.platformRevenueSummary);
           }
         }
         if (recRes.data?.success) setLedgerReconciliation(recRes.data.data);
@@ -585,6 +591,30 @@ export default function AdminPortalPage() {
       showToast(err.response?.data?.message || err.message || 'Failed to update receiver addresses.', 'error');
     } finally {
       setSavingAddresses(false);
+    }
+  };
+
+  const handleClaimPlatformRevenue = async (overrideCurrency?: string) => {
+    const targetCur = (overrideCurrency || claimCurrency || 'ALL').toUpperCase();
+    setClaimingRevenue(true);
+    try {
+      const res = await api.post(
+        '/admin/ledger/claim-revenue',
+        {
+          currency: targetCur,
+          amount: !overrideCurrency && claimAmount.trim() ? claimAmount.trim() : undefined,
+        },
+        { headers: admin2FaCode.trim() ? { 'x-admin-2fa': admin2FaCode.trim() } : {} }
+      );
+      if (res.data?.success) {
+        showToast(res.data.message || 'Platform commission earnings transferred to your Admin Wallet!', 'success');
+        setClaimAmount('');
+        await loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || err.message || 'Failed to claim commission earnings.', 'error');
+    } finally {
+      setClaimingRevenue(false);
     }
   };
 
@@ -1778,6 +1808,9 @@ export default function AdminPortalPage() {
             analytics={overviewAnalytics}
             commandCenter={commandCenterSummary}
             ledgerReconciliation={ledgerReconciliation}
+            platformRevenue={platformRevenue || overviewAnalytics?.platformRevenueSummary}
+            claimingRevenue={claimingRevenue}
+            onClaimRevenue={(cur) => handleClaimPlatformRevenue(cur || 'ALL')}
             corridorsCount={platformConfig.remittance_corridors_count || '7'}
             onNavigateTab={(tab) => {
               setActiveTab(tab as any);
@@ -3334,9 +3367,88 @@ export default function AdminPortalPage() {
                         key={acc.accountId}
                         className="px-3 py-1 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono text-xs font-bold"
                       >
-                        {acc.accountId.replace('PLATFORM_FEE_REVENUE_', '')} Ledger: {Number(acc.netBalance || 0).toFixed(4)} {acc.currency}
+                        {acc.accountId.replace('PLATFORM_FEE_REVENUE_', '')} Vault: {Number(acc.netBalance || 0).toFixed(4)} {acc.currency}
                       </span>
                     ))}
+                  </div>
+                </div>
+
+                {/* Admin Earnings Vault Summary + Direct Claim / Transfer to Admin Wallet */}
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/35 to-slate-950 border border-emerald-500/30 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-emerald-500/30">
+                      <div className="text-[10px] text-emerald-400 uppercase font-mono font-bold">
+                        Unclaimed Vault (Ready to Transfer)
+                      </div>
+                      <div className="text-xl font-black text-emerald-400 font-mono mt-0.5">
+                        ${Number(platformRevenue.vaultSummary?.unclaimedVaultTotalUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <div className="text-[10px] text-slate-400 uppercase font-mono font-bold">
+                        Claimed to Admin Wallet
+                      </div>
+                      <div className="text-xl font-black text-white font-mono mt-0.5">
+                        ${Number(platformRevenue.vaultSummary?.claimedToAdminWalletTotalUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800">
+                      <div className="text-[10px] text-amber-400 uppercase font-mono font-bold">
+                        Grand Total All-Module Commissions
+                      </div>
+                      <div className="text-xl font-black text-amber-400 font-mono mt-0.5">
+                        ${Number(platformRevenue.moduleBreakdown?.grandTotalEarningsUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2 border-t border-slate-800/80 text-xs">
+                    <div className="space-y-0.5">
+                      <div className="font-extrabold text-white">Transfer Earned Commissions to My Admin Wallet</div>
+                      <div className="text-[11px] text-slate-400">
+                        Your Admin Wallet ({(platformRevenue.adminWalletBalances || []).map((b: any) => `${Number(b.availableBalance).toFixed(2)} ${b.currency}`).join(' · ') || 'Initialized on transfer'}).
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={claimCurrency}
+                        onChange={(e) => setClaimCurrency(e.target.value)}
+                        className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-bold outline-none"
+                      >
+                        <option value="ALL">All Unclaimed Currencies</option>
+                        {(platformRevenue.ledgerRevenueAccounts || []).map((acc: any) => (
+                          <option key={acc.accountId} value={acc.currency}>
+                            {acc.currency} ({Number(acc.netBalance || 0).toFixed(2)} avail)
+                          </option>
+                        ))}
+                      </select>
+                      {claimCurrency !== 'ALL' && (
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="Full balance or custom amount"
+                          value={claimAmount}
+                          onChange={(e) => setClaimAmount(e.target.value)}
+                          className="w-40 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-white outline-none"
+                        />
+                      )}
+                      <input
+                        type="password"
+                        maxLength={6}
+                        value={admin2FaCode}
+                        onChange={(e) => setAdmin2FaCode(e.target.value)}
+                        placeholder="2FA (if enabled)"
+                        className="w-28 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-center text-white outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleClaimPlatformRevenue()}
+                        disabled={claimingRevenue || Number(platformRevenue.vaultSummary?.unclaimedVaultTotalUsd || 0) <= 0}
+                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg cursor-pointer disabled:opacity-50"
+                      >
+                        {claimingRevenue ? 'Transferring...' : 'Claim to Admin Wallet'}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -3403,12 +3515,53 @@ export default function AdminPortalPage() {
                     </div>
                   </div>
                   <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Swap &amp; FX Spreads</div>
+                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">
+                      ${platformRevenue.moduleBreakdown?.swapSpreadFeeTotalUsd || '0.00'}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      {platformRevenue.moduleBreakdown?.swapFeeCount || 0} fee-bearing swap(s)
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
                     <div className="text-[10px] text-slate-400 uppercase font-bold">Ledger Accounts Tracked</div>
                     <div className="text-lg font-black text-cyan-400 font-mono mt-1">
                       {(platformRevenue.ledgerRevenueAccounts || []).length}
                     </div>
                   </div>
                 </div>
+
+                {Array.isArray(platformRevenue.recentClaimTransactions) && platformRevenue.recentClaimTransactions.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                      Admin Commission Wallet Payout History
+                    </h4>
+                    <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
+                          <tr>
+                            <th className="py-2.5 px-3">Claim TX</th>
+                            <th className="py-2.5 px-3">Admin Recipient</th>
+                            <th className="py-2.5 px-3">Amount Credited</th>
+                            <th className="py-2.5 px-3">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 bg-slate-900/60">
+                          {platformRevenue.recentClaimTransactions.map((tx: any) => (
+                            <tr key={tx.id}>
+                              <td className="py-2 px-3 font-mono font-bold text-emerald-300">{tx.transactionCode}</td>
+                              <td className="py-2 px-3 text-slate-300">{tx.recipientEmail}</td>
+                              <td className="py-2 px-3 font-mono font-bold text-white">
+                                +{Number(tx.amount).toFixed(4)} {tx.currency}
+                              </td>
+                              <td className="py-2 px-3 text-slate-400 max-w-xs truncate">{tx.notes}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
                 {Array.isArray(platformRevenue.recentFeeTransactions) && platformRevenue.recentFeeTransactions.length > 0 && (
                   <div className="space-y-2">

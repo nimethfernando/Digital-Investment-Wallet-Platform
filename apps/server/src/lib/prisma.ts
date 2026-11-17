@@ -10,10 +10,18 @@ if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = defaultDbUrl;
 }
 
+function withSafePoolParams(rawUrl: string): string {
+  if (!rawUrl || rawUrl.includes('connection_limit=')) return rawUrl;
+  const sep = rawUrl.includes('?') ? '&' : '?';
+  return `${rawUrl}${sep}connection_limit=5&pool_timeout=20`;
+}
+
+const resolvedDbUrl = withSafePoolParams(process.env.DATABASE_URL || defaultDbUrl);
+
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    datasourceUrl: process.env.DATABASE_URL || defaultDbUrl,
+    datasourceUrl: resolvedDbUrl,
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   });
 

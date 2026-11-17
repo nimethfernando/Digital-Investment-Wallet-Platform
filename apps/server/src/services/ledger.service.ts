@@ -944,28 +944,49 @@ export class LedgerService {
     });
 
     let effectiveRate: Decimal;
+    let spreadPctDec = new Decimal(1.0);
     if (pair) {
       if (pair.baseCurrency === params.fromCurrency) {
         // e.g. USDT -> USD: rate is baseRate * (1 - sellMarginPct / 100)
-        const margin = new Decimal(pair.sellMarginPct.toString()).dividedBy(100);
+        const marginPct = Decimal.max(0, new Decimal(pair.sellMarginPct.toString()));
+        spreadPctDec = marginPct;
+        const margin = marginPct.dividedBy(100);
         effectiveRate = new Decimal(pair.baseRate.toString()).times(new Decimal(1).minus(margin));
       } else {
         // e.g. USD -> USDT: rate is 1 / (baseRate * (1 + buyMarginPct / 100))
-        const margin = new Decimal(pair.buyMarginPct.toString()).dividedBy(100);
+        const marginPct = Decimal.max(0, new Decimal(pair.buyMarginPct.toString()));
+        spreadPctDec = marginPct;
+        const margin = marginPct.dividedBy(100);
         const effectiveBase = new Decimal(pair.baseRate.toString()).times(new Decimal(1).plus(margin));
         effectiveRate = new Decimal(1).dividedBy(effectiveBase);
       }
     } else {
       // Live market spot rates via RateService (units per 1 USD)
-      const live = await rateService.getLiveRates();
+      const [live, spreadSetting] = await Promise.all([
+        rateService.getLiveRates(),
+        prisma.cmsSetting.findUnique({ where: { key: 'exchange_spread_percent' } }).catch(() => null),
+      ]);
+      const rawSpread = parseFloat(spreadSetting?.value || '1.0');
+      spreadPctDec = new Decimal(Number.isFinite(rawSpread) && rawSpread >= 0 ? rawSpread : 1.0);
       const fromPerUsd = live.rates[params.fromCurrency.toUpperCase()] || 1.0;
       const toPerUsd = live.rates[params.toCurrency.toUpperCase()] || 1.0;
       const spotRate = new Decimal(toPerUsd).dividedBy(new Decimal(fromPerUsd));
-      // 1.0% platform spread
-      effectiveRate = new Decimal(spotRate.times('0.99').toFixed(6));
+      const multiplier = Decimal.max(new Decimal(0.01), new Decimal(1).minus(spreadPctDec.dividedBy(100)));
+      effectiveRate = new Decimal(spotRate.times(multiplier).toFixed(6));
     }
 
-    const toAmountDec = fromAmountDec.times(effectiveRate);
+    const fromCur = params.fromCurrency.toUpperCase();
+    const toCur = params.toCurrency.toUpperCase();
+    const fromAmtFixed = new Decimal(fromAmountDec.toFixed(8));
+    const toAmountDec = new Decimal(fromAmtFixed.times(effectiveRate).toFixed(8));
+    const spreadFeeFromDec =
+      spreadPctDec.greaterThan(0)
+        ? Decimal.min(
+            fromAmtFixed,
+            new Decimal(fromAmtFixed.times(spreadPctDec).dividedBy(100).toFixed(8))
+          )
+        : new Decimal(0);
+    const netTreasuryFromDec = fromAmtFixed.minus(spreadFeeFromDec);
     const idempotencyKey = `SWAP-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
     const wallet = await this.ensureWallet(params.userId);
@@ -973,17 +994,17 @@ export class LedgerService {
     return await prisma.$transaction(
       async (tx) => {
         // Lock both balance rows to prevent race conditions
-        const fromLocked = await this.lockWalletBalance(tx, wallet.id, params.fromCurrency);
-        const toLocked = await this.lockWalletBalance(tx, wallet.id, params.toCurrency);
+        const fromLocked = await this.lockWalletBalance(tx, wallet.id, fromCur);
+        const toLocked = await this.lockWalletBalance(tx, wallet.id, toCur);
 
         const fromAvail = new Decimal(fromLocked.availableBalance.toString());
-        if (fromAvail.lessThan(fromAmountDec)) {
+        if (fromAvail.lessThan(fromAmtFixed)) {
           throw new Error(
-            `Insufficient ${params.fromCurrency} balance. Available: ${fromAvail.toFixed(2)} ${params.fromCurrency}, Required: ${fromAmountDec.toFixed(2)}`
+            `Insufficient ${fromCur} balance. Available: ${fromAvail.toFixed(2)} ${fromCur}, Required: ${fromAmtFixed.toFixed(2)}`
           );
         }
 
-        const fromBalAfter = fromAvail.minus(fromAmountDec);
+        const fromBalAfter = fromAvail.minus(fromAmtFixed);
         const toAvail = new Decimal(toLocked.availableBalance.toString());
         const toBalAfter = toAvail.plus(toAmountDec);
 
@@ -998,32 +1019,55 @@ export class LedgerService {
           data: { availableBalance: toBalAfter.toFixed(8) },
         });
 
-        // Record double-entry ledger entries
-        const fromAccount = `USER_AVAILABLE_${params.fromCurrency}`;
-        const toAccount = `USER_AVAILABLE_${params.toCurrency}`;
+        // Record balanced multi-leg double-entry ledger entries (including Platform Spread Revenue)
+        const swapJournalEntries: JournalEntryInput[] = [
+          {
+            accountId: `USER_AVAILABLE_${fromCur}`,
+            userId: params.userId,
+            direction: 'DEBIT',
+            amount: fromAmtFixed.toFixed(8),
+            currency: fromCur,
+          },
+        ];
+        if (netTreasuryFromDec.greaterThan(0)) {
+          swapJournalEntries.push({
+            accountId: `PLATFORM_TREASURY_${fromCur}`,
+            direction: 'CREDIT',
+            amount: netTreasuryFromDec.toFixed(8),
+            currency: fromCur,
+          });
+        }
+        if (spreadFeeFromDec.greaterThan(0)) {
+          swapJournalEntries.push({
+            accountId: `PLATFORM_FEE_REVENUE_${fromCur}`,
+            direction: 'CREDIT',
+            amount: spreadFeeFromDec.toFixed(8),
+            currency: fromCur,
+          });
+        }
+        swapJournalEntries.push(
+          {
+            accountId: `PLATFORM_TREASURY_${toCur}`,
+            direction: 'DEBIT',
+            amount: toAmountDec.toFixed(8),
+            currency: toCur,
+          },
+          {
+            accountId: `USER_AVAILABLE_${toCur}`,
+            userId: params.userId,
+            direction: 'CREDIT',
+            amount: toAmountDec.toFixed(8),
+            currency: toCur,
+          }
+        );
 
         await this.recordJournal(tx, {
           idempotencyKey,
           referenceType: JournalReferenceType.EXCHANGE_BUY,
           referenceId: idempotencyKey,
-          notes: `Instant swap: ${fromAmountDec.toFixed(2)} ${params.fromCurrency} -> ${toAmountDec.toFixed(2)} ${params.toCurrency} (Rate: ${effectiveRate.toFixed(4)})`,
+          notes: `Instant swap: ${fromAmtFixed.toFixed(2)} ${fromCur} -> ${toAmountDec.toFixed(2)} ${toCur} (Rate: ${effectiveRate.toFixed(4)}, Platform spread ${spreadPctDec.toFixed(2)}%: ${spreadFeeFromDec.toFixed(4)} ${fromCur})`,
           createdBy: params.userId,
-          entries: [
-            {
-              accountId: fromAccount,
-              userId: params.userId,
-              direction: 'DEBIT',
-              amount: fromAmountDec.toFixed(8),
-              currency: params.fromCurrency,
-            },
-            {
-              accountId: toAccount,
-              userId: params.userId,
-              direction: 'CREDIT',
-              amount: fromAmountDec.toFixed(8),
-              currency: params.fromCurrency,
-            },
-          ],
+          entries: swapJournalEntries,
         });
 
         // Create user transaction record
@@ -1034,25 +1078,47 @@ export class LedgerService {
             userId: params.userId,
             type: TransactionType.EXCHANGE_BUY,
             amount: toAmountDec.toFixed(8),
-            currency: params.toCurrency,
+            currency: toCur,
             status: 'COMPLETED',
             balanceBefore: toAvail.toFixed(8),
             balanceAfter: toBalAfter.toFixed(8),
-            notes: `Swapped ${fromAmountDec.toFixed(2)} ${params.fromCurrency} for ${toAmountDec.toFixed(2)} ${params.toCurrency} at rate ${effectiveRate.toFixed(4)}`,
+            settlementReference: idempotencyKey,
+            notes: `Swapped ${fromAmtFixed.toFixed(2)} ${fromCur} for ${toAmountDec.toFixed(2)} ${toCur} at rate ${effectiveRate.toFixed(4)}`,
           },
         });
+
+        if (spreadFeeFromDec.greaterThan(0)) {
+          await tx.transaction.create({
+            data: {
+              transactionCode: `TX-SWAPF-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+              userId: params.userId,
+              type: TransactionType.FEE,
+              amount: spreadFeeFromDec.toFixed(8),
+              currency: fromCur,
+              status: TransactionStatus.COMPLETED,
+              balanceBefore: fromBalAfter.toFixed(8),
+              balanceAfter: fromBalAfter.toFixed(8),
+              settlementReference: transactionCode,
+              idempotencyKey: `${idempotencyKey}-FEE`,
+              notes: `${spreadPctDec.toFixed(2)}% Instant Currency Swap spread collected on ${transactionCode}`,
+            },
+          });
+        }
 
         return {
           success: true,
           transactionCode,
-          fromCurrency: params.fromCurrency,
-          toCurrency: params.toCurrency,
-          fromAmount: fromAmountDec.toFixed(2),
+          fromCurrency: fromCur,
+          toCurrency: toCur,
+          fromAmount: fromAmtFixed.toFixed(2),
           toAmount: toAmountDec.toFixed(2),
+          feeAmount: spreadFeeFromDec.toFixed(4),
+          feeCurrency: fromCur,
+          spreadPct: spreadPctDec.toFixed(2),
           rate: effectiveRate.toFixed(4),
           balanceAfter: {
-            [params.fromCurrency]: fromBalAfter.toFixed(2),
-            [params.toCurrency]: toBalAfter.toFixed(2),
+            [fromCur]: fromBalAfter.toFixed(2),
+            [toCur]: toBalAfter.toFixed(2),
           },
         };
       },
@@ -1150,6 +1216,266 @@ export class LedgerService {
     },
     { maxWait: 15000, timeout: 30000 }
   );
+  }
+
+  /**
+   * Pure helper: derive unclaimed & claimed revenue vault summary directly from ledger account rows.
+   */
+  computeVaultSummaryFromAccounts(
+    accounts: Array<{ accountId: string; currency: string; totalDebit: string | number; totalCredit: string | number; netBalance?: string | number }>,
+    liveRates: { rates?: Record<string, number> }
+  ) {
+    const revRows = (accounts || []).filter((a) => String(a.accountId || '').startsWith('PLATFORM_FEE_REVENUE'));
+    const unclaimedByCurrency: Record<string, string> = {};
+    const claimedByCurrency: Record<string, string> = {};
+    const totalCreditedByCurrency: Record<string, string> = {};
+    let unclaimedVaultTotalUsd = new Decimal(0);
+    let claimedTotalUsd = new Decimal(0);
+    let totalCreditedUsd = new Decimal(0);
+
+    const toUsdDec = (amt: Decimal, currency: string) => {
+      const cur = (currency || 'USD').toUpperCase();
+      if (cur === 'USD' || cur === 'USDT' || cur === 'USDC') return amt;
+      const unitsPerUsd = Number(liveRates?.rates?.[cur] || 0);
+      if (unitsPerUsd > 0) return amt.div(new Decimal(unitsPerUsd));
+      return amt;
+    };
+
+    for (const row of revRows) {
+      const cur = String(row.currency || String(row.accountId || '').replace('PLATFORM_FEE_REVENUE_', '') || 'USD').toUpperCase();
+      const credit = new Decimal(row.totalCredit?.toString() || '0');
+      const debit = new Decimal(row.totalDebit?.toString() || '0');
+      const net = Decimal.max(new Decimal(0), credit.minus(debit));
+      unclaimedByCurrency[cur] = net.toFixed(4);
+      claimedByCurrency[cur] = debit.toFixed(4);
+      totalCreditedByCurrency[cur] = credit.toFixed(4);
+      unclaimedVaultTotalUsd = unclaimedVaultTotalUsd.plus(toUsdDec(net, cur));
+      claimedTotalUsd = claimedTotalUsd.plus(toUsdDec(debit, cur));
+      totalCreditedUsd = totalCreditedUsd.plus(toUsdDec(credit, cur));
+    }
+
+    return {
+      unclaimedVaultTotalUsd: unclaimedVaultTotalUsd.toFixed(2),
+      claimedToAdminWalletTotalUsd: claimedTotalUsd.toFixed(2),
+      totalCreditedToLedgerUsd: totalCreditedUsd.toFixed(2),
+      unclaimedByCurrency,
+      claimedByCurrency,
+      totalCreditedByCurrency,
+    };
+  }
+
+  /**
+   * Summarize live unclaimed & claimed platform commission balances from PLATFORM_FEE_REVENUE_* ledger accounts.
+   */
+  async getPlatformRevenueVaultSummary() {
+    const [rawAccs, liveRates] = await Promise.all([
+      prisma.$queryRawUnsafe<any[]>(`
+        SELECT
+          a.\`id\` as accountId,
+          a.\`currency\`,
+          COALESCE(SUM(CASE WHEN e.\`direction\` = 'CREDIT' THEN e.\`amount\` ELSE 0 END), 0) as totalCredit,
+          COALESCE(SUM(CASE WHEN e.\`direction\` = 'DEBIT' THEN e.\`amount\` ELSE 0 END), 0) as totalDebit
+        FROM \`diw_ledger_accounts\` a
+        LEFT JOIN \`diw_ledger_entries\` e ON a.\`id\` = e.\`accountId\`
+        WHERE a.\`id\` LIKE 'PLATFORM_FEE_REVENUE%'
+        GROUP BY a.\`id\`, a.\`currency\`
+        ORDER BY a.\`id\` ASC
+      `),
+      rateService.getLiveRates().catch(() => ({ rates: { USD: 1, USDT: 1 } as Record<string, number> })),
+    ]);
+
+    return this.computeVaultSummaryFromAccounts(rawAccs, liveRates);
+  }
+
+  /**
+   * Sweep / claim unclaimed commission earnings from PLATFORM_FEE_REVENUE_<CURRENCY>
+   * directly into an Admin user's spendable WalletBalance via balanced double-entry ledger.
+   */
+  async claimPlatformRevenueToAdminWallet(
+    adminUserId: string,
+    params: { currency?: string; amount?: string | number; targetUserId?: string; reason?: string }
+  ) {
+    const recipientId = String(params.targetUserId || adminUserId);
+    const recipient = await prisma.user.findUnique({
+      where: { id: recipientId },
+      select: { id: true, email: true, role: true, status: true },
+    });
+    if (!recipient || recipient.role !== 'ADMIN' || recipient.status !== 'ACTIVE') {
+      throw new Error('Commission earnings can only be transferred into an ACTIVE ADMIN user wallet.');
+    }
+
+    const reqCur = String(params.currency || 'ALL').trim().toUpperCase();
+    const parsedPartial =
+      params.amount !== undefined && params.amount !== null && String(params.amount).trim() !== ''
+        ? new Decimal(String(params.amount))
+        : null;
+
+    if (parsedPartial && parsedPartial.lessThanOrEqualTo(0)) {
+      throw new Error('Claim amount must be greater than zero.');
+    }
+    if (parsedPartial && reqCur === 'ALL') {
+      throw new Error('Specify a single currency when claiming a partial amount, or leave amount blank to sweep all currencies.');
+    }
+
+    const revAccounts = await prisma.ledgerAccount.findMany({
+      where:
+        reqCur === 'ALL'
+          ? { id: { startsWith: 'PLATFORM_FEE_REVENUE_' } }
+          : { id: `PLATFORM_FEE_REVENUE_${reqCur}` },
+      select: { id: true, currency: true },
+    });
+
+    if (revAccounts.length === 0) {
+      throw new Error(
+        reqCur === 'ALL'
+          ? 'No commission revenue accounts found to claim.'
+          : `No unclaimed revenue ledger account found for ${reqCur}.`
+      );
+    }
+
+    const recipientWallet = await this.ensureWallet(recipientId);
+    const claimCode = `ADMREV-${Date.now().toString().slice(-6)}-${Math.random()
+      .toString(36)
+      .slice(2, 5)
+      .toUpperCase()}`;
+
+    const claims: Array<{
+      currency: string;
+      claimedAmount: string;
+      balanceBefore: string;
+      balanceAfter: string;
+      transactionCode: string;
+    }> = [];
+
+    await prisma.$transaction(
+      async (tx) => {
+        for (const acc of revAccounts) {
+          const cur = (acc.currency || acc.id.replace('PLATFORM_FEE_REVENUE_', '') || 'USD').toUpperCase();
+
+          // Lock revenue account row and admin wallet row to prevent concurrent over-claim
+          await tx.$queryRawUnsafe(`SELECT id FROM \`diw_ledger_accounts\` WHERE id = ? FOR UPDATE`, acc.id);
+          const lockedBal = await this.lockWalletBalance(tx, recipientWallet.id, cur);
+
+          const sums: any[] = await tx.$queryRawUnsafe(
+            `SELECT
+              COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE 0 END), 0) AS totalCredit,
+              COALESCE(SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE 0 END), 0) AS totalDebit
+            FROM \`diw_ledger_entries\`
+            WHERE accountId = ?`,
+            acc.id
+          );
+          const totalCredit = new Decimal(sums?.[0]?.totalCredit?.toString() || '0');
+          const totalDebit = new Decimal(sums?.[0]?.totalDebit?.toString() || '0');
+          const availableRev = Decimal.max(new Decimal(0), totalCredit.minus(totalDebit));
+
+          if (availableRev.lessThanOrEqualTo(0)) {
+            if (reqCur !== 'ALL') {
+              throw new Error(`No unclaimed ${cur} commission balance remaining in ${acc.id}.`);
+            }
+            continue;
+          }
+
+          let claimAmt = availableRev;
+          if (parsedPartial) {
+            if (parsedPartial.greaterThan(availableRev)) {
+              throw new Error(
+                `Requested ${parsedPartial.toFixed(4)} ${cur} exceeds unclaimed vault balance of ${availableRev.toFixed(4)} ${cur}.`
+              );
+            }
+            claimAmt = new Decimal(parsedPartial.toFixed(8));
+          } else {
+            claimAmt = new Decimal(availableRev.toFixed(8));
+          }
+
+          const balBefore = new Decimal(lockedBal.availableBalance.toString());
+          const balAfter = balBefore.plus(claimAmt);
+
+          await tx.walletBalance.update({
+            where: { id: lockedBal.id },
+            data: { availableBalance: balAfter.toFixed(8) },
+          });
+
+          const idempotencyKey = `CLAIM-${claimCode}-${cur}`;
+          await this.recordJournal(tx, {
+            idempotencyKey,
+            referenceType: JournalReferenceType.ADJUSTMENT,
+            referenceId: claimCode,
+            notes: `Admin claimed ${claimAmt.toFixed(4)} ${cur} platform commission earnings to ${recipient.email}`,
+            createdBy: adminUserId,
+            entries: [
+              {
+                accountId: acc.id,
+                direction: 'DEBIT',
+                amount: claimAmt.toFixed(8),
+                currency: cur,
+              },
+              {
+                accountId: `USER_AVAILABLE_${cur}`,
+                userId: recipientId,
+                direction: 'CREDIT',
+                amount: claimAmt.toFixed(8),
+                currency: cur,
+              },
+            ],
+          });
+
+          const transactionCode = `TX-ADMREV-${Date.now().toString().slice(-6)}-${cur}-${Math.random()
+            .toString(36)
+            .slice(2, 5)
+            .toUpperCase()}`;
+
+          await tx.transaction.create({
+            data: {
+              transactionCode,
+              userId: recipientId,
+              type: TransactionType.ADJUSTMENT,
+              amount: claimAmt.toFixed(8),
+              currency: cur,
+              status: TransactionStatus.COMPLETED,
+              balanceBefore: balBefore.toFixed(8),
+              balanceAfter: balAfter.toFixed(8),
+              settlementReference: claimCode,
+              createdBy: adminUserId,
+              idempotencyKey,
+              notes:
+                params.reason?.trim() ||
+                `Admin Commission Earnings Claimed (${claimAmt.toFixed(4)} ${cur} swept from Platform Revenue Vault ${claimCode})`,
+            },
+          });
+
+          claims.push({
+            currency: cur,
+            claimedAmount: claimAmt.toFixed(4),
+            balanceBefore: balBefore.toFixed(4),
+            balanceAfter: balAfter.toFixed(4),
+            transactionCode,
+          });
+        }
+
+        if (claims.length === 0) {
+          throw new Error('There are currently no unclaimed commission earnings available in the Revenue Vault.');
+        }
+
+        await tx.adminAuditLog.create({
+          data: {
+            userId: adminUserId,
+            action: 'CLAIM_PLATFORM_REVENUE',
+            entity: 'LedgerAccount',
+            entityId: claimCode,
+            details: `Admin swept commission earnings to ${recipient.email}: ${claims.map((c) => `${c.claimedAmount} ${c.currency}`).join(', ')}`,
+          },
+        });
+      },
+      { maxWait: 15000, timeout: 30000 }
+    );
+
+    return {
+      success: true,
+      claimCode,
+      recipientEmail: recipient.email,
+      claims,
+      message: `Successfully transferred ${claims.map((c) => `${c.claimedAmount} ${c.currency}`).join(' + ')} in platform commission earnings to ${recipient.email}'s wallet.`,
+    };
   }
 }
 

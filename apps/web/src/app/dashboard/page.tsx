@@ -1649,6 +1649,35 @@ function DashboardContent() {
               </div>
             )}
 
+            {/* Admin Platform Commission Earnings Notice (Visible Only to Admins) */}
+            {user?.role === 'ADMIN' && (wallet as any)?.adminRevenueSummary && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-950 border border-emerald-500/35 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-white shadow-md">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 font-black text-emerald-400 uppercase tracking-wider text-[11px]">
+                    <ShieldCheck className="w-4 h-4 shrink-0" />
+                    <span>Admin Commission Revenue Vault</span>
+                  </div>
+                  <div className="text-slate-200">
+                    Unclaimed Platform Commissions Ready:{' '}
+                    <strong className="font-mono text-emerald-300">
+                      ${Number((wallet as any).adminRevenueSummary.unclaimedVaultTotalUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD eq.
+                    </strong>{' '}
+                    ({Object.entries((wallet as any).adminRevenueSummary.unclaimedByCurrency || {}).map(([cur, amt]: any) => `${Number(amt || 0).toFixed(2)} ${cur}`).join(' • ') || '0.00'})
+                    {' · '}Claimed to Wallet:{' '}
+                    <strong className="font-mono text-slate-300">
+                      ${Number((wallet as any).adminRevenueSummary.claimedToAdminWalletTotalUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                    </strong>
+                  </div>
+                </div>
+                <Link
+                  href="/admin"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs whitespace-nowrap shrink-0 text-center transition-colors"
+                >
+                  Open Admin Treasury &amp; Claim →
+                </Link>
+              </div>
+            )}
+
             {/* Stat Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               

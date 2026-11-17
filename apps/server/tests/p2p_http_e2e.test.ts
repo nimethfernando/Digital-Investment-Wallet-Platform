@@ -904,6 +904,82 @@ async function runHttpProductionE2E() {
       }
     });
 
+    await assertHttp('H10: Swap Spread Revenue + Card Total Fix + Overview Summary + Admin Claim-to-Wallet (2FA & Balanced Ledger)', async () => {
+      const revBefore = await apiCall('GET', '/api/v1/admin/ledger/revenue', adminToken);
+      const swapFeeBefore = parseFloat(revBefore.json?.data?.moduleBreakdown?.swapSpreadFeeTotalUsd || '0');
+      const cardTotalBefore = parseFloat(revBefore.json?.data?.moduleBreakdown?.cardIssuanceFeeTotal || '0');
+      if (cardTotalBefore < 10) {
+        throw new Error(`Expected non-zero cardIssuanceFeeTotal from H8, got ${cardTotalBefore}`);
+      }
+
+      // 1. Fund buyer and execute USD -> EUR Instant Currency Swap
+      const buyerWallet = await ledgerService.ensureWallet(buyer.id);
+      await prisma.$transaction(async (tx) => {
+        const usd = await ledgerService.lockWalletBalance(tx, buyerWallet.id, 'USD');
+        await tx.walletBalance.update({
+          where: { id: usd.id },
+          data: { availableBalance: (Number(usd.availableBalance) + 200).toFixed(8) },
+        });
+      });
+
+      const swapRes = await apiCall('POST', '/api/v1/wallet/swap', buyerToken, {
+        fromCurrency: 'USD',
+        toCurrency: 'EUR',
+        fromAmount: 100,
+      });
+      if (swapRes.status !== 200 || parseFloat(swapRes.json?.data?.feeAmount || '0') <= 0) {
+        throw new Error(`Expected swap with positive spread feeAmount, got ${swapRes.status} ${JSON.stringify(swapRes.json)}`);
+      }
+      const chargedSwapFee = parseFloat(swapRes.json.data.feeAmount);
+
+      // 2. Verify Admin Overview & Admin Wallet both expose platformRevenueSummary / adminRevenueSummary
+      const [overviewRes, adminWalletRes] = await Promise.all([
+        apiCall('GET', '/api/v1/admin/analytics/overview', adminToken),
+        apiCall('GET', '/api/v1/wallet', adminToken),
+      ]);
+      const ovRev = overviewRes.json?.data?.platformRevenueSummary;
+      const swapFeeAfter = parseFloat(ovRev?.moduleBreakdown?.swapSpreadFeeTotalUsd || '0');
+      if (!ovRev || swapFeeAfter < swapFeeBefore + chargedSwapFee - 0.01) {
+        throw new Error(`Expected Overview platformRevenueSummary to include swap fee (+${chargedSwapFee}), got before=${swapFeeBefore}, after=${swapFeeAfter}`);
+      }
+      if (!adminWalletRes.json?.data?.adminRevenueSummary?.unclaimedVaultTotalUsd) {
+        throw new Error(`Expected /wallet as ADMIN to include adminRevenueSummary`);
+      }
+
+      // 3. Enforce Admin 2FA on /admin/ledger/claim-revenue, then claim $5.00 USD into Admin's spendable wallet
+      const no2faClaim = await apiCall('POST', '/api/v1/admin/ledger/claim-revenue', adminToken, {
+        currency: 'USD',
+        amount: 5,
+      });
+      if (no2faClaim.status !== 403 || no2faClaim.json?.code !== '2FA_CODE_REQUIRED') {
+        throw new Error(`Expected 403 2FA_CODE_REQUIRED on claim-revenue, got ${no2faClaim.status}`);
+      }
+
+      const claimRes = await apiCall(
+        'POST',
+        '/api/v1/admin/ledger/claim-revenue',
+        adminToken,
+        { currency: 'USD', amount: 5, reason: 'E2E test sweep to admin wallet' },
+        { 'x-admin-2fa': authenticator.generate(adminSecret) }
+      );
+      if (claimRes.status !== 200 || !claimRes.json?.success || !Array.isArray(claimRes.json?.claims) || claimRes.json.claims[0]?.claimedAmount !== '5.0000') {
+        throw new Error(`Expected $5.0000 USD claimed to admin wallet, got ${claimRes.status} ${JSON.stringify(claimRes.json)}`);
+      }
+
+      // Verify Admin's spendable WalletBalance USD actually increased to 5.00 USD & Core Ledger stays HEALTHY_BALANCED
+      const adminUsdBal = await prisma.walletBalance.findFirst({
+        where: { wallet: { userId: adminUser.id }, currency: 'USD' },
+      });
+      if (Number(adminUsdBal?.availableBalance || 0) !== 5) {
+        throw new Error(`Expected Admin spendable USD wallet = $5.00 after claim, got ${adminUsdBal?.availableBalance}`);
+      }
+
+      const recAfter = await ledgerService.reconcileLedger();
+      if (!recAfter.isBalanced) {
+        throw new Error(`Ledger imbalance after swap & admin revenue claim: diff=${recAfter.difference}`);
+      }
+    });
+
     console.log('\n================================================================');
     console.log(`🌐 HTTP Production E2E Results: ${passed}/${total} Tests Passed`);
     console.log('================================================================\n');

@@ -303,159 +303,285 @@ class AdminController {
         }
     }
     /**
+     * Build unified Platform Commission & Fee Revenue data across all modules + Vault claimable status
+     */
+    async buildPlatformRevenueData(adminUserId) {
+        // Execute in compact bounded batches (<= 4 queries at once) to respect shared MySQL connection_limit=5
+        const [reconcile, liveRates, otcCompleted, p2pCompleted] = await Promise.all([
+            ledger_service_1.ledgerService.reconcileLedger(),
+            rate_service_1.rateService.getLiveRates().catch(() => ({ rates: { USD: 1, USDT: 1 } })),
+            prisma_1.prisma.otcTrade.findMany({
+                where: { status: 'COMPLETED' },
+                select: { platformFee: true, operatorFee: true },
+            }),
+            prisma_1.prisma.p2POrder.findMany({
+                where: { status: client_1.P2POrderStatus.COMPLETED },
+                select: { platformFeeAmount: true, cryptoCurrency: true },
+            }),
+        ]);
+        const [invAgg, gmtTransfers, settledWithdrawals, approvedRazorpay] = await Promise.all([
+            prisma_1.prisma.investmentCommitment.aggregate({
+                _sum: { allocationFeeAmount: true, profitShareFeeAmount: true },
+            }),
+            prisma_1.prisma.globalTransfer.findMany({
+                where: { status: { notIn: ['REJECTED', 'REFUNDED', 'CANCELLED'] } },
+                select: { sendingAmount: true, transferFeeAmount: true, rateAdjustmentPct: true, sendingCurrency: true },
+            }),
+            prisma_1.prisma.withdrawalRequest.findMany({
+                where: { status: client_1.WithdrawalStatus.SETTLED },
+                select: { currency: true, payoutDetails: true },
+            }),
+            prisma_1.prisma.depositRequest.findMany({
+                where: { status: client_1.DepositStatus.APPROVED, depositMethod: 'RAZORPAY' },
+                select: { currency: true, adminNotes: true },
+            }),
+        ]);
+        const [allCommissionTxs, exchangeOrdersCompleted, adminWallet] = await Promise.all([
+            prisma_1.prisma.transaction.findMany({
+                where: {
+                    status: client_1.TransactionStatus.COMPLETED,
+                    OR: [
+                        {
+                            type: {
+                                in: [
+                                    client_1.TransactionType.FEE,
+                                    client_1.TransactionType.GLOBAL_TRANSFER_FEE,
+                                    client_1.TransactionType.INVESTMENT_FEE,
+                                    client_1.TransactionType.INVESTMENT_PROFIT_SHARE,
+                                ],
+                            },
+                        },
+                        { transactionCode: { startsWith: 'TX-ADMREV-' } },
+                    ],
+                },
+                include: {
+                    user: { select: { email: true, firstName: true, lastName: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 1000,
+            }),
+            prisma_1.prisma.exchangeOrder.findMany({
+                where: { status: 'COMPLETED' },
+                select: { feeAmount: true, fromCurrency: true },
+            }),
+            adminUserId
+                ? prisma_1.prisma.wallet
+                    .findUnique({
+                    where: { userId: adminUserId },
+                    include: { balances: true },
+                })
+                    .catch(() => null)
+                : Promise.resolve(null),
+        ]);
+        const vaultSummary = ledger_service_1.ledgerService.computeVaultSummaryFromAccounts(reconcile.accounts || [], liveRates);
+        const feeTransactions = allCommissionTxs
+            .filter((t) => !String(t.transactionCode || '').startsWith('TX-ADMREV-'))
+            .slice(0, 40);
+        const p2pPromoTransactions = allCommissionTxs.filter((t) => String(t.transactionCode || '').startsWith('TX-P2PPROMO-'));
+        const cardFeeTransactions = allCommissionTxs.filter((t) => String(t.transactionCode || '').startsWith('TX-CARDF-'));
+        const swapFeeTransactions = allCommissionTxs.filter((t) => String(t.transactionCode || '').startsWith('TX-SWAPF-'));
+        const claimTransactions = allCommissionTxs
+            .filter((t) => String(t.transactionCode || '').startsWith('TX-ADMREV-'))
+            .slice(0, 25);
+        const toUsdDec = (amt, currency) => {
+            const cur = (currency || 'USD').toUpperCase();
+            if (cur === 'USD' || cur === 'USDT' || cur === 'USDC')
+                return amt;
+            const unitsPerUsd = Number(liveRates.rates?.[cur] || 0);
+            if (unitsPerUsd > 0)
+                return amt.div(new decimal_js_1.default(unitsPerUsd));
+            return amt;
+        };
+        const otcPlatformUsdt = otcCompleted.reduce((s, t) => s.plus(new decimal_js_1.default(t.platformFee?.toString() || '0')), new decimal_js_1.default(0));
+        const otcBrokerUsdt = otcCompleted.reduce((s, t) => s.plus(new decimal_js_1.default(t.operatorFee?.toString() || '0')), new decimal_js_1.default(0));
+        const p2pFeesByCurrency = {};
+        let p2pTotalCrypto = new decimal_js_1.default(0);
+        let p2pFeeUsdEq = new decimal_js_1.default(0);
+        for (const o of p2pCompleted) {
+            const fee = new decimal_js_1.default(o.platformFeeAmount?.toString() || '0');
+            const cur = (o.cryptoCurrency || 'USDT').toUpperCase();
+            if (fee.greaterThan(0)) {
+                p2pFeesByCurrency[cur] = (p2pFeesByCurrency[cur] || new decimal_js_1.default(0)).plus(fee);
+                p2pTotalCrypto = p2pTotalCrypto.plus(fee);
+                p2pFeeUsdEq = p2pFeeUsdEq.plus(toUsdDec(fee, cur));
+            }
+        }
+        const ventureAllocationUsd = new decimal_js_1.default(invAgg._sum.allocationFeeAmount?.toString() || '0');
+        const ventureProfitShareUsd = new decimal_js_1.default(invAgg._sum.profitShareFeeAmount?.toString() || '0');
+        let gmtFeeTotal = new decimal_js_1.default(0);
+        let gmtFxMarginEst = new decimal_js_1.default(0);
+        for (const g of gmtTransfers) {
+            const sendAmt = new decimal_js_1.default(g.sendingAmount?.toString() || '0');
+            const feeAmt = new decimal_js_1.default(g.transferFeeAmount?.toString() || '0');
+            const marginPct = new decimal_js_1.default(g.rateAdjustmentPct?.toString() || '0');
+            gmtFeeTotal = gmtFeeTotal.plus(feeAmt);
+            gmtFxMarginEst = gmtFxMarginEst.plus(sendAmt.times(marginPct.div(100)));
+        }
+        let withdrawalFeeTotal = new decimal_js_1.default(0);
+        let withdrawalFeeUsdEq = new decimal_js_1.default(0);
+        for (const w of settledWithdrawals) {
+            try {
+                const parsed = w.payoutDetails ? JSON.parse(w.payoutDetails) : {};
+                const wf = new decimal_js_1.default(String(parsed?.withdrawalFeeAmount || '0'));
+                if (wf.isFinite() && wf.greaterThan(0)) {
+                    withdrawalFeeTotal = withdrawalFeeTotal.plus(wf);
+                    withdrawalFeeUsdEq = withdrawalFeeUsdEq.plus(toUsdDec(wf, w.currency || 'USD'));
+                }
+            }
+            catch {
+                // ignore malformed legacy json
+            }
+        }
+        let razorpayMarginTotal = new decimal_js_1.default(0);
+        for (const d of approvedRazorpay) {
+            const match = (d.adminNotes || '').match(/Avora Margin:\s*\$?([\d,]+(?:\.\d+)?)/i);
+            if (match) {
+                const m = new decimal_js_1.default(match[1].replace(/,/g, ''));
+                if (m.isFinite() && m.greaterThan(0))
+                    razorpayMarginTotal = razorpayMarginTotal.plus(m);
+            }
+        }
+        let cardIssuanceFeeTotal = new decimal_js_1.default(0);
+        for (const tx of cardFeeTransactions) {
+            cardIssuanceFeeTotal = cardIssuanceFeeTotal.plus(toUsdDec(new decimal_js_1.default(tx.amount.toString()), tx.currency));
+        }
+        let p2pPromotionFeeTotal = new decimal_js_1.default(0);
+        const p2pPromotionFeesByCurrency = {};
+        for (const tx of p2pPromoTransactions) {
+            const amt = new decimal_js_1.default(tx.amount?.toString() || '0');
+            const cur = (tx.currency || 'USD').toUpperCase();
+            if (amt.greaterThan(0)) {
+                p2pPromotionFeeTotal = p2pPromotionFeeTotal.plus(toUsdDec(amt, cur));
+                p2pPromotionFeesByCurrency[cur] = (p2pPromotionFeesByCurrency[cur] || new decimal_js_1.default(0)).plus(amt);
+            }
+        }
+        let swapSpreadFeeTotalUsd = new decimal_js_1.default(0);
+        const swapSpreadByCurrency = {};
+        for (const tx of swapFeeTransactions) {
+            const amt = new decimal_js_1.default(tx.amount?.toString() || '0');
+            const cur = (tx.currency || 'USD').toUpperCase();
+            if (amt.greaterThan(0)) {
+                swapSpreadFeeTotalUsd = swapSpreadFeeTotalUsd.plus(toUsdDec(amt, cur));
+                swapSpreadByCurrency[cur] = (swapSpreadByCurrency[cur] || new decimal_js_1.default(0)).plus(amt);
+            }
+        }
+        for (const ex of exchangeOrdersCompleted) {
+            const amt = new decimal_js_1.default(ex.feeAmount?.toString() || '0');
+            const cur = (ex.fromCurrency || 'USD').toUpperCase();
+            if (amt.greaterThan(0)) {
+                swapSpreadFeeTotalUsd = swapSpreadFeeTotalUsd.plus(toUsdDec(amt, cur));
+                swapSpreadByCurrency[cur] = (swapSpreadByCurrency[cur] || new decimal_js_1.default(0)).plus(amt);
+            }
+        }
+        const grandTotalModuleEarningsUsd = otcPlatformUsdt
+            .plus(p2pFeeUsdEq)
+            .plus(p2pPromotionFeeTotal)
+            .plus(ventureAllocationUsd)
+            .plus(ventureProfitShareUsd)
+            .plus(gmtFeeTotal)
+            .plus(withdrawalFeeUsdEq)
+            .plus(razorpayMarginTotal)
+            .plus(cardIssuanceFeeTotal)
+            .plus(swapSpreadFeeTotalUsd);
+        const ledgerRevenueAccounts = (reconcile.accounts || []).filter((a) => String(a.accountId || '').startsWith('PLATFORM_FEE_REVENUE'));
+        const adminWalletBalances = (adminWallet?.balances || []).map((b) => ({
+            currency: b.currency,
+            availableBalance: new decimal_js_1.default(b.availableBalance?.toString() || '0').toFixed(4),
+        }));
+        return {
+            ledgerStatus: reconcile.status,
+            ledgerIsBalanced: reconcile.isBalanced,
+            ledgerRevenueAccounts,
+            vaultSummary: {
+                ...vaultSummary,
+                grandTotalModuleEarningsUsd: grandTotalModuleEarningsUsd.toFixed(2),
+            },
+            adminWalletBalances,
+            moduleBreakdown: {
+                grandTotalEarningsUsd: grandTotalModuleEarningsUsd.toFixed(2),
+                otcPlatformFeeUsdt: otcPlatformUsdt.toFixed(2),
+                otcBrokerCommissionUsdt: otcBrokerUsdt.toFixed(2),
+                p2pFeeTotal: p2pTotalCrypto.toFixed(4),
+                p2pFeeUsdEq: p2pFeeUsdEq.toFixed(2),
+                p2pFeesByCurrency: Object.fromEntries(Object.entries(p2pFeesByCurrency).map(([k, v]) => [k, v.toFixed(4)])),
+                p2pPromotionFeeTotal: p2pPromotionFeeTotal.toFixed(2),
+                p2pPromotionFeesByCurrency: Object.fromEntries(Object.entries(p2pPromotionFeesByCurrency).map(([k, v]) => [k, v.toFixed(2)])),
+                p2pPromotionCount: p2pPromoTransactions.length,
+                swapSpreadFeeTotalUsd: swapSpreadFeeTotalUsd.toFixed(2),
+                swapSpreadByCurrency: Object.fromEntries(Object.entries(swapSpreadByCurrency).map(([k, v]) => [k, v.toFixed(4)])),
+                swapFeeCount: swapFeeTransactions.length + exchangeOrdersCompleted.length,
+                ventureAllocationFeeUsd: ventureAllocationUsd.toFixed(2),
+                ventureProfitShareFeeUsd: ventureProfitShareUsd.toFixed(2),
+                gmtTransferFeeUsd: gmtFeeTotal.toFixed(2),
+                gmtFxMarginEstUsd: gmtFxMarginEst.toFixed(2),
+                withdrawalFeeTotal: withdrawalFeeTotal.toFixed(2),
+                razorpayMarginTotal: razorpayMarginTotal.toFixed(2),
+                cardIssuanceFeeTotal: cardIssuanceFeeTotal.toFixed(2),
+            },
+            recentFeeTransactions: feeTransactions.map((t) => ({
+                id: t.id,
+                transactionCode: t.transactionCode,
+                type: t.type,
+                amount: new decimal_js_1.default(t.amount.toString()).toFixed(4),
+                currency: t.currency,
+                settlementReference: t.settlementReference,
+                notes: t.notes,
+                userEmail: t.user?.email || 'N/A',
+                createdAt: t.createdAt,
+            })),
+            recentClaimTransactions: claimTransactions.map((t) => ({
+                id: t.id,
+                transactionCode: t.transactionCode,
+                amount: new decimal_js_1.default(t.amount.toString()).toFixed(4),
+                currency: t.currency,
+                settlementReference: t.settlementReference,
+                notes: t.notes,
+                recipientEmail: t.user?.email || 'N/A',
+                createdAt: t.createdAt,
+            })),
+        };
+    }
+    /**
      * Real-time Platform Commission & Fee Revenue Analytics across all modules
      */
     async getPlatformRevenueAnalytics(req, res, next) {
         try {
-            const [reconcile, otcCompleted, p2pCompleted, invAgg, gmtTransfers, settledWithdrawals, approvedRazorpay, feeTransactions, p2pPromoTransactions,] = await Promise.all([
-                ledger_service_1.ledgerService.reconcileLedger(),
-                prisma_1.prisma.otcTrade.findMany({
-                    where: { status: 'COMPLETED' },
-                    select: { platformFee: true, operatorFee: true },
-                }),
-                prisma_1.prisma.p2POrder.findMany({
-                    where: { status: client_1.P2POrderStatus.COMPLETED },
-                    select: { platformFeeAmount: true, cryptoCurrency: true },
-                }),
-                prisma_1.prisma.investmentCommitment.aggregate({
-                    _sum: { allocationFeeAmount: true, profitShareFeeAmount: true },
-                }),
-                prisma_1.prisma.globalTransfer.findMany({
-                    where: { status: { notIn: ['REJECTED', 'REFUNDED', 'CANCELLED'] } },
-                    select: { sendingAmount: true, transferFeeAmount: true, rateAdjustmentPct: true, sendingCurrency: true },
-                }),
-                prisma_1.prisma.withdrawalRequest.findMany({
-                    where: { status: client_1.WithdrawalStatus.SETTLED },
-                    select: { currency: true, payoutDetails: true },
-                }),
-                prisma_1.prisma.depositRequest.findMany({
-                    where: { status: client_1.DepositStatus.APPROVED, depositMethod: 'RAZORPAY' },
-                    select: { currency: true, adminNotes: true },
-                }),
-                prisma_1.prisma.transaction.findMany({
-                    where: {
-                        type: {
-                            in: [
-                                client_1.TransactionType.FEE,
-                                client_1.TransactionType.GLOBAL_TRANSFER_FEE,
-                                client_1.TransactionType.INVESTMENT_FEE,
-                                client_1.TransactionType.INVESTMENT_PROFIT_SHARE,
-                            ],
-                        },
-                        status: client_1.TransactionStatus.COMPLETED,
-                    },
-                    include: {
-                        user: { select: { email: true, firstName: true, lastName: true } },
-                    },
-                    orderBy: { createdAt: 'desc' },
-                    take: 40,
-                }),
-                prisma_1.prisma.transaction.findMany({
-                    where: {
-                        type: client_1.TransactionType.FEE,
-                        status: client_1.TransactionStatus.COMPLETED,
-                        transactionCode: { startsWith: 'TX-P2PPROMO-' },
-                    },
-                    select: { amount: true, currency: true },
-                }),
-            ]);
-            const otcPlatformUsdt = otcCompleted.reduce((s, t) => s.plus(new decimal_js_1.default(t.platformFee?.toString() || '0')), new decimal_js_1.default(0));
-            const otcBrokerUsdt = otcCompleted.reduce((s, t) => s.plus(new decimal_js_1.default(t.operatorFee?.toString() || '0')), new decimal_js_1.default(0));
-            const p2pFeesByCurrency = {};
-            let p2pTotalCrypto = new decimal_js_1.default(0);
-            for (const o of p2pCompleted) {
-                const fee = new decimal_js_1.default(o.platformFeeAmount?.toString() || '0');
-                const cur = (o.cryptoCurrency || 'USDT').toUpperCase();
-                if (fee.greaterThan(0)) {
-                    p2pFeesByCurrency[cur] = (p2pFeesByCurrency[cur] || new decimal_js_1.default(0)).plus(fee);
-                    p2pTotalCrypto = p2pTotalCrypto.plus(fee);
-                }
+            const adminUserId = req.user?.id ? String(req.user.id) : undefined;
+            const data = await this.buildPlatformRevenueData(adminUserId);
+            res.json({ success: true, data });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Claim / sweep commission earnings from PLATFORM_FEE_REVENUE_* to Admin spendable Wallet
+     */
+    async claimPlatformRevenue(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : '';
+            if (!adminUserId) {
+                return res.status(401).json({ success: false, message: 'Admin authentication required.' });
             }
-            const ventureAllocationUsd = new decimal_js_1.default(invAgg._sum.allocationFeeAmount?.toString() || '0');
-            const ventureProfitShareUsd = new decimal_js_1.default(invAgg._sum.profitShareFeeAmount?.toString() || '0');
-            let gmtFeeTotal = new decimal_js_1.default(0);
-            let gmtFxMarginEst = new decimal_js_1.default(0);
-            for (const g of gmtTransfers) {
-                const sendAmt = new decimal_js_1.default(g.sendingAmount?.toString() || '0');
-                const feeAmt = new decimal_js_1.default(g.transferFeeAmount?.toString() || '0');
-                const marginPct = new decimal_js_1.default(g.rateAdjustmentPct?.toString() || '0');
-                gmtFeeTotal = gmtFeeTotal.plus(feeAmt);
-                gmtFxMarginEst = gmtFxMarginEst.plus(sendAmt.times(marginPct.div(100)));
-            }
-            let withdrawalFeeTotal = new decimal_js_1.default(0);
-            for (const w of settledWithdrawals) {
-                try {
-                    const parsed = w.payoutDetails ? JSON.parse(w.payoutDetails) : {};
-                    const wf = new decimal_js_1.default(String(parsed?.withdrawalFeeAmount || '0'));
-                    if (wf.isFinite() && wf.greaterThan(0)) {
-                        withdrawalFeeTotal = withdrawalFeeTotal.plus(wf);
-                    }
-                }
-                catch {
-                    // ignore malformed legacy json
-                }
-            }
-            let razorpayMarginTotal = new decimal_js_1.default(0);
-            for (const d of approvedRazorpay) {
-                const match = (d.adminNotes || '').match(/Avora Margin:\s*\$?([\d,]+(?:\.\d+)?)/i);
-                if (match) {
-                    const m = new decimal_js_1.default(match[1].replace(/,/g, ''));
-                    if (m.isFinite() && m.greaterThan(0))
-                        razorpayMarginTotal = razorpayMarginTotal.plus(m);
-                }
-            }
-            let cardIssuanceFeeTotal = new decimal_js_1.default(0);
-            for (const tx of feeTransactions) {
-                if (String(tx.transactionCode || '').startsWith('TX-CARDF-')) {
-                    cardIssuanceFeeTotal = cardIssuanceFeeTotal.plus(new decimal_js_1.default(tx.amount.toString()));
-                }
-            }
-            let p2pPromotionFeeTotal = new decimal_js_1.default(0);
-            const p2pPromotionFeesByCurrency = {};
-            for (const tx of p2pPromoTransactions) {
-                const amt = new decimal_js_1.default(tx.amount?.toString() || '0');
-                const cur = (tx.currency || 'USD').toUpperCase();
-                if (amt.greaterThan(0)) {
-                    p2pPromotionFeeTotal = p2pPromotionFeeTotal.plus(amt);
-                    p2pPromotionFeesByCurrency[cur] = (p2pPromotionFeesByCurrency[cur] || new decimal_js_1.default(0)).plus(amt);
-                }
-            }
-            const ledgerRevenueAccounts = (reconcile.accounts || []).filter((a) => String(a.accountId || '').startsWith('PLATFORM_FEE_REVENUE'));
-            res.json({
-                success: true,
-                data: {
-                    ledgerStatus: reconcile.status,
-                    ledgerIsBalanced: reconcile.isBalanced,
-                    ledgerRevenueAccounts,
-                    moduleBreakdown: {
-                        otcPlatformFeeUsdt: otcPlatformUsdt.toFixed(2),
-                        otcBrokerCommissionUsdt: otcBrokerUsdt.toFixed(2),
-                        p2pFeeTotal: p2pTotalCrypto.toFixed(4),
-                        p2pFeesByCurrency: Object.fromEntries(Object.entries(p2pFeesByCurrency).map(([k, v]) => [k, v.toFixed(4)])),
-                        p2pPromotionFeeTotal: p2pPromotionFeeTotal.toFixed(2),
-                        p2pPromotionFeesByCurrency: Object.fromEntries(Object.entries(p2pPromotionFeesByCurrency).map(([k, v]) => [k, v.toFixed(2)])),
-                        p2pPromotionCount: p2pPromoTransactions.length,
-                        ventureAllocationFeeUsd: ventureAllocationUsd.toFixed(2),
-                        ventureProfitShareFeeUsd: ventureProfitShareUsd.toFixed(2),
-                        gmtTransferFeeUsd: gmtFeeTotal.toFixed(2),
-                        gmtFxMarginEstUsd: gmtFxMarginEst.toFixed(2),
-                        withdrawalFeeTotal: withdrawalFeeTotal.toFixed(2),
-                        razorpayMarginTotal: razorpayMarginTotal.toFixed(2),
-                        cardIssuanceFeeTotal: cardIssuanceFeeTotal.toFixed(2),
-                    },
-                    recentFeeTransactions: feeTransactions.map((t) => ({
-                        id: t.id,
-                        transactionCode: t.transactionCode,
-                        type: t.type,
-                        amount: new decimal_js_1.default(t.amount.toString()).toFixed(4),
-                        currency: t.currency,
-                        settlementReference: t.settlementReference,
-                        notes: t.notes,
-                        userEmail: t.user?.email || 'N/A',
-                        createdAt: t.createdAt,
-                    })),
-                },
+            const { currency, amount, targetUserId, reason } = req.body || {};
+            const result = await ledger_service_1.ledgerService.claimPlatformRevenueToAdminWallet(adminUserId, {
+                currency,
+                amount,
+                targetUserId,
+                reason,
             });
+            await (0, p2p_helpers_1.createP2PNotification)({
+                userId: String(targetUserId || adminUserId),
+                category: 'ACCOUNT',
+                type: 'ADMIN_REVENUE_CLAIMED',
+                severity: 'SUCCESS',
+                title: `Platform Commission Earnings Credited (${result.claimCode})`,
+                message: result.message,
+                referenceCode: result.claimCode,
+                actionUrl: '/dashboard',
+                actionLabel: 'View Admin Wallet',
+            });
+            res.json(result);
         }
         catch (err) {
             next(err);
@@ -2439,7 +2565,7 @@ class AdminController {
     async buildAdminCommandCenterData() {
         const now = new Date();
         await p2p_service_1.p2pService.ensureP2PReady().catch(() => { });
-        const [activeAndPendingPackages, pendingDepositsList, pendingWithdrawalsList, pendingKycList, pendingTransfersList, openTicketsList, disputedP2PList, pendingInquiriesList, activeAndDisputedOtcTradesList, underReviewOtcDesksList, pendingP2PAppsList,] = await Promise.all([
+        const [activeAndPendingPackages, pendingDepositsList, pendingWithdrawalsList, pendingKycList] = await Promise.all([
             prisma_1.prisma.investmentPackage.findMany({
                 where: { status: { in: ['ACTIVE', 'PENDING_PAYMENT', 'WITHDRAWAL_REQUESTED'] } },
                 include: {
@@ -2470,6 +2596,8 @@ class AdminController {
                 include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
                 orderBy: { createdAt: 'asc' },
             }),
+        ]);
+        const [pendingTransfersList, openTicketsList, disputedP2PList, pendingInquiriesList] = await Promise.all([
             prisma_1.prisma.globalTransfer.findMany({
                 where: { status: { in: ['SUBMITTED', 'COMPLIANCE_SCREENED', 'PROCESSING'] } },
                 include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
@@ -2493,6 +2621,8 @@ class AdminController {
                 where: { status: 'NEW' },
                 orderBy: { createdAt: 'asc' },
             }),
+        ]);
+        const [activeAndDisputedOtcTradesList, underReviewOtcDesksList, pendingP2PAppsList] = await Promise.all([
             prisma_1.prisma.otcTrade.findMany({
                 where: { status: { in: ['DISPUTED', 'IN_PROGRESS'] } },
                 include: {
@@ -3160,7 +3290,7 @@ class AdminController {
      */
     async getPlatformOverviewAnalytics(req, res, next) {
         try {
-            const [totalUsers, totalPackages, activePackages, pendingDeposits, pendingWithdrawals, pendingKyc, totalStartups, totalTransfers, totalTickets, totalOtcDesks, totalOtcTrades, commandCenter,] = await Promise.all([
+            const [totalUsers, totalPackages, activePackages, pendingDeposits] = await Promise.all([
                 prisma_1.prisma.user.count(),
                 prisma_1.prisma.investmentPackage.count(),
                 prisma_1.prisma.investmentPackage.findMany({
@@ -3168,6 +3298,8 @@ class AdminController {
                     select: { amount: true },
                 }),
                 prisma_1.prisma.depositRequest.count({ where: { status: client_1.DepositStatus.PENDING } }),
+            ]);
+            const [pendingWithdrawals, pendingKyc, totalStartups, totalTransfers] = await Promise.all([
                 prisma_1.prisma.withdrawalRequest.count({
                     where: {
                         status: {
@@ -3178,11 +3310,14 @@ class AdminController {
                 prisma_1.prisma.kycDocument.count({ where: { status: client_1.KycStatus.PENDING } }),
                 prisma_1.prisma.startupListing.count({ where: { status: 'PUBLISHED' } }),
                 prisma_1.prisma.globalTransfer.count(),
+            ]);
+            const [totalTickets, totalOtcDesks, totalOtcTrades] = await Promise.all([
                 prisma_1.prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
                 prisma_1.prisma.otcDesk.count(),
                 prisma_1.prisma.otcTrade.count(),
-                this.buildAdminCommandCenterData(),
             ]);
+            const commandCenter = await this.buildAdminCommandCenterData();
+            const platformRevenueSummary = await this.buildPlatformRevenueData(req.user?.id ? String(req.user.id) : undefined).catch(() => null);
             const activeCapital = activePackages.reduce((acc, p) => acc + parseFloat(p.amount.toString()), 0);
             res.json({
                 success: true,
@@ -3200,6 +3335,7 @@ class AdminController {
                     totalOtcDesks,
                     totalOtcTrades,
                     commandCenter,
+                    platformRevenueSummary,
                 },
             });
         }

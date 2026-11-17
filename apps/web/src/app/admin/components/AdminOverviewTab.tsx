@@ -37,9 +37,13 @@ interface OverviewProps {
     totalTransfers: number;
     totalTickets: number;
     commandCenter?: any;
+    platformRevenueSummary?: any;
   } | null;
   commandCenter?: any | null;
   ledgerReconciliation: any | null;
+  platformRevenue?: any | null;
+  claimingRevenue?: boolean;
+  onClaimRevenue?: (currency?: string) => void;
   onNavigateTab: (tab: string) => void;
   onTriggerYieldRun: () => void;
   runningReturns: boolean;
@@ -50,6 +54,9 @@ export default function AdminOverviewTab({
   analytics,
   commandCenter: commandCenterProp,
   ledgerReconciliation,
+  platformRevenue: platformRevenueProp,
+  claimingRevenue,
+  onClaimRevenue,
   onNavigateTab,
   onTriggerYieldRun,
   runningReturns,
@@ -81,6 +88,9 @@ export default function AdminOverviewTab({
   const topUrgentRequests: any[] = Array.isArray(commandCenter?.pendingRequests)
     ? commandCenter.pendingRequests.slice(0, 6)
     : [];
+  const revData = platformRevenueProp || analytics?.platformRevenueSummary || null;
+  const revBreakdown = revData?.moduleBreakdown || null;
+  const revVault = revData?.vaultSummary || null;
 
   return (
     <div className="space-y-6">
@@ -239,6 +249,123 @@ export default function AdminOverviewTab({
           </p>
         </button>
       </div>
+
+      {/* Admin Commission Earnings & Claimable Revenue Vault */}
+      {revData && (
+        <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950/35 via-slate-900 to-slate-950 border border-emerald-500/30 space-y-5 shadow-xl">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-emerald-400 text-[11px] font-black uppercase tracking-wider font-mono">
+                <DollarSign className="w-4 h-4" />
+                <span>Admin Commission Earnings &amp; Platform Revenue Vault</span>
+              </div>
+              <h3 className="text-lg font-black text-white">
+                Lifetime Commissions Earned: ${formatMoney(revBreakdown?.grandTotalEarningsUsd || '0')} USD eq.
+              </h3>
+              <p className="text-xs text-slate-400">
+                Real-time commissions collected across Venture Equity, OTC, P2P Escrow, P2P Promotions, Remittance, Withdrawals, Cards, Razorpay &amp; Swaps.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {onClaimRevenue && Number(revVault?.unclaimedVaultTotalUsd || 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onClaimRevenue('ALL')}
+                  disabled={claimingRevenue}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-lg shadow-emerald-600/25 cursor-pointer disabled:opacity-50"
+                >
+                  {claimingRevenue
+                    ? 'Transferring to Admin Wallet...'
+                    : `Claim All ($${formatMoney(revVault?.unclaimedVaultTotalUsd || '0')}) to My Wallet`}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onNavigateTab('treasury')}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Revenue &amp; Payout Ledger</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div className="p-4 rounded-2xl bg-slate-950/80 border border-emerald-500/30 space-y-1">
+              <div className="text-[10px] text-emerald-400 uppercase font-mono font-bold">
+                Available in Vault (Ready to Claim)
+              </div>
+              <div className="text-2xl font-black text-emerald-400 font-mono">
+                ${formatMoney(revVault?.unclaimedVaultTotalUsd || '0')}
+              </div>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {Object.entries(revVault?.unclaimedByCurrency || {}).map(([cur, amt]: any) => (
+                  <span
+                    key={cur}
+                    className="px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-300 font-mono text-[10px] font-bold"
+                  >
+                    {Number(amt || 0).toFixed(2)} {cur}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
+              <div className="text-[10px] text-slate-400 uppercase font-mono font-bold">
+                Claimed to Admin Wallet
+              </div>
+              <div className="text-2xl font-black text-white font-mono">
+                ${formatMoney(revVault?.claimedToAdminWalletTotalUsd || '0')}
+              </div>
+              <p className="text-[10px] text-slate-500">Transferred via double-entry payout into spendable Admin balances</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
+              <div className="text-[10px] text-slate-400 uppercase font-mono font-bold">
+                Total All-Module Fee Revenue
+              </div>
+              <div className="text-2xl font-black text-amber-400 font-mono">
+                ${formatMoney(revBreakdown?.grandTotalEarningsUsd || '0')}
+              </div>
+              <p className="text-[10px] text-slate-500">Includes historical Razorpay margin &amp; GMT FX corridor estimates</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-[11px]">
+            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+              <div className="text-slate-400">Venture Equity</div>
+              <div className="font-mono font-black text-white">
+                ${(Number(revBreakdown?.ventureAllocationFeeUsd || 0) + Number(revBreakdown?.ventureProfitShareFeeUsd || 0)).toFixed(2)}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+              <div className="text-slate-400">P2P Fees + Promos</div>
+              <div className="font-mono font-black text-emerald-400">
+                ${(Number(revBreakdown?.p2pFeeUsdEq || 0) + Number(revBreakdown?.p2pPromotionFeeTotal || 0)).toFixed(2)}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+              <div className="text-slate-400">OTC + Swaps</div>
+              <div className="font-mono font-black text-white">
+                ${(Number(revBreakdown?.otcPlatformFeeUsdt || 0) + Number(revBreakdown?.swapSpreadFeeTotalUsd || 0)).toFixed(2)}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+              <div className="text-slate-400">GMT + Razorpay</div>
+              <div className="font-mono font-black text-white">
+                ${(Number(revBreakdown?.gmtTransferFeeUsd || 0) + Number(revBreakdown?.razorpayMarginTotal || 0)).toFixed(2)}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+              <div className="text-slate-400">Cards + Withdrawals</div>
+              <div className="font-mono font-black text-white">
+                ${(Number(revBreakdown?.cardIssuanceFeeTotal || 0) + Number(revBreakdown?.withdrawalFeeTotal || 0)).toFixed(2)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Primary KPI Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">

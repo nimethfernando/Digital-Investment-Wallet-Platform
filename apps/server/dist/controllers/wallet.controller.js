@@ -28,8 +28,11 @@ class WalletController {
     async getWalletOverview(req, res, next) {
         try {
             const userId = req.user.id;
+            const role = req.user.role;
             const summary = await ledger_service_1.ledgerService.getUserWalletSummary(userId);
-            res.json({ success: true, data: summary, wallet: summary });
+            const adminRevenueSummary = role === 'ADMIN' ? await ledger_service_1.ledgerService.getPlatformRevenueVaultSummary().catch(() => null) : null;
+            const payload = adminRevenueSummary ? { ...summary, adminRevenueSummary } : summary;
+            res.json({ success: true, data: payload, wallet: payload });
         }
         catch (err) {
             next(err);

@@ -94,6 +94,13 @@ router.get(
 );
 
 router.post(
+  '/ledger/claim-revenue',
+  requireRole([Role.ADMIN]),
+  requireAdmin2FA,
+  (req, res, next) => adminController.claimPlatformRevenue(req, res, next)
+);
+
+router.post(
   '/system/purge-demo',
   requireRole([Role.ADMIN]),
   requireAdmin2FA,
