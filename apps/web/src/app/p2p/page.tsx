@@ -623,13 +623,13 @@ function P2PPageContent() {
   const [expressExecuting, setExpressExecuting] = useState(false);
   const [expressError, setExpressError] = useState<string | null>(null);
 
-  // Live Exchange Rates
+  // Live Exchange Rates (fiat + live BTC/ETH fetched from /otc/rates + 60s refresh)
   const [liveRates, setLiveRates] = useState<Record<string, number>>({
     USD: 1.0,
     USDT: 1.0,
     USDC: 1.0,
-    BTC: 1 / 92000,
-    ETH: 1 / 3100,
+    BTC: 1 / 65000,
+    ETH: 1 / 1850,
     INR: 93.88,
     EUR: 0.915,
     AED: 3.67,
@@ -638,20 +638,29 @@ function P2PPageContent() {
   });
 
   useEffect(() => {
-    api
-      .get('/otc/rates')
-      .then((res) => {
-        if (res.data?.success && res.data?.rates) {
-          setLiveRates((prev) => ({
-            ...prev,
-            ...res.data.rates,
-            INR: res.data.rates.INR || 93.88,
-            USD: 1.0,
-            USDT: 1.0,
-          }));
-        }
-      })
-      .catch(() => {});
+    let active = true;
+    const syncRates = () => {
+      api
+        .get('/otc/rates')
+        .then((res) => {
+          if (active && res.data?.success && res.data?.rates) {
+            setLiveRates((prev) => ({
+              ...prev,
+              ...res.data.rates,
+              INR: res.data.rates.INR || 93.88,
+              USD: 1.0,
+              USDT: 1.0,
+            }));
+          }
+        })
+        .catch(() => {});
+    };
+    syncRates();
+    const timer = setInterval(syncRates, 60000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, []);
 
   const searchParams = useSearchParams();
@@ -891,8 +900,8 @@ function P2PPageContent() {
     if (upper === 'USDT' || upper === 'USDC' || upper === 'USD') return 1.0;
     const rate = liveRates[upper];
     if (rate && rate > 0) return 1 / rate;
-    if (upper === 'BTC') return 92000;
-    if (upper === 'ETH') return 3100;
+    if (upper === 'BTC') return 65000;
+    if (upper === 'ETH') return 1850;
     return 1.0;
   };
 

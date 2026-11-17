@@ -63,8 +63,8 @@ export default function BuyCryptoPage() {
   const [perUsdRates, setPerUsdRates] = useState<Record<string, number>>(INITIAL_PER_USD);
   const [cryptoPrices, setCryptoPrices] = useState<{ USDT: number; BTC: number; ETH: number }>({
     USDT: 1.0,
-    BTC: 95000.0,
-    ETH: 2700.0,
+    BTC: 65000.0,
+    ETH: 1850.0,
   });
   const [rateSourceLabel, setRateSourceLabel] = useState<string>('Live Market Feed');
 
@@ -94,6 +94,13 @@ export default function BuyCryptoPage() {
             ...prev,
             ...res.data.rates,
             USD: 1.0,
+          }));
+          const srvBtc = res.data.rates.BTC ? 1 / parseFloat(res.data.rates.BTC) : undefined;
+          const srvEth = res.data.rates.ETH ? 1 / parseFloat(res.data.rates.ETH) : undefined;
+          setCryptoPrices((prev) => ({
+            USDT: 1.0,
+            BTC: srvBtc && Number.isFinite(srvBtc) ? Number(srvBtc.toFixed(2)) : prev.BTC,
+            ETH: srvEth && Number.isFinite(srvEth) ? Number(srvEth.toFixed(2)) : prev.ETH,
           }));
           if (res.data.source) {
             setRateSourceLabel(res.data.source);

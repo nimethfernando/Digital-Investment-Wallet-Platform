@@ -17,8 +17,8 @@ export class RateService {
     USD: 1.0,
     USDT: 1.0,
     USDC: 1.0,
-    BTC: 1 / 92000,
-    ETH: 1 / 3100,
+    BTC: 1 / 65000,
+    ETH: 1 / 1850,
     EUR: 0.896,
     GBP: 0.747,
     INR: 86.42,
@@ -71,7 +71,7 @@ export class RateService {
   private lastUpdatedString: string = new Date().toISOString();
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
   private readonly OVERRIDES_TTL_MS = 10 * 1000; // 10 seconds override cache
-  private readonly SOURCE_NAME = 'Open Exchange Rates (Live Market Feed)';
+  private readonly SOURCE_NAME = 'Open Exchange Rates + Coinbase/CoinGecko (Live Market Feed)';
   private isFetching = false;
   private cachedOverrides: Record<string, number> = {};
   private lastOverridesFetchTime = 0;
@@ -219,42 +219,96 @@ export class RateService {
   }
 
   /**
-   * Internal refresh method with timeout and safe fallback
+   * Internal refresh method fetching live fiat FX rates (Open Exchange Rates)
+   * AND live crypto spot prices (Coinbase primary, CoinGecko secondary fallback).
    */
   private async refreshRates(): Promise<void> {
     if (this.isFetching) return;
     this.isFetching = true;
 
     try {
-      const response = await fetch('https://open.er-api.com/v6/latest/USD', {
-        signal: AbortSignal.timeout(5000),
-      });
+      const mergedRates: Record<string, number> = {
+        ...this.cachedRates,
+      };
+      let updatedAnyFeed = false;
 
-      if (!response.ok) {
-        throw new Error(`Rate feed HTTP ${response.status}: ${response.statusText}`);
+      const [fiatSettled, cryptoCbSettled] = await Promise.allSettled([
+        fetch('https://open.er-api.com/v6/latest/USD', {
+          signal: AbortSignal.timeout(5000),
+        }),
+        fetch('https://api.coinbase.com/v2/exchange-rates?currency=USD', {
+          signal: AbortSignal.timeout(5000),
+        }),
+      ]);
+
+      if (fiatSettled.status === 'fulfilled' && fiatSettled.value.ok) {
+        const data: any = await fiatSettled.value.json().catch(() => null);
+        if (data && data.result === 'success' && data.rates) {
+          for (const [cur, rate] of Object.entries(data.rates)) {
+            if (typeof rate === 'number' && !Number.isNaN(rate) && rate > 0) {
+              mergedRates[cur.toUpperCase()] = rate;
+            }
+          }
+          this.lastUpdatedString = data.time_last_update_utc || new Date().toISOString();
+          updatedAnyFeed = true;
+        }
       }
 
-      const data: any = await response.json();
-      if (data && data.result === 'success' && data.rates) {
-        const mergedRates: Record<string, number> = {
-          ...this.cachedRates,
-        };
-
-        for (const [cur, rate] of Object.entries(data.rates)) {
-          if (typeof rate === 'number' && !Number.isNaN(rate) && rate > 0) {
-            mergedRates[cur.toUpperCase()] = rate;
+      let cryptoUpdated = false;
+      if (cryptoCbSettled.status === 'fulfilled' && cryptoCbSettled.value.ok) {
+        const cbData: any = await cryptoCbSettled.value.json().catch(() => null);
+        const cbRates = cbData?.data?.rates;
+        if (cbRates) {
+          const btcRate = parseFloat(String(cbRates.BTC || ''));
+          const ethRate = parseFloat(String(cbRates.ETH || ''));
+          if (Number.isFinite(btcRate) && btcRate > 0) {
+            mergedRates.BTC = btcRate;
+            cryptoUpdated = true;
+          }
+          if (Number.isFinite(ethRate) && ethRate > 0) {
+            mergedRates.ETH = ethRate;
+            cryptoUpdated = true;
           }
         }
+      }
 
-        mergedRates.USD = 1.0;
-        mergedRates.USDT = 1.0;
-        mergedRates.USDC = 1.0;
-        if (!mergedRates.BTC || mergedRates.BTC <= 0) mergedRates.BTC = 1 / 92000;
-        if (!mergedRates.ETH || mergedRates.ETH <= 0) mergedRates.ETH = 1 / 3100;
+      // Secondary fallback via CoinGecko if Coinbase crypto feed failed or omitted BTC/ETH
+      if (!cryptoUpdated) {
+        try {
+          const cgRes = await fetch(
+            'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd',
+            { signal: AbortSignal.timeout(5000) }
+          );
+          if (cgRes.ok) {
+            const cgData: any = await cgRes.json().catch(() => null);
+            const btcUsd = Number(cgData?.bitcoin?.usd || 0);
+            const ethUsd = Number(cgData?.ethereum?.usd || 0);
+            if (Number.isFinite(btcUsd) && btcUsd > 0) {
+              mergedRates.BTC = 1 / btcUsd;
+              cryptoUpdated = true;
+            }
+            if (Number.isFinite(ethUsd) && ethUsd > 0) {
+              mergedRates.ETH = 1 / ethUsd;
+              cryptoUpdated = true;
+            }
+          }
+        } catch {
+          // Retain cached/fallback crypto prices cleanly if all upstream feeds are unreachable
+        }
+      }
 
+      mergedRates.USD = 1.0;
+      mergedRates.USDT = 1.0;
+      mergedRates.USDC = 1.0;
+      if (!mergedRates.BTC || mergedRates.BTC <= 0) mergedRates.BTC = 1 / 65000;
+      if (!mergedRates.ETH || mergedRates.ETH <= 0) mergedRates.ETH = 1 / 1850;
+
+      if (updatedAnyFeed || cryptoUpdated) {
         this.cachedRates = mergedRates;
         this.lastFetched = Date.now();
-        this.lastUpdatedString = data.time_last_update_utc || new Date().toISOString();
+        if (!updatedAnyFeed) {
+          this.lastUpdatedString = new Date().toISOString();
+        }
       }
     } catch (err: any) {
       console.warn(`[RateService] Failed to fetch live exchange rates: ${err.message}. Using cached/fallback rates.`);

@@ -178,8 +178,8 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     USD: 1.0,
     USDT: 1.0,
     USDC: 1.0,
-    BTC: 1 / 92000,
-    ETH: 1 / 3100,
+    BTC: 1 / 65000,
+    ETH: 1 / 1850,
     EUR: 0.896,
     GEL: 2.595,
     INR: 95.08,
@@ -198,8 +198,8 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               USD: 1.0,
               USDT: 1.0,
               USDC: 1.0,
-              BTC: res.data.rates.BTC || 1 / 92000,
-              ETH: res.data.rates.ETH || 1 / 3100,
+              BTC: res.data.rates.BTC || 1 / 65000,
+              ETH: res.data.rates.ETH || 1 / 1850,
             }));
           }
           if (typeof res.data?.marginPercent === 'number') {
@@ -266,8 +266,8 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const currentFromBalance = balanceMap[sendFromCurrency] || '0.00';
   const isInsufficientFromBalance = parseFloat(currentFromBalance) < parseFloat(sendAmount || '0') || parseFloat(currentFromBalance) <= 0;
 
-  const btcInUsd = parseFloat(btcBal) / (livePerUsdRates.BTC || (1 / 92000));
-  const ethInUsd = parseFloat(ethBal) / (livePerUsdRates.ETH || (1 / 3100));
+  const btcInUsd = parseFloat(btcBal) / (livePerUsdRates.BTC || (1 / 65000));
+  const ethInUsd = parseFloat(ethBal) / (livePerUsdRates.ETH || (1 / 1850));
   const eurInUsd = parseFloat(eurBal) / (livePerUsdRates.EUR || 0.896);
   const gelInUsd = parseFloat(gelBal) / (livePerUsdRates.GEL || 2.595);
   const inrInUsd = parseFloat(inrBal) / (livePerUsdRates.INR || 95.08);
