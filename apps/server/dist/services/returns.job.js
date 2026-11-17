@@ -421,8 +421,9 @@ class ReturnsJobService {
             }
         });
         console.log('✅ Automated Market News Sync Cron registered (every 2 hours)');
-        // Non-destructive P2P schema & tables warm-up + automated timeout cron (every minute)
+        // Non-destructive P2P & Token schema warm-up + automated timeout cron (every minute)
         Promise.resolve().then(() => __importStar(require('./p2p.service'))).then(({ p2pService }) => p2pService.ensureP2PReady()).catch(() => { });
+        Promise.resolve().then(() => __importStar(require('./token.service'))).then(({ tokenService }) => tokenService.ensureTokenReady()).catch(() => { });
         node_cron_1.default.schedule('* * * * *', async () => {
             try {
                 const { p2pService } = await Promise.resolve().then(() => __importStar(require('./p2p.service')));

@@ -469,8 +469,9 @@ export class ReturnsJobService {
     });
     console.log('✅ Automated Market News Sync Cron registered (every 2 hours)');
 
-    // Non-destructive P2P schema & tables warm-up + automated timeout cron (every minute)
+    // Non-destructive P2P & Token schema warm-up + automated timeout cron (every minute)
     import('./p2p.service').then(({ p2pService }) => p2pService.ensureP2PReady()).catch(() => {});
+    import('./token.service').then(({ tokenService }) => tokenService.ensureTokenReady()).catch(() => {});
     cron.schedule('* * * * *', async () => {
       try {
         const { p2pService } = await import('./p2p.service');

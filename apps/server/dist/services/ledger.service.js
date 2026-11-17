@@ -853,8 +853,8 @@ class LedgerService {
             throw new Error('Adjustment amount must be strictly positive');
         }
         const idempotencyKey = `ADJ-${params.userId}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const wallet = await this.ensureWallet(params.userId);
         return await prisma_1.prisma.$transaction(async (tx) => {
-            const wallet = await this.ensureWallet(params.userId);
             const lockedBalance = await this.lockWalletBalance(tx, wallet.id, params.currency);
             const balBefore = new decimal_js_1.default(lockedBalance.availableBalance.toString());
             let balAfter;
@@ -912,7 +912,7 @@ class LedgerService {
                 amount: amountDec.toFixed(2),
                 type: params.type,
             };
-        });
+        }, { maxWait: 15000, timeout: 30000 });
     }
 }
 exports.LedgerService = LedgerService;

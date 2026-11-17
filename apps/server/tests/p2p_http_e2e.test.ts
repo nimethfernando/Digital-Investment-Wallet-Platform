@@ -360,6 +360,90 @@ async function runHttpProductionE2E() {
       await apiCall('POST', `/api/v1/admin/users/${buyer.id}/p2p-status`, adminToken, { p2pBlocked: false });
     });
 
+    await assertHttp('H7: Avora Token ($AVR) Wallet Purchase Deducts Balance Atomically & Updates Token Status', async () => {
+      // Credit $1,500 USD to buyer with balanced ledger journal
+      await ledgerService.processAdminBalanceAdjustment({
+        userId: buyer.id,
+        adminUserId: adminUser.id,
+        currency: 'USD',
+        amount: 1500,
+        type: 'CREDIT',
+        reason: 'E2E test capital for Avora Token purchase',
+      });
+
+      // 1. Register unpaid whitelist reservation first -> should NOT deduct balance
+      const reg = await apiCall('POST', '/api/v1/token/early-access/register', buyerToken, {
+        requestedAllocationUsd: 1000,
+      });
+      if (reg.status !== 200 || reg.json?.status !== 'WHITELISTED' || reg.json?.paidAllocationUsd !== 0) {
+        throw new Error(`Expected WHITELISTED with 0 paidAllocationUsd, got ${JSON.stringify(reg.json)}`);
+      }
+
+      const wBefore = await apiCall('GET', '/api/v1/wallet', buyerToken);
+      const usdBefore = parseFloat(
+        wBefore.json?.wallet?.balances?.find((b: any) => b.currency === 'USD')?.availableBalance || '0'
+      );
+      if (Math.abs(usdBefore - 1500) > 0.01) {
+        throw new Error(`Expected USD balance untouched (1500) after whitelist-only register, got ${usdBefore}`);
+      }
+
+      // 2. Purchase $1,000 USD of Avora Token ($AVR) from wallet -> must deduct $1,000 immediately
+      const buy = await apiCall('POST', '/api/v1/token/purchase', buyerToken, {
+        amountUsd: 1000,
+        currency: 'USD',
+        notes: 'HTTP E2E $AVR purchase',
+      });
+      if (
+        buy.status !== 201 ||
+        buy.json?.data?.payCurrency !== 'USD' ||
+        buy.json?.data?.tokensPurchased !== 10000 ||
+        buy.json?.data?.balanceAfter !== '500.00'
+      ) {
+        throw new Error(`Token purchase response mismatch: ${buy.status} ${JSON.stringify(buy.json)}`);
+      }
+
+      // 3. Confirm wallet USD balance dropped from 1500.00 -> 500.00
+      const wAfter = await apiCall('GET', '/api/v1/wallet', buyerToken);
+      const usdAfter = parseFloat(
+        wAfter.json?.wallet?.balances?.find((b: any) => b.currency === 'USD')?.availableBalance || '0'
+      );
+      if (Math.abs(usdAfter - 500) > 0.01) {
+        throw new Error(`Expected USD balance deducted to 500.00 after $AVR purchase, got ${usdAfter}`);
+      }
+
+      // 4. Confirm /token/my-status reflects ALLOCATED, paid USD, and 10,000 AVR
+      const tStatus = await apiCall('GET', '/api/v1/token/my-status', buyerToken);
+      const ea = tStatus.json?.data?.earlyAccess;
+      if (
+        tStatus.status !== 200 ||
+        ea?.status !== 'ALLOCATED' ||
+        ea?.paidAllocationUsd !== 1000 ||
+        ea?.tokensAllocated !== 10000 ||
+        ea?.unpaidReservationUsd !== 0 ||
+        !ea?.isPaidAllocation
+      ) {
+        throw new Error(`Token status mismatch after purchase: ${JSON.stringify(tStatus.json)}`);
+      }
+
+      // 5. Confirm transaction history logs TX-AVR deduction
+      const txs = await apiCall('GET', '/api/v1/wallet/transactions', buyerToken);
+      const avrTx = (txs.json?.transactions || []).find((t: any) =>
+        String(t.transactionCode || '').startsWith('TX-AVR-')
+      );
+      if (!avrTx || avrTx.amount !== '1000.00' || avrTx.balanceAfter !== '500.00') {
+        throw new Error(`Expected TX-AVR ledger transaction record, got ${JSON.stringify(avrTx)}`);
+      }
+
+      // 6. Verify insufficient funds rejection
+      const failBuy = await apiCall('POST', '/api/v1/token/purchase', buyerToken, {
+        amountUsd: 999999,
+        currency: 'USD',
+      });
+      if (failBuy.status < 400) {
+        throw new Error(`Expected insufficient funds rejection for oversized AVR purchase, got ${failBuy.status}`);
+      }
+    });
+
     console.log('\n================================================================');
     console.log(`🌐 HTTP Production E2E Results: ${passed}/${total} Tests Passed`);
     console.log('================================================================\n');

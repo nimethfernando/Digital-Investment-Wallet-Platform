@@ -678,6 +678,8 @@ export class AdminController {
    */
   async getTokenAllocations(req: Request, res: Response, next: NextFunction) {
     try {
+      const { tokenService } = await import('../services/token.service');
+      await tokenService.ensureTokenReady();
       const allocations = await prisma.tokenEarlyAccess.findMany({
         include: {
           user: {

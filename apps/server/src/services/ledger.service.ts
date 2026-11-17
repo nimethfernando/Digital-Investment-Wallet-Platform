@@ -1028,10 +1028,11 @@ export class LedgerService {
     }
 
     const idempotencyKey = `ADJ-${params.userId}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const wallet = await this.ensureWallet(params.userId);
 
-    return await prisma.$transaction(async (tx) => {
-      const wallet = await this.ensureWallet(params.userId);
-      const lockedBalance = await this.lockWalletBalance(tx, wallet.id, params.currency);
+    return await prisma.$transaction(
+      async (tx) => {
+        const lockedBalance = await this.lockWalletBalance(tx, wallet.id, params.currency);
       const balBefore = new Decimal(lockedBalance.availableBalance.toString());
 
       let balAfter: Decimal;
@@ -1093,7 +1094,9 @@ export class LedgerService {
         amount: amountDec.toFixed(2),
         type: params.type,
       };
-    });
+    },
+    { maxWait: 15000, timeout: 30000 }
+  );
   }
 }
 

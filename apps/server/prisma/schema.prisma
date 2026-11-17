@@ -931,6 +931,10 @@ model TokenEarlyAccess {
   lastFaucetClaimAt      DateTime?
   registeredInterest     Boolean   @default(false)
   requestedAllocationUsd Decimal   @default(0.00) @db.Decimal(20, 2)
+  paidAllocationUsd      Decimal   @default(0.00) @db.Decimal(20, 2)
+  tokensAllocated        Decimal   @default(0.00000000) @db.Decimal(20, 8)
+  paidCurrency           String?   @db.VarChar(10)
+  lastPurchaseAt         DateTime?
   status                 String    @default("REGISTERED") // REGISTERED, WHITELISTED, ALLOCATED
   walletAddress          String?   @db.VarChar(100)
   notes                  String?   @db.Text

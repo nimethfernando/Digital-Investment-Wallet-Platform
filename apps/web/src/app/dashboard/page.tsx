@@ -135,6 +135,12 @@ interface TokenStatusItem {
   earlyAccess?: {
     registeredInterest: boolean;
     requestedAllocationUsd: string | number;
+    paidAllocationUsd?: string | number;
+    tokensAllocated?: number;
+    paidCurrency?: string | null;
+    lastPurchaseAt?: string | null;
+    unpaidReservationUsd?: number;
+    isPaidAllocation?: boolean;
     status: string;
     walletAddress?: string;
     notes?: string;
@@ -1763,14 +1769,16 @@ function DashboardContent() {
                     <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
                       <Package className="w-3.5 h-3.5 text-emerald-500" /> Fixed Deposits (1% Mo)
                     </span>
-                    <span className="font-mono text-[11px] font-bold text-emerald-600">{packages.length} Active</span>
+                    <span className="font-mono text-[11px] font-bold text-emerald-600">{packages.filter((p) => p.status === 'ACTIVE').length} Active</span>
                   </div>
                   <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
                     ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                   </div>
                   <p className="text-[11px] text-slate-400">
-                    {packages.length > 0
-                      ? `Next maturity: ${packages[0].lockInEnd ? new Date(packages[0].lockInEnd).toLocaleDateString() : 'Active lock'}`
+                    {packages.some((p) => p.status === 'ACTIVE')
+                      ? `Next maturity: ${packages.find((p) => p.status === 'ACTIVE')?.lockInEnd ? new Date(packages.find((p) => p.status === 'ACTIVE')!.lockInEnd!).toLocaleDateString() : 'Active lock'}`
+                      : packages.length > 0
+                      ? `${packages.length} pending activation`
                       : 'Zero locked capital deployed'}
                   </p>
                 </div>
@@ -1795,17 +1803,37 @@ function DashboardContent() {
                     <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
                       <Coins className="w-3.5 h-3.5 text-purple-500" /> Avora Token ($AVR)
                     </span>
-                    <span className="font-mono text-[11px] font-bold text-purple-600">
-                      {tokenStatus?.earlyAccess?.status || 'Open'}
+                    <span
+                      className={`font-mono text-[11px] font-bold ${
+                        tokenStatus?.earlyAccess?.isPaidAllocation
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : tokenStatus?.earlyAccess?.registeredInterest
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-purple-600'
+                      }`}
+                    >
+                      {tokenStatus?.earlyAccess?.isPaidAllocation
+                        ? 'ALLOCATED (PAID)'
+                        : tokenStatus?.earlyAccess?.registeredInterest
+                        ? 'WHITELISTED (UNPAID)'
+                        : tokenStatus?.earlyAccess?.status || 'Open'}
                     </span>
                   </div>
                   <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
-                    ${parseFloat(String(tokenStatus?.earlyAccess?.requestedAllocationUsd || '0')).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    ${parseFloat(String(tokenStatus?.earlyAccess?.paidAllocationUsd || '0')).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                   </div>
                   <p className="text-[11px] text-slate-400">
-                    {tokenStatus?.earlyAccess?.registeredInterest
-                      ? `Whitelisted (~ ${parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd)).toLocaleString()} AVR)`
-                      : 'Q4 2027 Mainnet Whitelist open'}
+                    {tokenStatus?.earlyAccess?.isPaidAllocation ? (
+                      `${Number(tokenStatus.earlyAccess.tokensAllocated || 0).toLocaleString()} AVR owned @ $0.10`
+                    ) : tokenStatus?.earlyAccess?.registeredInterest ? (
+                      <Link href="/token" className="text-amber-600 dark:text-amber-400 hover:underline font-semibold">
+                        Unpaid reservation: ${parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd || '0')).toLocaleString()} (~{Math.round(parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd || '0')) / 0.10).toLocaleString()} AVR) — Fund now →
+                      </Link>
+                    ) : (
+                      <Link href="/token" className="hover:underline">
+                        Buy $AVR or join Q4 2027 Whitelist →
+                      </Link>
+                    )}
                   </p>
                 </div>
               </div>
@@ -2576,45 +2604,67 @@ function DashboardContent() {
                 </div>
 
                 <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-4">
-                  {tokenStatus?.earlyAccess?.registeredInterest || (tokenStatus?.wallet?.testnetBalance ?? tokenStatus?.testnetBalance ?? 0) > 0 ? (
+                  {tokenStatus?.earlyAccess?.isPaidAllocation || tokenStatus?.earlyAccess?.registeredInterest || (tokenStatus?.wallet?.testnetBalance ?? tokenStatus?.testnetBalance ?? 0) > 0 ? (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div className="space-y-0.5">
                           <span className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
-                            {tokenStatus?.earlyAccess?.registeredInterest ? 'Early-Access Allocation Registered' : 'Avora Testnet Wallet Active'}
+                            {tokenStatus?.earlyAccess?.isPaidAllocation
+                              ? 'Funded Avora Token ($AVR) Allocation'
+                              : tokenStatus?.earlyAccess?.registeredInterest
+                              ? 'Unpaid Early-Access Whitelist Reservation'
+                              : 'Avora Testnet Wallet Active'}
                           </span>
                           <h4 className="text-xl font-black text-slate-900 dark:text-white">
-                            {tokenStatus?.earlyAccess?.registeredInterest
-                              ? `$${parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd)).toLocaleString()} USD Whitelist Request`
+                            {tokenStatus?.earlyAccess?.isPaidAllocation
+                              ? `${Number(tokenStatus.earlyAccess.tokensAllocated || 0).toLocaleString()} AVR Owned ($${parseFloat(String(tokenStatus.earlyAccess.paidAllocationUsd || 0)).toLocaleString()} Paid)`
+                              : tokenStatus?.earlyAccess?.registeredInterest
+                              ? `$${parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd)).toLocaleString()} USD Unpaid Whitelist Reservation`
                               : `${tokenStatus?.wallet?.testnetBalance ?? tokenStatus?.testnetBalance ?? 0} AVR Testnet Balance`}
                           </h4>
                         </div>
-                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
-                          {tokenStatus?.earlyAccess?.status || 'TESTNET'}
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                          tokenStatus?.earlyAccess?.isPaidAllocation
+                            ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                            : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                        }`}>
+                          {tokenStatus?.earlyAccess?.isPaidAllocation ? 'ALLOCATED (PAID)' : 'WHITELISTED (UNPAID)'}
                         </span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
-                          <span className="text-slate-400 text-[11px]">Proposed Reference Price:</span>
-                          <p className="font-bold text-slate-900 dark:text-white font-mono">$0.10 USD / AVR</p>
-                        </div>
-                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
-                          <span className="text-slate-400 text-[11px]">Estimated Token Volume:</span>
-                          <p className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                            ~{(parseFloat(String(tokenStatus?.earlyAccess?.requestedAllocationUsd || '0')) / 0.10).toLocaleString()} AVR
+                          <span className="text-slate-400 text-[11px]">Funded Amount Paid:</span>
+                          <p className="font-bold text-slate-900 dark:text-white font-mono">
+                            ${parseFloat(String(tokenStatus?.earlyAccess?.paidAllocationUsd || '0')).toLocaleString('en-US', { minimumFractionDigits: 2 })} {tokenStatus?.earlyAccess?.paidCurrency || 'USD'}
                           </p>
                         </div>
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
-                          <span className="text-slate-400 text-[11px]">Sepolia L2 Testnet Balance:</span>
-                          <p className="font-bold text-blue-600 dark:text-blue-400 font-mono">
-                            {tokenStatus?.wallet?.testnetBalance ?? tokenStatus?.testnetBalance ?? 0} AVR Test Tokens
+                          <span className="text-slate-400 text-[11px]">$AVR Tokens Allocated:</span>
+                          <p className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                            {Number(tokenStatus?.earlyAccess?.tokensAllocated || 0).toLocaleString()} AVR (@ $0.10)
+                          </p>
+                        </div>
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+                          <span className="text-slate-400 text-[11px]">Unpaid Whitelist Reservation:</span>
+                          <p className="font-bold text-amber-600 dark:text-amber-400 font-mono">
+                            ${Number(tokenStatus?.earlyAccess?.unpaidReservationUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} (~{Math.round(Number(tokenStatus?.earlyAccess?.unpaidReservationUsd || 0) / 0.10).toLocaleString()} AVR)
                           </p>
                         </div>
                       </div>
 
-                      <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 text-purple-800 dark:text-purple-200 text-xs">
-                        Registered interest reserves priority allocation for the Q4 2027 Mainnet Token Generation Event (TGE).
+                      <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 text-purple-800 dark:text-purple-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                        <span>
+                          {tokenStatus?.earlyAccess?.isPaidAllocation
+                            ? 'Funded $AVR holdings are debited from your wallet and settled for the Q4 2027 Mainnet Token Generation Event (TGE).'
+                            : 'This whitelist reservation has not deducted funds from your wallet yet. Purchase $AVR from your wallet to lock your token allocation.'}
+                        </span>
+                        <Link
+                          href="/token"
+                          className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0"
+                        >
+                          {tokenStatus?.earlyAccess?.isPaidAllocation ? 'Buy More $AVR →' : 'Pay from Wallet Now →'}
+                        </Link>
                       </div>
                     </div>
                   ) : (

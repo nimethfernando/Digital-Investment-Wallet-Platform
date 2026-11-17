@@ -36,6 +36,25 @@ export class TokenController {
   }
 
   /**
+   * POST /api/v1/token/purchase
+   * Buy & fund Avora Token ($AVR) allocation directly from user's USD/USDT/USDC wallet balance
+   */
+  async purchaseTokens(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const { amountUsd, currency, notes } = req.body || {};
+      const result = await tokenService.purchaseTokens(userId, {
+        amountUsd,
+        currency,
+        notes,
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * POST /api/v1/token/early-access/register
    */
   async registerEarlyAccess(req: Request, res: Response, next: NextFunction) {
