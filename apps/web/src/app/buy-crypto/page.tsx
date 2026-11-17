@@ -69,6 +69,8 @@ export default function BuyCryptoPage() {
   const [rateSourceLabel, setRateSourceLabel] = useState<string>('Live Market Feed');
 
   const [fiatAmount, setFiatAmount] = useState<string>('1000');
+  const [cryptoInput, setCryptoInput] = useState<string>('1000');
+  const [inputSide, setInputSide] = useState<'FIAT' | 'CRYPTO'>('FIAT');
   const [selectedFiatCode, setSelectedFiatCode] = useState<string>('USD');
   const [selectedCryptoKey, setSelectedCryptoKey] = useState<string>('USDT_TRC-20');
   const [paymentMethod, setPaymentMethod] = useState<'razorpay' | 'card' | 'apple_pay' | 'google_pay' | 'wire'>('razorpay');
@@ -155,18 +157,49 @@ export default function BuyCryptoPage() {
   const selectedCrypto =
     cryptoList.find((c) => `${c.code}_${c.chain}` === selectedCryptoKey) || cryptoList[0];
 
-  const numFiat = parseFloat(fiatAmount) || 0;
-  const fiatValueInUsd = selectedFiat.perUsd > 0 ? numFiat / selectedFiat.perUsd : 0;
   const isRazorpayRail = paymentMethod !== 'wire';
   const activeCommissionPercent = isRazorpayRail ? razorpayCommPct : 0;
   const activeGatewayFeePercent = isRazorpayRail ? razorpayGatewayPct : 0;
   const activePlatformMarginPercent = Math.max(0, activeCommissionPercent - activeGatewayFeePercent);
+  const netFactor = Math.max(0.01, 1 - activeCommissionPercent / 100);
+
+  const rawFiatInput = Math.max(0, parseFloat(fiatAmount) || 0);
+  const rawCryptoInput = Math.max(0, parseFloat(cryptoInput) || 0);
+
+  const fiatValueInUsd =
+    inputSide === 'FIAT'
+      ? selectedFiat.perUsd > 0
+        ? rawFiatInput / selectedFiat.perUsd
+        : 0
+      : (rawCryptoInput * selectedCrypto.priceInUsd) / netFactor;
+
+  const numFiat =
+    inputSide === 'FIAT'
+      ? rawFiatInput
+      : fiatValueInUsd * (selectedFiat.perUsd > 0 ? selectedFiat.perUsd : 1);
+
   const razorpayFeeUsd = fiatValueInUsd * (activeGatewayFeePercent / 100);
   const avoraMarginUsd = fiatValueInUsd * (activePlatformMarginPercent / 100);
   const totalCommissionUsd = razorpayFeeUsd + avoraMarginUsd;
   const netConvertedUsd = Math.max(0, fiatValueInUsd - totalCommissionUsd);
-  const cryptoReceived = selectedCrypto.priceInUsd > 0 ? netConvertedUsd / selectedCrypto.priceInUsd : 0;
+  const cryptoReceived =
+    inputSide === 'CRYPTO'
+      ? rawCryptoInput
+      : selectedCrypto.priceInUsd > 0
+      ? netConvertedUsd / selectedCrypto.priceInUsd
+      : 0;
   const networkFee = selectedCrypto.code === 'USDT' && selectedCrypto.chain === 'TRC-20' ? 0.0 : 1.5;
+
+  const handleToggleDirection = () => {
+    if (inputSide === 'FIAT') {
+      const decimals = selectedCrypto.code === 'USDT' ? 2 : 6;
+      setCryptoInput(cryptoReceived > 0 ? cryptoReceived.toFixed(decimals) : '0');
+      setInputSide('CRYPTO');
+    } else {
+      setFiatAmount(numFiat > 0 ? numFiat.toFixed(2) : '0');
+      setInputSide('FIAT');
+    }
+  };
 
   useEffect(() => {
     api.get('/wallet/deposit/instructions')
@@ -353,96 +386,198 @@ export default function BuyCryptoPage() {
       {/* Main Aggregator Card */}
       <div className="max-w-2xl mx-auto">
         <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
-          {/* STEP 1: YOU PAY */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
-              <span>You Pay</span>
-              <span className="text-slate-400 font-normal">Min: $50 USD • Max: $50,000 USD</span>
-            </div>
+          {/* STEP 1: TOP INPUT BOX (Fiat or Target Crypto depending on arrow toggle) */}
+          {inputSide === 'FIAT' ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                <span>You Pay</span>
+                <span className="text-slate-400 font-normal">Min: $50 USD • Max: $50,000 USD</span>
+              </div>
 
-            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all">
-              <input
-                type="number"
-                min="10"
-                max="5000000"
-                value={fiatAmount}
-                onChange={(e) => setFiatAmount(e.target.value)}
-                placeholder="1000"
-                className="w-full bg-transparent text-2xl font-black font-mono focus:outline-none text-slate-900 dark:text-white"
-              />
+              <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all">
+                <input
+                  type="number"
+                  min="10"
+                  max="5000000"
+                  step="any"
+                  value={fiatAmount}
+                  onChange={(e) => setFiatAmount(e.target.value)}
+                  placeholder="1000"
+                  className="w-full bg-transparent text-2xl font-black font-mono focus:outline-none text-slate-900 dark:text-white"
+                />
 
-              <div className="flex items-center gap-2 shrink-0">
-                <select
-                  value={selectedFiat.code}
-                  onChange={(e) => setSelectedFiatCode(e.target.value)}
-                  className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none"
-                >
-                  {fiatList.map((f) => (
-                    <option key={f.code} value={f.code} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
-                      {f.flag} {f.code}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2 shrink-0">
+                  <select
+                    value={selectedFiat.code}
+                    onChange={(e) => setSelectedFiatCode(e.target.value)}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                  >
+                    {fiatList.map((f) => (
+                      <option key={f.code} value={f.code} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                        {f.flag} {f.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Quick Chips */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {[250, 500, 1000, 2500, 5000].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => handleQuickAmount(amt)}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer"
+                  >
+                    {selectedFiat.symbol}{amt}
+                  </button>
+                ))}
+                {selectedFiat.code !== 'USD' && (
+                  <span className="text-[11px] font-mono text-slate-400 ml-auto">
+                    ≈ ${fiatValueInUsd.toFixed(2)} USD (1 USD = {selectedFiat.perUsd} {selectedFiat.code})
+                  </span>
+                )}
               </div>
             </div>
-
-            {/* Quick Chips */}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              {[250, 500, 1000, 2500, 5000].map((amt) => (
-                <button
-                  key={amt}
-                  type="button"
-                  onClick={() => handleQuickAmount(amt)}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer"
-                >
-                  {selectedFiat.symbol}{amt}
-                </button>
-              ))}
-              {selectedFiat.code !== 'USD' && (
-                <span className="text-[11px] font-mono text-slate-400 ml-auto">
-                  ≈ ${fiatValueInUsd.toFixed(2)} USD (1 USD = {selectedFiat.perUsd} {selectedFiat.code})
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                <span>You Receive (Exact Crypto Amount)</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                  <Zap className="w-3 h-3" />
+                  Live Spot Pricing
                 </span>
+              </div>
+
+              <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all">
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={cryptoInput}
+                  onChange={(e) => setCryptoInput(e.target.value)}
+                  placeholder={selectedCrypto.code === 'USDT' ? '1000' : '0.1'}
+                  className="w-full bg-transparent text-2xl font-black font-mono focus:outline-none text-emerald-600 dark:text-emerald-400"
+                />
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <select
+                    value={`${selectedCrypto.code}_${selectedCrypto.chain}`}
+                    onChange={(e) => setSelectedCryptoKey(e.target.value)}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                  >
+                    {cryptoList.map((c, i) => (
+                      <option key={`${c.code}_${c.chain}_${i}`} value={`${c.code}_${c.chain}`} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                        {c.code} ({c.chain})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Quick Crypto Chips */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {(selectedCrypto.code === 'BTC'
+                  ? [0.01, 0.05, 0.1, 0.5, 1]
+                  : selectedCrypto.code === 'ETH'
+                  ? [0.1, 0.5, 1, 2, 5]
+                  : [100, 500, 1000, 2500, 5000]
+                ).map((qty) => (
+                  <button
+                    key={qty}
+                    type="button"
+                    onClick={() => setCryptoInput(qty.toString())}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer"
+                  >
+                    {qty} {selectedCrypto.code}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* INTERACTIVE SWAP DIRECTION BUTTON */}
+          <div className="flex justify-center -my-2 relative z-10">
+            <button
+              type="button"
+              onClick={handleToggleDirection}
+              aria-label="Swap Pay Fiat and Receive Crypto inputs"
+              title="Click to switch between entering Fiat to Pay or Crypto to Receive"
+              className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950 border border-slate-200 dark:border-slate-700 hover:border-emerald-500 flex items-center justify-center text-slate-600 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 shadow-sm hover:shadow-md transition-all cursor-pointer active:scale-95"
+            >
+              <ArrowRightLeft
+                className={`w-4 h-4 transition-transform duration-200 ${
+                  inputSide === 'CRYPTO' ? '-rotate-90 text-emerald-500' : 'rotate-90'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* STEP 2: BOTTOM OUTPUT BOX */}
+          {inputSide === 'FIAT' ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                <span>You Receive (Live Market Rate)</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                  <Zap className="w-3 h-3" />
+                  Live Spot Pricing
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <div className="w-full text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 truncate">
+                  {cryptoReceived > 0 ? cryptoReceived.toFixed(selectedCrypto.code === 'USDT' ? 2 : 6) : '0.00'}
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <select
+                    value={`${selectedCrypto.code}_${selectedCrypto.chain}`}
+                    onChange={(e) => setSelectedCryptoKey(e.target.value)}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                  >
+                    {cryptoList.map((c, i) => (
+                      <option key={`${c.code}_${c.chain}_${i}`} value={`${c.code}_${c.chain}`} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                        {c.code} ({c.chain})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                <span>You Pay (Estimated Total incl. Fees)</span>
+                <span className="text-slate-400 font-normal">Min: $50 USD • Max: $50,000 USD</span>
+              </div>
+
+              <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <div className="w-full text-2xl font-black font-mono text-slate-900 dark:text-white truncate">
+                  {numFiat > 0 ? numFiat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <select
+                    value={selectedFiat.code}
+                    onChange={(e) => setSelectedFiatCode(e.target.value)}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                  >
+                    {fiatList.map((f) => (
+                      <option key={f.code} value={f.code} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                        {f.flag} {f.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {selectedFiat.code !== 'USD' && (
+                <div className="text-right text-[11px] font-mono text-slate-400">
+                  ≈ ${fiatValueInUsd.toFixed(2)} USD (1 USD = {selectedFiat.perUsd} {selectedFiat.code})
+                </div>
               )}
             </div>
-          </div>
-
-          {/* SWAP DIVIDER */}
-          <div className="flex justify-center -my-2 relative z-10">
-            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-500 dark:text-slate-300 shadow-sm">
-              <ArrowRightLeft className="w-4 h-4 rotate-90" />
-            </div>
-          </div>
-
-          {/* STEP 2: YOU RECEIVE */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
-              <span>You Receive (Live Market Rate)</span>
-              <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                <Zap className="w-3 h-3" />
-                Live Spot Pricing
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-              <div className="w-full text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 truncate">
-                {cryptoReceived > 0 ? cryptoReceived.toFixed(selectedCrypto.code === 'USDT' ? 2 : 6) : '0.00'}
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <select
-                  value={`${selectedCrypto.code}_${selectedCrypto.chain}`}
-                  onChange={(e) => setSelectedCryptoKey(e.target.value)}
-                  className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none"
-                >
-                  {cryptoList.map((c, i) => (
-                    <option key={`${c.code}_${c.chain}_${i}`} value={`${c.code}_${c.chain}`} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
-                      {c.code} ({c.chain})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* STEP 3: PAYMENT METHOD */}
           <div className="space-y-3">
