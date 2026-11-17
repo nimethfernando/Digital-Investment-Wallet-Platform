@@ -988,6 +988,17 @@ async function runHttpProductionE2E() {
       process.exitCode = 1;
     }
   } finally {
+    // Archive/cancel synthetic test offers & deactivate test users created in this run
+    await prisma.user
+      .findMany({ where: { email: { contains: `_${ts}@` } }, select: { id: true } })
+      .then(async (testUsers) => {
+        const ids = testUsers.map((u) => u.id);
+        if (ids.length > 0) {
+          await prisma.p2POffer.updateMany({ where: { userId: { in: ids } }, data: { status: 'CANCELLED' } }).catch(() => {});
+          await prisma.user.updateMany({ where: { id: { in: ids } }, data: { status: 'SUSPENDED', p2pBlocked: true } }).catch(() => {});
+        }
+      })
+      .catch(() => {});
     if (uploadedFileDiskPath && fs.existsSync(uploadedFileDiskPath)) {
       fs.unlinkSync(uploadedFileDiskPath);
     }

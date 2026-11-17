@@ -776,49 +776,36 @@ class LedgerService {
         if (params.fromCurrency === params.toCurrency) {
             throw new Error('From and To currencies must be different');
         }
-        // Determine exchange rate:
-        const pair = await prisma_1.prisma.exchangePair.findFirst({
-            where: {
-                OR: [
-                    { baseCurrency: params.fromCurrency, quoteCurrency: params.toCurrency },
-                    { baseCurrency: params.toCurrency, quoteCurrency: params.fromCurrency },
-                ],
-                isActive: true,
-            },
-        });
-        let effectiveRate;
-        let spreadPctDec = new decimal_js_1.default(1.0);
+        // Determine exchange rate from live RateService (respecting Admin rate overrides)
+        // and apply pair-specific or global spread percentage.
+        const [pair, live, spreadSetting] = await Promise.all([
+            prisma_1.prisma.exchangePair.findFirst({
+                where: {
+                    OR: [
+                        { baseCurrency: params.fromCurrency, quoteCurrency: params.toCurrency },
+                        { baseCurrency: params.toCurrency, quoteCurrency: params.fromCurrency },
+                    ],
+                    isActive: true,
+                },
+            }),
+            rate_service_1.rateService.getLiveRates(),
+            prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'exchange_spread_percent' } }).catch(() => null),
+        ]);
+        const fromCurUpper = params.fromCurrency.toUpperCase();
+        const toCurUpper = params.toCurrency.toUpperCase();
+        const rawGlobalSpread = parseFloat(spreadSetting?.value || '1.0');
+        let spreadPctDec = new decimal_js_1.default(Number.isFinite(rawGlobalSpread) && rawGlobalSpread >= 0 ? rawGlobalSpread : 1.0);
         if (pair) {
-            if (pair.baseCurrency === params.fromCurrency) {
-                // e.g. USDT -> USD: rate is baseRate * (1 - sellMarginPct / 100)
-                const marginPct = decimal_js_1.default.max(0, new decimal_js_1.default(pair.sellMarginPct.toString()));
-                spreadPctDec = marginPct;
-                const margin = marginPct.dividedBy(100);
-                effectiveRate = new decimal_js_1.default(pair.baseRate.toString()).times(new decimal_js_1.default(1).minus(margin));
-            }
-            else {
-                // e.g. USD -> USDT: rate is 1 / (baseRate * (1 + buyMarginPct / 100))
-                const marginPct = decimal_js_1.default.max(0, new decimal_js_1.default(pair.buyMarginPct.toString()));
-                spreadPctDec = marginPct;
-                const margin = marginPct.dividedBy(100);
-                const effectiveBase = new decimal_js_1.default(pair.baseRate.toString()).times(new decimal_js_1.default(1).plus(margin));
-                effectiveRate = new decimal_js_1.default(1).dividedBy(effectiveBase);
-            }
+            spreadPctDec =
+                pair.baseCurrency.toUpperCase() === fromCurUpper
+                    ? decimal_js_1.default.max(0, new decimal_js_1.default(pair.sellMarginPct.toString()))
+                    : decimal_js_1.default.max(0, new decimal_js_1.default(pair.buyMarginPct.toString()));
         }
-        else {
-            // Live market spot rates via RateService (units per 1 USD)
-            const [live, spreadSetting] = await Promise.all([
-                rate_service_1.rateService.getLiveRates(),
-                prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'exchange_spread_percent' } }).catch(() => null),
-            ]);
-            const rawSpread = parseFloat(spreadSetting?.value || '1.0');
-            spreadPctDec = new decimal_js_1.default(Number.isFinite(rawSpread) && rawSpread >= 0 ? rawSpread : 1.0);
-            const fromPerUsd = live.rates[params.fromCurrency.toUpperCase()] || 1.0;
-            const toPerUsd = live.rates[params.toCurrency.toUpperCase()] || 1.0;
-            const spotRate = new decimal_js_1.default(toPerUsd).dividedBy(new decimal_js_1.default(fromPerUsd));
-            const multiplier = decimal_js_1.default.max(new decimal_js_1.default(0.01), new decimal_js_1.default(1).minus(spreadPctDec.dividedBy(100)));
-            effectiveRate = new decimal_js_1.default(spotRate.times(multiplier).toFixed(6));
-        }
+        const fromPerUsd = live.rates[fromCurUpper] || 1.0;
+        const toPerUsd = live.rates[toCurUpper] || 1.0;
+        const spotRate = new decimal_js_1.default(toPerUsd).dividedBy(new decimal_js_1.default(fromPerUsd));
+        const multiplier = decimal_js_1.default.max(new decimal_js_1.default(0.01), new decimal_js_1.default(1).minus(spreadPctDec.dividedBy(100)));
+        const effectiveRate = new decimal_js_1.default(spotRate.times(multiplier).toFixed(6));
         const fromCur = params.fromCurrency.toUpperCase();
         const toCur = params.toCurrency.toUpperCase();
         const fromAmtFixed = new decimal_js_1.default(fromAmountDec.toFixed(8));
@@ -945,8 +932,8 @@ class LedgerService {
                 },
             };
         }, {
-            maxWait: 15000,
-            timeout: 30000,
+            maxWait: 20000,
+            timeout: 60000,
         });
     }
     /**

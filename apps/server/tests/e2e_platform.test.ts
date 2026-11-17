@@ -406,10 +406,10 @@ async function runE2EPlatformSuite() {
       side: 'SELL',
       cryptoCurrency: 'BTC',
       fiatCurrency: 'USD',
-      price: '90000',
+      price: '65000',
       totalAmount: '0.1',
       minLimit: '100',
-      maxLimit: '9000',
+      maxLimit: '6500',
       paymentMethods: ['Wire Transfer (SWIFT)'],
     });
     await prisma.$transaction(async (tx) => {
@@ -424,7 +424,7 @@ async function runE2EPlatformSuite() {
     const btcOrd = await p2pService.createP2POrder(buyer.id, {
       offerId: btcOfferRes.offer.id,
       cryptoAmount: '0.005',
-      fiatAmount: '450',
+      fiatAmount: '325',
       takerSide: 'SELL',
       selectedPaymentMethod: 'Wire Transfer (SWIFT)',
     });
@@ -501,6 +501,14 @@ async function runE2EPlatformSuite() {
   console.log('\n================================================================');
   console.log(`🎉 E2E Platform Results: ${passedTests}/${totalTests} Tests Passed`);
   console.log('================================================================\n');
+
+  // Close/archive synthetic test offers & deactivate test accounts so they never appear on the live Marketplace
+  await prisma.p2POffer
+    .updateMany({ where: { userId: { in: [seller.id, buyer.id] } }, data: { status: 'CANCELLED' } })
+    .catch(() => {});
+  await prisma.user
+    .updateMany({ where: { id: { in: [seller.id, buyer.id] } }, data: { status: 'SUSPENDED', p2pBlocked: true } })
+    .catch(() => {});
 
   await prisma.$disconnect();
 

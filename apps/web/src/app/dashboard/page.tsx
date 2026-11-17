@@ -327,12 +327,12 @@ function DashboardContent() {
   const [wthPayoutCurrency, setWthPayoutCurrency] = useState<string>('USD');
   const [wthFxRates, setWthFxRates] = useState<Record<string, number>>({
     USD: 1,
-    EUR: 0.9,
-    GBP: 0.75,
+    EUR: 0.909,
+    GBP: 0.785,
     AED: 3.6725,
-    INR: 86.4,
-    LKR: 298.5,
-    GEL: 2.78,
+    INR: 93.96,
+    LKR: 332.68,
+    GEL: 2.593,
     CAD: 1.38,
     AUD: 1.54,
     SGD: 1.32,

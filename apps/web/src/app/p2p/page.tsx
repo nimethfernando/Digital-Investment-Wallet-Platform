@@ -630,11 +630,11 @@ function P2PPageContent() {
     USDC: 1.0,
     BTC: 1 / 65000,
     ETH: 1 / 1850,
-    INR: 93.88,
-    EUR: 0.915,
-    AED: 3.67,
-    GEL: 2.78,
-    LKR: 305.0,
+    INR: 93.96,
+    EUR: 0.909,
+    AED: 3.6725,
+    GEL: 2.593,
+    LKR: 332.68,
   });
 
   useEffect(() => {
@@ -647,7 +647,7 @@ function P2PPageContent() {
             setLiveRates((prev) => ({
               ...prev,
               ...res.data.rates,
-              INR: res.data.rates.INR || 93.88,
+              INR: res.data.rates.INR || 93.96,
               USD: 1.0,
               USDT: 1.0,
             }));
@@ -799,7 +799,7 @@ function P2PPageContent() {
   const [newAdCountryCode, setNewAdCountryCode] = useState('LK');
   const [newAdCountryName, setNewAdCountryName] = useState('Sri Lanka');
   const [newAdCurrency, setNewAdCurrency] = useState('LKR');
-  const [newAdPrice, setNewAdPrice] = useState('305.00');
+  const [newAdPrice, setNewAdPrice] = useState('332.68');
   const [newAdAmount, setNewAdAmount] = useState('1000');
   const [newAdMinLimit, setNewAdMinLimit] = useState('50');
   const [newAdMaxLimit, setNewAdMaxLimit] = useState('1000');
@@ -884,15 +884,15 @@ function P2PPageContent() {
   const getCorridorSpotRate = (currency: string) =>
     liveRates[currency] ||
     (currency === 'INR'
-      ? 93.88
+      ? 93.96
       : currency === 'GEL'
-      ? 2.78
+      ? 2.593
       : currency === 'AED'
-      ? 3.67
+      ? 3.6725
       : currency === 'EUR'
-      ? 0.915
+      ? 0.909
       : currency === 'LKR'
-      ? 305.0
+      ? 332.68
       : 1.0);
 
   const getCryptoUsdSpotRate = (crypto: string) => {
@@ -984,7 +984,7 @@ function P2PPageContent() {
     setDeskError(null);
     const estRate =
       deskOfflineTrader?.price ||
-      (liveRates[deskCurrency] || (deskCurrency === 'INR' ? 93.88 : deskCurrency === 'GEL' ? 2.78 : deskCurrency === 'AED' ? 3.67 : deskCurrency === 'EUR' ? 0.915 : deskCurrency === 'LKR' ? 305.0 : 1.0)).toFixed(2);
+      getCryptoFiatSpotRate('USDT', deskCurrency).toFixed(2);
     const estFiat = (amt * parseFloat(estRate)).toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -1224,20 +1224,29 @@ function P2PPageContent() {
 
   const displayedOffers: P2POfferItem[] = (() => {
     const cur = selectedCountry.currency;
-    const spot = getCorridorSpotRate(cur);
-    const deskSpread = marketSide === 'BUY' ? 1.004 : 0.996;
     const activeCrypto = marketCryptoFilter !== 'ALL' ? marketCryptoFilter : 'USDT';
+    const spot = getCryptoFiatSpotRate(activeCrypto, cur);
+    const cryptoUsdSpot = getCryptoUsdSpotRate(activeCrypto) || 1;
+    const isMajorCrypto = activeCrypto === 'BTC' || activeCrypto === 'ETH';
+    const scaleAmount = (usdtStr: string) => {
+      const usdVal = parseFloat(String(usdtStr).replace(/,/g, '')) || 0;
+      const qty = usdVal / cryptoUsdSpot;
+      return isMajorCrypto
+        ? qty.toFixed(4)
+        : qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+    const deskSpread = marketSide === 'BUY' ? 1.004 : 0.996;
 
     const deskListing: P2POfferItem = {
-      id: `desk_${cur}_${marketSide}`,
+      id: `desk_${cur}_${activeCrypto}_${marketSide}`,
       offerCode: `AVORA-DESK-${cur}`,
       side: marketSide,
       cryptoCurrency: activeCrypto,
       fiatCurrency: cur,
       price: (spot * deskSpread).toFixed(2),
       priceNum: spot * deskSpread,
-      totalAmount: '50,000.00',
-      availableAmount: '50,000.00',
+      totalAmount: scaleAmount('50000'),
+      availableAmount: scaleAmount('50000'),
       minLimit: cur === 'LKR' ? '10,000' : cur === 'INR' ? '2,500' : '100',
       maxLimit: cur === 'LKR' ? '5,000,000' : cur === 'INR' ? '1,000,000' : '50,000',
       paymentMethods: [...selectedCountry.methods.slice(0, 3)],
@@ -1260,16 +1269,17 @@ function P2PPageContent() {
     const offlineTemplates = CURATED_OFFLINE_TRADERS[cur] || [];
     const curatedOfflineListings: P2POfferItem[] = offlineTemplates.map((tpl) => {
       const mult = marketSide === 'BUY' ? 1 + tpl.spreadPct : 1 - tpl.spreadPct;
+      const scaledAvailable = scaleAmount(tpl.availableUsdt);
       return {
-        id: `${tpl.id}_${marketSide}`,
+        id: `${tpl.id}_${activeCrypto}_${marketSide}`,
         offerCode: `P2P-${tpl.id.toUpperCase()}`,
         side: marketSide,
         cryptoCurrency: activeCrypto,
         fiatCurrency: cur,
         price: (spot * mult).toFixed(2),
         priceNum: spot * mult,
-        totalAmount: tpl.availableUsdt,
-        availableAmount: tpl.availableUsdt,
+        totalAmount: scaledAvailable,
+        availableAmount: scaledAvailable,
         minLimit: tpl.minFiat,
         maxLimit: tpl.maxFiat,
         paymentMethods: tpl.methods,

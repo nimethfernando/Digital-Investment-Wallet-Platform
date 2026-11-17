@@ -3,6 +3,7 @@ import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { authService } from './auth.service';
+import { rateService } from './rate.service';
 import { notificationService } from '../adapters/notification/notification.provider';
 import {
   P2P_TIMERS,
@@ -33,6 +34,8 @@ export function generateAvoraAccountNumber(userId: string): string {
 
 export class P2PService {
   private schemaAndOffersEnsured = false;
+  private lastDefaultOffersSyncAt = 0;
+  private readonly DEFAULT_OFFERS_SYNC_TTL_MS = 5 * 60 * 1000;
 
   private async ensureColumns(tableName: string, columns: Array<[string, string]>) {
     for (const [col, ddl] of columns) {
@@ -55,7 +58,12 @@ export class P2PService {
    * and default institutional P2P offers & liquidity balances are synced.
    */
   async ensureP2PReady() {
-    if (this.schemaAndOffersEnsured) return;
+    if (this.schemaAndOffersEnsured) {
+      if (Date.now() - this.lastDefaultOffersSyncAt >= this.DEFAULT_OFFERS_SYNC_TTL_MS) {
+        await this.ensureDefaultOffers().catch(() => {});
+      }
+      return;
+    }
     try {
       await prisma.$executeRawUnsafe(
         `UPDATE \`diw_transactions\` SET \`type\` = 'ADJUSTMENT' WHERE \`type\` = ''`
@@ -815,6 +823,19 @@ export class P2PService {
     const lkrMakerId = colomboUser?.id || defaultMakerId;
     const gelMakerId = tbilisiUser?.id || defaultMakerId;
 
+    const liveRates = await rateService.getLiveRates().catch(() => null);
+    const spotFor = (cur: string, fallback: number) => {
+      const n = Number(liveRates?.rates?.[cur]);
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+    const calcOfferPrice = (spot: number, mult: number) => new Decimal((spot * mult).toFixed(2));
+
+    const lkrSpot = spotFor('LKR', 332.68);
+    const inrSpot = spotFor('INR', 93.96);
+    const aedSpot = spotFor('AED', 3.6725);
+    const gelSpot = spotFor('GEL', 2.593);
+    const eurSpot = spotFor('EUR', 0.909);
+
     const defaults = [
       {
         offerCode: 'OFF-LKR-BUY-01',
@@ -822,7 +843,7 @@ export class P2PService {
         side: P2PSide.BUY,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'LKR',
-        price: new Decimal('302.50'),
+        price: calcOfferPrice(lkrSpot, 1.004),
         totalAmount: new Decimal('50000.00'),
         availableAmount: new Decimal('50000.00'),
         minLimit: new Decimal('5000.00'),
@@ -836,7 +857,7 @@ export class P2PService {
         side: P2PSide.SELL,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'LKR',
-        price: new Decimal('300.80'),
+        price: calcOfferPrice(lkrSpot, 0.996),
         totalAmount: new Decimal('50000.00'),
         availableAmount: new Decimal('50000.00'),
         minLimit: new Decimal('5000.00'),
@@ -850,7 +871,7 @@ export class P2PService {
         side: P2PSide.BUY,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'INR',
-        price: new Decimal('87.40'),
+        price: calcOfferPrice(inrSpot, 1.004),
         totalAmount: new Decimal('25000.00'),
         availableAmount: new Decimal('25000.00'),
         minLimit: new Decimal('1000.00'),
@@ -864,7 +885,7 @@ export class P2PService {
         side: P2PSide.SELL,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'INR',
-        price: new Decimal('86.90'),
+        price: calcOfferPrice(inrSpot, 0.996),
         totalAmount: new Decimal('25000.00'),
         availableAmount: new Decimal('25000.00'),
         minLimit: new Decimal('1000.00'),
@@ -878,7 +899,7 @@ export class P2PService {
         side: P2PSide.BUY,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'AED',
-        price: new Decimal('3.68'),
+        price: calcOfferPrice(aedSpot, 1.002),
         totalAmount: new Decimal('50000.00'),
         availableAmount: new Decimal('50000.00'),
         minLimit: new Decimal('500.00'),
@@ -892,7 +913,7 @@ export class P2PService {
         side: P2PSide.SELL,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'AED',
-        price: new Decimal('3.66'),
+        price: calcOfferPrice(aedSpot, 0.998),
         totalAmount: new Decimal('50000.00'),
         availableAmount: new Decimal('50000.00'),
         minLimit: new Decimal('500.00'),
@@ -906,7 +927,7 @@ export class P2PService {
         side: P2PSide.BUY,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'GEL',
-        price: new Decimal('2.76'),
+        price: calcOfferPrice(gelSpot, 1.004),
         totalAmount: new Decimal('35000.00'),
         availableAmount: new Decimal('35000.00'),
         minLimit: new Decimal('100.00'),
@@ -920,7 +941,7 @@ export class P2PService {
         side: P2PSide.SELL,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'GEL',
-        price: new Decimal('2.73'),
+        price: calcOfferPrice(gelSpot, 0.996),
         totalAmount: new Decimal('35000.00'),
         availableAmount: new Decimal('35000.00'),
         minLimit: new Decimal('100.00'),
@@ -934,7 +955,7 @@ export class P2PService {
         side: P2PSide.BUY,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'EUR',
-        price: new Decimal('0.93'),
+        price: calcOfferPrice(eurSpot, 1.005),
         totalAmount: new Decimal('40000.00'),
         availableAmount: new Decimal('40000.00'),
         minLimit: new Decimal('200.00'),
@@ -948,7 +969,7 @@ export class P2PService {
         side: P2PSide.SELL,
         cryptoCurrency: 'USDT',
         fiatCurrency: 'EUR',
-        price: new Decimal('0.92'),
+        price: calcOfferPrice(eurSpot, 0.995),
         totalAmount: new Decimal('40000.00'),
         availableAmount: new Decimal('40000.00'),
         minLimit: new Decimal('200.00'),
@@ -990,11 +1011,12 @@ export class P2PService {
       await prisma.p2POffer
         .upsert({
           where: { offerCode: d.offerCode },
-          update: { status: P2POfferStatus.OPEN, userId: d.userId },
+          update: { status: P2POfferStatus.OPEN, userId: d.userId, price: d.price },
           create: d,
         })
         .catch(() => {});
     }
+    this.lastDefaultOffersSyncAt = Date.now();
   }
 
   /**

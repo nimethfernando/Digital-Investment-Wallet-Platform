@@ -180,9 +180,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     USDC: 1.0,
     BTC: 1 / 65000,
     ETH: 1 / 1850,
-    EUR: 0.896,
-    GEL: 2.595,
-    INR: 95.08,
+    EUR: 0.909,
+    GEL: 2.593,
+    INR: 93.96,
   });
 
   useEffect(() => {
@@ -268,9 +268,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
 
   const btcInUsd = parseFloat(btcBal) / (livePerUsdRates.BTC || (1 / 65000));
   const ethInUsd = parseFloat(ethBal) / (livePerUsdRates.ETH || (1 / 1850));
-  const eurInUsd = parseFloat(eurBal) / (livePerUsdRates.EUR || 0.896);
-  const gelInUsd = parseFloat(gelBal) / (livePerUsdRates.GEL || 2.595);
-  const inrInUsd = parseFloat(inrBal) / (livePerUsdRates.INR || 95.08);
+  const eurInUsd = parseFloat(eurBal) / (livePerUsdRates.EUR || 0.909);
+  const gelInUsd = parseFloat(gelBal) / (livePerUsdRates.GEL || 2.593);
+  const inrInUsd = parseFloat(inrBal) / (livePerUsdRates.INR || 93.96);
 
   const totalEstimatedUsd = (
     parseFloat(usdBal) +

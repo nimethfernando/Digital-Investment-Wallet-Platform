@@ -932,48 +932,38 @@ export class LedgerService {
       throw new Error('From and To currencies must be different');
     }
 
-    // Determine exchange rate:
-    const pair = await prisma.exchangePair.findFirst({
-      where: {
-        OR: [
-          { baseCurrency: params.fromCurrency, quoteCurrency: params.toCurrency },
-          { baseCurrency: params.toCurrency, quoteCurrency: params.fromCurrency },
-        ],
-        isActive: true,
-      },
-    });
+    // Determine exchange rate from live RateService (respecting Admin rate overrides)
+    // and apply pair-specific or global spread percentage.
+    const [pair, live, spreadSetting] = await Promise.all([
+      prisma.exchangePair.findFirst({
+        where: {
+          OR: [
+            { baseCurrency: params.fromCurrency, quoteCurrency: params.toCurrency },
+            { baseCurrency: params.toCurrency, quoteCurrency: params.fromCurrency },
+          ],
+          isActive: true,
+        },
+      }),
+      rateService.getLiveRates(),
+      prisma.cmsSetting.findUnique({ where: { key: 'exchange_spread_percent' } }).catch(() => null),
+    ]);
 
-    let effectiveRate: Decimal;
-    let spreadPctDec = new Decimal(1.0);
+    const fromCurUpper = params.fromCurrency.toUpperCase();
+    const toCurUpper = params.toCurrency.toUpperCase();
+    const rawGlobalSpread = parseFloat(spreadSetting?.value || '1.0');
+    let spreadPctDec = new Decimal(Number.isFinite(rawGlobalSpread) && rawGlobalSpread >= 0 ? rawGlobalSpread : 1.0);
     if (pair) {
-      if (pair.baseCurrency === params.fromCurrency) {
-        // e.g. USDT -> USD: rate is baseRate * (1 - sellMarginPct / 100)
-        const marginPct = Decimal.max(0, new Decimal(pair.sellMarginPct.toString()));
-        spreadPctDec = marginPct;
-        const margin = marginPct.dividedBy(100);
-        effectiveRate = new Decimal(pair.baseRate.toString()).times(new Decimal(1).minus(margin));
-      } else {
-        // e.g. USD -> USDT: rate is 1 / (baseRate * (1 + buyMarginPct / 100))
-        const marginPct = Decimal.max(0, new Decimal(pair.buyMarginPct.toString()));
-        spreadPctDec = marginPct;
-        const margin = marginPct.dividedBy(100);
-        const effectiveBase = new Decimal(pair.baseRate.toString()).times(new Decimal(1).plus(margin));
-        effectiveRate = new Decimal(1).dividedBy(effectiveBase);
-      }
-    } else {
-      // Live market spot rates via RateService (units per 1 USD)
-      const [live, spreadSetting] = await Promise.all([
-        rateService.getLiveRates(),
-        prisma.cmsSetting.findUnique({ where: { key: 'exchange_spread_percent' } }).catch(() => null),
-      ]);
-      const rawSpread = parseFloat(spreadSetting?.value || '1.0');
-      spreadPctDec = new Decimal(Number.isFinite(rawSpread) && rawSpread >= 0 ? rawSpread : 1.0);
-      const fromPerUsd = live.rates[params.fromCurrency.toUpperCase()] || 1.0;
-      const toPerUsd = live.rates[params.toCurrency.toUpperCase()] || 1.0;
-      const spotRate = new Decimal(toPerUsd).dividedBy(new Decimal(fromPerUsd));
-      const multiplier = Decimal.max(new Decimal(0.01), new Decimal(1).minus(spreadPctDec.dividedBy(100)));
-      effectiveRate = new Decimal(spotRate.times(multiplier).toFixed(6));
+      spreadPctDec =
+        pair.baseCurrency.toUpperCase() === fromCurUpper
+          ? Decimal.max(0, new Decimal(pair.sellMarginPct.toString()))
+          : Decimal.max(0, new Decimal(pair.buyMarginPct.toString()));
     }
+
+    const fromPerUsd = live.rates[fromCurUpper] || 1.0;
+    const toPerUsd = live.rates[toCurUpper] || 1.0;
+    const spotRate = new Decimal(toPerUsd).dividedBy(new Decimal(fromPerUsd));
+    const multiplier = Decimal.max(new Decimal(0.01), new Decimal(1).minus(spreadPctDec.dividedBy(100)));
+    const effectiveRate = new Decimal(spotRate.times(multiplier).toFixed(6));
 
     const fromCur = params.fromCurrency.toUpperCase();
     const toCur = params.toCurrency.toUpperCase();
@@ -1123,8 +1113,8 @@ export class LedgerService {
         };
       },
       {
-        maxWait: 15000,
-        timeout: 30000,
+        maxWait: 20000,
+        timeout: 60000,
       }
     );
   }

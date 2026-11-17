@@ -10,6 +10,7 @@ const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
 const auth_service_1 = require("./auth.service");
+const rate_service_1 = require("./rate.service");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
 const p2p_helpers_1 = require("./p2p.helpers");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
@@ -24,6 +25,8 @@ function generateAvoraAccountNumber(userId) {
 }
 class P2PService {
     schemaAndOffersEnsured = false;
+    lastDefaultOffersSyncAt = 0;
+    DEFAULT_OFFERS_SYNC_TTL_MS = 5 * 60 * 1000;
     async ensureColumns(tableName, columns) {
         for (const [col, ddl] of columns) {
             const existing = await prisma_1.prisma
@@ -40,8 +43,12 @@ class P2PService {
      * and default institutional P2P offers & liquidity balances are synced.
      */
     async ensureP2PReady() {
-        if (this.schemaAndOffersEnsured)
+        if (this.schemaAndOffersEnsured) {
+            if (Date.now() - this.lastDefaultOffersSyncAt >= this.DEFAULT_OFFERS_SYNC_TTL_MS) {
+                await this.ensureDefaultOffers().catch(() => { });
+            }
             return;
+        }
         try {
             await prisma_1.prisma.$executeRawUnsafe(`UPDATE \`diw_transactions\` SET \`type\` = 'ADJUSTMENT' WHERE \`type\` = ''`).catch(() => { });
             await prisma_1.prisma.$executeRawUnsafe(`ALTER TABLE \`diw_transactions\` MODIFY COLUMN \`type\` ENUM('DEPOSIT','PACKAGE_PURCHASE','MONTHLY_RETURN','PRINCIPAL_RELEASE','WITHDRAWAL_REQUEST','WITHDRAWAL_SETTLEMENT','P2P_TRANSFER_OUT','P2P_TRANSFER_IN','EXCHANGE_BUY','EXCHANGE_SELL','CARD_PAYMENT','OTC_DEPOSIT_LOCK','OTC_DEPOSIT_REFUND','P2P_DEPOSIT_LOCK','P2P_DEPOSIT_REFUND','OTC_TRADE','GLOBAL_TRANSFER_OUT','GLOBAL_TRANSFER_FEE','INVESTMENT_ALLOCATION','INVESTMENT_FEE','INVESTMENT_PROFIT_SHARE','INVESTMENT_DISTRIBUTION','FEE','ADJUSTMENT','REVERSAL') NOT NULL`).catch(() => { });
@@ -702,6 +709,17 @@ class P2PService {
             return;
         const lkrMakerId = colomboUser?.id || defaultMakerId;
         const gelMakerId = tbilisiUser?.id || defaultMakerId;
+        const liveRates = await rate_service_1.rateService.getLiveRates().catch(() => null);
+        const spotFor = (cur, fallback) => {
+            const n = Number(liveRates?.rates?.[cur]);
+            return Number.isFinite(n) && n > 0 ? n : fallback;
+        };
+        const calcOfferPrice = (spot, mult) => new decimal_js_1.default((spot * mult).toFixed(2));
+        const lkrSpot = spotFor('LKR', 332.68);
+        const inrSpot = spotFor('INR', 93.96);
+        const aedSpot = spotFor('AED', 3.6725);
+        const gelSpot = spotFor('GEL', 2.593);
+        const eurSpot = spotFor('EUR', 0.909);
         const defaults = [
             {
                 offerCode: 'OFF-LKR-BUY-01',
@@ -709,7 +727,7 @@ class P2PService {
                 side: client_1.P2PSide.BUY,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'LKR',
-                price: new decimal_js_1.default('302.50'),
+                price: calcOfferPrice(lkrSpot, 1.004),
                 totalAmount: new decimal_js_1.default('50000.00'),
                 availableAmount: new decimal_js_1.default('50000.00'),
                 minLimit: new decimal_js_1.default('5000.00'),
@@ -723,7 +741,7 @@ class P2PService {
                 side: client_1.P2PSide.SELL,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'LKR',
-                price: new decimal_js_1.default('300.80'),
+                price: calcOfferPrice(lkrSpot, 0.996),
                 totalAmount: new decimal_js_1.default('50000.00'),
                 availableAmount: new decimal_js_1.default('50000.00'),
                 minLimit: new decimal_js_1.default('5000.00'),
@@ -737,7 +755,7 @@ class P2PService {
                 side: client_1.P2PSide.BUY,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'INR',
-                price: new decimal_js_1.default('87.40'),
+                price: calcOfferPrice(inrSpot, 1.004),
                 totalAmount: new decimal_js_1.default('25000.00'),
                 availableAmount: new decimal_js_1.default('25000.00'),
                 minLimit: new decimal_js_1.default('1000.00'),
@@ -751,7 +769,7 @@ class P2PService {
                 side: client_1.P2PSide.SELL,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'INR',
-                price: new decimal_js_1.default('86.90'),
+                price: calcOfferPrice(inrSpot, 0.996),
                 totalAmount: new decimal_js_1.default('25000.00'),
                 availableAmount: new decimal_js_1.default('25000.00'),
                 minLimit: new decimal_js_1.default('1000.00'),
@@ -765,7 +783,7 @@ class P2PService {
                 side: client_1.P2PSide.BUY,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'AED',
-                price: new decimal_js_1.default('3.68'),
+                price: calcOfferPrice(aedSpot, 1.002),
                 totalAmount: new decimal_js_1.default('50000.00'),
                 availableAmount: new decimal_js_1.default('50000.00'),
                 minLimit: new decimal_js_1.default('500.00'),
@@ -779,7 +797,7 @@ class P2PService {
                 side: client_1.P2PSide.SELL,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'AED',
-                price: new decimal_js_1.default('3.66'),
+                price: calcOfferPrice(aedSpot, 0.998),
                 totalAmount: new decimal_js_1.default('50000.00'),
                 availableAmount: new decimal_js_1.default('50000.00'),
                 minLimit: new decimal_js_1.default('500.00'),
@@ -793,7 +811,7 @@ class P2PService {
                 side: client_1.P2PSide.BUY,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'GEL',
-                price: new decimal_js_1.default('2.76'),
+                price: calcOfferPrice(gelSpot, 1.004),
                 totalAmount: new decimal_js_1.default('35000.00'),
                 availableAmount: new decimal_js_1.default('35000.00'),
                 minLimit: new decimal_js_1.default('100.00'),
@@ -807,7 +825,7 @@ class P2PService {
                 side: client_1.P2PSide.SELL,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'GEL',
-                price: new decimal_js_1.default('2.73'),
+                price: calcOfferPrice(gelSpot, 0.996),
                 totalAmount: new decimal_js_1.default('35000.00'),
                 availableAmount: new decimal_js_1.default('35000.00'),
                 minLimit: new decimal_js_1.default('100.00'),
@@ -821,7 +839,7 @@ class P2PService {
                 side: client_1.P2PSide.BUY,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'EUR',
-                price: new decimal_js_1.default('0.93'),
+                price: calcOfferPrice(eurSpot, 1.005),
                 totalAmount: new decimal_js_1.default('40000.00'),
                 availableAmount: new decimal_js_1.default('40000.00'),
                 minLimit: new decimal_js_1.default('200.00'),
@@ -835,7 +853,7 @@ class P2PService {
                 side: client_1.P2PSide.SELL,
                 cryptoCurrency: 'USDT',
                 fiatCurrency: 'EUR',
-                price: new decimal_js_1.default('0.92'),
+                price: calcOfferPrice(eurSpot, 0.995),
                 totalAmount: new decimal_js_1.default('40000.00'),
                 availableAmount: new decimal_js_1.default('40000.00'),
                 minLimit: new decimal_js_1.default('200.00'),
@@ -876,11 +894,12 @@ class P2PService {
             await prisma_1.prisma.p2POffer
                 .upsert({
                 where: { offerCode: d.offerCode },
-                update: { status: client_1.P2POfferStatus.OPEN, userId: d.userId },
+                update: { status: client_1.P2POfferStatus.OPEN, userId: d.userId, price: d.price },
                 create: d,
             })
                 .catch(() => { });
         }
+        this.lastDefaultOffersSyncAt = Date.now();
     }
     /**
      * List available P2P trade offers with real trader statistics, full filters, and sorting.

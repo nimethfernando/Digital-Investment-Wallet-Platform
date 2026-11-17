@@ -190,11 +190,11 @@ export default function ExchangeDeskPage() {
   // Benchmark Rates & Dynamic OTC Commission Structure (Default: 1.5% Broker + 0.5% Platform = 2.0%)
   const [baseRates, setBaseRates] = useState<Record<string, number>>({
     USD: 1.0,
-    EUR: 0.896,
-    LKR: 332.4,
+    EUR: 0.909,
+    LKR: 332.68,
     AED: 3.6725,
-    GEL: 2.595,
-    INR: 95.08,
+    GEL: 2.593,
+    INR: 93.96,
   });
   const [otcCommission, setOtcCommission] = useState<{
     operatorFeePct: number;
@@ -317,11 +317,11 @@ export default function ExchangeDeskPage() {
           setBaseRates((prev) => ({
             ...prev,
             USD: 1.0,
-            EUR: Number((directData.rates.EUR ?? 0.896).toFixed(4)),
-            LKR: Number((directData.rates.LKR ?? 332.4).toFixed(2)),
+            EUR: Number((directData.rates.EUR ?? 0.909).toFixed(4)),
+            LKR: Number((directData.rates.LKR ?? 332.68).toFixed(2)),
             AED: Number((directData.rates.AED ?? 3.6725).toFixed(4)),
-            GEL: Number((directData.rates.GEL ?? 2.595).toFixed(4)),
-            INR: Number((directData.rates.INR ?? 95.08).toFixed(2)),
+            GEL: Number((directData.rates.GEL ?? 2.593).toFixed(4)),
+            INR: Number((directData.rates.INR ?? 93.96).toFixed(2)),
           }));
           setRatesSource('Open Exchange Rates (Live)');
         }

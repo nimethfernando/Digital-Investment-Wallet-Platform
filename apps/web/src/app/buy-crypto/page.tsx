@@ -49,11 +49,11 @@ const BASE_FIAT_META: Omit<FiatCurrency, 'perUsd'>[] = [
 
 const INITIAL_PER_USD: Record<string, number> = {
   USD: 1.0,
-  EUR: 0.896,
-  GBP: 0.747,
+  EUR: 0.909,
+  GBP: 0.785,
   AED: 3.6725,
-  INR: 95.08,
-  GEL: 2.595,
+  INR: 93.96,
+  GEL: 2.593,
 };
 
 export default function BuyCryptoPage() {

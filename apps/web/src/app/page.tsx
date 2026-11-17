@@ -51,6 +51,10 @@ export default function HomePage() {
   const [calcAmount, setCalcAmount] = useState<number>(5000);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [homePosts, setHomePosts] = useState<BlogPostItem[]>(BLOG_POSTS_DATA.slice(0, 3));
+  const [liveOtcRates, setLiveOtcRates] = useState<{ LKR: number; AED: number }>({
+    LKR: 332.68,
+    AED: 3.6725,
+  });
 
   const platformVars = buildPlatformVariablesFromSettings(settings);
   const monthlyRateDec = Math.max(0, parseFloat(settings.package_monthly_return_rate || '0.01') || 0.01);
@@ -112,6 +116,19 @@ export default function HomePage() {
         if (Array.isArray(res.data?.blogs) && res.data.blogs.length > 0) {
           const mapped = res.data.blogs.map((b: any) => mapApiBlogToPostItem(b, resolveMediaUrl));
           setHomePosts(mapped.slice(0, 3));
+        }
+      })
+      .catch(() => {});
+
+    api.get('/otc/rates')
+      .then((res) => {
+        if (res.data?.success && res.data?.rates) {
+          const lkr = Number(res.data.rates.LKR);
+          const aed = Number(res.data.rates.AED);
+          setLiveOtcRates({
+            LKR: Number.isFinite(lkr) && lkr > 0 ? lkr : 332.68,
+            AED: Number.isFinite(aed) && aed > 0 ? aed : 3.6725,
+          });
         }
       })
       .catch(() => {});
@@ -521,14 +538,14 @@ export default function HomePage() {
                     <div className="grid grid-cols-2 gap-3 text-xs">
                       <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-cyan-500/40 transition-colors">
                         <span className="text-[10px] font-mono text-slate-400">LKR / USDT (Colombo)</span>
-                        <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">302.50 LKR</p>
+                        <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">{liveOtcRates.LKR.toFixed(2)} LKR</p>
                         <span className="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 font-bold flex items-center gap-1 mt-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> WTC Tower 18
                         </span>
                       </div>
                       <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-rose-500/40 transition-colors">
                         <span className="text-[10px] font-mono text-slate-400">AED / USDT (Dubai)</span>
-                        <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">3.6725 AED</p>
+                        <p className="font-mono font-black text-sm text-slate-900 dark:text-white mt-1">{liveOtcRates.AED.toFixed(4)} AED</p>
                         <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1 mt-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> DIFC Desk
                         </span>
