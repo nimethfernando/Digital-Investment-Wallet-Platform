@@ -83,13 +83,23 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && typeof window !== 'undefined') {
+    if (typeof window !== 'undefined') {
+      const status = error.response?.status;
+      const errMsg = String(error.response?.data?.message || '');
+      const hadAuthHeader = Boolean(
+        error.config?.headers?.Authorization || error.config?.headers?.authorization
+      );
+      const isExpiredJwt =
+        (status === 401 && hadAuthHeader) ||
+        (status === 403 && errMsg === 'Invalid or expired access token');
       const currentPath = window.location.pathname;
-      if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
+
+      if (isExpiredJwt && !currentPath.includes('/login') && !currentPath.includes('/register')) {
         localStorage.removeItem('avora_token');
         localStorage.removeItem('avora_user');
         localStorage.removeItem('nexis_token');
         localStorage.removeItem('nexis_user');
+        window.dispatchEvent(new Event('avora-auth-cleared'));
       }
     }
     return Promise.reject(error);

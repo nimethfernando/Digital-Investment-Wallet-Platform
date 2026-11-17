@@ -599,7 +599,10 @@ export default function P2PPage() {
 }
 
 function P2PPageContent() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
+  const hasStoredToken = () =>
+    typeof window !== 'undefined' &&
+    Boolean(localStorage.getItem('avora_token') || localStorage.getItem('nexis_token'));
 
   // Modern P2P Top & Bottom Navigation
   const [p2pTopTab, setP2pTopTab] = useState<'express' | 'marketplace'>('express');
@@ -917,6 +920,10 @@ function P2PPageContent() {
 
   const handleSubmitDeskRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user || !hasStoredToken()) {
+      setDeskError('Please sign in to your Avora Bank account to submit a Priority Desk settlement request.');
+      return;
+    }
     const amt = parseFloat(deskCryptoAmount);
     if (!amt || amt <= 0) {
       setDeskError('Please enter a valid USDT amount.');
@@ -971,6 +978,10 @@ function P2PPageContent() {
   };
 
   const handleConfirmExpressOrder = async () => {
+    if (!user || !hasStoredToken()) {
+      setExpressError('Please sign in to your Avora Bank account before placing a P2P Express escrow order.');
+      return;
+    }
     setExpressExecuting(true);
     setExpressError(null);
     try {
@@ -1043,13 +1054,25 @@ function P2PPageContent() {
 
   useEffect(() => {
     if (user) {
+      setMerchantMsg(null);
       fetchMerchantStatus();
       fetchOrders();
       fetchMyOffers();
+    } else {
+      setMerchantStatus(null);
+      setOrdersList([]);
+      setMyOffers([]);
     }
   }, [user]);
 
   const handleApplyMerchant = async () => {
+    if (!user || !hasStoredToken()) {
+      setMerchantMsg({
+        type: 'error',
+        text: 'Please sign in to your Avora Bank account first to lock your $50 security deposit and activate P2P Membership.',
+      });
+      return;
+    }
     setMerchantLoading(true);
     setMerchantMsg(null);
     try {
@@ -1059,9 +1082,16 @@ function P2PPageContent() {
         await fetchMerchantStatus();
       }
     } catch (err: any) {
+      const status = err?.response?.status;
       setMerchantMsg({
         type: 'error',
-        text: err.response?.data?.message || `Failed to activate Merchant status. Ensure you have $${effectiveP2pDeposit} USD/USDT available balance.`,
+        text:
+          status === 401 || status === 403
+            ? 'Your session has expired. Please sign in again to activate P2P Membership.'
+            : extractErrorMessage(
+                err,
+                `Failed to activate Merchant status. Ensure you have $${effectiveP2pDeposit} USD/USDT available balance.`
+              ),
       });
     } finally {
       setMerchantLoading(false);
@@ -1069,6 +1099,13 @@ function P2PPageContent() {
   };
 
   const handleRefundMerchant = async () => {
+    if (!user || !hasStoredToken()) {
+      setMerchantMsg({
+        type: 'error',
+        text: 'Please sign in to your Avora Bank account to manage your P2P Membership deposit.',
+      });
+      return;
+    }
     if (!confirm(`Are you sure you want to close your P2P Merchant status and refund your $${effectiveP2pDeposit} deposit?`)) return;
     setMerchantLoading(true);
     setMerchantMsg(null);
@@ -1263,12 +1300,13 @@ function P2PPageContent() {
   };
 
   useEffect(() => {
+    if (!user || !hasStoredToken()) return;
     if (activeNav === 'orders') {
       fetchOrders();
     } else if (activeNav === 'chat') {
       fetchChats();
     }
-  }, [activeNav, ordersMainTab, ordersFilterChip]);
+  }, [activeNav, ordersMainTab, ordersFilterChip, user]);
 
   // Load Active Chat Messages & Sync Order Status
   const fetchActiveChatMessages = async (orderId: string) => {
@@ -1372,6 +1410,10 @@ function P2PPageContent() {
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOfferForTrade) return;
+    if (!user || !hasStoredToken()) {
+      setTradeError('Please sign in to your Avora Bank account before placing a P2P escrow order.');
+      return;
+    }
 
     const cryptoAmtNum = parseFloat(tradeCryptoAmount);
     if (!cryptoAmtNum || cryptoAmtNum <= 0) {
@@ -1526,6 +1568,10 @@ function P2PPageContent() {
 
   const handleCreateAd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user || !hasStoredToken()) {
+      setNewAdError('Please sign in to your Avora Bank account to publish P2P advertisements.');
+      return;
+    }
     if (!merchantStatus?.isP2pMerchant) {
       setNewAdError(`You must become an authorized P2P Member ($${effectiveP2pDeposit} refundable security deposit) before publishing ads.`);
       navigateTo('member');
@@ -2883,7 +2929,24 @@ function P2PPageContent() {
             </div>
           )}
 
-          {loadingOrders ? (
+          {!authLoading && !user ? (
+            <div className="py-16 px-6 text-center space-y-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
+              <Lock className="w-10 h-10 mx-auto text-emerald-500" />
+              <div className="space-y-1">
+                <h4 className="text-base font-extrabold text-slate-900 dark:text-white">Sign In to View Your P2P Orders</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                  Your active P2P escrow trades, payment timers, and fulfilled order history are protected and available once signed in.
+                </p>
+              </div>
+              <Link
+                href="/login?redirect=%2Fp2p%3Ftab%3Dorders"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-colors"
+              >
+                <span>Sign In to View Orders</span>
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          ) : loadingOrders ? (
             <div className="py-20 text-center text-xs text-slate-400">
               <Loader2 className="w-6 h-6 animate-spin mx-auto text-emerald-500 mb-2" />
               <span>Loading orders...</span>
@@ -2999,7 +3062,24 @@ function P2PPageContent() {
             </button>
           </div>
 
-          {loadingChats ? (
+          {!authLoading && !user ? (
+            <div className="py-16 px-6 text-center space-y-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
+              <Lock className="w-10 h-10 mx-auto text-emerald-500" />
+              <div className="space-y-1">
+                <h4 className="text-base font-extrabold text-slate-900 dark:text-white">Sign In to Access P2P Chat Hub</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                  Live trade chat rooms and payment proof uploads require an authenticated Avora Bank session.
+                </p>
+              </div>
+              <Link
+                href="/login?redirect=%2Fp2p%3Ftab%3Dchat"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-colors"
+              >
+                <span>Sign In to View Chats</span>
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          ) : loadingChats ? (
             <div className="py-20 text-center text-xs text-slate-400">
               <Loader2 className="w-6 h-6 animate-spin mx-auto text-emerald-500 mb-2" />
               <span>Loading conversations...</span>
@@ -3092,7 +3172,11 @@ function P2PPageContent() {
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Your P2P Membership Status:</span>
                   {merchantStatus?.isP2pMerchant ? (
                     <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      ACTIVE P2P MEMBER ($50 BOND LOCKED)
+                      ACTIVE P2P MEMBER (${effectiveP2pDeposit} BOND LOCKED)
+                    </span>
+                  ) : !authLoading && !user ? (
+                    <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      SIGN IN REQUIRED
                     </span>
                   ) : (
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-400">
@@ -3163,10 +3247,33 @@ function P2PPageContent() {
                     </button>
                   )}
 
-                  {!merchantStatus?.isP2pMerchant ? (
+                  {!authLoading && !user ? (
+                    <div className="space-y-3 pt-1">
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-center gap-2">
+                        <Lock className="w-4 h-4 shrink-0 text-amber-400" />
+                        <span>Sign in to your Avora Bank account before locking your refundable ${effectiveP2pDeposit} security deposit.</span>
+                      </div>
+                      <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                        <Link
+                          href="/login?redirect=%2Fp2p%3Ftab%3Dprofile"
+                          className="w-full sm:flex-1 py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 transition-all"
+                        >
+                          <Lock className="w-4 h-4" />
+                          <span>Sign In to Lock ${effectiveP2pDeposit} Deposit &amp; Activate</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </Link>
+                        <Link
+                          href="/register"
+                          className="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 text-center transition-all"
+                        >
+                          Create Account
+                        </Link>
+                      </div>
+                    </div>
+                  ) : !merchantStatus?.isP2pMerchant ? (
                     <button
                       onClick={handleApplyMerchant}
-                      disabled={merchantLoading || Boolean(merchantStatus?.p2pBlocked)}
+                      disabled={merchantLoading || authLoading || Boolean(merchantStatus?.p2pBlocked)}
                       className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
                     >
                       {merchantLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
@@ -3251,7 +3358,23 @@ function P2PPageContent() {
               <p className="text-xs text-slate-500 dark:text-slate-400">Publish your custom buy or sell listing directly to the public marketplace.</p>
             </div>
 
-            {!merchantStatus?.isP2pMerchant && (
+            {!authLoading && !user ? (
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <Lock className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Sign In Required:</span>
+                    <p className="mt-0.5">Sign in and activate P2P Membership before publishing Buy or Sell advertisements.</p>
+                  </div>
+                </div>
+                <Link
+                  href="/login?redirect=%2Fp2p%3Ftab%3Dads"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-colors"
+                >
+                  Sign In →
+                </Link>
+              </div>
+            ) : !merchantStatus?.isP2pMerchant && (
               <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-3">
                 <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
                 <div>

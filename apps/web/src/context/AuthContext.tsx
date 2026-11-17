@@ -39,15 +39,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const savedToken = localStorage.getItem('avora_token') || localStorage.getItem('nexis_token');
     const savedUser = localStorage.getItem('avora_user') || localStorage.getItem('nexis_user');
 
+    if (savedToken) {
+      setToken(savedToken);
+    }
+
     if (savedToken && savedUser) {
       try {
-        setToken(savedToken);
         setUser(JSON.parse(savedUser));
       } catch (e) {
         localStorage.removeItem('avora_token');
         localStorage.removeItem('avora_user');
         localStorage.removeItem('nexis_token');
         localStorage.removeItem('nexis_user');
+        setToken(null);
       }
     }
     setIsLoading(false);
@@ -86,8 +90,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
+    const handleAuthCleared = () => {
+      setToken(null);
+      setUser(null);
+    };
+
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener('avora-auth-cleared', handleAuthCleared);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('avora-auth-cleared', handleAuthCleared);
+    };
   }, []);
 
   // Session Management: Auto-logout after 15 minutes of user inactivity
