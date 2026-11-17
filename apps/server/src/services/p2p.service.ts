@@ -3382,17 +3382,25 @@ export class P2PService {
     if (user.p2pBlocked) {
       throw new Error('Your account is currently restricted from P2P access.');
     }
-    if (user.p2pOnboardingStatus === 'APPROVED' && user.kycStatus === 'APPROVED') {
-      throw new Error('Your P2P verification is already approved by Admin Compliance.');
+
+    const existingApplication = await prisma.p2POnboardingApplication.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existingApplication) {
+      const err: any = new Error(
+        `Your P2P verification request (${existingApplication.applicationCode}) has already been submitted. Each member can only submit a P2P request once.`
+      );
+      err.statusCode = 409;
+      throw err;
     }
 
-    const existingPending = await prisma.p2POnboardingApplication.findFirst({
-      where: { userId, status: 'PENDING' },
-    });
-    if (existingPending) {
-      throw new Error(
-        `Application ${existingPending.applicationCode} is already pending Admin Compliance review.`
+    if (user.p2pOnboardingStatus === 'APPROVED' && user.kycStatus === 'APPROVED') {
+      const err: any = new Error(
+        'Your P2P verification request has already been submitted and approved by Admin Compliance.'
       );
+      err.statusCode = 409;
+      throw err;
     }
 
     const sof = String(input.sourceOfFunds || '').trim();
@@ -3421,6 +3429,20 @@ export class P2PService {
     const appCode = `P2PAPP-${Date.now().toString().slice(-6)}${Math.floor(10 + Math.random() * 90)}`;
 
     const createdApp = await prisma.$transaction(async (tx) => {
+      // Lock the user row to prevent concurrent duplicate submissions
+      await tx.$queryRaw`SELECT id FROM diw_users WHERE id = ${userId} FOR UPDATE`;
+      const existingInTx = await tx.p2POnboardingApplication.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existingInTx) {
+        const err: any = new Error(
+          `Your P2P verification request (${existingInTx.applicationCode}) has already been submitted. Each member can only submit a P2P request once.`
+        );
+        err.statusCode = 409;
+        throw err;
+      }
+
       const app = await tx.p2POnboardingApplication.create({
         data: {
           applicationCode: appCode,
@@ -3456,15 +3478,23 @@ export class P2PService {
       userId,
       category: 'ACCOUNT',
       type: 'P2P_APPLICATION_SUBMITTED',
-      severity: 'INFO',
-      title: `P2P Verification Submitted (${createdApp.applicationCode})`,
+      severity: 'SUCCESS',
+      title: `Your Request Has Been Submitted (${createdApp.applicationCode})`,
       message:
-        'Your Source of Funds, trading background, and supporting documents have been queued for Admin Compliance review.',
+        'Your P2P verification request has been submitted! Our Admin Compliance team is reviewing your Source of Funds and uploaded supporting documents.',
       referenceCode: createdApp.applicationCode,
       status: 'PENDING',
       actionUrl: '/p2p?tab=profile',
       actionLabel: 'View Status',
     });
+
+    notificationService
+      .sendEmail({
+        to: user.email,
+        subject: `Your P2P Verification Request Has Been Submitted (${createdApp.applicationCode})`,
+        html: `<p>Hello ${user.firstName || 'Trader'},</p><p>Your P2P verification request <strong>${createdApp.applicationCode}</strong> has been submitted for Admin Compliance review.</p><p><strong>Source of Funds:</strong> ${sof}<br/><strong>Status:</strong> PENDING ADMIN REVIEW</p><p>Each P2P member can submit this verification request once. You will receive a notification as soon as Compliance completes your review.</p>`,
+      })
+      .catch(() => {});
 
     notificationService
       .sendAdminAlert(
@@ -3476,7 +3506,7 @@ export class P2PService {
 
     return {
       success: true,
-      message: `Application ${createdApp.applicationCode} submitted for Admin Compliance review.`,
+      message: `Your request has been submitted (${createdApp.applicationCode}). Admin Compliance is reviewing your Source of Funds and documents.`,
       application: {
         id: createdApp.id,
         applicationCode: createdApp.applicationCode,

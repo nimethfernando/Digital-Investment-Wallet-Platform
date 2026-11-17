@@ -97,11 +97,26 @@ export function P2POnboardingWizard({
   const [submittingApp, setSubmittingApp] = useState(false);
   const [appFeedback, setAppFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const feedbackRef = useRef<HTMLDivElement | null>(null);
+
+  const showFeedback = (type: 'success' | 'error', text: string) => {
+    setAppFeedback({ type, text });
+    if (typeof window !== 'undefined') {
+      requestAnimationFrame(() => {
+        feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+  };
 
   const onboardingStatus: string = merchantStatus?.p2pOnboardingStatus || 'NOT_APPLIED';
   const latestApp = merchantStatus?.latestApplication || null;
   const isApproved = Boolean(merchantStatus?.isP2pTradingApproved);
   const isMerchant = Boolean(merchantStatus?.isP2pMerchant);
+  const hasAlreadySubmitted =
+    Boolean(latestApp) ||
+    onboardingStatus === 'PENDING_REVIEW' ||
+    onboardingStatus === 'REJECTED' ||
+    onboardingStatus === 'APPROVED';
 
   const togglePlannedMethod = (method: string) => {
     setPlannedMethods((prev) =>
@@ -146,18 +161,23 @@ export function P2POnboardingWizard({
     e.preventDefault();
     setAppFeedback(null);
 
+    if (hasAlreadySubmitted) {
+      showFeedback(
+        'error',
+        `Your P2P verification request${latestApp?.applicationCode ? ` (${latestApp.applicationCode})` : ''} has already been submitted. Each member can only submit a P2P request once.`
+      );
+      return;
+    }
+
     if (sourceOfFundsDetails.trim().length < 15) {
-      setAppFeedback({
-        type: 'error',
-        text: 'Please describe your Source of Funds in detail (at least 15 characters).',
-      });
+      showFeedback('error', 'Please describe your Source of Funds in detail (at least 15 characters).');
       return;
     }
     if (documentUrls.length === 0) {
-      setAppFeedback({
-        type: 'error',
-        text: 'Please upload at least one supporting document/screenshot (Government ID, Bank Statement, Source of Funds proof, or prior P2P trading history).',
-      });
+      showFeedback(
+        'error',
+        'Please upload at least one supporting document/screenshot (Government ID, Bank Statement, Source of Funds proof, or prior P2P trading history).'
+      );
       return;
     }
 
@@ -173,17 +193,22 @@ export function P2POnboardingWizard({
         additionalNotes: additionalNotes.trim() || undefined,
       });
       if (res.data?.success) {
-        setAppFeedback({
-          type: 'success',
-          text: res.data.message || 'Application submitted to Admin Compliance for verification.',
-        });
+        const refCode = res.data.application?.applicationCode ? ` (${res.data.application.applicationCode})` : '';
+        showFeedback(
+          'success',
+          res.data.message ||
+            `Your request has been submitted${refCode}! Our Admin Compliance team is reviewing your Source of Funds and documents.`
+        );
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('avora-notifications-refresh'));
+        }
         await onApplicationSubmitted();
       }
     } catch (err: any) {
-      setAppFeedback({
-        type: 'error',
-        text: extractErrorMessage(err, 'Failed to submit P2P onboarding application.'),
-      });
+      showFeedback('error', extractErrorMessage(err, 'Failed to submit P2P onboarding application.'));
+      if (err?.response?.status === 409) {
+        await onApplicationSubmitted().catch(() => {});
+      }
     } finally {
       setSubmittingApp(false);
     }
@@ -329,6 +354,26 @@ export function P2POnboardingWizard({
           </button>
         )}
 
+        <div ref={feedbackRef}>
+          {appFeedback && (
+            <div
+              role="status"
+              className={`p-4 rounded-2xl text-xs font-semibold flex items-start gap-2.5 ${
+                appFeedback.type === 'success'
+                  ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/40 shadow-sm'
+                  : 'bg-rose-500/15 text-rose-200 border border-rose-500/40'
+              }`}
+            >
+              {appFeedback.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+              )}
+              <span>{appFeedback.text}</span>
+            </div>
+          )}
+        </div>
+
         {/* Unauthenticated Sign-In Prompt */}
         {!authLoading && !user && (
           <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
@@ -434,81 +479,97 @@ export function P2POnboardingWizard({
           </div>
         )}
 
-        {/* Pending Review Status Panel */}
-        {user && !isApproved && onboardingStatus === 'PENDING_REVIEW' && latestApp && (
+        {/* Pending Review Status Panel (Request Already Submitted — One-Time Enforcement) */}
+        {user && !isApproved && onboardingStatus === 'PENDING_REVIEW' && (
           <div className="p-5 rounded-2xl bg-amber-950/25 border border-amber-500/30 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-amber-300 font-extrabold text-sm">
                 <Clock className="w-5 h-5 text-amber-400" />
-                <span>P2P Onboarding Application Under Admin Compliance Review</span>
+                <span>Your Request Has Been Submitted — Pending Admin Review</span>
               </div>
-              <span className="font-mono text-xs font-bold text-amber-400">{latestApp.applicationCode}</span>
+              {latestApp?.applicationCode && (
+                <span className="font-mono text-xs font-bold text-amber-400">{latestApp.applicationCode}</span>
+              )}
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Our Compliance team is reviewing your Source of Funds, P2P experience, and uploaded supporting documentation. Trading orders and the ${effectiveP2pDeposit} merchant bond lock will become available as soon as Admin approves your application.
+              Your P2P verification request has already been submitted and is currently being reviewed by Admin Compliance. Each P2P member can submit this request only once. Trading orders and the ${effectiveP2pDeposit} merchant bond lock will become available once Compliance completes review.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-                <div className="text-[10px] text-slate-400 uppercase font-bold">Source of Funds</div>
-                <div className="font-semibold text-white mt-0.5">{latestApp.sourceOfFunds}</div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-                <div className="text-[10px] text-slate-400 uppercase font-bold">Experience</div>
-                <div className="font-semibold text-white mt-0.5">{latestApp.tradingExperience}</div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-                <div className="text-[10px] text-slate-400 uppercase font-bold">Expected Monthly Volume</div>
-                <div className="font-semibold text-white mt-0.5">{latestApp.expectedMonthlyVolume}</div>
-              </div>
-            </div>
-            {Array.isArray(latestApp.documentUrls) && latestApp.documentUrls.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-slate-400 uppercase">Submitted Evidence ({latestApp.documentUrls.length})</div>
-                <div className="flex flex-wrap gap-2">
-                  {latestApp.documentUrls.map((url: string, idx: number) => (
-                    <a
-                      key={url + idx}
-                      href={resolveMediaUrl(url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 hover:border-amber-400"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>Document #{idx + 1}</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  ))}
+            {latestApp && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Source of Funds</div>
+                    <div className="font-semibold text-white mt-0.5">{latestApp.sourceOfFunds}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Experience</div>
+                    <div className="font-semibold text-white mt-0.5">{latestApp.tradingExperience}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Expected Monthly Volume</div>
+                    <div className="font-semibold text-white mt-0.5">{latestApp.expectedMonthlyVolume}</div>
+                  </div>
                 </div>
-              </div>
+                {Array.isArray(latestApp.documentUrls) && latestApp.documentUrls.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase">Submitted Evidence ({latestApp.documentUrls.length})</div>
+                    <div className="flex flex-wrap gap-2">
+                      {latestApp.documentUrls.map((url: string, idx: number) => (
+                        <a
+                          key={url + idx}
+                          href={resolveMediaUrl(url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 hover:border-amber-400"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Document #{idx + 1}</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
-        {/* Application Submission Form (NOT_APPLIED or REJECTED) */}
-        {user && !isApproved && onboardingStatus !== 'PENDING_REVIEW' && (
-          <form onSubmit={handleSubmitApplication} className="p-5 sm:p-6 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs">
-            {onboardingStatus === 'REJECTED' && latestApp?.reviewNotes && (
-              <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 space-y-1">
-                <div className="font-extrabold flex items-center gap-1.5 text-rose-300">
-                  <AlertTriangle className="w-4 h-4" />
-                  <span>Previous Application Rejected ({latestApp.applicationCode})</span>
-                </div>
-                <p>Admin Feedback: {latestApp.reviewNotes}</p>
-                <p className="text-[11px] text-rose-300/80">Please update your Source of Funds explanation or upload clearer supporting documents and resubmit below.</p>
+        {/* Rejected Status Panel (One-Time Rule: Request Already Submitted — Cannot Re-Request) */}
+        {user && !isApproved && onboardingStatus === 'REJECTED' && (
+          <div className="p-5 rounded-2xl bg-rose-950/25 border border-rose-500/35 space-y-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-rose-300 font-extrabold text-sm">
+                <Ban className="w-5 h-5 text-rose-400" />
+                <span>Request Already Submitted — Application Declined</span>
+              </div>
+              {latestApp?.applicationCode && (
+                <span className="font-mono text-xs font-bold text-rose-300">{latestApp.applicationCode}</span>
+              )}
+            </div>
+            <p className="text-slate-200 leading-relaxed">
+              Your P2P verification request has already been submitted and was declined by Admin Compliance. Each P2P member can only submit a P2P verification request once, so new submissions are locked.
+            </p>
+            {latestApp?.reviewNotes && (
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-rose-500/25 text-rose-200">
+                <span className="font-bold text-rose-300">Admin Compliance Notes:</span> {latestApp.reviewNotes}
               </div>
             )}
-
-            {appFeedback && (
-              <div
-                className={`p-3.5 rounded-xl font-semibold ${
-                  appFeedback.type === 'success'
-                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                    : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-                }`}
+            <div className="pt-1">
+              <Link
+                href="/contact"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold"
               >
-                {appFeedback.text}
-              </div>
-            )}
+                <span>Contact Compliance Support</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Application Submission Form (Only shown once when NOT_APPLIED and no prior submission exists) */}
+        {user && !isApproved && onboardingStatus === 'NOT_APPLIED' && !latestApp && (
+          <form onSubmit={handleSubmitApplication} className="p-5 sm:p-6 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs">
 
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>

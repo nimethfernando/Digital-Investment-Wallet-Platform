@@ -2916,14 +2916,19 @@ class P2PService {
         if (user.p2pBlocked) {
             throw new Error('Your account is currently restricted from P2P access.');
         }
-        if (user.p2pOnboardingStatus === 'APPROVED' && user.kycStatus === 'APPROVED') {
-            throw new Error('Your P2P verification is already approved by Admin Compliance.');
-        }
-        const existingPending = await prisma_1.prisma.p2POnboardingApplication.findFirst({
-            where: { userId, status: 'PENDING' },
+        const existingApplication = await prisma_1.prisma.p2POnboardingApplication.findFirst({
+            where: { userId },
+            orderBy: { createdAt: 'desc' },
         });
-        if (existingPending) {
-            throw new Error(`Application ${existingPending.applicationCode} is already pending Admin Compliance review.`);
+        if (existingApplication) {
+            const err = new Error(`Your P2P verification request (${existingApplication.applicationCode}) has already been submitted. Each member can only submit a P2P request once.`);
+            err.statusCode = 409;
+            throw err;
+        }
+        if (user.p2pOnboardingStatus === 'APPROVED' && user.kycStatus === 'APPROVED') {
+            const err = new Error('Your P2P verification request has already been submitted and approved by Admin Compliance.');
+            err.statusCode = 409;
+            throw err;
         }
         const sof = String(input.sourceOfFunds || '').trim();
         const sofDetails = String(input.sourceOfFundsDetails || '').trim();
@@ -2949,6 +2954,17 @@ class P2PService {
         }
         const appCode = `P2PAPP-${Date.now().toString().slice(-6)}${Math.floor(10 + Math.random() * 90)}`;
         const createdApp = await prisma_1.prisma.$transaction(async (tx) => {
+            // Lock the user row to prevent concurrent duplicate submissions
+            await tx.$queryRaw `SELECT id FROM diw_users WHERE id = ${userId} FOR UPDATE`;
+            const existingInTx = await tx.p2POnboardingApplication.findFirst({
+                where: { userId },
+                orderBy: { createdAt: 'desc' },
+            });
+            if (existingInTx) {
+                const err = new Error(`Your P2P verification request (${existingInTx.applicationCode}) has already been submitted. Each member can only submit a P2P request once.`);
+                err.statusCode = 409;
+                throw err;
+            }
             const app = await tx.p2POnboardingApplication.create({
                 data: {
                     applicationCode: appCode,
@@ -2979,20 +2995,27 @@ class P2PService {
             userId,
             category: 'ACCOUNT',
             type: 'P2P_APPLICATION_SUBMITTED',
-            severity: 'INFO',
-            title: `P2P Verification Submitted (${createdApp.applicationCode})`,
-            message: 'Your Source of Funds, trading background, and supporting documents have been queued for Admin Compliance review.',
+            severity: 'SUCCESS',
+            title: `Your Request Has Been Submitted (${createdApp.applicationCode})`,
+            message: 'Your P2P verification request has been submitted! Our Admin Compliance team is reviewing your Source of Funds and uploaded supporting documents.',
             referenceCode: createdApp.applicationCode,
             status: 'PENDING',
             actionUrl: '/p2p?tab=profile',
             actionLabel: 'View Status',
         });
         notification_provider_1.notificationService
+            .sendEmail({
+            to: user.email,
+            subject: `Your P2P Verification Request Has Been Submitted (${createdApp.applicationCode})`,
+            html: `<p>Hello ${user.firstName || 'Trader'},</p><p>Your P2P verification request <strong>${createdApp.applicationCode}</strong> has been submitted for Admin Compliance review.</p><p><strong>Source of Funds:</strong> ${sof}<br/><strong>Status:</strong> PENDING ADMIN REVIEW</p><p>Each P2P member can submit this verification request once. You will receive a notification as soon as Compliance completes your review.</p>`,
+        })
+            .catch(() => { });
+        notification_provider_1.notificationService
             .sendAdminAlert(`New P2P Verification Application (${createdApp.applicationCode})`, `Applicant ${user.email} submitted P2P Onboarding & Source of Funds (${sof}, ${vol}). Review in Admin -> P2P & Disputes.`, { applicationCode: createdApp.applicationCode, email: user.email, sourceOfFunds: sof })
             .catch(() => { });
         return {
             success: true,
-            message: `Application ${createdApp.applicationCode} submitted for Admin Compliance review.`,
+            message: `Your request has been submitted (${createdApp.applicationCode}). Admin Compliance is reviewing your Source of Funds and documents.`,
             application: {
                 id: createdApp.id,
                 applicationCode: createdApp.applicationCode,

@@ -2493,14 +2493,16 @@ function P2PPageContent() {
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 dark:text-white">
                     {merchantStatus.p2pOnboardingStatus === 'PENDING_REVIEW'
-                      ? 'P2P Verification Under Admin Compliance Review'
+                      ? 'Your Request Has Been Submitted — Under Admin Compliance Review'
                       : merchantStatus.p2pOnboardingStatus === 'REJECTED'
-                      ? 'P2P Application Rejected — Action Required'
+                      ? 'P2P Request Already Submitted — Application Declined'
                       : 'Complete P2P Onboarding & KYC Before Trading'}
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {merchantStatus.p2pOnboardingStatus === 'PENDING_REVIEW'
                       ? 'Our team is verifying your Source of Funds and documents. Trading unlocks immediately after approval.'
+                      : merchantStatus.p2pOnboardingStatus === 'REJECTED'
+                      ? 'Your P2P verification request has already been submitted. Each member can only submit once.'
                       : 'Registering an account does not auto-enable P2P trading. Submit your Source of Funds & supporting documents for Admin approval.'}
                   </p>
                 </div>
@@ -2509,7 +2511,9 @@ function P2PPageContent() {
                 onClick={() => navigateTo('member')}
                 className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs whitespace-nowrap shadow-sm shrink-0 cursor-pointer"
               >
-                {merchantStatus.p2pOnboardingStatus === 'PENDING_REVIEW' ? 'View Review Status' : 'Verify for P2P Trading'}
+                {merchantStatus.p2pOnboardingStatus === 'PENDING_REVIEW' || merchantStatus.p2pOnboardingStatus === 'REJECTED'
+                  ? 'View Submission Status'
+                  : 'Verify for P2P Trading'}
               </button>
             </div>
           ) : !merchantStatus?.isP2pMerchant && (

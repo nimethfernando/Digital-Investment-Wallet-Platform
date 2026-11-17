@@ -22,7 +22,10 @@ const errorHandler = (err, req, res, next) => {
     let statusCode = err.status || err.statusCode;
     const message = err.message || 'Internal Server Error';
     if (!statusCode) {
-        if (message.includes('already exists') || message.includes('already registered')) {
+        if (message.includes('already exists') ||
+            message.includes('already registered') ||
+            message.includes('already been submitted') ||
+            message.includes('already submitted')) {
             statusCode = 409;
         }
         else if (message.includes('Invalid email') || message.includes('Invalid 2FA') || message.includes('authentication')) {

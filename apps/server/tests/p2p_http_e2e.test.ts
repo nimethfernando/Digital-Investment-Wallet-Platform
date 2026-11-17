@@ -767,7 +767,7 @@ async function runHttpProductionE2E() {
         throw new Error('KYC auto-approval loophole still active after merchant attempt!');
       }
 
-      // 2. Submit onboarding application with SOF + document evidence
+      // 2. Submit onboarding application with SOF + document evidence -> returns "Your request has been submitted" + notification
       const appRes = await apiCall('POST', '/api/v1/p2p/onboarding/apply', freshToken, {
         sourceOfFunds: 'Business / Commercial Revenue',
         sourceOfFundsDetails: 'Verified commercial FX & e-commerce settlement inflows with full Commercial Bank SL statements.',
@@ -776,10 +776,34 @@ async function runHttpProductionE2E() {
         paymentMethodsPlanned: ['Commercial Bank CEFTS', 'Bank Transfer'],
         documentUrls: [uploadedProofUrl || '/uploads/receipts/sample-sof.png'],
       });
-      if (appRes.status !== 201 || !appRes.json?.application?.id) {
-        throw new Error(`Onboarding submission failed: ${appRes.status} ${JSON.stringify(appRes.json)}`);
+      if (
+        appRes.status !== 201 ||
+        !appRes.json?.application?.id ||
+        !/request has been submitted/i.test(String(appRes.json?.message || ''))
+      ) {
+        throw new Error(`Onboarding submission failed or missing confirmation message: ${appRes.status} ${JSON.stringify(appRes.json)}`);
       }
       const app1Id = appRes.json.application.id;
+
+      // Verify applicant receives an explicit confirmation notification in /wallet/notifications
+      const notifRes = await apiCall('GET', '/api/v1/wallet/notifications', freshToken);
+      const notifs: any[] = notifRes.json?.notifications || notifRes.json?.data || [];
+      if (!notifs.some((n) => n.type === 'P2P_APPLICATION_SUBMITTED' && /submitted/i.test(String(n.title || '') + ' ' + String(n.message || '')))) {
+        throw new Error(`Expected P2P_APPLICATION_SUBMITTED user notification after onboarding submit, got ${JSON.stringify(notifs)}`);
+      }
+
+      // Attempt duplicate re-request while PENDING -> must reject with 409 "already been submitted"
+      const dupPendingRes = await apiCall('POST', '/api/v1/p2p/onboarding/apply', freshToken, {
+        sourceOfFunds: 'Business / Commercial Revenue',
+        sourceOfFundsDetails: 'Attempting second P2P onboarding submission while first is already submitted.',
+        tradingExperience: 'Experienced Trader (2+ years P2P / OTC)',
+        expectedMonthlyVolume: '$10,000 – $50,000 / month',
+        paymentMethodsPlanned: ['Commercial Bank CEFTS'],
+        documentUrls: [uploadedProofUrl || '/uploads/receipts/sample-sof-dup.png'],
+      });
+      if (dupPendingRes.status !== 409 || !/already been submitted/i.test(String(dupPendingRes.json?.message || ''))) {
+        throw new Error(`Expected 409 "already been submitted" on duplicate P2P submit, got ${dupPendingRes.status} ${JSON.stringify(dupPendingRes.json)}`);
+      }
 
       // Still blocked while PENDING_REVIEW
       const pendingBlocked = await apiCall('POST', '/api/v1/p2p/merchant/deposit', freshToken);
@@ -787,45 +811,82 @@ async function runHttpProductionE2E() {
         throw new Error('Expected PENDING_REVIEW applicant to remain blocked before Admin approval');
       }
 
-      // 3. Admin inspects queue, rejects first, applicant resubmits, Admin approves with 2FA
+      // 3. Admin inspects queue; verify separate applicant REJECTED flow cannot re-request (one-time per member)
       const adminQueue = await apiCall('GET', '/api/v1/admin/p2p/applications?status=PENDING', adminToken);
       if (adminQueue.status !== 200 || !adminQueue.json?.data?.some((a: any) => a.id === app1Id)) {
         throw new Error('Admin P2P applications queue missing newly submitted application');
       }
 
+      const rejApplicant = await prisma.user.create({
+        data: {
+          email: `http_rejected_${ts}@testmail.com`,
+          passwordHash: 'test_hash',
+          firstName: 'Declined',
+          lastName: 'Applicant',
+          role: Role.USER,
+          status: 'ACTIVE',
+          kycStatus: 'NOT_STARTED',
+          p2pOnboardingStatus: 'NOT_APPLIED',
+          country: 'Sri Lanka',
+        },
+      });
+      const rejToken = authService.generateToken(rejApplicant.id, rejApplicant.email, rejApplicant.role);
+      const rejSubmitRes = await apiCall('POST', '/api/v1/p2p/onboarding/apply', rejToken, {
+        sourceOfFunds: 'Savings & Investment Returns',
+        sourceOfFundsDetails: 'Personal savings account transfers with uploaded documentation for P2P verification.',
+        tradingExperience: 'Beginner (< 6 months P2P experience)',
+        expectedMonthlyVolume: 'Up to $2,500 / month',
+        paymentMethodsPlanned: ['Bank Transfer'],
+        documentUrls: [uploadedProofUrl || '/uploads/receipts/sample-sof-rej.png'],
+      });
+      if (rejSubmitRes.status !== 201 || !rejSubmitRes.json?.application?.id) {
+        throw new Error(`Applicant B onboarding submit failed: ${rejSubmitRes.status}`);
+      }
       const rejRes = await apiCall(
         'POST',
-        `/api/v1/admin/p2p/applications/${app1Id}/review`,
+        `/api/v1/admin/p2p/applications/${rejSubmitRes.json.application.id}/review`,
         adminToken,
-        { decision: 'REJECT', reviewNotes: 'Please provide clearer bank statement header.' },
+        { decision: 'REJECT', reviewNotes: 'Insufficient bank statement verification.' },
         { 'x-admin-2fa': authenticator.generate(adminSecret) }
       );
       if (rejRes.status !== 200 || rejRes.json?.status !== 'REJECTED') {
         throw new Error(`Admin rejection failed: ${rejRes.status} ${JSON.stringify(rejRes.json)}`);
       }
 
-      const resubRes = await apiCall('POST', '/api/v1/p2p/onboarding/apply', freshToken, {
+      const resubAfterRejectRes = await apiCall('POST', '/api/v1/p2p/onboarding/apply', rejToken, {
         sourceOfFunds: 'Business / Commercial Revenue',
-        sourceOfFundsDetails: 'Updated certified Commercial Bank SL statements and business registration provided.',
+        sourceOfFundsDetails: 'Attempting re-request after rejection; one-time rule must block this.',
         tradingExperience: 'Experienced Trader (2+ years P2P / OTC)',
         expectedMonthlyVolume: '$10,000 – $50,000 / month',
         paymentMethodsPlanned: ['Commercial Bank CEFTS'],
         documentUrls: [uploadedProofUrl || '/uploads/receipts/sample-sof-v2.png'],
       });
-      if (resubRes.status !== 201 || !resubRes.json?.application?.id) {
-        throw new Error(`Resubmission after reject failed: ${resubRes.status}`);
+      if (resubAfterRejectRes.status !== 409 || !/already been submitted/i.test(String(resubAfterRejectRes.json?.message || ''))) {
+        throw new Error(`Expected 409 "already been submitted" after rejection (one-time submission rule), got ${resubAfterRejectRes.status} ${JSON.stringify(resubAfterRejectRes.json)}`);
       }
-      const app2Id = resubRes.json.application.id;
 
+      // Admin approves freshTrader (app1Id), verify post-approval re-request is also blocked (409)
       const apprRes = await apiCall(
         'POST',
-        `/api/v1/admin/p2p/applications/${app2Id}/review`,
+        `/api/v1/admin/p2p/applications/${app1Id}/review`,
         adminToken,
         { decision: 'APPROVE', reviewNotes: 'SOF, ID, and Commercial Bank statements verified.', approveKyc: true },
         { 'x-admin-2fa': authenticator.generate(adminSecret) }
       );
       if (apprRes.status !== 200 || apprRes.json?.status !== 'APPROVED') {
         throw new Error(`Admin approval failed: ${apprRes.status} ${JSON.stringify(apprRes.json)}`);
+      }
+
+      const dupApprovedRes = await apiCall('POST', '/api/v1/p2p/onboarding/apply', freshToken, {
+        sourceOfFunds: 'Business / Commercial Revenue',
+        sourceOfFundsDetails: 'Duplicate attempt after approval should also be rejected as already submitted.',
+        tradingExperience: 'Experienced Trader (2+ years P2P / OTC)',
+        expectedMonthlyVolume: '$10,000 – $50,000 / month',
+        paymentMethodsPlanned: ['Commercial Bank CEFTS'],
+        documentUrls: [uploadedProofUrl || '/uploads/receipts/sample-sof-v3.png'],
+      });
+      if (dupApprovedRes.status !== 409 || !/already been submitted/i.test(String(dupApprovedRes.json?.message || ''))) {
+        throw new Error(`Expected 409 "already been submitted" after approval, got ${dupApprovedRes.status} ${JSON.stringify(dupApprovedRes.json)}`);
       }
 
       // 4. Approved trader locks $50 merchant deposit -> $100 USD remains
