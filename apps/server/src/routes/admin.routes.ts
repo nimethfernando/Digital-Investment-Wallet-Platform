@@ -87,6 +87,12 @@ router.get(
   (req, res, next) => adminController.getLedgerJournals(req, res, next)
 );
 
+router.get(
+  '/ledger/revenue',
+  requireRole([Role.ADMIN]),
+  (req, res, next) => adminController.getPlatformRevenueAnalytics(req, res, next)
+);
+
 router.post(
   '/system/purge-demo',
   requireRole([Role.ADMIN]),

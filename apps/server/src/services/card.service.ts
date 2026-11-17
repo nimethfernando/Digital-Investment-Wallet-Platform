@@ -414,6 +414,12 @@ export class CardService {
     );
     const maskSuffix = isProvisioned ? card.last4 : '8824';
 
+    const issuanceFeeSetting = await prisma.cmsSetting
+      .findUnique({ where: { key: 'virtual_card_issuance_fee' } })
+      .catch(() => null);
+    const parsedFee = parseFloat(issuanceFeeSetting?.value || '10.00');
+    const virtualCardIssuanceFee = Number.isFinite(parsedFee) && parsedFee >= 0 ? parsedFee : 10.0;
+
     return {
       id: card.id,
       userId: card.userId,
@@ -435,6 +441,7 @@ export class CardService {
       onlineEnabled: card.onlineEnabled,
       intlEnabled: card.intlEnabled,
       atmEnabled: card.atmEnabled,
+      virtualCardIssuanceFee,
       createdAt: card.createdAt,
       updatedAt: card.updatedAt,
     };
@@ -586,7 +593,7 @@ export class CardService {
   }
 
   /**
-   * Update Card Security Controls (Online, International, ATM)
+   * Update Card Security Controls (Online, International, ATM) or apply for a paid Card Edition
    */
   async updateSettings(
     userId: string,
@@ -595,6 +602,8 @@ export class CardService {
       intlEnabled?: boolean;
       atmEnabled?: boolean;
       cardTheme?: string;
+      applyIssuance?: boolean;
+      cardType?: 'virtual' | 'physical';
     }
   ) {
     let card = await prisma.virtualCard.findUnique({ where: { userId } });
@@ -604,6 +613,122 @@ export class CardService {
     }
     if (!card) {
       throw new Error('Virtual card not found for user');
+    }
+
+    const isPaidApplication = Boolean(data.applyIssuance && data.cardTheme && data.cardTheme !== card.cardTheme);
+    if (isPaidApplication && data.cardTheme) {
+      const feeSetting = await prisma.cmsSetting
+        .findUnique({ where: { key: 'virtual_card_issuance_fee' } })
+        .catch(() => null);
+      const parsedVirtualFee = parseFloat(feeSetting?.value || '10.00');
+      const virtualFee = Number.isFinite(parsedVirtualFee) && parsedVirtualFee >= 0 ? parsedVirtualFee : 10.0;
+      const isPhysical = data.cardType === 'physical' || data.cardTheme === 'physical';
+      const feeDec = new Decimal((isPhysical ? 100.0 : virtualFee).toFixed(8));
+
+      const wallet = await ledgerService.ensureWallet(userId);
+      const feeCode = `CARDF-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+
+      const issuedResult = await prisma.$transaction(
+        async (tx) => {
+          let feeCurrency = 'USD';
+          let balBefore = new Decimal(0);
+          let balAfter = new Decimal(0);
+
+          if (feeDec.greaterThan(0)) {
+            const usdRow = await ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
+            const usdtRow = await ledgerService.lockWalletBalance(tx, wallet.id, 'USDT');
+            const usdAvail = new Decimal(usdRow.availableBalance.toString());
+            const usdtAvail = new Decimal(usdtRow.availableBalance.toString());
+
+            let targetRow = usdRow;
+            if (usdAvail.greaterThanOrEqualTo(feeDec)) {
+              feeCurrency = 'USD';
+              targetRow = usdRow;
+              balBefore = usdAvail;
+            } else if (usdtAvail.greaterThanOrEqualTo(feeDec)) {
+              feeCurrency = 'USDT';
+              targetRow = usdtRow;
+              balBefore = usdtAvail;
+            } else {
+              throw new Error(
+                `Insufficient balance for ${isPhysical ? 'Physical Card' : 'Virtual Card'} issuance fee ($${feeDec.toFixed(2)} USD). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
+              );
+            }
+
+            balAfter = balBefore.minus(feeDec);
+            await tx.walletBalance.update({
+              where: { id: targetRow.id },
+              data: { availableBalance: balAfter.toFixed(8) },
+            });
+
+            await ledgerService.recordJournal(tx, {
+              idempotencyKey: `CARD-FEE-${feeCode}`,
+              referenceType: JournalReferenceType.FEE,
+              referenceId: feeCode,
+              notes: `${isPhysical ? 'Physical' : 'Virtual'} Card issuance fee (${data.cardTheme}) — $${feeDec.toFixed(2)} ${feeCurrency}`,
+              createdBy: userId,
+              entries: [
+                {
+                  accountId: `USER_AVAILABLE_${feeCurrency}`,
+                  userId,
+                  direction: 'DEBIT',
+                  amount: feeDec.toFixed(8),
+                  currency: feeCurrency,
+                },
+                {
+                  accountId: `PLATFORM_FEE_REVENUE_${feeCurrency}`,
+                  direction: 'CREDIT',
+                  amount: feeDec.toFixed(8),
+                  currency: feeCurrency,
+                },
+              ],
+            });
+
+            await tx.transaction.create({
+              data: {
+                transactionCode: `TX-${feeCode}`,
+                userId,
+                type: TransactionType.FEE,
+                amount: feeDec.toFixed(8),
+                currency: feeCurrency,
+                status: TransactionStatus.COMPLETED,
+                balanceBefore: balBefore.toFixed(8),
+                balanceAfter: balAfter.toFixed(8),
+                settlementReference: feeCode,
+                createdBy: userId,
+                idempotencyKey: `CARD-FEE-${feeCode}`,
+                notes: `${isPhysical ? 'Physical Card' : 'Virtual Card'} issuance fee (${data.cardTheme}) deducted from wallet`,
+              },
+            });
+          }
+
+          const updated = await tx.virtualCard.update({
+            where: { userId },
+            data: {
+              ...(data.onlineEnabled !== undefined ? { onlineEnabled: data.onlineEnabled } : {}),
+              ...(data.intlEnabled !== undefined ? { intlEnabled: data.intlEnabled } : {}),
+              ...(data.atmEnabled !== undefined ? { atmEnabled: data.atmEnabled } : {}),
+              cardTheme: data.cardTheme,
+            },
+          });
+
+          return {
+            onlineEnabled: updated.onlineEnabled,
+            intlEnabled: updated.intlEnabled,
+            atmEnabled: updated.atmEnabled,
+            cardTheme: updated.cardTheme,
+            feeCharged: feeDec.toFixed(2),
+            feeCurrency,
+            balanceAfter: feeDec.greaterThan(0) ? balAfter.toFixed(2) : undefined,
+            message: feeDec.greaterThan(0)
+              ? `Card updated to ${data.cardTheme}! $${feeDec.toFixed(2)} ${feeCurrency} issuance fee deducted.`
+              : 'Card edition updated successfully.',
+          };
+        },
+        { timeout: 30000, maxWait: 10000 }
+      );
+
+      return issuedResult;
     }
 
     const updated = await prisma.virtualCard.update({
@@ -621,6 +746,7 @@ export class CardService {
       intlEnabled: updated.intlEnabled,
       atmEnabled: updated.atmEnabled,
       cardTheme: updated.cardTheme,
+      feeCharged: '0.00',
       message: 'Card security settings saved.',
     };
   }

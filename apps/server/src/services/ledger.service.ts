@@ -173,7 +173,7 @@ export class LedgerService {
       );
     }
 
-    // 2b. Ensure all referenced Chart of Accounts rows exist before inserting entries
+    // 2b. Ensure all referenced Chart of Accounts rows exist before inserting entries (1 batched lookup)
     const uniqueAccounts = new Map<string, string>();
     for (const entry of params.entries) {
       if (!uniqueAccounts.has(entry.accountId)) {
@@ -181,7 +181,15 @@ export class LedgerService {
       }
     }
 
+    const accountIds = Array.from(uniqueAccounts.keys());
+    const existingAccounts = await tx.ledgerAccount.findMany({
+      where: { id: { in: accountIds } },
+      select: { id: true },
+    });
+    const existingSet = new Set(existingAccounts.map((a: any) => a.id));
+
     for (const [accId, accCurrency] of uniqueAccounts.entries()) {
+      if (existingSet.has(accId)) continue;
       const accountType = accId.startsWith('PLATFORM_TREASURY')
         ? 'ASSET'
         : accId.includes('EXPENSE')
@@ -323,9 +331,49 @@ export class LedgerService {
         data: { availableBalance: balAfter.toFixed(8) },
       });
 
-      // Double-entry ledger: Debit Asset account, Credit User Available Liability
-      const assetAccount = params.currency === 'USDT' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
-      const liabilityAccount = 'USER_AVAILABLE_USD';
+      // Double-entry ledger: Debit Asset account, Credit User Available Liability (+ Platform Revenue Margin for Razorpay)
+      const upperCur = (params.currency || 'USD').toUpperCase();
+      const assetAccount =
+        upperCur === 'USDT' ? 'PLATFORM_TREASURY_USDT' : upperCur === 'USD' ? 'PLATFORM_TREASURY_USD' : `PLATFORM_TREASURY_${upperCur}`;
+      const liabilityAccount = upperCur === 'USD' ? 'USER_AVAILABLE_USD' : `USER_AVAILABLE_${upperCur}`;
+      const revenueAccount = `PLATFORM_FEE_REVENUE_${upperCur}`;
+
+      let avoraMarginDec = new Decimal(0);
+      const combinedNotes = `${params.notes || ''} ${freshDeposit.adminNotes || ''}`;
+      if (freshDeposit.depositMethod === 'RAZORPAY' || /Avora Margin:/i.test(combinedNotes)) {
+        const match = combinedNotes.match(/Avora Margin:\s*\$?([\d,]+(?:\.\d+)?)/i);
+        if (match) {
+          const parsedMargin = new Decimal(match[1].replace(/,/g, ''));
+          if (parsedMargin.isFinite() && parsedMargin.greaterThan(0)) {
+            avoraMarginDec = new Decimal(parsedMargin.toFixed(8));
+          }
+        }
+      }
+
+      const journalEntries: any[] = [
+        {
+          accountId: assetAccount,
+          direction: 'DEBIT',
+          amount: amountDec.plus(avoraMarginDec).toFixed(8),
+          currency: upperCur,
+        },
+        {
+          accountId: liabilityAccount,
+          userId: params.userId,
+          direction: 'CREDIT',
+          amount: amountDec.toFixed(8),
+          currency: upperCur,
+        },
+      ];
+
+      if (avoraMarginDec.greaterThan(0)) {
+        journalEntries.push({
+          accountId: revenueAccount,
+          direction: 'CREDIT',
+          amount: avoraMarginDec.toFixed(8),
+          currency: upperCur,
+        });
+      }
 
       await this.recordJournal(tx, {
         idempotencyKey,
@@ -333,21 +381,7 @@ export class LedgerService {
         referenceId: params.depositCode,
         notes: params.notes || `Deposit approved: ${params.depositCode}`,
         createdBy: params.reviewedBy,
-        entries: [
-          {
-            accountId: assetAccount,
-            direction: 'DEBIT',
-            amount: amountDec.toFixed(8),
-            currency: params.currency,
-          },
-          {
-            accountId: liabilityAccount,
-            userId: params.userId,
-            direction: 'CREDIT',
-            amount: amountDec.toFixed(8),
-            currency: params.currency,
-          },
-        ],
+        entries: journalEntries,
       });
 
       // Record User-facing Transaction
@@ -358,16 +392,35 @@ export class LedgerService {
           userId: params.userId,
           type: TransactionType.DEPOSIT,
           amount: amountDec.toFixed(8),
-          currency: params.currency,
+          currency: upperCur,
           status: TransactionStatus.COMPLETED,
           balanceBefore: balBefore.toFixed(8),
           balanceAfter: balAfter.toFixed(8),
           settlementReference,
           createdBy: params.reviewedBy,
           idempotencyKey,
-          notes: params.notes || `Deposit of ${amountDec.toFixed(2)} ${params.currency} approved`,
+          notes: params.notes || `Deposit of ${amountDec.toFixed(2)} ${upperCur} approved`,
         },
       });
+
+      if (avoraMarginDec.greaterThan(0)) {
+        await tx.transaction.create({
+          data: {
+            transactionCode: `TX-RZPF-${params.depositCode.slice(-12)}`,
+            userId: params.userId,
+            type: TransactionType.FEE,
+            amount: avoraMarginDec.toFixed(8),
+            currency: upperCur,
+            status: TransactionStatus.COMPLETED,
+            balanceBefore: balAfter.toFixed(8),
+            balanceAfter: balAfter.toFixed(8),
+            settlementReference: params.depositCode,
+            createdBy: params.reviewedBy,
+            idempotencyKey: `${idempotencyKey}-FEE`,
+            notes: `Avora Bank Razorpay platform margin collected on deposit ${params.depositCode}`,
+          },
+        });
+      }
 
       // Update deposit request
       const updatedDeposit = await tx.depositRequest.update({
@@ -376,13 +429,13 @@ export class LedgerService {
           status: DepositStatus.APPROVED,
           reviewedBy: params.reviewedBy,
           reviewedAt: new Date(),
-          adminNotes: params.notes,
+          adminNotes: params.notes || freshDeposit.adminNotes,
           txHashOrRef: settlementReference,
         },
       });
 
       return { deposit: updatedDeposit, balanceAfter: balAfter.toFixed(2) };
-    }, { timeout: 30000, maxWait: 10000 });
+    }, { timeout: 45000, maxWait: 15000 });
   }
 
   /**

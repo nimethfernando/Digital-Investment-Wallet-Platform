@@ -395,7 +395,9 @@ export class GlobalMoneyTransferService {
       recipientCurrency: data.recipientCurrency,
     });
 
-    const totalToDebit = new Decimal(quote.totalPaidAmount);
+    const totalToDebit = new Decimal(new Decimal(quote.totalPaidAmount).toFixed(8));
+    const feeAmtDec = Decimal.min(totalToDebit, new Decimal(new Decimal(quote.transferFeeAmount).toFixed(8)));
+    const sendingAmtDec = totalToDebit.minus(feeAmtDec);
     const wallet = await ledgerService.ensureWallet(userId);
     const transferCode = `GMT-${Date.now().toString().slice(-6)}`;
 
@@ -484,25 +486,80 @@ export class GlobalMoneyTransferService {
         },
       });
 
-      // 3. Record ledger transaction
+      // 3. Balanced double-entry ledger journal: Debit User Available, Credit Treasury Principal + Platform Fee Revenue
+      const treasuryAcc = debitCurrency === 'USDT' ? 'PLATFORM_TREASURY_USDT' : `PLATFORM_TREASURY_${debitCurrency}`;
+      const revenueAcc = `PLATFORM_FEE_REVENUE_${debitCurrency}`;
+      const gmtJournalEntries: any[] = [
+        {
+          accountId: `USER_AVAILABLE_${debitCurrency}`,
+          userId,
+          direction: 'DEBIT',
+          amount: totalToDebit.toFixed(8),
+          currency: debitCurrency,
+        },
+        {
+          accountId: treasuryAcc,
+          direction: 'CREDIT',
+          amount: sendingAmtDec.toFixed(8),
+          currency: debitCurrency,
+        },
+      ];
+      if (feeAmtDec.greaterThan(0)) {
+        gmtJournalEntries.push({
+          accountId: revenueAcc,
+          direction: 'CREDIT',
+          amount: feeAmtDec.toFixed(8),
+          currency: debitCurrency,
+        });
+      }
+
+      await ledgerService.recordJournal(tx, {
+        idempotencyKey: `GMT-JRN-${transferCode}`,
+        referenceType: JournalReferenceType.GLOBAL_TRANSFER,
+        referenceId: transferCode,
+        notes: `Global Money Transfer ${transferCode} (${sendingAmtDec.toFixed(2)} ${debitCurrency} principal + ${feeAmtDec.toFixed(2)} ${debitCurrency} [${quote.transferFeePct}%] fee, FX margin ${quote.rateAdjustmentPct}%)`,
+        createdBy: userId,
+        entries: gmtJournalEntries,
+      });
+
+      // 4. Record ledger transactions (Principal Out + Platform Transfer Fee)
+      const balAfterSending = currentBal.minus(sendingAmtDec);
       await tx.transaction.create({
         data: {
           transactionCode: `TX-${transferCode}`,
           userId,
           type: TransactionType.GLOBAL_TRANSFER_OUT,
-          amount: totalToDebit.toFixed(8),
+          amount: sendingAmtDec.toFixed(8),
           currency: debitCurrency,
           status: TransactionStatus.COMPLETED,
           balanceBefore: currentBal.toFixed(8),
-          balanceAfter: newBal.toFixed(8),
+          balanceAfter: balAfterSending.toFixed(8),
           idempotencyKey: `GMT-OUT-${transferCode}`,
           notes: `Global Money Transfer to ${data.recipientName.trim()} (${data.recipientBankName.trim()} - ${data.destinationCountry}). Fee: $${quote.transferFeeAmount}`,
           settlementReference: transferCode,
         },
       });
 
+      if (feeAmtDec.greaterThan(0)) {
+        await tx.transaction.create({
+          data: {
+            transactionCode: `TX-GMTF-${transferCode.replace('GMT-', '')}`,
+            userId,
+            type: TransactionType.GLOBAL_TRANSFER_FEE,
+            amount: feeAmtDec.toFixed(8),
+            currency: debitCurrency,
+            status: TransactionStatus.COMPLETED,
+            balanceBefore: balAfterSending.toFixed(8),
+            balanceAfter: newBal.toFixed(8),
+            idempotencyKey: `GMT-FEE-${transferCode}`,
+            notes: `${quote.transferFeePct}% Remittance Fee (+ ${quote.rateAdjustmentPct}% FX corridor margin) collected on ${transferCode}`,
+            settlementReference: transferCode,
+          },
+        });
+      }
+
       return transfer;
-    }, { timeout: 30000, maxWait: 10000 });
+    }, { timeout: 45000, maxWait: 15000 });
 
     return {
       ...result,
@@ -621,28 +678,46 @@ export class GlobalMoneyTransferService {
           });
 
           const assetAccount =
-            refundCurrency === 'USDT' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
+            refundCurrency === 'USDT' ? 'PLATFORM_TREASURY_USDT' : `PLATFORM_TREASURY_${refundCurrency}`;
+          const revenueAccount = `PLATFORM_FEE_REVENUE_${refundCurrency}`;
+          const refundFeeAmt = Decimal.min(
+            refundAmt,
+            new Decimal(new Decimal(transfer.transferFeeAmount?.toString() || '0').toFixed(8))
+          );
+          const refundPrincipalAmt = refundAmt.minus(refundFeeAmt);
+
+          const refundEntries: any[] = [];
+          if (refundPrincipalAmt.greaterThan(0)) {
+            refundEntries.push({
+              accountId: assetAccount,
+              direction: 'DEBIT',
+              amount: refundPrincipalAmt.toFixed(8),
+              currency: refundCurrency,
+            });
+          }
+          if (refundFeeAmt.greaterThan(0)) {
+            refundEntries.push({
+              accountId: revenueAccount,
+              direction: 'DEBIT',
+              amount: refundFeeAmt.toFixed(8),
+              currency: refundCurrency,
+            });
+          }
+          refundEntries.push({
+            accountId: `USER_AVAILABLE_${refundCurrency}`,
+            userId: transfer.userId,
+            direction: 'CREDIT',
+            amount: refundAmt.toFixed(8),
+            currency: refundCurrency,
+          });
+
           await ledgerService.recordJournal(tx, {
             idempotencyKey: refundIdempotencyKey,
             referenceType: JournalReferenceType.REVERSAL,
             referenceId: transfer.transferCode,
             notes: `Refund for ${nextStatus} Global Money Transfer ${transfer.transferCode}`,
             createdBy: options?.adminUserId || 'ADMIN',
-            entries: [
-              {
-                accountId: assetAccount,
-                direction: 'DEBIT',
-                amount: refundAmt.toFixed(8),
-                currency: refundCurrency,
-              },
-              {
-                accountId: 'USER_AVAILABLE_USD',
-                userId: transfer.userId,
-                direction: 'CREDIT',
-                amount: refundAmt.toFixed(8),
-                currency: refundCurrency,
-              },
-            ],
+            entries: refundEntries,
           });
 
           await tx.transaction.create({

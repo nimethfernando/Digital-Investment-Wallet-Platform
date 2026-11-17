@@ -179,6 +179,7 @@ export default function AdminPortalPage() {
 
   // Treasury State
   const [ledgerReconciliation, setLedgerReconciliation] = useState<any | null>(null);
+  const [platformRevenue, setPlatformRevenue] = useState<any | null>(null);
   const [runningReturns, setRunningReturns] = useState(false);
   const [admin2FaCode, setAdmin2FaCode] = useState('');
 
@@ -473,11 +474,13 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'treasury' || activeTab === 'packages') {
       setPackagesLoading(true);
       try {
-        const [recRes, pkgRes] = await Promise.all([
+        const [recRes, revRes, pkgRes] = await Promise.all([
           api.get('/admin/ledger/reconcile').catch(() => ({ data: { data: null } })),
+          api.get('/admin/ledger/revenue').catch(() => ({ data: { data: null } })),
           api.get('/admin/packages').catch(() => ({ data: { packages: [] } })),
         ]);
         if (recRes.data?.success) setLedgerReconciliation(recRes.data.data);
+        if (revRes.data?.success) setPlatformRevenue(revRes.data.data);
         const pkgList = pkgRes.data?.data?.packages || pkgRes.data?.packages || (Array.isArray(pkgRes.data?.data) ? pkgRes.data.data : []);
         setAdminPackages(Array.isArray(pkgList) ? pkgList : []);
       } catch (e) {
@@ -3309,6 +3312,128 @@ export default function AdminPortalPage() {
                     <p className="text-base font-black text-white font-mono mt-0.5">${returnsResult.totalDistributedUsd}</p>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Platform Revenue & Commission Cut Ledger */}
+            {platformRevenue && (
+              <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                  <div>
+                    <h3 className="font-extrabold text-base text-white flex items-center gap-2">
+                      <DollarSign className="w-5 h-5 text-emerald-400" />
+                      <span>Platform Commissions &amp; Revenue Ledger</span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Real-time verified platform fee revenue credited across OTC, P2P, Venture Equity, Remittance, Withdrawals, Razorpay, and Cards
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(platformRevenue.ledgerRevenueAccounts || []).map((acc: any) => (
+                      <span
+                        key={acc.accountId}
+                        className="px-3 py-1 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono text-xs font-bold"
+                      >
+                        {acc.accountId.replace('PLATFORM_FEE_REVENUE_', '')} Ledger: {Number(acc.netBalance || 0).toFixed(4)} {acc.currency}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">OTC Platform Fee</div>
+                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">
+                      {platformRevenue.moduleBreakdown?.otcPlatformFeeUsdt || '0.00'} USDT
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      Broker Share: {platformRevenue.moduleBreakdown?.otcBrokerCommissionUsdt || '0.00'} USDT
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">P2P Marketplace Fees</div>
+                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">
+                      {platformRevenue.moduleBreakdown?.p2pFeeTotal || '0.0000'} Crypto
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Deducted on escrow release</div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Venture Equity Fees</div>
+                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">
+                      ${platformRevenue.moduleBreakdown?.ventureAllocationFeeUsd || '0.00'}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      Profit-Share: ${platformRevenue.moduleBreakdown?.ventureProfitShareFeeUsd || '0.00'}
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">GMT Remittance Fees</div>
+                    <div className="text-lg font-black text-emerald-400 font-mono mt-1">
+                      ${platformRevenue.moduleBreakdown?.gmtTransferFeeUsd || '0.00'}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      Est. FX Margin: ${platformRevenue.moduleBreakdown?.gmtFxMarginEstUsd || '0.00'}
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Razorpay Avora Margin</div>
+                    <div className="text-lg font-black text-white font-mono mt-1">
+                      ${platformRevenue.moduleBreakdown?.razorpayMarginTotal || '0.00'}
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Withdrawal Fees</div>
+                    <div className="text-lg font-black text-white font-mono mt-1">
+                      ${platformRevenue.moduleBreakdown?.withdrawalFeeTotal || '0.00'}
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Card Issuance Fees</div>
+                    <div className="text-lg font-black text-white font-mono mt-1">
+                      ${platformRevenue.moduleBreakdown?.cardIssuanceFeeTotal || '0.00'}
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Ledger Accounts Tracked</div>
+                    <div className="text-lg font-black text-cyan-400 font-mono mt-1">
+                      {(platformRevenue.ledgerRevenueAccounts || []).length}
+                    </div>
+                  </div>
+                </div>
+
+                {Array.isArray(platformRevenue.recentFeeTransactions) && platformRevenue.recentFeeTransactions.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Recent Commission &amp; Platform Fee Transactions
+                    </h4>
+                    <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
+                          <tr>
+                            <th className="py-2.5 px-3">Code</th>
+                            <th className="py-2.5 px-3">Type</th>
+                            <th className="py-2.5 px-3">Client</th>
+                            <th className="py-2.5 px-3">Amount</th>
+                            <th className="py-2.5 px-3">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 bg-slate-900/60">
+                          {platformRevenue.recentFeeTransactions.slice(0, 15).map((tx: any) => (
+                            <tr key={tx.id}>
+                              <td className="py-2 px-3 font-mono font-bold text-slate-200">{tx.transactionCode}</td>
+                              <td className="py-2 px-3 font-mono text-[10px] text-emerald-400">{tx.type}</td>
+                              <td className="py-2 px-3 text-slate-300">{tx.userEmail}</td>
+                              <td className="py-2 px-3 font-mono font-bold text-white">
+                                {Number(tx.amount).toFixed(4)} {tx.currency}
+                              </td>
+                              <td className="py-2 px-3 text-slate-400 max-w-xs truncate">{tx.notes}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

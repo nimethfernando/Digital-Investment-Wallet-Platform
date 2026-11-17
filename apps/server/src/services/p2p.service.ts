@@ -105,6 +105,8 @@ export class P2PService {
         ['cancelReason', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `cancelReason` TEXT NULL'],
         ['isFrozen', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `isFrozen` BOOLEAN NOT NULL DEFAULT false'],
         ['frozenReason', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `frozenReason` TEXT NULL'],
+        ['platformFeePct', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `platformFeePct` DECIMAL(10,4) NOT NULL DEFAULT 0.0000'],
+        ['platformFeeAmount', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `platformFeeAmount` DECIMAL(20,8) NOT NULL DEFAULT 0.00000000'],
         ['completedAt', 'ALTER TABLE `diw_p2p_orders` ADD COLUMN `completedAt` DATETIME(3) NULL'],
       ]);
 
@@ -1705,8 +1707,16 @@ export class P2PService {
     const randomDigits = Math.floor(10000000000000 + Math.random() * 90000000000000).toString();
     const orderCode = `OTC${dateStr}${randomDigits}`;
 
-    // 1. Ensure seller wallet outside the interactive transaction
-    const sellerWallet = await ledgerService.ensureWallet(sellerId);
+    // 1. Ensure seller wallet outside the interactive transaction & load P2P marketplace fee config
+    const [sellerWallet, p2pFeeSetting] = await Promise.all([
+      ledgerService.ensureWallet(sellerId),
+      prisma.cmsSetting.findUnique({ where: { key: 'p2p_fee_percent' } }).catch(() => null),
+    ]);
+    const rawFeePct = parseFloat(p2pFeeSetting?.value || '0');
+    const platformFeePctDec = Number.isFinite(rawFeePct) && rawFeePct > 0 ? new Decimal(rawFeePct) : new Decimal(0);
+    const platformFeeAmtDec = platformFeePctDec.greaterThan(0)
+      ? new Decimal(cryptoAmountDec.times(platformFeePctDec.div(100)).toFixed(8))
+      : new Decimal(0);
 
     // 2. Execute atomic Escrow Lock on seller's wallet + reserve offer liquidity
     const order = await prisma.$transaction(
@@ -1729,6 +1739,30 @@ export class P2PService {
             availableBalance: newAvail.toFixed(8),
             lockedPrincipal: newLocked.toFixed(8),
           },
+        });
+
+        await ledgerService.recordJournal(tx, {
+          idempotencyKey: `P2P-LOCK-${orderCode}`,
+          referenceType: JournalReferenceType.P2P_ESCROW_LOCK,
+          referenceId: orderCode,
+          notes: `P2P escrow lock on ${orderCode} (${cryptoAmountDec.toFixed(4)} ${cryptoCur})`,
+          createdBy: takerUserId,
+          entries: [
+            {
+              accountId: `USER_AVAILABLE_${cryptoCur}`,
+              userId: sellerId,
+              direction: 'DEBIT',
+              amount: cryptoAmountDec.toFixed(8),
+              currency: cryptoCur,
+            },
+            {
+              accountId: `USER_ESCROW_LOCKED_${cryptoCur}`,
+              userId: sellerId,
+              direction: 'CREDIT',
+              amount: cryptoAmountDec.toFixed(8),
+              currency: cryptoCur,
+            },
+          ],
         });
 
         const freshOffer = await tx.p2POffer.findUnique({ where: { id: offer.id } });
@@ -1759,6 +1793,8 @@ export class P2PService {
             cryptoAmount: cryptoAmountDec.toFixed(8),
             fiatAmount: fiatAmountDec.toFixed(8),
             price: priceDec.toFixed(8),
+            platformFeePct: platformFeePctDec.toFixed(4),
+            platformFeeAmount: platformFeeAmtDec.toFixed(8),
             selectedPaymentMethod: chosenMethod,
             status: initialStatus,
             acceptedAt: isInstitutionalCounterparty ? now : null,
@@ -1789,7 +1825,7 @@ export class P2PService {
 
         return newOrder;
       },
-      { timeout: 30000, maxWait: 10000 }
+      { timeout: 45000, maxWait: 15000 }
     );
 
     const formattedCrypto = formatCryptoAmount(cryptoAmountDec, cryptoCur);
@@ -2055,10 +2091,13 @@ export class P2PService {
 
         await unlockEscrowToSellerTx(tx, {
           sellerWalletId: sellerWallet.id,
+          sellerId: order.sellerId,
           cryptoCurrency: cryptoCur,
           cryptoAmountDec,
           offerId: order.offerId,
           orderCode: order.orderCode,
+          journalIdempotencyKey: `P2P-DECLINE-UNLOCK-${order.orderCode}`,
+          actorUserId: userId,
         });
 
         const ord = await tx.p2POrder.update({
@@ -2161,10 +2200,13 @@ export class P2PService {
 
         await unlockEscrowToSellerTx(tx, {
           sellerWalletId: sellerWallet.id,
+          sellerId: order.sellerId,
           cryptoCurrency: cryptoCur,
           cryptoAmountDec,
           offerId: order.offerId,
           orderCode: order.orderCode,
+          journalIdempotencyKey: `P2P-CANCEL-UNLOCK-${order.orderCode}`,
+          actorUserId: userId,
         });
 
         const ord = await tx.p2POrder.update({
@@ -2361,7 +2403,7 @@ export class P2PService {
     const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
     const buyerWallet = await ledgerService.ensureWallet(order.buyerId);
 
-    const completedOrder = await prisma.$transaction(
+    const releaseResult = await prisma.$transaction(
       async (tx) => {
         const freshOrder = await tx.p2POrder.findUnique({ where: { id: orderId } });
         if (!freshOrder || freshOrder.isFrozen || !releasableStatuses.includes(freshOrder.status)) {
@@ -2370,7 +2412,7 @@ export class P2PService {
           );
         }
 
-        await releaseEscrowToBuyerTx(tx, {
+        const rel = await releaseEscrowToBuyerTx(tx, {
           order: { ...freshOrder, cryptoCurrency: cryptoCur },
           sellerWalletId: sellerWallet.id,
           buyerWalletId: buyerWallet.id,
@@ -2388,18 +2430,23 @@ export class P2PService {
           },
         });
 
+        const feeNote = rel.platformFee.greaterThan(0)
+          ? ` (Net credited: ${rel.buyerNetCrypto.toFixed(4)} ${cryptoCur}; ${rel.feePctStr}% platform fee: ${rel.platformFee.toFixed(4)} ${cryptoCur})`
+          : '';
         await tx.p2PMessage.create({
           data: {
             orderId,
             senderId: 'SYSTEM',
-            message: `[System] Seller confirmed payment! ${cryptoAmountDec.toFixed(2)} ${cryptoCur} has been released from escrow into Buyer's available wallet balance.`,
+            message: `[System] Seller confirmed payment! ${rel.buyerNetCrypto.toFixed(2)} ${cryptoCur} has been released from escrow into Buyer's available wallet balance${feeNote}.`,
           },
         });
 
-        return ord;
+        return { ord, rel };
       },
-      { timeout: 30000, maxWait: 10000 }
+      { timeout: 45000, maxWait: 15000 }
     );
+
+    const { ord: completedOrder, rel } = releaseResult;
 
     await Promise.all([
       createP2PNotification({
@@ -2407,9 +2454,9 @@ export class P2PService {
         type: 'P2P_ESCROW_RELEASED',
         severity: 'SUCCESS',
         title: `Crypto Released on #${order.orderCode}`,
-        message: `${cryptoAmountDec.toFixed(2)} ${cryptoCur} has been credited to your wallet. You can now leave feedback for the seller.`,
+        message: `${rel.buyerNetCrypto.toFixed(2)} ${cryptoCur} has been credited to your wallet${rel.platformFee.greaterThan(0) ? ` (${rel.feePctStr}% platform fee: ${rel.platformFee.toFixed(4)} ${cryptoCur})` : ''}. You can now leave feedback for the seller.`,
         referenceCode: order.orderCode,
-        amount: cryptoAmountDec.toFixed(2),
+        amount: rel.buyerNetCrypto.toFixed(2),
         currency: cryptoCur,
         status: P2POrderStatus.COMPLETED,
       }),
@@ -2418,7 +2465,7 @@ export class P2PService {
         type: 'P2P_ORDER_COMPLETED',
         severity: 'SUCCESS',
         title: `P2P Order #${order.orderCode} Completed`,
-        message: `You released ${cryptoAmountDec.toFixed(2)} ${cryptoCur} from escrow. Leave feedback for the buyer in your Trade Room.`,
+        message: `You released ${cryptoAmountDec.toFixed(2)} ${cryptoCur} from escrow${rel.platformFee.greaterThan(0) ? ` (Platform fee: ${rel.platformFee.toFixed(4)} ${cryptoCur})` : ''}. Leave feedback for the buyer in your Trade Room.`,
         referenceCode: order.orderCode,
         amount: cryptoAmountDec.toFixed(2),
         currency: cryptoCur,
@@ -2638,37 +2685,43 @@ export class P2PService {
                 ? 'Offer maker did not accept within 15 minutes'
                 : 'Buyer payment window (30 minutes) expired without confirmation';
 
-            await prisma.$transaction(async (tx) => {
-              const fresh = await tx.p2POrder.findUnique({ where: { id: ord.id } });
-              if (
-                !fresh ||
-                fresh.isFrozen ||
-                ![P2POrderStatus.PENDING, P2POrderStatus.ACCEPTED, P2POrderStatus.PENDING_PAYMENT].includes(fresh.status as any)
-              ) {
-                return;
-              }
-              await unlockEscrowToSellerTx(tx, {
-                sellerWalletId: sellerWallet.id,
-                cryptoCurrency: cryptoCur,
-                cryptoAmountDec,
-                offerId: ord.offerId,
-                orderCode: ord.orderCode,
-              });
-              await tx.p2POrder.update({
-                where: { id: ord.id },
-                data: {
-                  status: P2POrderStatus.EXPIRED,
-                  cancelReason: reason,
-                },
-              });
-              await tx.p2PMessage.create({
-                data: {
-                  orderId: ord.id,
-                  senderId: 'SYSTEM',
-                  message: `[System] Order #${ord.orderCode} automatically EXPIRED (${reason}). Locked ${formattedCrypto} ${cryptoCur} returned safely to seller.`,
-                },
-              });
-            });
+            await prisma.$transaction(
+              async (tx) => {
+                const fresh = await tx.p2POrder.findUnique({ where: { id: ord.id } });
+                if (
+                  !fresh ||
+                  fresh.isFrozen ||
+                  ![P2POrderStatus.PENDING, P2POrderStatus.ACCEPTED, P2POrderStatus.PENDING_PAYMENT].includes(fresh.status as any)
+                ) {
+                  return;
+                }
+                await unlockEscrowToSellerTx(tx, {
+                  sellerWalletId: sellerWallet.id,
+                  sellerId: ord.sellerId,
+                  cryptoCurrency: cryptoCur,
+                  cryptoAmountDec,
+                  offerId: ord.offerId,
+                  orderCode: ord.orderCode,
+                  journalIdempotencyKey: `P2P-EXPIRE-UNLOCK-${ord.orderCode}`,
+                  actorUserId: 'SYSTEM',
+                });
+                await tx.p2POrder.update({
+                  where: { id: ord.id },
+                  data: {
+                    status: P2POrderStatus.EXPIRED,
+                    cancelReason: reason,
+                  },
+                });
+                await tx.p2PMessage.create({
+                  data: {
+                    orderId: ord.id,
+                    senderId: 'SYSTEM',
+                    message: `[System] Order #${ord.orderCode} automatically EXPIRED (${reason}). Locked ${formattedCrypto} ${cryptoCur} returned safely to seller.`,
+                  },
+                });
+              },
+              { timeout: 45000, maxWait: 15000 }
+            );
 
             await Promise.all([
               createP2PNotification({
@@ -2739,28 +2792,31 @@ export class P2PService {
         if (confirmDeadline <= now) {
           const disputeDeadlineAt = new Date(now.getTime() + P2P_TIMERS.DISPUTE_SLA_MINUTES * 60 * 1000);
           const autoReason = `Auto-escalated after seller failed to respond within ${P2P_TIMERS.SELLER_CONFIRM_MINUTES} minutes of buyer payment confirmation`;
-          await prisma.$transaction(async (tx) => {
-            const fresh = await tx.p2POrder.findUnique({ where: { id: ord.id } });
-            if (!fresh || fresh.isFrozen || ![P2POrderStatus.PAYMENT_SENT, P2POrderStatus.SELLER_CONFIRMING].includes(fresh.status as any)) {
-              return;
-            }
-            await tx.p2POrder.update({
-              where: { id: ord.id },
-              data: {
-                status: P2POrderStatus.DISPUTED,
-                disputedAt: now,
-                disputeDeadlineAt,
-                disputeReason: autoReason,
-              },
-            });
-            await tx.p2PMessage.create({
-              data: {
-                orderId: ord.id,
-                senderId: 'SYSTEM',
-                message: `[System] Order #${ord.orderCode} auto-escalated to DISPUTED because seller confirmation window expired. Funds stay protected in escrow for Compliance review (180-min SLA).`,
-              },
-            });
-          });
+          await prisma.$transaction(
+            async (tx) => {
+              const fresh = await tx.p2POrder.findUnique({ where: { id: ord.id } });
+              if (!fresh || fresh.isFrozen || ![P2POrderStatus.PAYMENT_SENT, P2POrderStatus.SELLER_CONFIRMING].includes(fresh.status as any)) {
+                return;
+              }
+              await tx.p2POrder.update({
+                where: { id: ord.id },
+                data: {
+                  status: P2POrderStatus.DISPUTED,
+                  disputedAt: now,
+                  disputeDeadlineAt,
+                  disputeReason: autoReason,
+                },
+              });
+              await tx.p2PMessage.create({
+                data: {
+                  orderId: ord.id,
+                  senderId: 'SYSTEM',
+                  message: `[System] Order #${ord.orderCode} auto-escalated to DISPUTED because seller confirmation window expired. Funds stay protected in escrow for Compliance review (180-min SLA).`,
+                },
+              });
+            },
+            { timeout: 45000, maxWait: 15000 }
+          );
 
           await Promise.all([
             createP2PNotification({

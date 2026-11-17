@@ -1,4 +1,4 @@
-import { P2POrderStatus, P2POfferStatus, TransactionStatus, TransactionType } from '@prisma/client';
+import { P2POrderStatus, P2POfferStatus, TransactionStatus, TransactionType, JournalReferenceType } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
@@ -298,10 +298,13 @@ export async function unlockEscrowToSellerTx(
   tx: any,
   params: {
     sellerWalletId: string;
+    sellerId?: string;
     cryptoCurrency: string;
     cryptoAmountDec: Decimal;
     offerId?: string | null;
     orderCode: string;
+    journalIdempotencyKey?: string;
+    actorUserId?: string;
   }
 ) {
   const currency = (params.cryptoCurrency || 'USDT').toUpperCase();
@@ -324,6 +327,32 @@ export async function unlockEscrowToSellerTx(
     },
   });
 
+  if (params.sellerId && params.journalIdempotencyKey) {
+    await ledgerService.recordJournal(tx, {
+      idempotencyKey: params.journalIdempotencyKey,
+      referenceType: JournalReferenceType.REVERSAL,
+      referenceId: params.orderCode,
+      notes: `P2P escrow unlocked back to seller on ${params.orderCode}`,
+      createdBy: params.actorUserId || params.sellerId,
+      entries: [
+        {
+          accountId: `USER_ESCROW_LOCKED_${currency}`,
+          userId: params.sellerId,
+          direction: 'DEBIT',
+          amount: params.cryptoAmountDec.toFixed(8),
+          currency,
+        },
+        {
+          accountId: `USER_AVAILABLE_${currency}`,
+          userId: params.sellerId,
+          direction: 'CREDIT',
+          amount: params.cryptoAmountDec.toFixed(8),
+          currency,
+        },
+      ],
+    });
+  }
+
   if (params.offerId) {
     const offer = await tx.p2POffer.findUnique({ where: { id: params.offerId } });
     if (offer && offer.status !== P2POfferStatus.CANCELLED) {
@@ -343,7 +372,8 @@ export async function unlockEscrowToSellerTx(
 }
 
 /**
- * Shared atomic helper inside Prisma transaction to release escrowed crypto from seller to buyer available balance.
+ * Shared atomic helper inside Prisma transaction to release escrowed crypto from seller to buyer available balance,
+ * deducting any configured P2P platform fee and crediting PLATFORM_FEE_REVENUE_<CURRENCY>.
  */
 export async function releaseEscrowToBuyerTx(
   tx: any,
@@ -355,6 +385,8 @@ export async function releaseEscrowToBuyerTx(
       sellerId: string;
       cryptoCurrency?: string | null;
       cryptoAmount: any;
+      platformFeePct?: any;
+      platformFeeAmount?: any;
     };
     sellerWalletId: string;
     buyerWalletId: string;
@@ -363,9 +395,15 @@ export async function releaseEscrowToBuyerTx(
     idempotencyPrefix: string;
     notesPrefix: string;
   }
-) {
+): Promise<{ buyerNetCrypto: Decimal; platformFee: Decimal; feePctStr: string }> {
   const currency = (params.order.cryptoCurrency || 'USDT').toUpperCase();
-  const cryptoAmountDec = new Decimal(params.order.cryptoAmount.toString());
+  const cryptoAmountDec = new Decimal(new Decimal(params.order.cryptoAmount.toString()).toFixed(8));
+  const rawFee = new Decimal(new Decimal(params.order.platformFeeAmount?.toString() || '0').toFixed(8));
+  const platformFeeDec = rawFee.greaterThan(0)
+    ? Decimal.min(cryptoAmountDec, rawFee)
+    : new Decimal(0);
+  const buyerNetDec = Decimal.max(new Decimal(0), cryptoAmountDec.minus(platformFeeDec));
+  const feePctStr = new Decimal(params.order.platformFeePct?.toString() || '0').toFixed(2);
 
   // Deterministic lock order prevents MySQL deadlocks
   let sellerBal: any;
@@ -393,11 +431,51 @@ export async function releaseEscrowToBuyerTx(
 
   const sellerAvailBefore = new Decimal(sellerBal.availableBalance.toString());
   const buyerAvailBefore = new Decimal(buyerBal.availableBalance.toString());
-  const newBuyerAvail = buyerAvailBefore.plus(cryptoAmountDec);
+  const newBuyerAvail = buyerAvailBefore.plus(buyerNetDec);
 
   await tx.walletBalance.update({
     where: { id: buyerBal.id },
     data: { availableBalance: newBuyerAvail.toFixed(8) },
+  });
+
+  // Balanced Double-Entry Ledger Posting: Debit Locked Escrow == Credit Buyer + Credit Platform Revenue
+  const ledgerEntries: any[] = [
+    {
+      accountId: `USER_ESCROW_LOCKED_${currency}`,
+      userId: params.order.sellerId,
+      direction: 'DEBIT',
+      amount: cryptoAmountDec.toFixed(8),
+      currency,
+    },
+  ];
+  if (buyerNetDec.greaterThan(0)) {
+    ledgerEntries.push({
+      accountId: `USER_AVAILABLE_${currency}`,
+      userId: params.order.buyerId,
+      direction: 'CREDIT',
+      amount: buyerNetDec.toFixed(8),
+      currency,
+    });
+  }
+  if (platformFeeDec.greaterThan(0)) {
+    ledgerEntries.push({
+      accountId: `PLATFORM_FEE_REVENUE_${currency}`,
+      direction: 'CREDIT',
+      amount: platformFeeDec.toFixed(8),
+      currency,
+    });
+  }
+
+  await ledgerService.recordJournal(tx, {
+    idempotencyKey: `${params.idempotencyPrefix}-JRN-${params.order.orderCode}`,
+    referenceType: JournalReferenceType.P2P_ESCROW_RELEASE,
+    referenceId: params.order.orderCode,
+    notes:
+      platformFeeDec.greaterThan(0)
+        ? `${params.notesPrefix} (${buyerNetDec.toFixed(4)} ${currency} to buyer, ${platformFeeDec.toFixed(4)} ${currency} [${feePctStr}%] platform fee)`
+        : `${params.notesPrefix} (${buyerNetDec.toFixed(4)} ${currency} to buyer)`,
+    createdBy: params.actorUserId,
+    entries: ledgerEntries,
   });
 
   await tx.transaction.create({
@@ -413,7 +491,7 @@ export async function releaseEscrowToBuyerTx(
       settlementReference: params.order.orderCode,
       createdBy: params.actorUserId,
       idempotencyKey: `${params.idempotencyPrefix}-${params.order.orderCode}-OUT`,
-      notes: `${params.notesPrefix} — escrowed ${cryptoAmountDec.toFixed(4)} ${currency} released to buyer on ${params.order.orderCode}`,
+      notes: `${params.notesPrefix} — escrowed ${cryptoAmountDec.toFixed(4)} ${currency} released on ${params.order.orderCode}${platformFeeDec.greaterThan(0) ? ` (Net to buyer: ${buyerNetDec.toFixed(4)} ${currency}; Platform fee ${feePctStr}%: ${platformFeeDec.toFixed(4)} ${currency})` : ' to buyer'}`,
     },
   });
 
@@ -422,7 +500,7 @@ export async function releaseEscrowToBuyerTx(
       transactionCode: `TX-${params.txCodePrefix}I-${params.order.orderCode}`,
       userId: params.order.buyerId,
       type: TransactionType.P2P_TRANSFER_IN,
-      amount: cryptoAmountDec.toFixed(8),
+      amount: buyerNetDec.toFixed(8),
       currency,
       status: TransactionStatus.COMPLETED,
       balanceBefore: buyerAvailBefore.toFixed(8),
@@ -430,7 +508,32 @@ export async function releaseEscrowToBuyerTx(
       settlementReference: params.order.orderCode,
       createdBy: params.actorUserId,
       idempotencyKey: `${params.idempotencyPrefix}-${params.order.orderCode}-IN`,
-      notes: `${params.notesPrefix} — received ${cryptoAmountDec.toFixed(4)} ${currency} from escrow on ${params.order.orderCode}`,
+      notes: `${params.notesPrefix} — received ${buyerNetDec.toFixed(4)} ${currency} from escrow on ${params.order.orderCode}${platformFeeDec.greaterThan(0) ? ` (after ${feePctStr}% platform fee: ${platformFeeDec.toFixed(4)} ${currency})` : ''}`,
     },
   });
+
+  if (platformFeeDec.greaterThan(0)) {
+    await tx.transaction.create({
+      data: {
+        transactionCode: `TX-${params.txCodePrefix}F-${params.order.orderCode.slice(-14)}`,
+        userId: params.order.sellerId,
+        type: TransactionType.FEE,
+        amount: platformFeeDec.toFixed(8),
+        currency,
+        status: TransactionStatus.COMPLETED,
+        balanceBefore: sellerAvailBefore.toFixed(8),
+        balanceAfter: sellerAvailBefore.toFixed(8),
+        settlementReference: params.order.orderCode,
+        createdBy: params.actorUserId,
+        idempotencyKey: `${params.idempotencyPrefix}-${params.order.orderCode}-FEE`,
+        notes: `P2P Marketplace ${feePctStr}% platform fee collected on order ${params.order.orderCode}`,
+      },
+    });
+  }
+
+  return {
+    buyerNetCrypto: buyerNetDec,
+    platformFee: platformFeeDec,
+    feePctStr,
+  };
 }

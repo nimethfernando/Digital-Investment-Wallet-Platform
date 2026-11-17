@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
-import { TransactionType, TransactionStatus } from '@prisma/client';
+import { TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -314,108 +314,164 @@ export class InvestmentsService {
     }
 
     const minInv = new Decimal(campaign.minInvestment.toString());
-    const netDec = new Decimal(data.grossAmount); // Target amount allocated to startup
+    const netDec = new Decimal(new Decimal(data.grossAmount).toFixed(8)); // Target amount allocated to startup
 
     if (netDec.lessThan(minInv)) {
       throw new Error(`Minimum investment for this campaign is $${minInv.toFixed(2)} USD.`);
     }
 
     const feeCalc = await this.calculateInvestmentFee(data.grossAmount);
-    const totalToDebit = new Decimal(feeCalc.totalRequired); // Target investment + platform allocation fee
+    const feeDec = new Decimal(new Decimal(feeCalc.allocationFeeAmount).toFixed(8));
+    const totalToDebit = netDec.plus(feeDec); // Target investment + platform allocation fee
     const profitShareDec = new Decimal(feeCalc.profitShareFeePct || '5.00');
 
-    // Check wallet balance
     const wallet = await ledgerService.ensureWallet(userId);
-    const usdBal = await prisma.walletBalance.findUnique({
-      where: { walletId_currency: { walletId: wallet.id, currency: 'USD' } },
-    });
-    const usdtBal = await prisma.walletBalance.findUnique({
-      where: { walletId_currency: { walletId: wallet.id, currency: 'USDT' } },
-    });
-
-    const usdAvail = new Decimal(usdBal?.availableBalance?.toString() || '0');
-    const usdtAvail = new Decimal(usdtBal?.availableBalance?.toString() || '0');
-
-    let debitCurrency = 'USD';
-    let targetBalId = usdBal?.id;
-    let currentBal = usdAvail;
-
-    if (usdAvail.greaterThanOrEqualTo(totalToDebit)) {
-      debitCurrency = 'USD';
-      targetBalId = usdBal!.id;
-      currentBal = usdAvail;
-    } else if (usdtAvail.greaterThanOrEqualTo(totalToDebit)) {
-      debitCurrency = 'USDT';
-      targetBalId = usdtBal!.id;
-      currentBal = usdtAvail;
-    } else {
-      throw new Error(
-        `Insufficient funds. Investment requires $${totalToDebit.toFixed(2)} ($${netDec.toFixed(2)} allocated to startup + $${feeCalc.allocationFeeAmount} (${feeCalc.allocationFeePct}% fee)). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
-      );
-    }
-
     const investmentCode = `INV-${Date.now().toString().slice(-6)}`;
-    const newBal = currentBal.minus(totalToDebit);
 
-    const commitment = await prisma.$transaction(async (tx) => {
-      // 1. Deduct wallet available balance
-      await tx.walletBalance.update({
-        where: { id: targetBalId },
-        data: { availableBalance: { decrement: totalToDebit.toFixed(8) } },
-      });
+    const commitment = await prisma.$transaction(
+      async (tx) => {
+        // Lock both wallet balance rows in deterministic order to prevent concurrent double-spend
+        const usdRow = await ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
+        const usdtRow = await ledgerService.lockWalletBalance(tx, wallet.id, 'USDT');
 
-      // 2. Increment campaign funds and investor count
-      await tx.startupListing.update({
-        where: { id: campaign.id },
-        data: {
-          verifiedFundsRaised: { increment: netDec.toFixed(2) },
-          investorCount: { increment: 1 },
-        },
-      });
+        const usdAvail = new Decimal(usdRow.availableBalance.toString());
+        const usdtAvail = new Decimal(usdtRow.availableBalance.toString());
 
-      // 3. Create InvestmentCommitment
-      const inv = await tx.investmentCommitment.create({
-        data: {
-          investmentCode,
-          listingId: campaign.id,
-          investorUserId: userId,
-          grossAmount: totalToDebit,
-          allocationFeePct: new Decimal(feeCalc.allocationFeePct),
-          allocationFeeAmount: new Decimal(feeCalc.allocationFeeAmount),
-          netInvestedAmount: netDec,
-          instrument: data.instrument || campaign.instrument,
-          status: 'CLEARED_FUNDS',
-          currentValuation: campaign.valuation,
-          unrealizedReturnPct: new Decimal('0.00'),
-          realizedProceeds: new Decimal('0.00'),
-          returnOfCapital: new Decimal('0.00'),
-          eligibleNetProfit: new Decimal('0.00'),
-          profitShareFeePct: profitShareDec,
-          profitShareFeeAmount: new Decimal('0.00'),
-          netDistributedProfit: new Decimal('0.00'),
-          settlementReference: investmentCode,
-          notes: data.notes || `Invested in ${campaign.companyName} (${data.instrument || campaign.instrument})`,
-        },
-      });
+        let debitCurrency = 'USD';
+        let targetRow = usdRow;
+        let currentBal = usdAvail;
 
-      // 4. Record ledger transaction
-      await tx.transaction.create({
-        data: {
-          transactionCode: `TX-${investmentCode}`,
-          userId,
-          type: TransactionType.INVESTMENT_ALLOCATION,
-          amount: totalToDebit.toFixed(8),
-          currency: debitCurrency,
-          status: TransactionStatus.COMPLETED,
-          balanceBefore: currentBal.toFixed(8),
-          balanceAfter: newBal.toFixed(8),
-          notes: `Investment in ${campaign.companyName} (Startup Allocation: $${netDec.toFixed(2)}, ${feeCalc.allocationFeePct}% Fee: $${feeCalc.allocationFeeAmount}, Total Debited: $${totalToDebit.toFixed(2)})`,
-          settlementReference: investmentCode,
-        },
-      });
+        if (usdAvail.greaterThanOrEqualTo(totalToDebit)) {
+          debitCurrency = 'USD';
+          targetRow = usdRow;
+          currentBal = usdAvail;
+        } else if (usdtAvail.greaterThanOrEqualTo(totalToDebit)) {
+          debitCurrency = 'USDT';
+          targetRow = usdtRow;
+          currentBal = usdtAvail;
+        } else {
+          throw new Error(
+            `Insufficient funds. Investment requires $${totalToDebit.toFixed(2)} ($${netDec.toFixed(2)} allocated to startup + $${feeDec.toFixed(2)} (${feeCalc.allocationFeePct}% fee)). Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`
+          );
+        }
 
-      return inv;
-    });
+        const balAfterNet = currentBal.minus(netDec);
+        const newBal = currentBal.minus(totalToDebit);
+
+        // 1. Deduct wallet available balance
+        await tx.walletBalance.update({
+          where: { id: targetRow.id },
+          data: { availableBalance: newBal.toFixed(8) },
+        });
+
+        // 2. Increment campaign funds and investor count
+        await tx.startupListing.update({
+          where: { id: campaign.id },
+          data: {
+            verifiedFundsRaised: { increment: netDec.toFixed(2) },
+            investorCount: { increment: 1 },
+          },
+        });
+
+        // 3. Create InvestmentCommitment
+        const inv = await tx.investmentCommitment.create({
+          data: {
+            investmentCode,
+            listingId: campaign.id,
+            investorUserId: userId,
+            grossAmount: totalToDebit,
+            allocationFeePct: new Decimal(feeCalc.allocationFeePct),
+            allocationFeeAmount: feeDec,
+            netInvestedAmount: netDec,
+            instrument: data.instrument || campaign.instrument,
+            status: 'CLEARED_FUNDS',
+            currentValuation: campaign.valuation,
+            unrealizedReturnPct: new Decimal('0.00'),
+            realizedProceeds: new Decimal('0.00'),
+            returnOfCapital: new Decimal('0.00'),
+            eligibleNetProfit: new Decimal('0.00'),
+            profitShareFeePct: profitShareDec,
+            profitShareFeeAmount: new Decimal('0.00'),
+            netDistributedProfit: new Decimal('0.00'),
+            settlementReference: investmentCode,
+            notes: data.notes || `Invested in ${campaign.companyName} (${data.instrument || campaign.instrument})`,
+          },
+        });
+
+        // 4. Balanced Double-Entry Ledger Journal: Debit User Available, Credit Venture Escrow + Platform Fee Revenue
+        const invJournalEntries: any[] = [
+          {
+            accountId: `USER_AVAILABLE_${debitCurrency}`,
+            userId,
+            direction: 'DEBIT',
+            amount: totalToDebit.toFixed(8),
+            currency: debitCurrency,
+          },
+          {
+            accountId: `USER_VENTURE_ESCROW_${debitCurrency}`,
+            userId,
+            direction: 'CREDIT',
+            amount: netDec.toFixed(8),
+            currency: debitCurrency,
+          },
+        ];
+        if (feeDec.greaterThan(0)) {
+          invJournalEntries.push({
+            accountId: `PLATFORM_FEE_REVENUE_${debitCurrency}`,
+            direction: 'CREDIT',
+            amount: feeDec.toFixed(8),
+            currency: debitCurrency,
+          });
+        }
+
+        await ledgerService.recordJournal(tx, {
+          idempotencyKey: `INV-JRN-${investmentCode}`,
+          referenceType: JournalReferenceType.INVESTMENT_ALLOCATION,
+          referenceId: investmentCode,
+          notes: `Venture equity investment in ${campaign.companyName} ($${netDec.toFixed(2)} principal + $${feeDec.toFixed(2)} [${feeCalc.allocationFeePct}%] platform fee)`,
+          createdBy: userId,
+          entries: invJournalEntries,
+        });
+
+        // 5. Record ledger transactions (Allocation + Platform Fee)
+        await tx.transaction.create({
+          data: {
+            transactionCode: `TX-${investmentCode}`,
+            userId,
+            type: TransactionType.INVESTMENT_ALLOCATION,
+            amount: netDec.toFixed(8),
+            currency: debitCurrency,
+            status: TransactionStatus.COMPLETED,
+            balanceBefore: currentBal.toFixed(8),
+            balanceAfter: balAfterNet.toFixed(8),
+            idempotencyKey: `INV-ALLOC-${investmentCode}`,
+            notes: `Investment in ${campaign.companyName} (Startup Allocation: $${netDec.toFixed(2)}, ${feeCalc.allocationFeePct}% Fee: $${feeDec.toFixed(2)}, Total Debited: $${totalToDebit.toFixed(2)})`,
+            settlementReference: investmentCode,
+          },
+        });
+
+        if (feeDec.greaterThan(0)) {
+          await tx.transaction.create({
+            data: {
+              transactionCode: `TX-INVF-${investmentCode.replace('INV-', '')}`,
+              userId,
+              type: TransactionType.INVESTMENT_FEE,
+              amount: feeDec.toFixed(8),
+              currency: debitCurrency,
+              status: TransactionStatus.COMPLETED,
+              balanceBefore: balAfterNet.toFixed(8),
+              balanceAfter: newBal.toFixed(8),
+              idempotencyKey: `INV-FEE-${investmentCode}`,
+              notes: `${feeCalc.allocationFeePct}% Platform Allocation Fee for ${campaign.companyName} (${investmentCode})`,
+              settlementReference: investmentCode,
+            },
+          });
+        }
+
+        return inv;
+      },
+      { timeout: 45000, maxWait: 15000 }
+    );
 
     return commitment;
   }

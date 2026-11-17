@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { rateService } from './rate.service';
-import { TransactionType, TransactionStatus } from '@prisma/client';
+import { TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -940,6 +940,30 @@ export class OtcService {
           },
         });
 
+        await ledgerService.recordJournal(tx, {
+          idempotencyKey: `OTC-LOCK-${tradeCode}`,
+          referenceType: JournalReferenceType.OTC_TRADE_SETTLEMENT,
+          referenceId: tradeCode,
+          notes: `OTC trade ${tradeCode} escrow locked (${cryptoAmountDec.toFixed(4)} USDT)`,
+          createdBy: customerId,
+          entries: [
+            {
+              accountId: 'USER_AVAILABLE_USDT',
+              userId: sellerUserId,
+              direction: 'DEBIT',
+              amount: cryptoAmountDec.toFixed(8),
+              currency: 'USDT',
+            },
+            {
+              accountId: 'PENDING_SETTLEMENT_TRANSIT_USDT',
+              userId: sellerUserId,
+              direction: 'CREDIT',
+              amount: cryptoAmountDec.toFixed(8),
+              currency: 'USDT',
+            },
+          ],
+        });
+
         await tx.otcQuote.update({
           where: { id: quote.id },
           data: { status: 'ACCEPTED' },
@@ -1020,9 +1044,15 @@ export class OtcService {
       }
     }
 
-    const cryptoAmountDec = new Decimal(trade.cryptoAmount.toString());
-    const operatorFeeDec = new Decimal(trade.operatorFee.toString());
-    const platformFeeDec = new Decimal(trade.platformFee.toString());
+    const cryptoAmountDec = new Decimal(new Decimal(trade.cryptoAmount.toString()).toFixed(8));
+    const operatorFeeDec = Decimal.min(
+      cryptoAmountDec,
+      new Decimal(new Decimal(trade.operatorFee.toString()).toFixed(8))
+    );
+    const platformFeeDec = Decimal.min(
+      Decimal.max(0, cryptoAmountDec.minus(operatorFeeDec)),
+      new Decimal(new Decimal(trade.platformFee.toString()).toFixed(8))
+    );
     const totalFeeDec = operatorFeeDec.plus(platformFeeDec);
     const buyerNetCrypto = Decimal.max(new Decimal(0), cryptoAmountDec.minus(totalFeeDec));
 
@@ -1142,6 +1172,72 @@ export class OtcService {
           });
         }
 
+        const platPctStr = cryptoAmountDec.greaterThan(0)
+          ? platformFeeDec.div(cryptoAmountDec).times(100).toFixed(2)
+          : '0.50';
+
+        const settleEntries: any[] = [
+          {
+            accountId: 'PENDING_SETTLEMENT_TRANSIT_USDT',
+            userId: sellerUserId,
+            direction: 'DEBIT',
+            amount: cryptoAmountDec.toFixed(8),
+            currency: 'USDT',
+          },
+        ];
+        if (buyerNetCrypto.greaterThan(0)) {
+          settleEntries.push({
+            accountId: 'USER_AVAILABLE_USDT',
+            userId: buyerUserId,
+            direction: 'CREDIT',
+            amount: buyerNetCrypto.toFixed(8),
+            currency: 'USDT',
+          });
+        }
+        if (operatorFeeDec.greaterThan(0)) {
+          settleEntries.push({
+            accountId: 'USER_AVAILABLE_USDT',
+            userId: trade.operatorId,
+            direction: 'CREDIT',
+            amount: operatorFeeDec.toFixed(8),
+            currency: 'USDT',
+          });
+        }
+        if (platformFeeDec.greaterThan(0)) {
+          settleEntries.push({
+            accountId: 'PLATFORM_FEE_REVENUE_USDT',
+            direction: 'CREDIT',
+            amount: platformFeeDec.toFixed(8),
+            currency: 'USDT',
+          });
+        }
+
+        await ledgerService.recordJournal(tx, {
+          idempotencyKey: `OTC-SETTLE-${trade.tradeCode}`,
+          referenceType: JournalReferenceType.OTC_TRADE_SETTLEMENT,
+          referenceId: trade.tradeCode,
+          notes: `OTC trade ${trade.tradeCode} released (${buyerNetCrypto.toFixed(2)} buyer, ${operatorFeeDec.toFixed(2)} operator, ${platformFeeDec.toFixed(2)} platform)`,
+          createdBy: actorId,
+          entries: settleEntries,
+        });
+
+        if (platformFeeDec.greaterThan(0)) {
+          await tx.transaction.create({
+            data: {
+              transactionCode: `OTCP-${trade.tradeCode}-${Date.now().toString().slice(-4)}`,
+              userId: buyerUserId,
+              type: TransactionType.FEE,
+              amount: platformFeeDec.toFixed(8),
+              currency: 'USDT',
+              status: TransactionStatus.COMPLETED,
+              balanceBefore: buyerAvailAfter.toFixed(8),
+              balanceAfter: buyerAvailAfter.toFixed(8),
+              settlementReference: trade.tradeCode,
+              notes: `Avora Bank OTC Platform ${platPctStr}% fee collected on trade ${trade.tradeCode}`,
+            },
+          });
+        }
+
         await tx.otcMessage.create({
           data: {
             tradeId: trade.id,
@@ -1237,6 +1333,32 @@ export class OtcService {
             availableBalance: sellerAvail.plus(refundAmt).toFixed(8),
           },
         });
+
+        if (refundAmt.greaterThan(0)) {
+          await ledgerService.recordJournal(tx, {
+            idempotencyKey: `OTC-CANCEL-${trade.tradeCode}`,
+            referenceType: JournalReferenceType.REVERSAL,
+            referenceId: trade.tradeCode,
+            notes: `OTC trade ${trade.tradeCode} cancelled — escrow returned to seller`,
+            createdBy: userId,
+            entries: [
+              {
+                accountId: 'PENDING_SETTLEMENT_TRANSIT_USDT',
+                userId: sellerUserId,
+                direction: 'DEBIT',
+                amount: refundAmt.toFixed(8),
+                currency: 'USDT',
+              },
+              {
+                accountId: 'USER_AVAILABLE_USDT',
+                userId: sellerUserId,
+                direction: 'CREDIT',
+                amount: refundAmt.toFixed(8),
+                currency: 'USDT',
+              },
+            ],
+          });
+        }
 
         await tx.otcDesk.update({
           where: { id: trade.deskId },
@@ -1810,9 +1932,15 @@ export class OtcService {
     const sellerUserId = trade.tradeType === 'SELL_USDT' ? trade.customerId : trade.operatorId;
     const buyerUserId = trade.tradeType === 'SELL_USDT' ? trade.operatorId : trade.customerId;
 
-    const cryptoAmountDec = new Decimal(trade.cryptoAmount.toString());
-    const operatorFeeDec = new Decimal(trade.operatorFee.toString());
-    const platformFeeDec = new Decimal(trade.platformFee.toString());
+    const cryptoAmountDec = new Decimal(new Decimal(trade.cryptoAmount.toString()).toFixed(8));
+    const operatorFeeDec = Decimal.min(
+      cryptoAmountDec,
+      new Decimal(new Decimal(trade.operatorFee.toString()).toFixed(8))
+    );
+    const platformFeeDec = Decimal.min(
+      Decimal.max(0, cryptoAmountDec.minus(operatorFeeDec)),
+      new Decimal(new Decimal(trade.platformFee.toString()).toFixed(8))
+    );
     const totalFeeDec = operatorFeeDec.plus(platformFeeDec);
     const buyerNetCrypto = Decimal.max(new Decimal(0), cryptoAmountDec.minus(totalFeeDec));
 
@@ -1915,6 +2043,73 @@ export class OtcService {
             });
           }
 
+          const adminPlatPctStr = cryptoAmountDec.greaterThan(0)
+            ? platformFeeDec.div(cryptoAmountDec).times(100).toFixed(2)
+            : '0.50';
+
+          const adminSettleEntries: any[] = [
+            {
+              accountId: 'PENDING_SETTLEMENT_TRANSIT_USDT',
+              userId: sellerUserId,
+              direction: 'DEBIT',
+              amount: cryptoAmountDec.toFixed(8),
+              currency: 'USDT',
+            },
+          ];
+          if (buyerNetCrypto.greaterThan(0)) {
+            adminSettleEntries.push({
+              accountId: 'USER_AVAILABLE_USDT',
+              userId: buyerUserId,
+              direction: 'CREDIT',
+              amount: buyerNetCrypto.toFixed(8),
+              currency: 'USDT',
+            });
+          }
+          if (operatorFeeDec.greaterThan(0)) {
+            adminSettleEntries.push({
+              accountId: 'USER_AVAILABLE_USDT',
+              userId: trade.operatorId,
+              direction: 'CREDIT',
+              amount: operatorFeeDec.toFixed(8),
+              currency: 'USDT',
+            });
+          }
+          if (platformFeeDec.greaterThan(0)) {
+            adminSettleEntries.push({
+              accountId: 'PLATFORM_FEE_REVENUE_USDT',
+              direction: 'CREDIT',
+              amount: platformFeeDec.toFixed(8),
+              currency: 'USDT',
+            });
+          }
+
+          await ledgerService.recordJournal(tx, {
+            idempotencyKey: `OTC-DISP-SETTLE-${trade.tradeCode}`,
+            referenceType: JournalReferenceType.OTC_TRADE_SETTLEMENT,
+            referenceId: trade.tradeCode,
+            notes: `Admin dispute settlement (${trade.tradeCode}): ${buyerNetCrypto.toFixed(2)} buyer, ${operatorFeeDec.toFixed(2)} operator, ${platformFeeDec.toFixed(2)} platform`,
+            createdBy: adminId,
+            entries: adminSettleEntries,
+          });
+
+          if (platformFeeDec.greaterThan(0)) {
+            await tx.transaction.create({
+              data: {
+                transactionCode: `OTCAP-${trade.tradeCode}-${Date.now().toString().slice(-4)}`,
+                userId: buyerUserId,
+                type: TransactionType.FEE,
+                amount: platformFeeDec.toFixed(8),
+                currency: 'USDT',
+                status: TransactionStatus.COMPLETED,
+                balanceBefore: buyerAvailAfter.toFixed(8),
+                balanceAfter: buyerAvailAfter.toFixed(8),
+                createdBy: adminId,
+                settlementReference: trade.tradeCode,
+                notes: `Admin ruling OTC Platform ${adminPlatPctStr}% fee on ${trade.tradeCode}`,
+              },
+            });
+          }
+
           const updatedTrade = await tx.otcTrade.update({
             where: { id: tradeId },
             data: {
@@ -1955,6 +2150,30 @@ export class OtcService {
               pendingSettlement: sellerPending.minus(cryptoAmountDec).toFixed(8),
               availableBalance: sellerAvailAfter.toFixed(8),
             },
+          });
+
+          await ledgerService.recordJournal(tx, {
+            idempotencyKey: `OTC-DISP-REFUND-${trade.tradeCode}`,
+            referenceType: JournalReferenceType.REVERSAL,
+            referenceId: trade.tradeCode,
+            notes: `Admin dispute refund to seller on ${trade.tradeCode}`,
+            createdBy: adminId,
+            entries: [
+              {
+                accountId: 'PENDING_SETTLEMENT_TRANSIT_USDT',
+                userId: sellerUserId,
+                direction: 'DEBIT',
+                amount: cryptoAmountDec.toFixed(8),
+                currency: 'USDT',
+              },
+              {
+                accountId: 'USER_AVAILABLE_USDT',
+                userId: sellerUserId,
+                direction: 'CREDIT',
+                amount: cryptoAmountDec.toFixed(8),
+                currency: 'USDT',
+              },
+            ],
           });
 
           await tx.otcDesk.update({

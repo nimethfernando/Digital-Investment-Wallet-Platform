@@ -210,14 +210,14 @@ class WithdrawalService {
                 createdBy: userId,
                 entries: [
                     {
-                        accountId: 'USER_AVAILABLE_USD',
+                        accountId: `USER_AVAILABLE_${currency}`,
                         userId,
                         direction: 'DEBIT',
                         amount: amountDec.toFixed(8),
                         currency,
                     },
                     {
-                        accountId: 'PENDING_SETTLEMENT_TRANSIT_USD',
+                        accountId: `PENDING_SETTLEMENT_TRANSIT_${currency}`,
                         userId,
                         direction: 'CREDIT',
                         amount: amountDec.toFixed(8),
@@ -346,48 +346,88 @@ class WithdrawalService {
                     finalRef = `0x${finalRef}`;
                 }
             }
-            // Double-entry: Debit Pending Settlement Transit, Credit Platform Bank/Hot Wallet Treasury
-            const treasuryAccount = wth.payoutMethod === 'USDT_WALLET' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
+            // Double-entry: Debit Pending Settlement Transit, Credit Net Treasury Payout + Platform Withdrawal Fee Revenue
+            const upperWthCur = (wth.currency || 'USD').toUpperCase();
+            const treasuryAccount = wth.payoutMethod === 'USDT_WALLET'
+                ? 'PLATFORM_TREASURY_USDT'
+                : upperWthCur === 'USD'
+                    ? 'PLATFORM_TREASURY_USD'
+                    : `PLATFORM_TREASURY_${upperWthCur}`;
+            const rawFeeDec = new decimal_js_1.default(new decimal_js_1.default(String(parsedDetails?.withdrawalFeeAmount || '0')).toFixed(8));
+            const feeDec = rawFeeDec.greaterThan(0) && rawFeeDec.lessThan(amountDec) ? rawFeeDec : new decimal_js_1.default(0);
+            const netSettlementDec = amountDec.minus(feeDec);
+            const settleEntries = [
+                {
+                    accountId: `PENDING_SETTLEMENT_TRANSIT_${upperWthCur}`,
+                    userId: wth.userId,
+                    direction: 'DEBIT',
+                    amount: amountDec.toFixed(8),
+                    currency: upperWthCur,
+                },
+            ];
+            if (netSettlementDec.greaterThan(0)) {
+                settleEntries.push({
+                    accountId: treasuryAccount,
+                    direction: 'CREDIT',
+                    amount: netSettlementDec.toFixed(8),
+                    currency: upperWthCur,
+                });
+            }
+            if (feeDec.greaterThan(0)) {
+                settleEntries.push({
+                    accountId: `PLATFORM_FEE_REVENUE_${upperWthCur}`,
+                    direction: 'CREDIT',
+                    amount: feeDec.toFixed(8),
+                    currency: upperWthCur,
+                });
+            }
             await ledger_service_1.ledgerService.recordJournal(tx, {
                 idempotencyKey,
                 referenceType: client_1.JournalReferenceType.WITHDRAWAL_SETTLEMENT,
                 referenceId: wth.requestCode,
-                notes: `Settled withdrawal ${wth.requestCode} (Ref: ${finalRef})`,
+                notes: feeDec.greaterThan(0)
+                    ? `Settled withdrawal ${wth.requestCode} (Net payout: ${netSettlementDec.toFixed(2)} ${upperWthCur}, Platform fee: ${feeDec.toFixed(2)} ${upperWthCur}, Ref: ${finalRef})`
+                    : `Settled withdrawal ${wth.requestCode} (Ref: ${finalRef})`,
                 createdBy: adminUserId,
-                entries: [
-                    {
-                        accountId: 'PENDING_SETTLEMENT_TRANSIT_USD',
-                        userId: wth.userId,
-                        direction: 'DEBIT',
-                        amount: amountDec.toFixed(8),
-                        currency: wth.currency,
-                    },
-                    {
-                        accountId: treasuryAccount,
-                        direction: 'CREDIT',
-                        amount: amountDec.toFixed(8),
-                        currency: wth.currency,
-                    },
-                ],
+                entries: settleEntries,
             });
-            // Transaction Record
+            // Transaction Record (User Payout + Platform Fee if applicable)
             await tx.transaction.create({
                 data: {
                     transactionCode: `TX-SETTLE-${wth.requestCode}`,
                     userId: wth.userId,
                     packageId: wth.packageId,
                     type: client_1.TransactionType.WITHDRAWAL_SETTLEMENT,
-                    amount: amountDec.toFixed(8),
-                    currency: wth.currency,
+                    amount: netSettlementDec.toFixed(8),
+                    currency: upperWthCur,
                     status: client_1.TransactionStatus.COMPLETED,
                     balanceBefore: lockedBal.availableBalance,
                     balanceAfter: lockedBal.availableBalance,
                     settlementReference: finalRef,
                     createdBy: adminUserId,
                     idempotencyKey,
-                    notes: `Withdrawal settled. Payout ref: ${finalRef}`,
+                    notes: `Withdrawal settled. Net payout: ${netSettlementDec.toFixed(2)} ${upperWthCur}${feeDec.greaterThan(0) ? ` (after ${parsedDetails?.withdrawalFeePct || 0}% fee: ${feeDec.toFixed(2)} ${upperWthCur})` : ''}. Ref: ${finalRef}`,
                 },
             });
+            if (feeDec.greaterThan(0)) {
+                await tx.transaction.create({
+                    data: {
+                        transactionCode: `TX-WTHF-${wth.requestCode.slice(-14)}`,
+                        userId: wth.userId,
+                        packageId: wth.packageId,
+                        type: client_1.TransactionType.FEE,
+                        amount: feeDec.toFixed(8),
+                        currency: upperWthCur,
+                        status: client_1.TransactionStatus.COMPLETED,
+                        balanceBefore: lockedBal.availableBalance,
+                        balanceAfter: lockedBal.availableBalance,
+                        settlementReference: wth.requestCode,
+                        createdBy: adminUserId,
+                        idempotencyKey: `${idempotencyKey}-FEE`,
+                        notes: `${parsedDetails?.withdrawalFeePct || 0}% Withdrawal processing fee collected on ${wth.requestCode}`,
+                    },
+                });
+            }
             // Update WithdrawalRequest
             const updatedWth = await tx.withdrawalRequest.update({
                 where: { id: withdrawalId },
@@ -400,7 +440,7 @@ class WithdrawalService {
                 },
             });
             return updatedWth;
-        }, { timeout: 30000, maxWait: 10000 });
+        }, { timeout: 45000, maxWait: 15000 });
         // Email alert (non-blocking)
         notification_provider_1.notificationService.sendEmail({
             to: wth.user.email,
@@ -468,14 +508,14 @@ class WithdrawalService {
                 createdBy: adminUserId,
                 entries: [
                     {
-                        accountId: 'PENDING_SETTLEMENT_TRANSIT_USD',
+                        accountId: `PENDING_SETTLEMENT_TRANSIT_${(wth.currency || 'USD').toUpperCase()}`,
                         userId: wth.userId,
                         direction: 'DEBIT',
                         amount: amountDec.toFixed(8),
                         currency: wth.currency,
                     },
                     {
-                        accountId: 'USER_AVAILABLE_USD',
+                        accountId: `USER_AVAILABLE_${(wth.currency || 'USD').toUpperCase()}`,
                         userId: wth.userId,
                         direction: 'CREDIT',
                         amount: amountDec.toFixed(8),

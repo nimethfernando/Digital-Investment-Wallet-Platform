@@ -52,6 +52,7 @@ router.post('/settings/addresses', (0, auth_1.requireRole)([client_1.Role.ADMIN]
 router.post('/returns/run', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.triggerMonthlyReturns(req, res, next));
 router.get('/ledger/reconcile', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.getLedgerReconciliation(req, res, next));
 router.get('/ledger/journals', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.getLedgerJournals(req, res, next));
+router.get('/ledger/revenue', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.getPlatformRevenueAnalytics(req, res, next));
 router.post('/system/purge-demo', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.purgeDemoData(req, res, next));
 // User Security & Account Controls
 router.post('/users/:id/reset-password', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.resetUserPassword(req, res, next));

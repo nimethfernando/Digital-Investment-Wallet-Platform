@@ -444,6 +444,286 @@ async function runHttpProductionE2E() {
       }
     });
 
+    await assertHttp('H8: All Platform Commission Cuts Deducted + Credited to Revenue Ledger', async () => {
+      // Snapshot original CMS fee settings so test never leaves modified production rates behind
+      const origSettings = await prisma.cmsSetting.findMany({
+        where: { key: { in: ['p2p_fee_percent', 'withdrawal_fee_percent'] } },
+      });
+      const origMap = new Map(origSettings.map((s) => [s.key, s.value]));
+      let tempListingId: string | null = null;
+
+      try {
+        // Fund buyer with extra $1,000 USD for H8 tests
+        await ledgerService.processAdminBalanceAdjustment({
+          userId: buyer.id,
+          adminUserId: adminUser.id,
+          currency: 'USD',
+          amount: 1000,
+          type: 'CREDIT',
+          reason: 'E2E H8 Commission Audit capital',
+        });
+
+        const getRevAccBalance = async (accId: string) => {
+          const rep = await ledgerService.reconcileLedger();
+          const acc = (rep.accounts || []).find((a: any) => a.accountId === accId);
+          return acc ? parseFloat(acc.netBalance) : 0;
+        };
+        const getWalletAvail = async (userId: string, cur: string) => {
+          const w = await ledgerService.getUserWalletSummary(userId);
+          const row = w.balances.find((b) => b.currency === cur);
+          return row ? parseFloat(row.availableBalance) : 0;
+        };
+
+        const usdRevBefore = await getRevAccBalance('PLATFORM_FEE_REVENUE_USD');
+        const usdtRevBefore = await getRevAccBalance('PLATFORM_FEE_REVENUE_USDT');
+
+        // Configure test fees: 2.0% P2P fee & 2.5% Withdrawal fee
+        const cfgRes = await apiCall(
+          'POST',
+          '/api/v1/admin/settings/config',
+          adminToken,
+          { settings: { p2p_fee_percent: '2.0', withdrawal_fee_percent: '2.5' } },
+          { 'x-admin-2fa': authenticator.generate(adminSecret) }
+        );
+        if (cfgRes.status !== 200) {
+          throw new Error(`Failed to set H8 test fees: ${cfgRes.status} ${JSON.stringify(cfgRes.json)}`);
+        }
+
+        // 8.1 P2P 2.0% Marketplace Fee on 100 USDT trade
+        const buyerUsdtBefore = await getWalletAvail(buyer.id, 'USDT');
+        const p2pOrd = await apiCall('POST', '/api/v1/p2p/orders', buyerToken, {
+          offerId,
+          cryptoAmount: 100,
+          fiatAmount: 30550,
+          selectedPaymentMethod: 'Commercial Bank CEFTS',
+        });
+        if (p2pOrd.status !== 201) {
+          throw new Error(`H8 P2P order create failed: ${p2pOrd.status} ${JSON.stringify(p2pOrd.json)}`);
+        }
+        const h8OrderId = p2pOrd.json.data.id;
+        await apiCall('POST', `/api/v1/p2p/orders/${h8OrderId}/accept`, sellerToken);
+        await apiCall('POST', `/api/v1/p2p/orders/${h8OrderId}/paid`, buyerToken, {
+          paymentReference: `CEFTS-H8-${ts}`,
+        });
+        const relRes = await apiCall('POST', `/api/v1/p2p/orders/${h8OrderId}/release`, sellerToken);
+        if (relRes.status !== 200) {
+          throw new Error(`H8 P2P release failed: ${relRes.status} ${JSON.stringify(relRes.json)}`);
+        }
+
+        const buyerUsdtAfterP2p = await getWalletAvail(buyer.id, 'USDT');
+        const receivedP2p = Number((buyerUsdtAfterP2p - buyerUsdtBefore).toFixed(4));
+        if (Math.abs(receivedP2p - 98.0) > 0.01) {
+          throw new Error(`Expected buyer to receive 98.00 USDT after 2% P2P fee, got ${receivedP2p}`);
+        }
+        const usdtRevAfterP2p = await getRevAccBalance('PLATFORM_FEE_REVENUE_USDT');
+        if (Math.abs(usdtRevAfterP2p - usdtRevBefore - 2.0) > 0.01) {
+          throw new Error(`Expected +2.00 USDT in PLATFORM_FEE_REVENUE_USDT, got delta ${usdtRevAfterP2p - usdtRevBefore}`);
+        }
+
+        // 8.2 Venture Equity 5% Allocation Fee + 5% Profit-Share Exit Fee
+        const tempListing = await prisma.startupListing.create({
+          data: {
+            slug: `e2e-comm-startup-${ts}`,
+            companyName: 'E2E Commission Startup',
+            tagline: 'Automated fee audit test listing',
+            country: 'United States',
+            countryCode: 'US',
+            city: 'New York',
+            industry: 'FinTech',
+            stage: 'SEED',
+            instrument: 'SAFE',
+            valuation: '5000000',
+            fundingTarget: '100000',
+            minInvestment: '250',
+            deadline: new Date(Date.now() + 30 * 86400 * 1000),
+            status: 'PUBLISHED',
+            dueDiligenceStatus: 'APPROVED',
+            pitchOverview: 'Automated HTTP E2E audit listing',
+          },
+        });
+        tempListingId = tempListing.id;
+
+        const invCfg = await prisma.cmsSetting.findMany({
+          where: { key: { in: ['startup_allocation_fee_percent', 'startup_profit_share_percent'] } },
+        });
+        const invFeeMap = new Map(invCfg.map((s) => [s.key, s.value]));
+        const allocPct = parseFloat(invFeeMap.get('startup_allocation_fee_percent') || '5');
+        const profitSharePct = parseFloat(invFeeMap.get('startup_profit_share_percent') || '5');
+        const expectedAllocFee = Number((500 * (allocPct / 100)).toFixed(2));
+        const expectedProfitFee = Number((200 * (profitSharePct / 100)).toFixed(2));
+
+        const buyerUsdBeforeInv = await getWalletAvail(buyer.id, 'USD');
+        const invRes = await apiCall('POST', '/api/v1/investments/invest', buyerToken, {
+          listingId: tempListing.id,
+          grossAmount: 500,
+          instrument: 'SAFE',
+        });
+        if (invRes.status !== 201) {
+          throw new Error(`H8 startup invest failed: ${invRes.status} ${JSON.stringify(invRes.json)}`);
+        }
+        const buyerUsdAfterInv = await getWalletAvail(buyer.id, 'USD');
+        const invDebited = Number((buyerUsdBeforeInv - buyerUsdAfterInv).toFixed(2));
+        if (Math.abs(invDebited - (500 + expectedAllocFee)) > 0.01) {
+          throw new Error(`Expected startup invest to debit $${500 + expectedAllocFee}, debited $${invDebited}`);
+        }
+
+        const exitRes = await apiCall(
+          'POST',
+          `/api/v1/admin/investments/listings/${tempListing.id}/distribute-exit`,
+          adminToken,
+          { distributionType: 'BUYOUT_EXIT', totalProceeds: 700, notes: 'E2E Commission Exit Audit' },
+          { 'x-admin-2fa': authenticator.generate(adminSecret) }
+        );
+        if (exitRes.status !== 200) {
+          throw new Error(`H8 startup exit distribute failed: ${exitRes.status} ${JSON.stringify(exitRes.json)}`);
+        }
+        const buyerUsdAfterExit = await getWalletAvail(buyer.id, 'USD');
+        const exitCredited = Number((buyerUsdAfterExit - buyerUsdAfterInv).toFixed(2));
+        if (Math.abs(exitCredited - (700 - expectedProfitFee)) > 0.01) {
+          throw new Error(`Expected startup exit credit $${700 - expectedProfitFee}, got $${exitCredited}`);
+        }
+
+        // 8.3 GMT Remittance Fee
+        const gmtCfg = await prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } });
+        const gmtFeePct = parseFloat(gmtCfg?.value || '3.0');
+        const expectedGmtFee = Number((100 * (gmtFeePct / 100)).toFixed(2));
+        const gmtRes = await apiCall('POST', '/api/v1/gmt/transfers', buyerToken, {
+          sendingCurrency: 'USD',
+          sendingAmount: 100,
+          destinationCountry: 'United States',
+          destinationCountryCode: 'US',
+          recipientCurrency: 'USD',
+          recipientName: 'H8 Beneficiary',
+          recipientAccount: '1234567890',
+          recipientBankName: 'JPMorgan Chase',
+          recipientBicSwift: '021000021',
+          termsAccepted: true,
+        });
+        if (gmtRes.status !== 201) {
+          throw new Error(`H8 GMT transfer failed: ${gmtRes.status} ${JSON.stringify(gmtRes.json)}`);
+        }
+
+        // 8.4 Virtual Card Issuance Fee
+        const cardFeeSetting = await prisma.cmsSetting.findUnique({ where: { key: 'virtual_card_issuance_fee' } });
+        const expectedCardFee = Number(parseFloat(cardFeeSetting?.value || '10.00').toFixed(2));
+        await apiCall('GET', '/api/v1/wallet/card', buyerToken);
+        const cardUpgrade = await apiCall('POST', '/api/v1/wallet/card/settings', buyerToken, {
+          cardTheme: 'fifa-argentina',
+          applyIssuance: true,
+          cardType: 'virtual',
+        });
+        if (cardUpgrade.status !== 200) {
+          throw new Error(`H8 virtual card issuance failed: ${cardUpgrade.status} ${JSON.stringify(cardUpgrade.json)}`);
+        }
+
+        // 8.5 Withdrawal 2.5% Fee Split on Settlement
+        const wthReq = await apiCall('POST', '/api/v1/withdrawals', buyerToken, {
+          withdrawalType: 'MONTHLY_RETURNS',
+          amount: 200,
+          currency: 'USD',
+          payoutMethod: 'BANK_TRANSFER',
+          payoutDetails: { accountName: 'Nimal Perera', iban: 'DE89370400440532013000', bankName: 'Deutsche Bank' },
+        });
+        const wthId = wthReq.json?.data?.withdrawal?.id || wthReq.json?.withdrawal?.id;
+        if (wthReq.status !== 201 || !wthId) {
+          throw new Error(`H8 withdrawal request failed: ${wthReq.status} ${JSON.stringify(wthReq.json)}`);
+        }
+        const wthSettle = await apiCall(
+          'POST',
+          `/api/v1/admin/withdrawals/${wthId}/settle`,
+          adminToken,
+          { settlementReference: `WIRE-H8-${ts}` },
+          { 'x-admin-2fa': authenticator.generate(adminSecret) }
+        );
+        if (wthSettle.status !== 200) {
+          throw new Error(`H8 withdrawal settle failed: ${wthSettle.status} ${JSON.stringify(wthSettle.json)}`);
+        }
+        const expectedWthFee = 5.0; // 2.5% of $200
+
+        // 8.6 OTC Platform Fee + Operator Commission
+        const desksRes = await apiCall('GET', '/api/v1/otc/desks', buyerToken);
+        const otcList: any[] = desksRes.json?.data || [];
+        const otcDesk = otcList.find((d: any) => String(d.id || '').startsWith('desk-')) || otcList[0];
+        if (!otcDesk?.id) {
+          throw new Error('Expected at least 1 active OTC desk for H8 audit');
+        }
+        const quoteRes = await apiCall('POST', '/api/v1/otc/quote', buyerToken, {
+          deskId: otcDesk.id,
+          tradeType: 'BUY_USDT',
+          cryptoAmount: 100,
+          fiatCurrency: 'USD',
+        });
+        if (quoteRes.status !== 200 || !quoteRes.json?.data?.id) {
+          throw new Error(`H8 OTC quote failed: ${quoteRes.status} ${JSON.stringify(quoteRes.json)}`);
+        }
+        const expectedOtcPlatFee = Number(parseFloat(quoteRes.json.data.platformFee || '0.5').toFixed(4));
+        const expectedOtcOpFee = Number(parseFloat(quoteRes.json.data.operatorFee || '1.5').toFixed(4));
+        const buyerUsdtBeforeOtc = await getWalletAvail(buyer.id, 'USDT');
+        const acceptOtc = await apiCall('POST', '/api/v1/otc/trades/accept-quote', buyerToken, {
+          quoteId: quoteRes.json.data.id,
+        });
+        if (acceptOtc.status !== 201 || !acceptOtc.json?.data?.id) {
+          throw new Error(`H8 OTC accept failed: ${acceptOtc.status} ${JSON.stringify(acceptOtc.json)}`);
+        }
+        const relOtc = await apiCall('POST', `/api/v1/otc/trades/${acceptOtc.json.data.id}/release`, adminToken);
+        if (relOtc.status !== 200) {
+          throw new Error(`H8 OTC release failed: ${relOtc.status} ${JSON.stringify(relOtc.json)}`);
+        }
+        const buyerUsdtAfterOtc = await getWalletAvail(buyer.id, 'USDT');
+        const netOtcCredit = Number((buyerUsdtAfterOtc - buyerUsdtBeforeOtc).toFixed(4));
+        const expectedOtcBuyerNet = Number((100 - expectedOtcOpFee - expectedOtcPlatFee).toFixed(4));
+        if (Math.abs(netOtcCredit - expectedOtcBuyerNet) > 0.01) {
+          throw new Error(`Expected buyer to receive ${expectedOtcBuyerNet} USDT net from OTC, got ${netOtcCredit}`);
+        }
+
+        // 8.7 Verify Exact Platform Revenue Deltas & Admin Analytics Endpoint & Full Ledger Balance
+        const usdRevAfter = await getRevAccBalance('PLATFORM_FEE_REVENUE_USD');
+        const usdtRevAfter = await getRevAccBalance('PLATFORM_FEE_REVENUE_USDT');
+        const expectedTotalUsdDelta = Number(
+          (expectedAllocFee + expectedProfitFee + expectedGmtFee + expectedCardFee + expectedWthFee).toFixed(2)
+        );
+        const expectedTotalUsdtDelta = Number((2.0 + expectedOtcPlatFee).toFixed(4));
+
+        const actualUsdDelta = Number((usdRevAfter - usdRevBefore).toFixed(2));
+        const actualUsdtDelta = Number((usdtRevAfter - usdtRevBefore).toFixed(4));
+
+        if (Math.abs(actualUsdDelta - expectedTotalUsdDelta) > 0.02) {
+          throw new Error(
+            `PLATFORM_FEE_REVENUE_USD mismatch: expected +$${expectedTotalUsdDelta}, got +$${actualUsdDelta}`
+          );
+        }
+        if (Math.abs(actualUsdtDelta - expectedTotalUsdtDelta) > 0.02) {
+          throw new Error(
+            `PLATFORM_FEE_REVENUE_USDT mismatch: expected +${expectedTotalUsdtDelta} USDT, got +${actualUsdtDelta} USDT`
+          );
+        }
+
+        const revEndpoint = await apiCall('GET', '/api/v1/admin/ledger/revenue', adminToken);
+        if (
+          revEndpoint.status !== 200 ||
+          !revEndpoint.json?.data?.ledgerIsBalanced ||
+          !Array.isArray(revEndpoint.json?.data?.recentFeeTransactions) ||
+          revEndpoint.json.data.recentFeeTransactions.length === 0
+        ) {
+          throw new Error(`Admin ledger/revenue endpoint verification failed: ${revEndpoint.status} ${JSON.stringify(revEndpoint.json)}`);
+        }
+      } finally {
+        if (tempListingId) {
+          await prisma.startupListing.delete({ where: { id: tempListingId } }).catch(() => {});
+        }
+        for (const key of ['p2p_fee_percent', 'withdrawal_fee_percent']) {
+          const origVal = origMap.get(key) ?? '0.0';
+          await prisma.cmsSetting
+            .upsert({
+              where: { key },
+              update: { value: origVal },
+              create: { key, value: origVal, group: 'COMMISSION' },
+            })
+            .catch(() => {});
+        }
+      }
+    });
+
     console.log('\n================================================================');
     console.log(`🌐 HTTP Production E2E Results: ${passed}/${total} Tests Passed`);
     console.log('================================================================\n');

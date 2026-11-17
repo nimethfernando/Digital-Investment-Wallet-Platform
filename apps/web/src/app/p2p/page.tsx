@@ -3869,11 +3869,29 @@ function P2PPageContent() {
                 />
               </div>
 
-              <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-500/20 flex items-center justify-between">
-                <span className="text-slate-400">Total Payable:</span>
-                <span className="text-base font-black text-emerald-400 font-mono">
-                  {(parseFloat(tradeCryptoAmount || '0') * parseFloat(selectedOfferForTrade.price)).toFixed(2)} {selectedOfferForTrade.fiatCurrency}
-                </span>
+              <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-500/20 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Total Payable:</span>
+                  <span className="text-base font-black text-emerald-400 font-mono">
+                    {(parseFloat(tradeCryptoAmount || '0') * parseFloat(selectedOfferForTrade.price)).toFixed(2)} {selectedOfferForTrade.fiatCurrency}
+                  </span>
+                </div>
+                {parseFloat(p2pPlatformFeePct || '0') > 0 && (
+                  <>
+                    <div className="flex items-center justify-between text-[11px] text-amber-300">
+                      <span>Platform Escrow Fee ({parseFloat(p2pPlatformFeePct).toFixed(2)}%):</span>
+                      <span className="font-mono font-bold">
+                        -{(parseFloat(tradeCryptoAmount || '0') * (parseFloat(p2pPlatformFeePct) / 100)).toFixed(4)} {selectedOfferForTrade.cryptoCurrency}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-emerald-300">
+                      <span>Net Credited to Buyer Wallet:</span>
+                      <span className="font-mono font-bold">
+                        {(parseFloat(tradeCryptoAmount || '0') * (1 - parseFloat(p2pPlatformFeePct) / 100)).toFixed(4)} {selectedOfferForTrade.cryptoCurrency}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-amber-300 flex items-center gap-2">

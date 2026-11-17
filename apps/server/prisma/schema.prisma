@@ -513,6 +513,8 @@ model P2POrder {
   cryptoAmount             Decimal        @db.Decimal(20, 8)
   fiatAmount               Decimal        @db.Decimal(20, 8)
   price                    Decimal        @db.Decimal(20, 8)
+  platformFeePct           Decimal        @default(0.0000) @db.Decimal(10, 4)
+  platformFeeAmount        Decimal        @default(0.00000000) @db.Decimal(20, 8)
   selectedPaymentMethod    String?        @db.VarChar(120)
   escrowJournalId          String?        @db.VarChar(36)
   paymentProofUrl          String?        @db.VarChar(500)

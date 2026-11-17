@@ -97,6 +97,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   const [selectedCardType, setSelectedCardType] = useState<'virtual' | 'physical'>('virtual');
   const [virtualEdition, setVirtualEdition] = useState<'standard' | 'fifa'>('standard');
   const [selectedFifaCountry, setSelectedFifaCountry] = useState<string>('france');
+  const [virtualIssuanceFee, setVirtualIssuanceFee] = useState<number>(10);
 
   // Card Transactions
   const [transactions, setTransactions] = useState<CardTransaction[]>([]);
@@ -129,6 +130,7 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
         if (c.cardHolderName) setDisplayName(c.cardHolderName);
         if (c.externalCardId) setExternalCardId(c.externalCardId);
         if (c.issuerStatus) setIssuerStatus(c.issuerStatus);
+        if (typeof c.virtualCardIssuanceFee === 'number') setVirtualIssuanceFee(c.virtualCardIssuanceFee);
       }
 
       if (txRes?.data?.data && Array.isArray(txRes.data.data)) {
@@ -206,8 +208,11 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
   const handleApplyCardEdition = async (themeToApply: string, _cardType: 'virtual' | 'physical') => {
     setActionLoading(true);
     try {
+      const isNewEdition = themeToApply !== cardTheme;
       const res = await api.post('/wallet/card/settings', {
         cardTheme: themeToApply,
+        applyIssuance: isNewEdition,
+        cardType: _cardType,
       });
       if (res.data?.success) {
         setCardTheme(themeToApply);
@@ -217,7 +222,13 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
           : themeToApply === 'physical'
           ? 'Physical Card'
           : 'Standard Edition';
-        showToast(`Card edition successfully updated to ${name}!`, 'success');
+        const charged = parseFloat(res.data?.data?.feeCharged || '0');
+        showToast(
+          charged > 0
+            ? `Card edition updated to ${name}! $${charged.toFixed(2)} issuance fee deducted.`
+            : `Card edition successfully updated to ${name}!`,
+          'success'
+        );
         onRefresh?.();
       }
     } catch (err: any) {
@@ -943,7 +954,13 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
                       className="w-full py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-950 font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                     >
                       {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                      <span>{cardTheme === 'obsidian' ? 'Active Edition · Switch/Refresh' : 'Apply for card · 10 USD'}</span>
+                      <span>
+                        {cardTheme === 'obsidian'
+                          ? 'Active Edition · Switch/Refresh'
+                          : virtualIssuanceFee > 0
+                          ? `Apply for card · ${virtualIssuanceFee} USD`
+                          : 'Apply for card · Free'}
+                      </span>
                     </button>
                   </div>
                 )}
@@ -1031,7 +1048,13 @@ export const VirtualCardModule: React.FC<VirtualCardModuleProps> = ({
                       className="w-full py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-950 font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                     >
                       {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                      <span>{cardTheme === `fifa-${selectedFifaCountry}` ? 'Active Edition' : 'Apply for card · 10 USD'}</span>
+                      <span>
+                        {cardTheme === `fifa-${selectedFifaCountry}`
+                          ? 'Active Edition'
+                          : virtualIssuanceFee > 0
+                          ? `Apply for card · ${virtualIssuanceFee} USD`
+                          : 'Apply for card · Free'}
+                      </span>
                     </button>
                   </div>
                 )}

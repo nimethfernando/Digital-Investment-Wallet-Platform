@@ -303,6 +303,144 @@ class AdminController {
         }
     }
     /**
+     * Real-time Platform Commission & Fee Revenue Analytics across all modules
+     */
+    async getPlatformRevenueAnalytics(req, res, next) {
+        try {
+            const [reconcile, otcCompleted, p2pCompleted, invAgg, gmtTransfers, settledWithdrawals, approvedRazorpay, feeTransactions,] = await Promise.all([
+                ledger_service_1.ledgerService.reconcileLedger(),
+                prisma_1.prisma.otcTrade.findMany({
+                    where: { status: 'COMPLETED' },
+                    select: { platformFee: true, operatorFee: true },
+                }),
+                prisma_1.prisma.p2POrder.findMany({
+                    where: { status: client_1.P2POrderStatus.COMPLETED },
+                    select: { platformFeeAmount: true, cryptoCurrency: true },
+                }),
+                prisma_1.prisma.investmentCommitment.aggregate({
+                    _sum: { allocationFeeAmount: true, profitShareFeeAmount: true },
+                }),
+                prisma_1.prisma.globalTransfer.findMany({
+                    where: { status: { notIn: ['REJECTED', 'REFUNDED', 'CANCELLED'] } },
+                    select: { sendingAmount: true, transferFeeAmount: true, rateAdjustmentPct: true, sendingCurrency: true },
+                }),
+                prisma_1.prisma.withdrawalRequest.findMany({
+                    where: { status: client_1.WithdrawalStatus.SETTLED },
+                    select: { currency: true, payoutDetails: true },
+                }),
+                prisma_1.prisma.depositRequest.findMany({
+                    where: { status: client_1.DepositStatus.APPROVED, depositMethod: 'RAZORPAY' },
+                    select: { currency: true, adminNotes: true },
+                }),
+                prisma_1.prisma.transaction.findMany({
+                    where: {
+                        type: {
+                            in: [
+                                client_1.TransactionType.FEE,
+                                client_1.TransactionType.GLOBAL_TRANSFER_FEE,
+                                client_1.TransactionType.INVESTMENT_FEE,
+                                client_1.TransactionType.INVESTMENT_PROFIT_SHARE,
+                            ],
+                        },
+                        status: client_1.TransactionStatus.COMPLETED,
+                    },
+                    include: {
+                        user: { select: { email: true, firstName: true, lastName: true } },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 40,
+                }),
+            ]);
+            const otcPlatformUsdt = otcCompleted.reduce((s, t) => s.plus(new decimal_js_1.default(t.platformFee?.toString() || '0')), new decimal_js_1.default(0));
+            const otcBrokerUsdt = otcCompleted.reduce((s, t) => s.plus(new decimal_js_1.default(t.operatorFee?.toString() || '0')), new decimal_js_1.default(0));
+            const p2pFeesByCurrency = {};
+            let p2pTotalCrypto = new decimal_js_1.default(0);
+            for (const o of p2pCompleted) {
+                const fee = new decimal_js_1.default(o.platformFeeAmount?.toString() || '0');
+                const cur = (o.cryptoCurrency || 'USDT').toUpperCase();
+                if (fee.greaterThan(0)) {
+                    p2pFeesByCurrency[cur] = (p2pFeesByCurrency[cur] || new decimal_js_1.default(0)).plus(fee);
+                    p2pTotalCrypto = p2pTotalCrypto.plus(fee);
+                }
+            }
+            const ventureAllocationUsd = new decimal_js_1.default(invAgg._sum.allocationFeeAmount?.toString() || '0');
+            const ventureProfitShareUsd = new decimal_js_1.default(invAgg._sum.profitShareFeeAmount?.toString() || '0');
+            let gmtFeeTotal = new decimal_js_1.default(0);
+            let gmtFxMarginEst = new decimal_js_1.default(0);
+            for (const g of gmtTransfers) {
+                const sendAmt = new decimal_js_1.default(g.sendingAmount?.toString() || '0');
+                const feeAmt = new decimal_js_1.default(g.transferFeeAmount?.toString() || '0');
+                const marginPct = new decimal_js_1.default(g.rateAdjustmentPct?.toString() || '0');
+                gmtFeeTotal = gmtFeeTotal.plus(feeAmt);
+                gmtFxMarginEst = gmtFxMarginEst.plus(sendAmt.times(marginPct.div(100)));
+            }
+            let withdrawalFeeTotal = new decimal_js_1.default(0);
+            for (const w of settledWithdrawals) {
+                try {
+                    const parsed = w.payoutDetails ? JSON.parse(w.payoutDetails) : {};
+                    const wf = new decimal_js_1.default(String(parsed?.withdrawalFeeAmount || '0'));
+                    if (wf.isFinite() && wf.greaterThan(0)) {
+                        withdrawalFeeTotal = withdrawalFeeTotal.plus(wf);
+                    }
+                }
+                catch {
+                    // ignore malformed legacy json
+                }
+            }
+            let razorpayMarginTotal = new decimal_js_1.default(0);
+            for (const d of approvedRazorpay) {
+                const match = (d.adminNotes || '').match(/Avora Margin:\s*\$?([\d,]+(?:\.\d+)?)/i);
+                if (match) {
+                    const m = new decimal_js_1.default(match[1].replace(/,/g, ''));
+                    if (m.isFinite() && m.greaterThan(0))
+                        razorpayMarginTotal = razorpayMarginTotal.plus(m);
+                }
+            }
+            let cardIssuanceFeeTotal = new decimal_js_1.default(0);
+            for (const tx of feeTransactions) {
+                if (String(tx.transactionCode || '').startsWith('TX-CARDF-')) {
+                    cardIssuanceFeeTotal = cardIssuanceFeeTotal.plus(new decimal_js_1.default(tx.amount.toString()));
+                }
+            }
+            const ledgerRevenueAccounts = (reconcile.accounts || []).filter((a) => String(a.accountId || '').startsWith('PLATFORM_FEE_REVENUE'));
+            res.json({
+                success: true,
+                data: {
+                    ledgerStatus: reconcile.status,
+                    ledgerIsBalanced: reconcile.isBalanced,
+                    ledgerRevenueAccounts,
+                    moduleBreakdown: {
+                        otcPlatformFeeUsdt: otcPlatformUsdt.toFixed(2),
+                        otcBrokerCommissionUsdt: otcBrokerUsdt.toFixed(2),
+                        p2pFeeTotal: p2pTotalCrypto.toFixed(4),
+                        p2pFeesByCurrency: Object.fromEntries(Object.entries(p2pFeesByCurrency).map(([k, v]) => [k, v.toFixed(4)])),
+                        ventureAllocationFeeUsd: ventureAllocationUsd.toFixed(2),
+                        ventureProfitShareFeeUsd: ventureProfitShareUsd.toFixed(2),
+                        gmtTransferFeeUsd: gmtFeeTotal.toFixed(2),
+                        gmtFxMarginEstUsd: gmtFxMarginEst.toFixed(2),
+                        withdrawalFeeTotal: withdrawalFeeTotal.toFixed(2),
+                        razorpayMarginTotal: razorpayMarginTotal.toFixed(2),
+                        cardIssuanceFeeTotal: cardIssuanceFeeTotal.toFixed(2),
+                    },
+                    recentFeeTransactions: feeTransactions.map((t) => ({
+                        id: t.id,
+                        transactionCode: t.transactionCode,
+                        type: t.type,
+                        amount: new decimal_js_1.default(t.amount.toString()).toFixed(4),
+                        currency: t.currency,
+                        settlementReference: t.settlementReference,
+                        notes: t.notes,
+                        userEmail: t.user?.email || 'N/A',
+                        createdAt: t.createdAt,
+                    })),
+                },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * View immutable ledger journals
      */
     async getLedgerJournals(req, res, next) {
@@ -893,65 +1031,112 @@ class AdminController {
             let totalDistributedGross = new decimal_js_1.default(0);
             let totalPlatformFees = new decimal_js_1.default(0);
             let totalNetCredited = new decimal_js_1.default(0);
-            // Distribute pro-rata to each investor
+            // Distribute pro-rata to each investor inside an atomic ledger transaction
             for (const inv of listing.investments) {
                 const netInvested = new decimal_js_1.default(inv.netInvestedAmount.toString());
                 const investorShareFraction = netInvested.dividedBy(totalRaised);
-                const grossInvestorProceeds = totalPool.times(investorShareFraction);
+                const grossInvestorProceeds = new decimal_js_1.default(totalPool.times(investorShareFraction).toFixed(8));
                 // Principal returned 100% fee-free
                 const capitalReturn = decimal_js_1.default.min(grossInvestorProceeds, netInvested);
                 const eligibleProfit = decimal_js_1.default.max(grossInvestorProceeds.minus(netInvested), new decimal_js_1.default(0));
                 // Admin-configurable profit-share fee strictly on net profit
                 const profitFeePct = configuredProfitFeePct;
-                const platformFeeAmount = eligibleProfit.times(profitFeePct.dividedBy(100));
-                const netCashPayout = capitalReturn.plus(eligibleProfit.minus(platformFeeAmount));
-                // 1. Ensure user has a wallet
-                await ledger_service_1.ledgerService.ensureWallet(inv.investorUserId);
-                const currentUsdBal = await prisma_1.prisma.walletBalance.findFirst({
-                    where: { wallet: { userId: inv.investorUserId }, currency: 'USD' },
-                });
-                const balBefore = currentUsdBal ? new decimal_js_1.default(currentUsdBal.availableBalance.toString()) : new decimal_js_1.default(0);
-                const balAfter = balBefore.plus(netCashPayout);
-                // 2. Credit investor available balance in USD
-                await prisma_1.prisma.walletBalance.updateMany({
-                    where: {
-                        wallet: { userId: inv.investorUserId },
-                        currency: 'USD',
-                    },
-                    data: {
-                        availableBalance: { increment: netCashPayout.toNumber() },
-                    },
-                });
-                // 3. Create Transaction Ledger entry for user
+                const platformFeeAmount = new decimal_js_1.default(eligibleProfit.times(profitFeePct.dividedBy(100)).toFixed(8));
+                const netProfitGain = eligibleProfit.minus(platformFeeAmount);
+                const netCashPayout = grossInvestorProceeds.minus(platformFeeAmount);
+                const invWallet = await ledger_service_1.ledgerService.ensureWallet(inv.investorUserId);
                 const txCode = `DIST-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
-                await prisma_1.prisma.transaction.create({
-                    data: {
-                        userId: inv.investorUserId,
-                        transactionCode: txCode,
-                        type: 'PRINCIPAL_RELEASE',
-                        amount: netCashPayout,
-                        currency: 'USD',
-                        status: 'COMPLETED',
-                        balanceBefore: balBefore,
-                        balanceAfter: balAfter,
-                        settlementReference: txCode,
-                        notes: `${distributionType === 'DIVIDEND' ? 'Startup Dividend Distribution' : 'Startup Exit Payout'}: ${listing.companyName} (Principal: $${capitalReturn.toFixed(2)}, Net Gain: $${eligibleProfit.minus(platformFeeAmount).toFixed(2)})`,
-                    },
-                });
-                // 4. Update InvestmentCommitment status and financials
-                await prisma_1.prisma.investmentCommitment.update({
-                    where: { id: inv.id },
-                    data: {
-                        realizedProceeds: { increment: grossInvestorProceeds },
-                        returnOfCapital: { increment: capitalReturn },
-                        eligibleNetProfit: { increment: eligibleProfit },
-                        profitShareFeeAmount: { increment: platformFeeAmount },
-                        netDistributedProfit: { increment: eligibleProfit.minus(platformFeeAmount) },
-                        status: distributionType === 'DIVIDEND' ? 'ACTIVE' : 'EXITED',
-                        settlementReference: txCode,
-                        notes: notes ? `${inv.notes || ''}\n[${new Date().toISOString()}] ${notes}` : inv.notes,
-                    },
-                });
+                await prisma_1.prisma.$transaction(async (tx) => {
+                    const lockedUsd = await ledger_service_1.ledgerService.lockWalletBalance(tx, invWallet.id, 'USD');
+                    const balBefore = new decimal_js_1.default(lockedUsd.availableBalance.toString());
+                    const balAfter = balBefore.plus(netCashPayout);
+                    // 1. Credit investor available balance in USD
+                    await tx.walletBalance.update({
+                        where: { id: lockedUsd.id },
+                        data: { availableBalance: balAfter.toFixed(8) },
+                    });
+                    // 2. Balanced double-entry ledger journal: Debit Treasury Proceeds -> Credit Investor + Platform Profit-Share Revenue
+                    const distEntries = [
+                        {
+                            accountId: 'PLATFORM_TREASURY_USD',
+                            direction: 'DEBIT',
+                            amount: grossInvestorProceeds.toFixed(8),
+                            currency: 'USD',
+                        },
+                        {
+                            accountId: 'USER_AVAILABLE_USD',
+                            userId: inv.investorUserId,
+                            direction: 'CREDIT',
+                            amount: netCashPayout.toFixed(8),
+                            currency: 'USD',
+                        },
+                    ];
+                    if (platformFeeAmount.greaterThan(0)) {
+                        distEntries.push({
+                            accountId: 'PLATFORM_FEE_REVENUE_USD',
+                            direction: 'CREDIT',
+                            amount: platformFeeAmount.toFixed(8),
+                            currency: 'USD',
+                        });
+                    }
+                    await ledger_service_1.ledgerService.recordJournal(tx, {
+                        idempotencyKey: txCode,
+                        referenceType: client_1.JournalReferenceType.INVESTMENT_DISTRIBUTION,
+                        referenceId: txCode,
+                        notes: `${listing.companyName} ${distributionType} distribution (Investor Net: $${netCashPayout.toFixed(2)}, ${profitFeePct.toFixed(1)}% Profit Share Fee: $${platformFeeAmount.toFixed(2)})`,
+                        createdBy: adminUserId,
+                        entries: distEntries,
+                    });
+                    // 3. Create Transaction Ledger entries for user (Payout + Profit-Share Fee)
+                    await tx.transaction.create({
+                        data: {
+                            userId: inv.investorUserId,
+                            transactionCode: txCode,
+                            type: client_1.TransactionType.INVESTMENT_DISTRIBUTION,
+                            amount: netCashPayout.toFixed(8),
+                            currency: 'USD',
+                            status: client_1.TransactionStatus.COMPLETED,
+                            balanceBefore: balBefore.toFixed(8),
+                            balanceAfter: balAfter.toFixed(8),
+                            settlementReference: txCode,
+                            createdBy: adminUserId,
+                            idempotencyKey: txCode,
+                            notes: `${distributionType === 'DIVIDEND' ? 'Startup Dividend Distribution' : 'Startup Exit Payout'}: ${listing.companyName} (Principal: $${capitalReturn.toFixed(2)}, Net Gain: $${netProfitGain.toFixed(2)})`,
+                        },
+                    });
+                    if (platformFeeAmount.greaterThan(0)) {
+                        await tx.transaction.create({
+                            data: {
+                                userId: inv.investorUserId,
+                                transactionCode: `TX-INVPS-${txCode.replace('DIST-', '')}`,
+                                type: client_1.TransactionType.INVESTMENT_PROFIT_SHARE,
+                                amount: platformFeeAmount.toFixed(8),
+                                currency: 'USD',
+                                status: client_1.TransactionStatus.COMPLETED,
+                                balanceBefore: balAfter.toFixed(8),
+                                balanceAfter: balAfter.toFixed(8),
+                                settlementReference: txCode,
+                                createdBy: adminUserId,
+                                idempotencyKey: `${txCode}-PSFEE`,
+                                notes: `${profitFeePct.toFixed(1)}% Profit-Share Fee on ${listing.companyName} realized profit ($${eligibleProfit.toFixed(2)})`,
+                            },
+                        });
+                    }
+                    // 4. Update InvestmentCommitment status and financials
+                    await tx.investmentCommitment.update({
+                        where: { id: inv.id },
+                        data: {
+                            realizedProceeds: { increment: grossInvestorProceeds.toFixed(8) },
+                            returnOfCapital: { increment: capitalReturn.toFixed(8) },
+                            eligibleNetProfit: { increment: eligibleProfit.toFixed(8) },
+                            profitShareFeeAmount: { increment: platformFeeAmount.toFixed(8) },
+                            netDistributedProfit: { increment: netProfitGain.toFixed(8) },
+                            status: distributionType === 'DIVIDEND' ? 'ACTIVE' : 'EXITED',
+                            settlementReference: txCode,
+                            notes: notes ? `${inv.notes || ''}\n[${new Date().toISOString()}] ${notes}` : inv.notes,
+                        },
+                    });
+                }, { timeout: 45000, maxWait: 15000 });
                 totalDistributedGross = totalDistributedGross.plus(grossInvestorProceeds);
                 totalPlatformFees = totalPlatformFees.plus(platformFeeAmount);
                 totalNetCredited = totalNetCredited.plus(netCashPayout);
@@ -977,12 +1162,12 @@ class AdminController {
                     action: 'STARTUP_EXIT_DISTRIBUTION',
                     entity: 'StartupListing',
                     entityId: listingId,
-                    details: `Distributed ${distributionType} for ${listing.companyName}. Gross Pool: $${totalPool.toFixed(2)}, Net Credited: $${totalNetCredited.toFixed(2)}, 5% Profit Share Fee: $${totalPlatformFees.toFixed(2)} across ${distributedRecords.length} investors.`,
+                    details: `Distributed ${distributionType} for ${listing.companyName}. Gross Pool: $${totalPool.toFixed(2)}, Net Credited: $${totalNetCredited.toFixed(2)}, ${configuredProfitFeePct.toFixed(1)}% Profit Share Fee: $${totalPlatformFees.toFixed(2)} across ${distributedRecords.length} investors.`,
                 },
             });
             res.json({
                 success: true,
-                message: `Successfully distributed $${totalNetCredited.toFixed(2)} USD to ${distributedRecords.length} investors for ${listing.companyName}. 5% platform fee: $${totalPlatformFees.toFixed(2)} USD.`,
+                message: `Successfully distributed $${totalNetCredited.toFixed(2)} USD to ${distributedRecords.length} investors for ${listing.companyName}. ${configuredProfitFeePct.toFixed(1)}% platform fee: $${totalPlatformFees.toFixed(2)} USD.`,
                 data: {
                     listingName: listing.companyName,
                     totalGrossDistributed: totalDistributedGross.toFixed(2),
@@ -1942,13 +2127,14 @@ class AdminController {
             const sellerWallet = await ledger_service_1.ledgerService.ensureWallet(order.sellerId);
             const buyerWallet = await ledger_service_1.ledgerService.ensureWallet(order.buyerId);
             const now = new Date();
+            let releasedSummary = null;
             await prisma_1.prisma.$transaction(async (tx) => {
                 const freshOrder = await tx.p2POrder.findUnique({ where: { id } });
                 if (!freshOrder || finalizedStatuses.includes(freshOrder.status)) {
                     throw new Error(`Order ${order.orderCode} has already been finalized (${freshOrder?.status || 'NOT_FOUND'}).`);
                 }
                 if (resolution === 'RELEASE_TO_BUYER') {
-                    await (0, p2p_helpers_1.releaseEscrowToBuyerTx)(tx, {
+                    releasedSummary = await (0, p2p_helpers_1.releaseEscrowToBuyerTx)(tx, {
                         order: { ...freshOrder, cryptoCurrency: cryptoCur },
                         sellerWalletId: sellerWallet.id,
                         buyerWalletId: buyerWallet.id,
@@ -1961,10 +2147,13 @@ class AdminController {
                 else {
                     await (0, p2p_helpers_1.unlockEscrowToSellerTx)(tx, {
                         sellerWalletId: sellerWallet.id,
+                        sellerId: order.sellerId,
                         cryptoCurrency: cryptoCur,
                         cryptoAmountDec,
                         offerId: order.offerId,
                         orderCode: order.orderCode,
+                        journalIdempotencyKey: `P2P-DISP-UNLOCK-${order.orderCode}`,
+                        actorUserId: adminUserId,
                     });
                 }
                 await tx.p2POrder.update({
@@ -1980,16 +2169,22 @@ class AdminController {
                         disputeReason: `[Admin ${resolution}]: ${reason ? String(reason).trim() : 'Manual compliance adjudication'}`,
                     },
                 });
+                const feeSuffix = releasedSummary && releasedSummary.platformFee.greaterThan(0)
+                    ? ` (${releasedSummary.feePctStr}% platform fee: ${releasedSummary.platformFee.toFixed(4)} ${cryptoCur})`
+                    : '';
+                const netReleasedStr = releasedSummary
+                    ? releasedSummary.buyerNetCrypto.toFixed(2)
+                    : cryptoAmountDec.toFixed(2);
                 await tx.p2PMessage.create({
                     data: {
                         orderId: id,
                         senderId: 'SYSTEM',
                         message: resolution === 'RELEASE_TO_BUYER'
-                            ? `[System] Dispute resolved by Avora Compliance (${resolution}). ${cryptoAmountDec.toFixed(2)} ${cryptoCur} released from escrow to the buyer's wallet. Note: ${reason || 'N/A'}`
+                            ? `[System] Dispute resolved by Avora Compliance (${resolution}). ${netReleasedStr} ${cryptoCur} released from escrow to the buyer's wallet${feeSuffix}. Note: ${reason || 'N/A'}`
                             : `[System] Dispute resolved by Avora Compliance (${resolution}). ${cryptoAmountDec.toFixed(2)} ${cryptoCur} unlocked back to the seller's available balance. Note: ${reason || 'N/A'}`,
                     },
                 });
-            }, { timeout: 30000, maxWait: 10000 });
+            }, { timeout: 45000, maxWait: 15000 });
             await prisma_1.prisma.adminAuditLog.create({
                 data: {
                     userId: adminUserId,
