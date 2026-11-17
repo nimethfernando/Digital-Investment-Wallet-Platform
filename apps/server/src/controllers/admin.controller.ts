@@ -306,6 +306,7 @@ export class AdminController {
         settledWithdrawals,
         approvedRazorpay,
         feeTransactions,
+        p2pPromoTransactions,
       ] = await Promise.all([
         ledgerService.reconcileLedger(),
         prisma.otcTrade.findMany({
@@ -348,6 +349,14 @@ export class AdminController {
           },
           orderBy: { createdAt: 'desc' },
           take: 40,
+        }),
+        prisma.transaction.findMany({
+          where: {
+            type: TransactionType.FEE,
+            status: TransactionStatus.COMPLETED,
+            transactionCode: { startsWith: 'TX-P2PPROMO-' },
+          },
+          select: { amount: true, currency: true },
         }),
       ]);
 
@@ -413,6 +422,17 @@ export class AdminController {
         }
       }
 
+      let p2pPromotionFeeTotal = new Decimal(0);
+      const p2pPromotionFeesByCurrency: Record<string, Decimal> = {};
+      for (const tx of p2pPromoTransactions) {
+        const amt = new Decimal(tx.amount?.toString() || '0');
+        const cur = (tx.currency || 'USD').toUpperCase();
+        if (amt.greaterThan(0)) {
+          p2pPromotionFeeTotal = p2pPromotionFeeTotal.plus(amt);
+          p2pPromotionFeesByCurrency[cur] = (p2pPromotionFeesByCurrency[cur] || new Decimal(0)).plus(amt);
+        }
+      }
+
       const ledgerRevenueAccounts = (reconcile.accounts || []).filter((a: any) =>
         String(a.accountId || '').startsWith('PLATFORM_FEE_REVENUE')
       );
@@ -430,6 +450,11 @@ export class AdminController {
             p2pFeesByCurrency: Object.fromEntries(
               Object.entries(p2pFeesByCurrency).map(([k, v]) => [k, v.toFixed(4)])
             ),
+            p2pPromotionFeeTotal: p2pPromotionFeeTotal.toFixed(2),
+            p2pPromotionFeesByCurrency: Object.fromEntries(
+              Object.entries(p2pPromotionFeesByCurrency).map(([k, v]) => [k, v.toFixed(2)])
+            ),
+            p2pPromotionCount: p2pPromoTransactions.length,
             ventureAllocationFeeUsd: ventureAllocationUsd.toFixed(2),
             ventureProfitShareFeeUsd: ventureProfitShareUsd.toFixed(2),
             gmtTransferFeeUsd: gmtFeeTotal.toFixed(2),
@@ -2128,6 +2153,34 @@ export class AdminController {
   /**
    * List P2P orders with full chat transcripts, timestamps, payment proof, and currency context
    */
+  async getP2PApplications(req: Request, res: Response, next: NextFunction) {
+    try {
+      const status = typeof req.query.status === 'string' ? req.query.status : 'ALL';
+      const search = typeof req.query.search === 'string' ? req.query.search : '';
+      const apps = await p2pService.listOnboardingApplicationsForAdmin(status, search);
+      res.json({ success: true, data: apps });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async reviewP2PApplication(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const adminEmail = (req as any).user?.email ? String((req as any).user.email) : 'admin@avorabank.com';
+      const id = String(req.params.id);
+      const { decision, reviewNotes, approveKyc } = req.body || {};
+      const result = await p2pService.reviewOnboardingApplication(id, adminUserId, adminEmail, {
+        decision,
+        reviewNotes,
+        approveKyc,
+      });
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getP2POrders(req: Request, res: Response, next: NextFunction) {
     try {
       await p2pService.ensureP2PReady();
@@ -2594,6 +2647,7 @@ export class AdminController {
    */
   private async buildAdminCommandCenterData() {
     const now = new Date();
+    await p2pService.ensureP2PReady().catch(() => {});
     const [
       activeAndPendingPackages,
       pendingDepositsList,
@@ -2605,6 +2659,7 @@ export class AdminController {
       pendingInquiriesList,
       activeAndDisputedOtcTradesList,
       underReviewOtcDesksList,
+      pendingP2PAppsList,
     ] = await Promise.all([
       prisma.investmentPackage.findMany({
         where: { status: { in: ['ACTIVE', 'PENDING_PAYMENT', 'WITHDRAWAL_REQUESTED'] } },
@@ -2670,6 +2725,13 @@ export class AdminController {
       }),
       prisma.otcDesk.findMany({
         where: { status: 'UNDER_REVIEW' },
+        include: {
+          user: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.p2POnboardingApplication.findMany({
+        where: { status: 'PENDING' },
         include: {
           user: { select: { id: true, email: true, firstName: true, lastName: true } },
         },
@@ -3134,6 +3196,42 @@ export class AdminController {
       alerts.push(item);
     }
 
+    // Pending P2P Onboarding Applications
+    for (const papp of pendingP2PAppsList) {
+      const applicantName =
+        `${papp.user?.firstName || ''} ${papp.user?.lastName || ''}`.trim() ||
+        papp.user?.email ||
+        'Applicant';
+      const age = this.computeAgeInfo(papp.createdAt, now, 24);
+      const item = {
+        id: `P2PAPP-${papp.id}`,
+        entityId: papp.id,
+        code: papp.applicationCode,
+        category: 'P2P_APPLICATION',
+        typeLabel: 'P2P Onboarding Review',
+        title: `P2P Trader Verification: ${papp.applicationCode} (${applicantName})`,
+        description: `SOF: ${papp.sourceOfFunds} • Volume: ${papp.expectedMonthlyVolume} • Experience: ${papp.tradingExperience}`,
+        customerId: papp.userId,
+        customerName: applicantName,
+        customerEmail: papp.user?.email || '',
+        amount: null,
+        currency: null,
+        status: papp.status,
+        targetTab: 'p2p',
+        requestDate: papp.createdAt.toISOString(),
+        createdDate: papp.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : 'HIGH',
+        priorityRank: 1,
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
     // New Client Inquiries
     for (const inq of pendingInquiriesList) {
       const age = this.computeAgeInfo(inq.createdAt, now, 48);
@@ -3269,6 +3367,7 @@ export class AdminController {
       pendingRemittancesCount: pendingTransfersList.length,
       openTicketsCount: openTicketsList.length,
       disputedP2PCount: disputedP2PList.length,
+      pendingP2PApplicationsCount: pendingP2PAppsList.length,
       disputedOtcCount: activeAndDisputedOtcTradesList.filter((t) => t.status === 'DISPUTED').length,
       activeOtcTradesCount: activeAndDisputedOtcTradesList.length,
       newInquiriesCount: pendingInquiriesList.length,

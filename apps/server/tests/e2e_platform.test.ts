@@ -46,6 +46,7 @@ async function runE2EPlatformSuite() {
       role: Role.USER,
       status: 'ACTIVE',
       kycStatus: 'APPROVED',
+      p2pOnboardingStatus: 'APPROVED',
     },
   });
 
@@ -58,6 +59,7 @@ async function runE2EPlatformSuite() {
       role: Role.USER,
       status: 'ACTIVE',
       kycStatus: 'APPROVED',
+      p2pOnboardingStatus: 'APPROVED',
     },
   });
 

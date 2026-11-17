@@ -219,6 +219,7 @@ model User {
   otcDepositLocked       Decimal    @default(0.00000000) @db.Decimal(20, 8)
   p2pDepositLocked       Decimal    @default(0.00000000) @db.Decimal(20, 8)
   isP2pMerchant          Boolean    @default(false)
+  p2pOnboardingStatus    String     @default("NOT_APPLIED") @db.VarChar(30) // NOT_APPLIED | PENDING_REVIEW | APPROVED | REJECTED
   p2pBlocked             Boolean    @default(false)
   p2pBlockedReason       String?    @db.VarChar(500)
   p2pBlockedAt           DateTime?
@@ -237,7 +238,8 @@ model User {
   p2pOrdersAsBuyer      P2POrder[]          @relation("BuyerOrders")
   p2pOrdersAsSeller     P2POrder[]          @relation("SellerOrders")
   p2pReviewsGiven       P2PReview[]         @relation("P2PReviewsGiven")
-  p2pReviewsReceived    P2PReview[]         @relation("P2PReviewsReceived")
+  p2pReviewsReceived    P2PReview[]                @relation("P2PReviewsReceived")
+  p2pApplications       P2POnboardingApplication[]
   notifications         UserNotification[]
   auditLogs             AdminAuditLog[]
   inquiries             Inquiry[]
@@ -488,9 +490,15 @@ model P2POffer {
   paymentMethods  String         @db.Text // JSON: ["Bank Transfer", "Tbilisi Cash", "Wise"]
   paymentTerms    String?        @db.Text
   paymentDetails  String?        @db.Text // Stage-gated settlement info revealed only after seller accepts order
-  locationCountry String?        @db.VarChar(100)
-  locationCity    String?        @db.VarChar(100)
-  status          P2POfferStatus @default(OPEN)
+  locationCountry   String?        @db.VarChar(100)
+  locationCity      String?        @db.VarChar(100)
+  isSponsored       Boolean        @default(false)
+  promotionTier     String?        @db.VarChar(30)
+  promotionPriority Int            @default(0)
+  promotionFeePaid  Decimal        @default(0.00000000) @db.Decimal(20, 8)
+  promotedAt        DateTime?
+  promotedUntil     DateTime?
+  status            P2POfferStatus @default(OPEN)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -557,6 +565,32 @@ model P2PMessage {
   createdAt     DateTime @default(now())
 
   @@map("diw_p2p_messages")
+}
+
+model P2POnboardingApplication {
+  id                    String    @id @default(uuid())
+  applicationCode       String    @unique @db.VarChar(30)
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationType       String    @default("TRADER_AND_MERCHANT") @db.VarChar(30)
+  status                String    @default("PENDING") @db.VarChar(30) // PENDING | APPROVED | REJECTED
+  sourceOfFunds         String    @db.VarChar(120)
+  sourceOfFundsDetails  String    @db.Text
+  tradingExperience     String    @db.VarChar(120)
+  expectedMonthlyVolume String    @db.VarChar(60)
+  paymentMethodsPlanned String    @db.Text // JSON array
+  documentUrls          String    @db.Text // JSON array of SOF / ID / bank statement / trading history screenshots
+  additionalNotes       String?   @db.Text
+  kycStatusSnapshot     String    @default("NOT_STARTED") @db.VarChar(30)
+  reviewedBy            String?   @db.VarChar(191)
+  reviewedByEmail       String?   @db.VarChar(191)
+  reviewedAt            DateTime?
+  reviewNotes           String?   @db.Text
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId, status, createdAt])
+  @@map("diw_p2p_applications")
 }
 
 model CmsSetting {

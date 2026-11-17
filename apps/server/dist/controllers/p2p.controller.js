@@ -58,6 +58,18 @@ class P2PController {
         }
     }
     /**
+     * Public P2P Listing Promotion Tiers
+     */
+    async getPromotionTiers(req, res, next) {
+        try {
+            const tiers = p2p_service_1.p2pService.getPromotionTiers();
+            res.json({ success: true, data: tiers });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * Get P2P Ads / Offers with rich filtering & sorting
      */
     async getOffers(req, res, next) {
@@ -136,6 +148,24 @@ class P2PController {
             }
             const result = await p2p_service_1.p2pService.createOffer(userId, req.body);
             res.status(201).json(result);
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Promote / Sponsor an Active P2P Offer ($10 24h, $25 72h, $50 7d)
+     */
+    async promoteOffer(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            if (!userId) {
+                return res.status(401).json({ success: false, message: 'Authentication required.' });
+            }
+            const offerId = String(req.params.offerId);
+            const { promotionTier } = req.body || {};
+            const result = await p2p_service_1.p2pService.promoteOffer(userId, offerId, promotionTier);
+            res.json(result);
         }
         catch (err) {
             next(err);
@@ -395,6 +425,38 @@ class P2PController {
             const userId = req.user?.id || req.user?.userId;
             const chats = await p2p_service_1.p2pService.getUserChats(userId);
             res.json({ success: true, data: chats });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/p2p/onboarding/apply
+     */
+    async submitOnboardingApplication(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            if (!userId) {
+                return res.status(401).json({ success: false, message: 'Authentication required. Please sign in.' });
+            }
+            const result = await p2p_service_1.p2pService.submitOnboardingApplication(userId, req.body || {});
+            res.status(201).json(result);
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * GET /api/v1/p2p/onboarding/applications
+     */
+    async getMyOnboardingApplications(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            if (!userId) {
+                return res.status(401).json({ success: false, message: 'Authentication required.' });
+            }
+            const apps = await p2p_service_1.p2pService.getMyOnboardingApplications(userId);
+            res.json({ success: true, data: apps });
         }
         catch (err) {
             next(err);

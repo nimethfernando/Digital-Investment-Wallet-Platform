@@ -118,6 +118,53 @@ class P2PService {
           INDEX \`diw_user_notifications_userId_isRead_createdAt_idx\` (\`userId\`, \`isRead\`, \`createdAt\`)
         ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
       `).catch(() => { });
+            await this.ensureColumns('diw_users', [
+                ['p2pOnboardingStatus', "ALTER TABLE `diw_users` ADD COLUMN `p2pOnboardingStatus` VARCHAR(30) NOT NULL DEFAULT 'NOT_APPLIED'"],
+            ]);
+            await this.ensureColumns('diw_p2p_offers', [
+                ['isSponsored', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `isSponsored` BOOLEAN NOT NULL DEFAULT false'],
+                ['promotionTier', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `promotionTier` VARCHAR(30) NULL'],
+                ['promotionPriority', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `promotionPriority` INT NOT NULL DEFAULT 0'],
+                ['promotionFeePaid', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `promotionFeePaid` DECIMAL(20,8) NOT NULL DEFAULT 0.00000000'],
+                ['promotedAt', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `promotedAt` DATETIME(3) NULL'],
+                ['promotedUntil', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `promotedUntil` DATETIME(3) NULL'],
+            ]);
+            await prisma_1.prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS \`diw_p2p_applications\` (
+          \`id\` VARCHAR(191) NOT NULL,
+          \`applicationCode\` VARCHAR(30) NOT NULL,
+          \`userId\` VARCHAR(191) NOT NULL,
+          \`applicationType\` VARCHAR(30) NOT NULL DEFAULT 'TRADER_AND_MERCHANT',
+          \`status\` VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+          \`sourceOfFunds\` VARCHAR(120) NOT NULL,
+          \`sourceOfFundsDetails\` TEXT NOT NULL,
+          \`tradingExperience\` VARCHAR(120) NOT NULL,
+          \`expectedMonthlyVolume\` VARCHAR(60) NOT NULL,
+          \`paymentMethodsPlanned\` TEXT NOT NULL,
+          \`documentUrls\` TEXT NOT NULL,
+          \`additionalNotes\` TEXT NULL,
+          \`kycStatusSnapshot\` VARCHAR(30) NOT NULL DEFAULT 'NOT_STARTED',
+          \`reviewedBy\` VARCHAR(191) NULL,
+          \`reviewedByEmail\` VARCHAR(191) NULL,
+          \`reviewedAt\` DATETIME(3) NULL,
+          \`reviewNotes\` TEXT NULL,
+          \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          \`updatedAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          PRIMARY KEY (\`id\`),
+          UNIQUE INDEX \`diw_p2p_applications_applicationCode_key\` (\`applicationCode\`),
+          INDEX \`diw_p2p_applications_userId_status_createdAt_idx\` (\`userId\`, \`status\`, \`createdAt\`)
+        ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+      `).catch(() => { });
+            // Preserve pre-existing active merchants & institutional house desks on migration
+            await prisma_1.prisma.$executeRawUnsafe(`
+        UPDATE \`diw_users\`
+        SET \`p2pOnboardingStatus\` = 'APPROVED'
+        WHERE \`p2pOnboardingStatus\` = 'NOT_APPLIED'
+          AND (
+            \`isP2pMerchant\` = true
+            OR LOWER(\`email\`) IN ('treasury@avorabank.com', 'tbilisi-desk@avorabank.com', 'colombo.otc@avorabank.com')
+          )
+      `).catch(() => { });
             // Backfill historical order fiatCurrency/cryptoCurrency from offer
             await prisma_1.prisma.$executeRawUnsafe(`
         UPDATE \`diw_p2p_orders\` o
@@ -880,9 +927,12 @@ class P2PService {
         });
         const makerIds = offers.map((o) => o.userId);
         const statsMap = await (0, p2p_helpers_1.computeUserP2PStatsMap)(makerIds);
+        const now = new Date();
         let mapped = offers.map((o) => {
             const stats = statsMap.get(o.userId);
             const accountAgeDays = Math.max(1, Math.floor((Date.now() - new Date(o.user.createdAt).getTime()) / (1000 * 60 * 60 * 24)));
+            const isActiveSponsored = Boolean(o.isSponsored && o.promotedUntil && new Date(o.promotedUntil) > now);
+            const activeTierSpec = isActiveSponsored && o.promotionTier ? p2p_helpers_1.P2P_PROMOTION_TIERS[o.promotionTier] : undefined;
             return {
                 id: o.id,
                 offerCode: o.offerCode,
@@ -900,6 +950,11 @@ class P2PService {
                 paymentDetailsLocked: Boolean(o.paymentDetails),
                 locationCountry: o.locationCountry || o.user.country || null,
                 locationCity: o.locationCity || null,
+                isSponsored: isActiveSponsored,
+                promotionTier: isActiveSponsored ? o.promotionTier : null,
+                promotionPriority: isActiveSponsored ? Number(o.promotionPriority || activeTierSpec?.priority || 1) : 0,
+                promotionBadgeLabel: isActiveSponsored ? (activeTierSpec?.badgeLabel || 'Sponsored') : null,
+                promotedUntil: isActiveSponsored && o.promotedUntil ? new Date(o.promotedUntil).toISOString() : null,
                 status: o.status,
                 trader: {
                     id: o.user.id,
@@ -949,21 +1004,33 @@ class P2PService {
             mapped = mapped.filter((o) => `${o.locationCountry || ''} ${o.locationCity || ''} ${o.fiatCurrency}`.toLowerCase().includes(loc));
         }
         const sort = filters.sortBy || 'price_default';
-        if (sort === 'price_asc') {
-            mapped.sort((a, b) => a.priceNum - b.priceNum);
-        }
-        else if (sort === 'price_desc') {
-            mapped.sort((a, b) => b.priceNum - a.priceNum);
-        }
-        else if (sort === 'completion_desc') {
-            mapped.sort((a, b) => (b.trader.completionRatePct ?? -1) - (a.trader.completionRatePct ?? -1));
-        }
-        else if (sort === 'orders_desc') {
-            mapped.sort((a, b) => b.trader.completedOrders - a.trader.completedOrders);
-        }
-        else if (sort === 'rating_desc') {
-            mapped.sort((a, b) => (b.trader.reputationScore ?? 0) - (a.trader.reputationScore ?? 0));
-        }
+        mapped.sort((a, b) => {
+            // Active promoted / sponsored offers ALWAYS rank at the top of the marketplace
+            const aSp = a.isSponsored ? 1 : 0;
+            const bSp = b.isSponsored ? 1 : 0;
+            if (aSp !== bSp)
+                return bSp - aSp;
+            if (aSp === 1 && bSp === 1) {
+                if ((a.promotionPriority || 0) !== (b.promotionPriority || 0)) {
+                    return (b.promotionPriority || 0) - (a.promotionPriority || 0);
+                }
+                const aExp = a.promotedUntil ? new Date(a.promotedUntil).getTime() : 0;
+                const bExp = b.promotedUntil ? new Date(b.promotedUntil).getTime() : 0;
+                if (aExp !== bExp)
+                    return bExp - aExp;
+            }
+            if (sort === 'price_asc')
+                return a.priceNum - b.priceNum;
+            if (sort === 'price_desc')
+                return b.priceNum - a.priceNum;
+            if (sort === 'completion_desc')
+                return (b.trader.completionRatePct ?? -1) - (a.trader.completionRatePct ?? -1);
+            if (sort === 'orders_desc')
+                return b.trader.completedOrders - a.trader.completedOrders;
+            if (sort === 'rating_desc')
+                return (b.trader.reputationScore ?? 0) - (a.trader.reputationScore ?? 0);
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
         return mapped;
     }
     /**
@@ -1124,27 +1191,39 @@ class P2PService {
             },
             orderBy: { createdAt: 'desc' },
         });
-        return offers.map((o) => ({
-            id: o.id,
-            offerCode: o.offerCode,
-            side: o.side,
-            cryptoCurrency: o.cryptoCurrency,
-            fiatCurrency: o.fiatCurrency,
-            price: new decimal_js_1.default(o.price.toString()).toFixed(2),
-            totalAmount: (0, p2p_helpers_1.formatCryptoAmount)(o.totalAmount, o.cryptoCurrency),
-            availableAmount: (0, p2p_helpers_1.formatCryptoAmount)(o.availableAmount, o.cryptoCurrency),
-            minLimit: new decimal_js_1.default(o.minLimit.toString()).toFixed(2),
-            maxLimit: new decimal_js_1.default(o.maxLimit.toString()).toFixed(2),
-            paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
-            paymentTerms: o.paymentTerms,
-            paymentDetails: o.paymentDetails || '',
-            locationCountry: o.locationCountry || '',
-            locationCity: o.locationCity || '',
-            status: o.status,
-            orderCount: o._count?.orders ?? 0,
-            createdAt: o.createdAt,
-            updatedAt: o.updatedAt,
-        }));
+        const now = new Date();
+        return offers.map((o) => {
+            const isActiveSponsored = Boolean(o.isSponsored && o.promotedUntil && new Date(o.promotedUntil) > now);
+            const activeTierSpec = isActiveSponsored && o.promotionTier ? p2p_helpers_1.P2P_PROMOTION_TIERS[o.promotionTier] : undefined;
+            return {
+                id: o.id,
+                offerCode: o.offerCode,
+                side: o.side,
+                cryptoCurrency: o.cryptoCurrency,
+                fiatCurrency: o.fiatCurrency,
+                price: new decimal_js_1.default(o.price.toString()).toFixed(2),
+                totalAmount: (0, p2p_helpers_1.formatCryptoAmount)(o.totalAmount, o.cryptoCurrency),
+                availableAmount: (0, p2p_helpers_1.formatCryptoAmount)(o.availableAmount, o.cryptoCurrency),
+                minLimit: new decimal_js_1.default(o.minLimit.toString()).toFixed(2),
+                maxLimit: new decimal_js_1.default(o.maxLimit.toString()).toFixed(2),
+                paymentMethods: this.safeParsePaymentMethods(o.paymentMethods),
+                paymentTerms: o.paymentTerms,
+                paymentDetails: o.paymentDetails || '',
+                locationCountry: o.locationCountry || '',
+                locationCity: o.locationCity || '',
+                isSponsored: isActiveSponsored,
+                promotionTier: isActiveSponsored ? o.promotionTier : null,
+                promotionPriority: isActiveSponsored ? Number(o.promotionPriority || 0) : 0,
+                promotionBadgeLabel: isActiveSponsored ? (activeTierSpec?.badgeLabel || 'Sponsored') : null,
+                promotionFeePaid: Number(o.promotionFeePaid || 0),
+                promotedAt: o.promotedAt ? new Date(o.promotedAt).toISOString() : null,
+                promotedUntil: o.promotedUntil ? new Date(o.promotedUntil).toISOString() : null,
+                status: o.status,
+                orderCount: o._count?.orders ?? 0,
+                createdAt: o.createdAt,
+                updatedAt: o.updatedAt,
+            };
+        });
     }
     /**
      * Update a provider's active P2P Offer rate, payment methods, limits, liquidity, location or status in real time
@@ -1257,10 +1336,177 @@ class P2PService {
             },
         };
     }
+    getP2pEligibilityError(p2pOnboardingStatus, kycStatus, context) {
+        const actionLabel = context === 'trade'
+            ? 'place P2P trades'
+            : context === 'merchant'
+                ? 'activate P2P Merchant membership'
+                : 'publish P2P marketplace listings';
+        if (p2pOnboardingStatus === 'PENDING_REVIEW') {
+            return `Your P2P verification application is pending Admin Compliance review. Once approved, you can ${actionLabel}.`;
+        }
+        if (p2pOnboardingStatus === 'REJECTED') {
+            return `Your P2P verification application was rejected. Please review Admin compliance notes and resubmit under P2P -> Membership & Verification before attempting to ${actionLabel}.`;
+        }
+        if (p2pOnboardingStatus !== 'APPROVED' || kycStatus !== 'APPROVED') {
+            return `Admin P2P Onboarding & KYC/Source-of-Funds approval is required before you can ${actionLabel}. Please submit your P2P membership application under P2P -> Membership & Verification.`;
+        }
+        return `Your account is not eligible to ${actionLabel}.`;
+    }
+    resolvePromotionTier(tierId) {
+        const key = String(tierId || 'BOOST_24H').trim().toUpperCase();
+        const spec = p2p_helpers_1.P2P_PROMOTION_TIERS[key];
+        if (!spec) {
+            throw new Error(`Invalid promotion tier "${key}". Supported tiers: ${Object.keys(p2p_helpers_1.P2P_PROMOTION_TIERS).join(', ')}.`);
+        }
+        return spec;
+    }
+    async applyPromotionChargeTx(tx, userId, walletId, offer, tier) {
+        const feeDec = new decimal_js_1.default(tier.feeUsd.toString());
+        const usdBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, walletId, 'USD');
+        const usdtBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, walletId, 'USDT');
+        const usdAvail = new decimal_js_1.default(usdBal.availableBalance?.toString() || '0');
+        const usdtAvail = new decimal_js_1.default(usdtBal.availableBalance?.toString() || '0');
+        let feeCurrency = 'USD';
+        let targetBalId = usdBal.id;
+        let currentAvail = usdAvail;
+        if (usdAvail.greaterThanOrEqualTo(feeDec)) {
+            feeCurrency = 'USD';
+            targetBalId = usdBal.id;
+            currentAvail = usdAvail;
+        }
+        else if (usdtAvail.greaterThanOrEqualTo(feeDec)) {
+            feeCurrency = 'USDT';
+            targetBalId = usdtBal.id;
+            currentAvail = usdtAvail;
+        }
+        else {
+            throw new Error(`Insufficient balance to promote P2P listing (${tier.name}). Required: $${feeDec.toFixed(2)} USD/USDT. Available: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`);
+        }
+        const newAvail = currentAvail.minus(feeDec);
+        await tx.walletBalance.update({
+            where: { id: targetBalId },
+            data: { availableBalance: newAvail.toFixed(8) },
+        });
+        const promoTxCode = `TX-P2PPROMO-${Date.now().toString().slice(-6)}-${Math.random()
+            .toString(36)
+            .slice(2, 6)
+            .toUpperCase()}`;
+        await ledger_service_1.ledgerService.recordJournal(tx, {
+            idempotencyKey: `p2p-promo-${promoTxCode}`,
+            referenceType: client_1.JournalReferenceType.FEE,
+            referenceId: promoTxCode,
+            notes: `P2P Sponsored Listing Fee (${tier.name}, ${tier.durationHours}h) for Offer ${offer.offerCode}`,
+            createdBy: userId,
+            entries: [
+                {
+                    accountId: `USER_AVAILABLE_${feeCurrency}`,
+                    userId,
+                    direction: 'DEBIT',
+                    amount: feeDec.toFixed(8),
+                    currency: feeCurrency,
+                },
+                {
+                    accountId: `PLATFORM_FEE_REVENUE_${feeCurrency}`,
+                    direction: 'CREDIT',
+                    amount: feeDec.toFixed(8),
+                    currency: feeCurrency,
+                },
+            ],
+        });
+        await tx.transaction.create({
+            data: {
+                transactionCode: promoTxCode,
+                userId,
+                type: client_1.TransactionType.FEE,
+                amount: feeDec.toFixed(8),
+                currency: feeCurrency,
+                status: client_1.TransactionStatus.COMPLETED,
+                balanceBefore: currentAvail.toFixed(8),
+                balanceAfter: newAvail.toFixed(8),
+                notes: `Sponsored P2P Listing (${tier.name} • ${tier.durationHours}h Top Placement) — Offer ${offer.offerCode}`,
+                settlementReference: offer.offerCode,
+            },
+        });
+        const now = new Date();
+        const existingUntil = offer.promotedUntil ? new Date(offer.promotedUntil) : null;
+        const baseTime = existingUntil && existingUntil > now && Number(offer.promotionPriority || 0) <= tier.priority
+            ? existingUntil
+            : now;
+        const promotedUntil = new Date(baseTime.getTime() + tier.durationHours * 60 * 60 * 1000);
+        const prevFee = new decimal_js_1.default(offer.promotionFeePaid?.toString() || '0');
+        const updatedOffer = await tx.p2POffer.update({
+            where: { id: offer.id },
+            data: {
+                isSponsored: true,
+                promotionTier: tier.id,
+                promotionPriority: Math.max(Number(offer.promotionPriority || 0), tier.priority),
+                promotionFeePaid: prevFee.plus(feeDec).toFixed(8),
+                promotedAt: now,
+                promotedUntil,
+            },
+        });
+        return { updatedOffer, promoTxCode, feeCurrency, feePaid: feeDec.toFixed(2), promotedUntil };
+    }
+    getPromotionTiers() {
+        return Object.values(p2p_helpers_1.P2P_PROMOTION_TIERS);
+    }
+    async promoteOffer(userId, offerId, promotionTier) {
+        await this.ensureP2PReady();
+        if (!userId)
+            throw new Error('Authentication required.');
+        const tier = this.resolvePromotionTier(promotionTier);
+        const [offer, user] = await Promise.all([
+            prisma_1.prisma.p2POffer.findUnique({ where: { id: offerId } }),
+            prisma_1.prisma.user.findUnique({
+                where: { id: userId },
+                select: {
+                    id: true,
+                    email: true,
+                    status: true,
+                    kycStatus: true,
+                    p2pOnboardingStatus: true,
+                    isP2pMerchant: true,
+                    p2pBlocked: true,
+                },
+            }),
+        ]);
+        if (!offer)
+            throw new Error('P2P listing not found.');
+        if (offer.userId !== userId)
+            throw new Error('You can only promote your own P2P listings.');
+        if (offer.status !== client_1.P2POfferStatus.OPEN) {
+            throw new Error('Only OPEN P2P advertisements can be promoted to top marketplace placement.');
+        }
+        if (!user || user.status !== 'ACTIVE' || user.p2pBlocked) {
+            throw new Error('Your account is currently restricted from promoting P2P listings.');
+        }
+        if (!(0, p2p_helpers_1.isInstitutionalDeskEmail)(user.email) &&
+            (user.p2pOnboardingStatus !== 'APPROVED' || user.kycStatus !== 'APPROVED' || !user.isP2pMerchant)) {
+            throw new Error(this.getP2pEligibilityError(user.p2pOnboardingStatus, user.kycStatus, 'offer'));
+        }
+        const wallet = await ledger_service_1.ledgerService.ensureWallet(userId);
+        const result = await prisma_1.prisma.$transaction(async (tx) => {
+            const freshOffer = await tx.p2POffer.findUnique({ where: { id: offerId } });
+            if (!freshOffer || freshOffer.status !== client_1.P2POfferStatus.OPEN) {
+                throw new Error('Only OPEN P2P advertisements can be promoted.');
+            }
+            return this.applyPromotionChargeTx(tx, userId, wallet.id, freshOffer, tier);
+        }, { timeout: 30000, maxWait: 10000 });
+        return {
+            success: true,
+            message: `Listing ${offer.offerCode} is now Sponsored (${tier.name}) until ${result.promotedUntil.toISOString()}! $${result.feePaid} ${result.feeCurrency} charged to your wallet.`,
+            offer: result.updatedOffer,
+            transactionCode: result.promoTxCode,
+            promotedUntil: result.promotedUntil.toISOString(),
+            promotionTier: tier.id,
+        };
+    }
     /**
-     * Create a new P2P Trade Offer (Requires P2P Merchant status)
+     * Create a new P2P Trade Offer (Requires Admin P2P Verification & Merchant Security Deposit)
      */
     async createOffer(userId, input) {
+        await this.ensureP2PReady();
         if (!userId) {
             throw new Error('Authentication required. Please sign in before creating a P2P advertisement.');
         }
@@ -1269,6 +1515,7 @@ class P2PService {
             select: {
                 id: true,
                 isP2pMerchant: true,
+                p2pOnboardingStatus: true,
                 p2pDepositLocked: true,
                 p2pBlocked: true,
                 p2pBlockedReason: true,
@@ -1286,6 +1533,9 @@ class P2PService {
         }
         if (user.p2pBlocked) {
             throw new Error(`You are currently restricted from posting P2P offers${user.p2pBlockedReason ? `: ${user.p2pBlockedReason}` : '.'}`);
+        }
+        if (!(0, p2p_helpers_1.isInstitutionalDeskEmail)(user.email) && (user.p2pOnboardingStatus !== 'APPROVED' || user.kycStatus !== 'APPROVED')) {
+            throw new Error(this.getP2pEligibilityError(user.p2pOnboardingStatus, user.kycStatus, 'offer'));
         }
         if (!user.isP2pMerchant) {
             throw new Error('You must become an authorized P2P Member (Merchant) before posting trade advertisements. Please activate your $50 refundable security deposit.');
@@ -1308,32 +1558,48 @@ class P2PService {
         if (maxLimitNum.lessThan(minLimitNum)) {
             throw new Error('Maximum order limit cannot be lower than minimum order limit.');
         }
+        const shouldPromote = Boolean(input.promoteListing);
+        const promoTier = shouldPromote ? this.resolvePromotionTier(input.promotionTier) : null;
         const offerCode = `OFF-${Math.floor(100000 + Math.random() * 900000)}`;
-        const newOffer = await prisma_1.prisma.p2POffer.create({
-            data: {
-                offerCode,
-                userId,
-                side: input.side === 'BUY' ? client_1.P2PSide.BUY : client_1.P2PSide.SELL,
-                cryptoCurrency: cryptoCur,
-                fiatCurrency: input.fiatCurrency.toUpperCase(),
-                price: priceNum.toString(),
-                totalAmount: amountNum.toString(),
-                availableAmount: amountNum.toString(),
-                minLimit: minLimitNum.toString(),
-                maxLimit: maxLimitNum.toString(),
-                paymentMethods: JSON.stringify(input.paymentMethods?.length ? input.paymentMethods : ['Bank Transfer']),
-                paymentTerms: input.paymentTerms?.trim() || 'Payment via domestic instant transfer. Fast escrow release.',
-                paymentDetails: input.paymentDetails?.trim() || null,
-                locationCountry: input.locationCountry?.trim() || user.country || null,
-                locationCity: input.locationCity?.trim() || null,
-                status: client_1.P2POfferStatus.OPEN,
-            },
-        });
+        const wallet = shouldPromote ? await ledger_service_1.ledgerService.ensureWallet(userId) : null;
+        const created = await prisma_1.prisma.$transaction(async (tx) => {
+            const newOffer = await tx.p2POffer.create({
+                data: {
+                    offerCode,
+                    userId,
+                    side: input.side === 'BUY' ? client_1.P2PSide.BUY : client_1.P2PSide.SELL,
+                    cryptoCurrency: cryptoCur,
+                    fiatCurrency: input.fiatCurrency.toUpperCase(),
+                    price: priceNum.toString(),
+                    totalAmount: amountNum.toString(),
+                    availableAmount: amountNum.toString(),
+                    minLimit: minLimitNum.toString(),
+                    maxLimit: maxLimitNum.toString(),
+                    paymentMethods: JSON.stringify(input.paymentMethods?.length ? input.paymentMethods : ['Bank Transfer']),
+                    paymentTerms: input.paymentTerms?.trim() || 'Payment via domestic instant transfer. Fast escrow release.',
+                    paymentDetails: input.paymentDetails?.trim() || null,
+                    locationCountry: input.locationCountry?.trim() || user.country || null,
+                    locationCity: input.locationCity?.trim() || null,
+                    status: client_1.P2POfferStatus.OPEN,
+                },
+            });
+            let promoMeta = null;
+            if (shouldPromote && promoTier && wallet) {
+                promoMeta = await this.applyPromotionChargeTx(tx, userId, wallet.id, newOffer, promoTier);
+            }
+            return {
+                offer: promoMeta?.updatedOffer || newOffer,
+                promoMeta,
+            };
+        }, { timeout: 30000, maxWait: 10000 });
         return {
             success: true,
-            offerCode: newOffer.offerCode,
-            message: 'P2P advertisement published to marketplace successfully.',
-            offer: newOffer,
+            offerCode: created.offer.offerCode,
+            message: created.promoMeta
+                ? `P2P advertisement published & promoted (${promoTier.name}) — $${created.promoMeta.feePaid} ${created.promoMeta.feeCurrency} charged.`
+                : 'P2P advertisement published to marketplace successfully.',
+            offer: created.offer,
+            promotionTransactionCode: created.promoMeta?.promoTxCode || null,
         };
     }
     /**
@@ -1361,13 +1627,24 @@ class P2PService {
         await this.ensureP2PReady();
         const taker = await prisma_1.prisma.user.findUnique({
             where: { id: takerUserId },
-            select: { id: true, status: true, p2pBlocked: true, p2pBlockedReason: true },
+            select: {
+                id: true,
+                email: true,
+                status: true,
+                kycStatus: true,
+                p2pOnboardingStatus: true,
+                p2pBlocked: true,
+                p2pBlockedReason: true,
+            },
         });
         if (!taker || taker.status !== 'ACTIVE') {
             throw new Error('Your account is currently suspended or locked.');
         }
         if (taker.p2pBlocked) {
             throw new Error(`Your P2P trading access is restricted${taker.p2pBlockedReason ? `: ${taker.p2pBlockedReason}` : '. Contact support.'}`);
+        }
+        if (!(0, p2p_helpers_1.isInstitutionalDeskEmail)(taker.email) && (taker.p2pOnboardingStatus !== 'APPROVED' || taker.kycStatus !== 'APPROVED')) {
+            throw new Error(this.getP2pEligibilityError(taker.p2pOnboardingStatus, taker.kycStatus, 'trade'));
         }
         const offer = await prisma_1.prisma.p2POffer.findUnique({
             where: { id: params.offerId },
@@ -2515,6 +2792,7 @@ class P2PService {
             .catch(() => null);
         const depositNum = parseFloat(depositSetting?.value || '50.0');
         const DEPOSIT_REQUIRED = Number.isFinite(depositNum) && depositNum >= 0 ? depositNum : 50.0;
+        await this.ensureP2PReady();
         if (!userId) {
             return {
                 isP2pMerchant: false,
@@ -2522,40 +2800,386 @@ class P2PService {
                 depositRequired: DEPOSIT_REQUIRED,
                 isKycApproved: false,
                 kycStatus: 'NOT_STARTED',
+                p2pOnboardingStatus: 'NOT_APPLIED',
+                isP2pTradingApproved: false,
+                latestApplication: null,
+                promotionTiers: Object.values(p2p_helpers_1.P2P_PROMOTION_TIERS),
                 p2pBlocked: false,
                 p2pBlockedReason: null,
                 stats: null,
             };
         }
-        const [user, statsMap] = await Promise.all([
+        const [user, statsMap, latestApp] = await Promise.all([
             prisma_1.prisma.user.findUnique({
                 where: { id: userId },
                 select: {
                     id: true,
+                    email: true,
+                    status: true,
                     isP2pMerchant: true,
                     p2pDepositLocked: true,
                     kycStatus: true,
+                    p2pOnboardingStatus: true,
                     p2pBlocked: true,
                     p2pBlockedReason: true,
                 },
             }),
             (0, p2p_helpers_1.computeUserP2PStatsMap)([userId]),
+            prisma_1.prisma.p2POnboardingApplication.findFirst({
+                where: { userId },
+                orderBy: { createdAt: 'desc' },
+            }),
         ]);
         if (!user)
             throw new Error('User not found');
+        const effectiveOnboarding = (0, p2p_helpers_1.isInstitutionalDeskEmail)(user.email)
+            ? 'APPROVED'
+            : user.p2pOnboardingStatus || 'NOT_APPLIED';
+        const isKycOk = user.kycStatus === 'APPROVED' || (0, p2p_helpers_1.isInstitutionalDeskEmail)(user.email);
         return {
             isP2pMerchant: Boolean(user.isP2pMerchant),
             p2pDepositLocked: Number(user.p2pDepositLocked || 0),
             depositRequired: DEPOSIT_REQUIRED,
-            isKycApproved: user.kycStatus === 'APPROVED',
+            isKycApproved: isKycOk,
             kycStatus: user.kycStatus,
+            p2pOnboardingStatus: effectiveOnboarding,
+            isP2pTradingApproved: user.status === 'ACTIVE' &&
+                !user.p2pBlocked &&
+                effectiveOnboarding === 'APPROVED' &&
+                isKycOk,
+            latestApplication: latestApp
+                ? {
+                    id: latestApp.id,
+                    applicationCode: latestApp.applicationCode,
+                    applicationType: latestApp.applicationType,
+                    status: latestApp.status,
+                    sourceOfFunds: latestApp.sourceOfFunds,
+                    sourceOfFundsDetails: latestApp.sourceOfFundsDetails,
+                    tradingExperience: latestApp.tradingExperience,
+                    expectedMonthlyVolume: latestApp.expectedMonthlyVolume,
+                    paymentMethodsPlanned: this.safeParsePaymentMethods(latestApp.paymentMethodsPlanned),
+                    documentUrls: (0, p2p_helpers_1.safeParsePaymentMethods)(latestApp.documentUrls),
+                    additionalNotes: latestApp.additionalNotes,
+                    reviewNotes: latestApp.reviewNotes,
+                    reviewedAt: latestApp.reviewedAt,
+                    createdAt: latestApp.createdAt,
+                }
+                : null,
+            promotionTiers: Object.values(p2p_helpers_1.P2P_PROMOTION_TIERS),
             p2pBlocked: Boolean(user.p2pBlocked),
             p2pBlockedReason: user.p2pBlockedReason || null,
             stats: statsMap.get(userId) || null,
         };
     }
     /**
-     * Apply for P2P Merchant status by locking $50 security deposit
+     * Submit a P2P Onboarding & Source-of-Funds / KYC Application for Admin Review
+     */
+    async submitOnboardingApplication(userId, input) {
+        await this.ensureP2PReady();
+        if (!userId)
+            throw new Error('Authentication required.');
+        const user = await prisma_1.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                status: true,
+                kycStatus: true,
+                p2pOnboardingStatus: true,
+                p2pBlocked: true,
+            },
+        });
+        if (!user || user.status !== 'ACTIVE') {
+            throw new Error('Your account must be ACTIVE to apply for P2P trading.');
+        }
+        if (user.p2pBlocked) {
+            throw new Error('Your account is currently restricted from P2P access.');
+        }
+        if (user.p2pOnboardingStatus === 'APPROVED' && user.kycStatus === 'APPROVED') {
+            throw new Error('Your P2P verification is already approved by Admin Compliance.');
+        }
+        const existingPending = await prisma_1.prisma.p2POnboardingApplication.findFirst({
+            where: { userId, status: 'PENDING' },
+        });
+        if (existingPending) {
+            throw new Error(`Application ${existingPending.applicationCode} is already pending Admin Compliance review.`);
+        }
+        const sof = String(input.sourceOfFunds || '').trim();
+        const sofDetails = String(input.sourceOfFundsDetails || '').trim();
+        const exp = String(input.tradingExperience || '').trim();
+        const vol = String(input.expectedMonthlyVolume || '').trim();
+        const docs = Array.isArray(input.documentUrls)
+            ? input.documentUrls.map((u) => String(u || '').trim()).filter((u) => u.length > 0).slice(0, 8)
+            : [];
+        const plannedRails = Array.isArray(input.paymentMethodsPlanned)
+            ? input.paymentMethodsPlanned.map((m) => String(m || '').trim()).filter(Boolean).slice(0, 15)
+            : ['Bank Transfer'];
+        if (!sof)
+            throw new Error('Source of Funds category is required.');
+        if (sofDetails.length < 15) {
+            throw new Error('Please provide a clear explanation of your Source of Funds (at least 15 characters).');
+        }
+        if (!exp)
+            throw new Error('Please select or describe your P2P trading experience.');
+        if (!vol)
+            throw new Error('Expected monthly trading volume is required.');
+        if (docs.length === 0) {
+            throw new Error('At least 1 supporting document or screenshot (ID, bank statement, source of funds, or prior P2P trading history) is required.');
+        }
+        const appCode = `P2PAPP-${Date.now().toString().slice(-6)}${Math.floor(10 + Math.random() * 90)}`;
+        const createdApp = await prisma_1.prisma.$transaction(async (tx) => {
+            const app = await tx.p2POnboardingApplication.create({
+                data: {
+                    applicationCode: appCode,
+                    userId,
+                    applicationType: String(input.applicationType || 'TRADER_AND_MERCHANT').slice(0, 30),
+                    status: 'PENDING',
+                    sourceOfFunds: sof.slice(0, 120),
+                    sourceOfFundsDetails: sofDetails.slice(0, 2500),
+                    tradingExperience: exp.slice(0, 120),
+                    expectedMonthlyVolume: vol.slice(0, 60),
+                    paymentMethodsPlanned: JSON.stringify(plannedRails.length ? plannedRails : ['Bank Transfer']),
+                    documentUrls: JSON.stringify(docs),
+                    additionalNotes: input.additionalNotes?.trim() ? input.additionalNotes.trim().slice(0, 1500) : null,
+                    kycStatusSnapshot: user.kycStatus,
+                },
+            });
+            const nextKyc = user.kycStatus === 'NOT_STARTED' || user.kycStatus === 'REJECTED' ? 'PENDING' : user.kycStatus;
+            await tx.user.update({
+                where: { id: userId },
+                data: {
+                    p2pOnboardingStatus: 'PENDING_REVIEW',
+                    kycStatus: nextKyc,
+                },
+            });
+            return app;
+        });
+        await (0, p2p_helpers_1.createP2PNotification)({
+            userId,
+            category: 'ACCOUNT',
+            type: 'P2P_APPLICATION_SUBMITTED',
+            severity: 'INFO',
+            title: `P2P Verification Submitted (${createdApp.applicationCode})`,
+            message: 'Your Source of Funds, trading background, and supporting documents have been queued for Admin Compliance review.',
+            referenceCode: createdApp.applicationCode,
+            status: 'PENDING',
+            actionUrl: '/p2p?tab=profile',
+            actionLabel: 'View Status',
+        });
+        notification_provider_1.notificationService
+            .sendAdminAlert(`New P2P Verification Application (${createdApp.applicationCode})`, `Applicant ${user.email} submitted P2P Onboarding & Source of Funds (${sof}, ${vol}). Review in Admin -> P2P & Disputes.`, { applicationCode: createdApp.applicationCode, email: user.email, sourceOfFunds: sof })
+            .catch(() => { });
+        return {
+            success: true,
+            message: `Application ${createdApp.applicationCode} submitted for Admin Compliance review.`,
+            application: {
+                id: createdApp.id,
+                applicationCode: createdApp.applicationCode,
+                status: createdApp.status,
+                sourceOfFunds: createdApp.sourceOfFunds,
+                tradingExperience: createdApp.tradingExperience,
+                expectedMonthlyVolume: createdApp.expectedMonthlyVolume,
+                documentUrls: docs,
+                createdAt: createdApp.createdAt,
+            },
+        };
+    }
+    /**
+     * List authenticated user's P2P onboarding applications
+     */
+    async getMyOnboardingApplications(userId) {
+        await this.ensureP2PReady();
+        const list = await prisma_1.prisma.p2POnboardingApplication.findMany({
+            where: { userId },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+        });
+        return list.map((a) => ({
+            ...a,
+            paymentMethodsPlanned: (0, p2p_helpers_1.safeParsePaymentMethods)(a.paymentMethodsPlanned),
+            documentUrls: (() => {
+                try {
+                    const parsed = JSON.parse(a.documentUrls || '[]');
+                    return Array.isArray(parsed) ? parsed : [];
+                }
+                catch {
+                    return [];
+                }
+            })(),
+        }));
+    }
+    /**
+     * Admin: List P2P Onboarding Applications with user AML/KYC profile & uploaded docs
+     */
+    async listOnboardingApplicationsForAdmin(statusFilter, searchFilter) {
+        await this.ensureP2PReady();
+        const where = {};
+        if (statusFilter && statusFilter.toUpperCase() !== 'ALL') {
+            where.status = statusFilter.toUpperCase();
+        }
+        if (searchFilter && searchFilter.trim()) {
+            const q = searchFilter.trim();
+            where.OR = [
+                { applicationCode: { contains: q } },
+                { sourceOfFunds: { contains: q } },
+                { user: { email: { contains: q } } },
+                { user: { firstName: { contains: q } } },
+                { user: { lastName: { contains: q } } },
+            ];
+        }
+        const apps = await prisma_1.prisma.p2POnboardingApplication.findMany({
+            where,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                        country: true,
+                        kycStatus: true,
+                        p2pOnboardingStatus: true,
+                        isP2pMerchant: true,
+                        p2pBlocked: true,
+                        createdAt: true,
+                        kycDocuments: {
+                            orderBy: { createdAt: 'desc' },
+                            take: 5,
+                        },
+                    },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 100,
+        });
+        return apps.map((a) => ({
+            id: a.id,
+            applicationCode: a.applicationCode,
+            applicationType: a.applicationType,
+            status: a.status,
+            sourceOfFunds: a.sourceOfFunds,
+            sourceOfFundsDetails: a.sourceOfFundsDetails,
+            tradingExperience: a.tradingExperience,
+            expectedMonthlyVolume: a.expectedMonthlyVolume,
+            paymentMethodsPlanned: (0, p2p_helpers_1.safeParsePaymentMethods)(a.paymentMethodsPlanned),
+            documentUrls: (() => {
+                try {
+                    const parsed = JSON.parse(a.documentUrls || '[]');
+                    return Array.isArray(parsed) ? parsed : [];
+                }
+                catch {
+                    return [];
+                }
+            })(),
+            additionalNotes: a.additionalNotes,
+            kycStatusSnapshot: a.kycStatusSnapshot,
+            reviewedBy: a.reviewedBy,
+            reviewedByEmail: a.reviewedByEmail,
+            reviewedAt: a.reviewedAt,
+            reviewNotes: a.reviewNotes,
+            createdAt: a.createdAt,
+            user: a.user,
+        }));
+    }
+    /**
+     * Admin: Approve or Reject a P2P Membership & Verification Application
+     */
+    async reviewOnboardingApplication(applicationId, adminUserId, adminEmail, input) {
+        await this.ensureP2PReady();
+        const decision = String(input.decision || '').trim().toUpperCase();
+        const notes = String(input.reviewNotes || '').trim();
+        if (decision !== 'APPROVE' && decision !== 'REJECT') {
+            throw new Error('Decision must be either APPROVE or REJECT.');
+        }
+        if (notes.length < 5) {
+            throw new Error('Mandatory compliance review notes (min 5 characters) are required.');
+        }
+        const app = await prisma_1.prisma.p2POnboardingApplication.findUnique({
+            where: { id: applicationId },
+            include: { user: { select: { id: true, email: true, firstName: true, lastName: true, kycStatus: true } } },
+        });
+        if (!app)
+            throw new Error('P2P onboarding application not found.');
+        if (app.status !== 'PENDING') {
+            throw new Error(`Application ${app.applicationCode} has already been ${app.status}.`);
+        }
+        const approveKyc = decision === 'APPROVE' && input.approveKyc !== false;
+        const now = new Date();
+        await prisma_1.prisma.$transaction(async (tx) => {
+            await tx.p2POnboardingApplication.update({
+                where: { id: applicationId },
+                data: {
+                    status: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+                    reviewedBy: adminUserId,
+                    reviewedByEmail: adminEmail,
+                    reviewedAt: now,
+                    reviewNotes: notes,
+                },
+            });
+            const userUpdate = {
+                p2pOnboardingStatus: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+            };
+            if (approveKyc) {
+                userUpdate.kycStatus = 'APPROVED';
+            }
+            else if (decision === 'REJECT' && app.user.kycStatus === 'PENDING') {
+                userUpdate.kycStatus = 'REJECTED';
+            }
+            await tx.user.update({
+                where: { id: app.userId },
+                data: userUpdate,
+            });
+            if (approveKyc) {
+                await tx.kycDocument.updateMany({
+                    where: { userId: app.userId, status: 'PENDING' },
+                    data: { status: 'APPROVED', reviewedBy: adminUserId },
+                });
+            }
+            await tx.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: decision === 'APPROVE' ? 'APPROVE_P2P_APPLICATION' : 'REJECT_P2P_APPLICATION',
+                    entity: 'P2POnboardingApplication',
+                    entityId: app.id,
+                    details: `${decision === 'APPROVE' ? 'Approved' : 'Rejected'} P2P onboarding application ${app.applicationCode} for ${app.user.email}. SOF: ${app.sourceOfFunds}. Notes: ${notes}`,
+                },
+            });
+        });
+        await (0, p2p_helpers_1.createP2PNotification)({
+            userId: app.userId,
+            category: 'ACCOUNT',
+            type: decision === 'APPROVE' ? 'P2P_APPLICATION_APPROVED' : 'P2P_APPLICATION_REJECTED',
+            severity: decision === 'APPROVE' ? 'SUCCESS' : 'CRITICAL',
+            title: decision === 'APPROVE'
+                ? `P2P Verification Approved (${app.applicationCode})`
+                : `P2P Verification Rejected (${app.applicationCode})`,
+            message: decision === 'APPROVE'
+                ? 'Your Source of Funds & KYC documents were approved by Compliance. P2P trading is now enabled, and you may lock your $50 merchant deposit to post ads.'
+                : `Compliance rejected your P2P application: ${notes}`,
+            referenceCode: app.applicationCode,
+            status: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+            actionUrl: '/p2p?tab=profile',
+            actionLabel: decision === 'APPROVE' ? 'Open P2P Desk' : 'Review Notes',
+        });
+        notification_provider_1.notificationService
+            .sendEmail({
+            to: app.user.email,
+            subject: decision === 'APPROVE'
+                ? `P2P Verification Approved (${app.applicationCode})`
+                : `P2P Verification Rejected (${app.applicationCode})`,
+            html: `<p>Hello ${app.user.firstName || 'Trader'},</p><p>Your P2P membership application <strong>${app.applicationCode}</strong> has been reviewed by Avora Bank Compliance.</p><p><strong>Status:</strong> ${decision === 'APPROVE' ? 'APPROVED — P2P Trading Enabled' : 'REJECTED'}</p><p><strong>Reviewer Notes:</strong> ${notes}</p>`,
+        })
+            .catch(() => { });
+        return {
+            success: true,
+            message: `Application ${app.applicationCode} ${decision === 'APPROVE' ? 'approved' : 'rejected'} successfully.`,
+            status: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+        };
+    }
+    /**
+     * Apply for P2P Merchant status by locking $50 security deposit (Requires Admin P2P & KYC Approval)
      */
     async applyP2pMerchant(userId) {
         await this.ensureP2PReady();
@@ -2564,7 +3188,16 @@ class P2PService {
         }
         const user = await prisma_1.prisma.user.findUnique({
             where: { id: userId },
-            select: { id: true, kycStatus: true, isP2pMerchant: true, p2pDepositLocked: true, status: true, p2pBlocked: true },
+            select: {
+                id: true,
+                email: true,
+                kycStatus: true,
+                p2pOnboardingStatus: true,
+                isP2pMerchant: true,
+                p2pDepositLocked: true,
+                status: true,
+                p2pBlocked: true,
+            },
         });
         if (!user || user.status !== 'ACTIVE') {
             throw new Error('User account is not active.');
@@ -2575,11 +3208,8 @@ class P2PService {
         if (user.isP2pMerchant && Number(user.p2pDepositLocked || 0) >= 50) {
             throw new Error('You are already an authorized P2P Merchant with a locked security deposit.');
         }
-        if (user.kycStatus !== 'APPROVED') {
-            await prisma_1.prisma.user.update({
-                where: { id: userId },
-                data: { kycStatus: 'APPROVED' },
-            });
+        if (!(0, p2p_helpers_1.isInstitutionalDeskEmail)(user.email) && (user.p2pOnboardingStatus !== 'APPROVED' || user.kycStatus !== 'APPROVED')) {
+            throw new Error(this.getP2pEligibilityError(user.p2pOnboardingStatus, user.kycStatus, 'merchant'));
         }
         const depositSetting = await prisma_1.prisma.cmsSetting
             .findUnique({ where: { key: 'p2p_security_deposit_usd' } })

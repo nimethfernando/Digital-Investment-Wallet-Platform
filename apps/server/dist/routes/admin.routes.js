@@ -66,7 +66,9 @@ router.patch('/remittance/transfers/:id', (0, auth_1.requireRole)([client_1.Role
 router.post('/investments/listings', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.createStartupListing(req, res, next));
 router.put('/investments/listings/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateStartupListing(req, res, next));
 router.delete('/investments/listings/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.deleteStartupListing(req, res, next));
-// P2P Escrow & Dispute Resolution
+// P2P Escrow, Onboarding Applications & Dispute Resolution
+router.get('/p2p/applications', (req, res, next) => admin_controller_1.adminController.getP2PApplications(req, res, next));
+router.post('/p2p/applications/:id/review', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.reviewP2PApplication(req, res, next));
 router.get('/p2p/orders', (req, res, next) => admin_controller_1.adminController.getP2POrders(req, res, next));
 router.post('/p2p/orders/:id/freeze', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.freezeP2POrder(req, res, next));
 router.post('/p2p/orders/:id/resolve', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.resolveP2PDispute(req, res, next));

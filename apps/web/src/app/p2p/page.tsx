@@ -52,6 +52,7 @@ import { SearchableCountrySelect } from '../../components/SearchableCountrySelec
 import { P2PTraderProfileModal } from '../../components/p2p/P2PTraderProfileModal';
 import { P2PTradeProgressAndActions } from '../../components/p2p/P2PTradeProgressAndActions';
 import { P2PPaymentProofModal } from '../../components/p2p/P2PPaymentProofModal';
+import { P2POnboardingWizard } from '../../components/p2p/P2POnboardingWizard';
 
 interface CountryRail {
   id: string;
@@ -151,6 +152,11 @@ interface P2POfferItem {
   paymentDetailsLocked?: boolean;
   locationCountry?: string | null;
   locationCity?: string | null;
+  isSponsored?: boolean;
+  promotionTier?: string | null;
+  promotionPriority?: number;
+  promotionBadgeLabel?: string | null;
+  promotedUntil?: string | null;
   isOffline?: boolean;
   lastSeen?: string;
   isDeskConcierge?: boolean;
@@ -812,6 +818,41 @@ function P2PPageContent() {
   const [editAdSaving, setEditAdSaving] = useState(false);
   const [editAdError, setEditAdError] = useState<string | null>(null);
 
+  // Listing Promotion / Sponsored Placement State
+  const [promoTiers, setPromoTiers] = useState<Array<{ id: string; name: string; badgeLabel: string; feeUsd: number; durationHours: number; description: string }>>([
+    {
+      id: 'BOOST_24H',
+      name: '24-Hour Sponsored Boost',
+      badgeLabel: 'Sponsored • 24h Boost',
+      feeUsd: 10,
+      durationHours: 24,
+      description: 'Highlights your ad at the top of the P2P order book for 24 hours with a Sponsored badge.',
+    },
+    {
+      id: 'PRIORITY_72H',
+      name: '72-Hour Priority Placement',
+      badgeLabel: 'Sponsored • 72h Priority',
+      feeUsd: 25,
+      durationHours: 72,
+      description: 'Outranks 24h boosts and keeps your listing pinned at the top for 3 full days.',
+    },
+    {
+      id: 'FEATURED_7D',
+      name: '7-Day Featured Desk Pin',
+      badgeLabel: 'Sponsored • 7d Featured',
+      feeUsd: 50,
+      durationHours: 168,
+      description: 'Maximum top-tier visibility for 7 days, outranking all standard and lower-tier sponsored ads.',
+    },
+  ]);
+  const [newAdPromote, setNewAdPromote] = useState(false);
+  const [newAdPromotionTier, setNewAdPromotionTier] = useState('BOOST_24H');
+  const [promoteModalOffer, setPromoteModalOffer] = useState<any | null>(null);
+  const [promoteTierChoice, setPromoteTierChoice] = useState('BOOST_24H');
+  const [promotingLoading, setPromotingLoading] = useState(false);
+  const [promoteError, setPromoteError] = useState<string | null>(null);
+  const [promoteSuccess, setPromoteSuccess] = useState<string | null>(null);
+
   // Keypad Handlers for Express matching Screenshot 3177171f
   const handleKeypadPress = (digit: string) => {
     setExpressAmount((prev) => {
@@ -1045,6 +1086,9 @@ function P2PPageContent() {
     try {
       const res = await api.get('/p2p/merchant/status');
       if (res.data?.success) {
+        if (Array.isArray(res.data.data?.promotionTiers) && res.data.data.promotionTiers.length > 0) {
+          setPromoTiers(res.data.data.promotionTiers);
+        }
         setMerchantStatus(res.data.data);
       }
     } catch (e) {
@@ -1596,10 +1640,13 @@ function P2PPageContent() {
         paymentDetails: newAdPaymentDetails.trim() || undefined,
         locationCountry: newAdCountryName || selectedCountry?.name,
         locationCity: newAdLocationCity.trim() || undefined,
+        promoteListing: newAdPromote,
+        promotionTier: newAdPromote ? newAdPromotionTier : undefined,
       });
 
       if (res.data?.success) {
-        setNewAdSuccess('Advertisement published successfully to the live P2P marketplace!');
+        setNewAdSuccess(res.data.message || 'Advertisement published successfully to the live P2P marketplace!');
+        setNewAdPromote(false);
         fetchOffers();
         fetchMyOffers();
         setTimeout(() => {
@@ -1685,6 +1732,31 @@ function P2PPageContent() {
       }
     } catch (err: any) {
       alert(extractErrorMessage(err, 'Unable to close advertisement.'));
+    }
+  };
+
+  const handlePromoteOffer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!promoteModalOffer) return;
+    setPromotingLoading(true);
+    setPromoteError(null);
+    setPromoteSuccess(null);
+    try {
+      const res = await api.post(`/p2p/offers/${promoteModalOffer.id}/promote`, {
+        promotionTier: promoteTierChoice,
+      });
+      if (res.data?.success) {
+        setPromoteSuccess(res.data.message || 'Listing promoted to top marketplace placement!');
+        await Promise.all([fetchMyOffers(), fetchOffers()]);
+        setTimeout(() => {
+          setPromoteModalOffer(null);
+          setPromoteSuccess(null);
+        }, 1200);
+      }
+    } catch (err: any) {
+      setPromoteError(extractErrorMessage(err, 'Failed to promote listing. Check your USD/USDT wallet balance.'));
+    } finally {
+      setPromotingLoading(false);
     }
   };
 
@@ -2392,8 +2464,36 @@ function P2PPageContent() {
       {/* -------------------------------------------------------------------- */}
       {bottomNav === 'p2p' && p2pTopTab === 'marketplace' && (
         <div className="space-y-6">
-          {/* Member Banner Prompt if not merchant */}
-          {!merchantStatus?.isP2pMerchant && (
+          {/* P2P Compliance Onboarding Gate Banner OR Merchant Prompt */}
+          {user && merchantStatus && !merchantStatus.isP2pTradingApproved ? (
+            <div className="p-4 rounded-3xl bg-gradient-to-r from-amber-500/15 via-rose-500/5 to-transparent border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {merchantStatus.p2pOnboardingStatus === 'PENDING_REVIEW'
+                      ? 'P2P Verification Under Admin Compliance Review'
+                      : merchantStatus.p2pOnboardingStatus === 'REJECTED'
+                      ? 'P2P Application Rejected — Action Required'
+                      : 'Complete P2P Onboarding & KYC Before Trading'}
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {merchantStatus.p2pOnboardingStatus === 'PENDING_REVIEW'
+                      ? 'Our team is verifying your Source of Funds and documents. Trading unlocks immediately after approval.'
+                      : 'Registering an account does not auto-enable P2P trading. Submit your Source of Funds & supporting documents for Admin approval.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigateTo('member')}
+                className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs whitespace-nowrap shadow-sm shrink-0 cursor-pointer"
+              >
+                {merchantStatus.p2pOnboardingStatus === 'PENDING_REVIEW' ? 'View Review Status' : 'Verify for P2P Trading'}
+              </button>
+            </div>
+          ) : !merchantStatus?.isP2pMerchant && (
             <div className="p-4 rounded-3xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0">
@@ -2401,10 +2501,10 @@ function P2PPageContent() {
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Want to trade as a Maker &amp; set your own exchange rates?
+                    Want to trade as a Maker, set custom rates &amp; promote top listings?
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Become an official P2P Member by locking a refundable $50 security deposit. Post customized Buy &amp; Sell ads to earn spreads.
+                    Complete P2P Verification and lock a refundable ${effectiveP2pDeposit} security deposit to post &amp; sponsor Buy/Sell ads.
                   </p>
                 </div>
               </div>
@@ -2412,7 +2512,7 @@ function P2PPageContent() {
                 onClick={() => navigateTo('member')}
                 className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs whitespace-nowrap shadow-sm shrink-0 cursor-pointer"
               >
-                Apply for Member Status
+                {merchantStatus?.isP2pTradingApproved ? `Lock $${effectiveP2pDeposit} Merchant Bond` : 'Apply for P2P Membership'}
               </button>
             </div>
           )}
@@ -2650,7 +2750,9 @@ function P2PPageContent() {
                   <div
                     key={offer.id}
                     className={`p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors ${
-                      offer.isDeskConcierge
+                      offer.isSponsored
+                        ? 'bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-l-4 border-l-amber-500 hover:from-amber-500/15'
+                        : offer.isDeskConcierge
                         ? 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
                         : offer.isOffline
                         ? 'opacity-90 hover:bg-slate-50 dark:hover:bg-slate-800/30'
@@ -2692,8 +2794,17 @@ function P2PPageContent() {
                             {offer.trader.name}
                           </button>
                           {offer.trader.isVerified && (
-                            <span title="KYC Verified Merchant">
+                            <span title="Admin KYC & Source-of-Funds Verified">
                               <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                            </span>
+                          )}
+                          {offer.isSponsored && (
+                            <span
+                              title="Promoted Placement • Verified Merchant paid for top marketplace visibility"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/40 text-[9px] font-black uppercase tracking-wider"
+                            >
+                              <Megaphone className="w-2.5 h-2.5" />
+                              <span>{offer.promotionBadgeLabel || 'Sponsored'}</span>
                             </span>
                           )}
                           {offer.trader.hasDisputeWarning && (
@@ -3152,155 +3263,19 @@ function P2PPageContent() {
       {/* -------------------------------------------------------------------- */}
       {bottomNav === 'profile' && activeNav === 'member' && (
         <div className="space-y-8 max-w-4xl mx-auto">
-          {/* Header Card */}
-          <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-slate-900 to-slate-950 text-white border border-slate-800 shadow-xl space-y-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
-              <Award className="w-3.5 h-3.5" />
-              <span>Avora Institutional P2P Member Program</span>
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Become an Authorized P2P Member &amp; Liquidity Maker
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-              P2P Members (Merchants) have exclusive permissions to post custom Buy and Sell listings, set independent local bank exchange margins, and earn profit on trading spreads across Sri Lanka (LKR), India (INR), UAE (AED), Georgia (GEL), Europe (EUR), and USA (USD).
-            </p>
-
-            {/* Merchant Status Card */}
-            <div className="pt-4 border-t border-slate-800">
-              <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Your P2P Membership Status:</span>
-                  {merchantStatus?.isP2pMerchant ? (
-                    <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      ACTIVE P2P MEMBER (${effectiveP2pDeposit} BOND LOCKED)
-                    </span>
-                  ) : !authLoading && !user ? (
-                    <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      SIGN IN REQUIRED
-                    </span>
-                  ) : (
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-400">
-                      NOT ACTIVATED
-                    </span>
-                  )}
-                </div>
-
-                {merchantMsg && (
-                  <div className={`p-3 rounded-xl text-xs font-semibold ${
-                    merchantMsg.type === 'success' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-                  }`}>
-                    {merchantMsg.text}
-                  </div>
-                )}
-
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  To protect counterparties against fraud and non-payment, Avora Bank locks a <strong>100% refundable security deposit of ${effectiveP2pDeposit.toFixed(2)} USD/USDT</strong>. When you close your merchant membership, this ${effectiveP2pDeposit} is released immediately back to your available balance.
-                </p>
-
-                <div className="pt-2 space-y-3">
-                  {merchantStatus?.p2pBlocked && (
-                    <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-                      <Ban className="w-4 h-4 shrink-0" />
-                      <span>
-                        P2P Access Restricted: {merchantStatus.p2pBlockedReason || 'Contact Compliance support.'}
-                      </span>
-                    </div>
-                  )}
-
-                  {merchantStatus?.stats && (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-                      <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
-                        <div className="text-[10px] text-slate-400">Completed Trades</div>
-                        <div className="text-base font-black text-emerald-400 font-mono">
-                          {merchantStatus.stats.completedOrders}
-                        </div>
-                      </div>
-                      <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
-                        <div className="text-[10px] text-slate-400">Completion Rate</div>
-                        <div className="text-base font-black text-white font-mono">
-                          {merchantStatus.stats.completionRate}
-                        </div>
-                      </div>
-                      <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
-                        <div className="text-[10px] text-slate-400">Total Volume</div>
-                        <div className="text-base font-black text-white font-mono">
-                          {merchantStatus.stats.totalVolumeCrypto}
-                        </div>
-                      </div>
-                      <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
-                        <div className="text-[10px] text-slate-400">User Rating</div>
-                        <div className="text-base font-black text-amber-400 font-mono flex items-center gap-1">
-                          <Star className="w-3.5 h-3.5 fill-amber-400" />
-                          <span>{merchantStatus.stats.avgRating ?? '—'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {user?.id && (
-                    <button
-                      type="button"
-                      onClick={() => setViewingTraderId(user.id)}
-                      className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-colors cursor-pointer"
-                    >
-                      View My Full Public P2P Profile &amp; Counterparty Reviews
-                    </button>
-                  )}
-
-                  {!authLoading && !user ? (
-                    <div className="space-y-3 pt-1">
-                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-center gap-2">
-                        <Lock className="w-4 h-4 shrink-0 text-amber-400" />
-                        <span>Sign in to your Avora Bank account before locking your refundable ${effectiveP2pDeposit} security deposit.</span>
-                      </div>
-                      <div className="flex flex-col sm:flex-row items-center gap-2.5">
-                        <Link
-                          href="/login?redirect=%2Fp2p%3Ftab%3Dprofile"
-                          className="w-full sm:flex-1 py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 transition-all"
-                        >
-                          <Lock className="w-4 h-4" />
-                          <span>Sign In to Lock ${effectiveP2pDeposit} Deposit &amp; Activate</span>
-                          <ArrowRight className="w-4 h-4" />
-                        </Link>
-                        <Link
-                          href="/register"
-                          className="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 text-center transition-all"
-                        >
-                          Create Account
-                        </Link>
-                      </div>
-                    </div>
-                  ) : !merchantStatus?.isP2pMerchant ? (
-                    <button
-                      onClick={handleApplyMerchant}
-                      disabled={merchantLoading || authLoading || Boolean(merchantStatus?.p2pBlocked)}
-                      className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
-                    >
-                      {merchantLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                      <span>Lock ${effectiveP2pDeposit} Security Deposit &amp; Become P2P Member</span>
-                    </button>
-                  ) : (
-                    <div className="flex flex-col sm:flex-row items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => navigateTo('post-ad')}
-                        className="w-full sm:flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
-                      >
-                        Post a Buy / Sell Advertisement
-                      </button>
-                      <button
-                        onClick={handleRefundMerchant}
-                        disabled={merchantLoading}
-                        className="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-400 font-bold text-xs border border-slate-700 transition-all cursor-pointer"
-                      >
-                        Close Status &amp; Refund ${effectiveP2pDeposit}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <P2POnboardingWizard
+            user={user}
+            authLoading={authLoading}
+            merchantStatus={merchantStatus}
+            merchantLoading={merchantLoading}
+            merchantMsg={merchantMsg}
+            effectiveP2pDeposit={effectiveP2pDeposit}
+            onApplyMerchant={handleApplyMerchant}
+            onRefundMerchant={handleRefundMerchant}
+            onApplicationSubmitted={fetchMerchantStatus}
+            onNavigateToPostAd={() => navigateTo('post-ad')}
+            onViewPublicProfile={(uid) => setViewingTraderId(uid)}
+          />
 
           {/* 4 Benefits Pillars */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3378,8 +3353,16 @@ function P2PPageContent() {
               <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-3">
                 <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
                 <div>
-                  <span className="font-bold">P2P Member Status Required:</span>
-                  <p className="mt-0.5">Please lock the ${effectiveP2pDeposit} refundable security deposit under the "P2P Member" tab before posting advertisements.</p>
+                  <span className="font-bold">
+                    {merchantStatus?.isP2pTradingApproved
+                      ? 'P2P Merchant Deposit Required:'
+                      : 'Admin P2P Verification & Merchant Bond Required:'}
+                  </span>
+                  <p className="mt-0.5">
+                    {merchantStatus?.isP2pTradingApproved
+                      ? `Your P2P verification is approved. Lock your $${effectiveP2pDeposit} refundable security deposit under "P2P Member" to publish ads.`
+                      : `Complete P2P Onboarding (Source of Funds & documents) for Admin approval, then lock your $${effectiveP2pDeposit} refundable security deposit under "P2P Member".`}
+                  </p>
                 </div>
               </div>
             )}
@@ -3651,12 +3634,65 @@ function P2PPageContent() {
                 />
               </div>
 
+              {/* Promote / Sponsor Listing Option */}
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newAdPromote}
+                    onChange={(e) => setNewAdPromote(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                  />
+                  <div>
+                    <div className="font-extrabold text-slate-900 dark:text-amber-300 flex items-center gap-1.5">
+                      <Megaphone className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Promote My Listing (Appear at Top of P2P Marketplace)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                      Pin your offer to the top of the marketplace with a clear <strong>Sponsored</strong> badge. Fee is deducted automatically from your USD/USDT balance.
+                    </p>
+                  </div>
+                </label>
+
+                {newAdPromote && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                    {promoTiers.map((tier) => {
+                      const active = newAdPromotionTier === tier.id;
+                      return (
+                        <button
+                          key={tier.id}
+                          type="button"
+                          onClick={() => setNewAdPromotionTier(tier.id)}
+                          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                            active
+                              ? 'bg-amber-500/20 border-amber-500 text-amber-950 dark:text-white shadow-sm'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-extrabold">${tier.feeUsd}</span>
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 font-bold">
+                              {tier.durationHours >= 168 ? '7 Days' : `${tier.durationHours} Hours`}
+                            </span>
+                          </div>
+                          <div className="font-bold text-[11px] mt-1">{tier.name}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               <button
                 type="submit"
                 disabled={newAdLoading || !merchantStatus?.isP2pMerchant}
                 className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
               >
-                {newAdLoading ? 'Publishing Advertisement...' : 'Publish Advertisement to Marketplace'}
+                {newAdLoading
+                  ? 'Publishing Advertisement...'
+                  : newAdPromote
+                  ? `Publish & Promote Listing ($${promoTiers.find((t) => t.id === newAdPromotionTier)?.feeUsd ?? 10})`
+                  : 'Publish Advertisement to Marketplace'}
               </button>
             </form>
           </div>
@@ -3722,6 +3758,15 @@ function P2PPageContent() {
                         >
                           {ad.status}
                         </span>
+                        {ad.isSponsored && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase">
+                            <Megaphone className="w-3 h-3" />
+                            <span>
+                              {ad.promotionBadgeLabel || 'Sponsored'}
+                              {ad.promotedUntil ? ` • Until ${new Date(ad.promotedUntil).toLocaleDateString()}` : ''}
+                            </span>
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-baseline gap-3">
@@ -3746,6 +3791,21 @@ function P2PPageContent() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {ad.status === 'OPEN' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPromoteModalOffer(ad);
+                            setPromoteTierChoice('BOOST_24H');
+                            setPromoteError(null);
+                            setPromoteSuccess(null);
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold cursor-pointer flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Megaphone className="w-3.5 h-3.5" />
+                          <span>{ad.isSponsored ? 'Extend Boost' : 'Promote Ad'}</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => openEditOfferModal(ad)}
@@ -3795,6 +3855,30 @@ function P2PPageContent() {
             {tradeError && (
               <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
                 {tradeError}
+              </div>
+            )}
+
+            {user && merchantStatus && !merchantStatus.isP2pTradingApproved && (
+              <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs space-y-2">
+                <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                  <span>P2P Compliance Verification Required</span>
+                </div>
+                <p>
+                  {merchantStatus.p2pOnboardingStatus === 'PENDING_REVIEW'
+                    ? 'Your P2P application is currently pending Admin review.'
+                    : 'Submit your Source of Funds & supporting KYC documents for Admin approval before placing P2P escrow orders.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedOfferForTrade(null);
+                    navigateTo('member');
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] cursor-pointer"
+                >
+                  Open P2P Onboarding &amp; Verification
+                </button>
               </div>
             )}
 
@@ -4445,6 +4529,89 @@ function P2PPageContent() {
                 >
                   {editAdSaving && <Loader2 className="w-4 h-4 animate-spin" />}
                   <span>{editAdSaving ? 'Saving Updates...' : 'Save Live Rate & Methods'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------------- */}
+      {/* PROMOTE / SPONSOR LISTING MODAL */}
+      {/* -------------------------------------------------------------------- */}
+      {promoteModalOffer && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Megaphone className="w-4 h-4 text-amber-400" />
+                <span className="font-extrabold text-sm">Promote P2P Listing — {promoteModalOffer.offerCode}</span>
+              </div>
+              <button onClick={() => setPromoteModalOffer(null)} className="p-1 text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Pin your verified merchant offer at the top of the P2P Marketplace with a visible <strong>Sponsored</strong> placement badge. Fee is deducted immediately from your USD or USDT balance.
+            </p>
+
+            {promoteError && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-semibold">
+                {promoteError}
+              </div>
+            )}
+            {promoteSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
+                {promoteSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handlePromoteOffer} className="space-y-3 text-xs">
+              <div className="space-y-2">
+                {promoTiers.map((tier) => {
+                  const selected = promoteTierChoice === tier.id;
+                  return (
+                    <button
+                      key={tier.id}
+                      type="button"
+                      onClick={() => setPromoteTierChoice(tier.id)}
+                      className={`w-full p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                        selected
+                          ? 'bg-amber-500/20 border-amber-500 text-white'
+                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-sm text-amber-400">${tier.feeUsd}.00 USD</span>
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-mono text-[10px] font-bold">
+                          {tier.durationHours >= 168 ? '7 Days Top Pin' : `${tier.durationHours}h Top Placement`}
+                        </span>
+                      </div>
+                      <div className="font-bold text-white mt-1">{tier.name}</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">{tier.description}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPromoteModalOffer(null)}
+                  className="py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={promotingLoading}
+                  className="py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {promotingLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>
+                    Pay ${promoTiers.find((t) => t.id === promoteTierChoice)?.feeUsd ?? 10} &amp; Sponsor
+                  </span>
                 </button>
               </div>
             </form>

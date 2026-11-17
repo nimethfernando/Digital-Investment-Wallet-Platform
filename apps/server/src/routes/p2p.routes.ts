@@ -9,15 +9,23 @@ const router = Router();
  * Public P2P Offers / Market Ads & Trader Profiles (viewable before or after login)
  */
 router.get('/offers', (req, res, next) => p2pController.getOffers(req, res, next));
+router.get('/promotion-tiers', (req, res, next) => p2pController.getPromotionTiers(req, res, next));
 router.get('/users/:userId/profile', (req, res, next) => p2pController.getTraderProfile(req, res, next));
 
 router.use(authenticateToken);
+
+/**
+ * P2P Onboarding & Compliance Verification Application
+ */
+router.post('/onboarding/apply', p2pActionLimiter, (req, res, next) => p2pController.submitOnboardingApplication(req, res, next));
+router.get('/onboarding/applications', (req, res, next) => p2pController.getMyOnboardingApplications(req, res, next));
 
 /**
  * P2P Offers / Market Ads Management (Authenticated merchants only)
  */
 router.get('/my-offers', (req, res, next) => p2pController.getMyOffers(req, res, next));
 router.post('/offers', p2pActionLimiter, (req, res, next) => p2pController.createOffer(req, res, next));
+router.post('/offers/:offerId/promote', p2pActionLimiter, (req, res, next) => p2pController.promoteOffer(req, res, next));
 router.patch('/offers/:offerId', p2pActionLimiter, (req, res, next) => p2pController.updateOffer(req, res, next));
 router.delete('/offers/:offerId', p2pActionLimiter, (req, res, next) => p2pController.cancelOffer(req, res, next));
 

@@ -60,6 +60,7 @@ async function runHttpProductionE2E() {
           role: Role.USER,
           status: 'ACTIVE',
           kycStatus: 'APPROVED',
+          p2pOnboardingStatus: 'APPROVED',
           country: 'Sri Lanka',
         },
       }),
@@ -72,6 +73,7 @@ async function runHttpProductionE2E() {
           role: Role.USER,
           status: 'ACTIVE',
           kycStatus: 'APPROVED',
+          p2pOnboardingStatus: 'APPROVED',
           country: 'Sri Lanka',
         },
       }),
@@ -721,6 +723,184 @@ async function runHttpProductionE2E() {
             })
             .catch(() => {});
         }
+      }
+    });
+
+    await assertHttp('H9: Unverified P2P Onboarding Gate -> Admin Review (2FA) -> Sponsored Top Listings & Ledger Revenue', async () => {
+      const freshTrader = await prisma.user.create({
+        data: {
+          email: `http_unverified_${ts}@testmail.com`,
+          passwordHash: 'test_hash',
+          firstName: 'Fresh',
+          lastName: 'Applicant',
+          role: Role.USER,
+          status: 'ACTIVE',
+          kycStatus: 'NOT_STARTED',
+          p2pOnboardingStatus: 'NOT_APPLIED',
+          country: 'Sri Lanka',
+        },
+      });
+      const freshWallet = await ledgerService.ensureWallet(freshTrader.id);
+      await prisma.$transaction(async (tx) => {
+        const usd = await ledgerService.lockWalletBalance(tx, freshWallet.id, 'USD');
+        await tx.walletBalance.update({ where: { id: usd.id }, data: { availableBalance: '150.00000000' } });
+      });
+      const freshToken = authService.generateToken(freshTrader.id, freshTrader.email, freshTrader.role);
+
+      // 1. Unverified user must be blocked from P2P order placement & $50 merchant deposit (no KYC auto-override)
+      const blockedOrder = await apiCall('POST', '/api/v1/p2p/orders', freshToken, {
+        offerId,
+        cryptoAmount: 10,
+        fiatAmount: 3055,
+        selectedPaymentMethod: 'Commercial Bank CEFTS',
+      });
+      if (blockedOrder.status < 400) {
+        throw new Error(`Expected unverified P2P order to be blocked, got ${blockedOrder.status}`);
+      }
+
+      const blockedMerchant = await apiCall('POST', '/api/v1/p2p/merchant/deposit', freshToken);
+      if (blockedMerchant.status < 400) {
+        throw new Error(`Expected unverified merchant deposit to be blocked, got ${blockedMerchant.status}`);
+      }
+      const afterAttempt = await prisma.user.findUnique({ where: { id: freshTrader.id } });
+      if (afterAttempt?.kycStatus !== 'NOT_STARTED' || afterAttempt?.isP2pMerchant) {
+        throw new Error('KYC auto-approval loophole still active after merchant attempt!');
+      }
+
+      // 2. Submit onboarding application with SOF + document evidence
+      const appRes = await apiCall('POST', '/api/v1/p2p/onboarding/apply', freshToken, {
+        sourceOfFunds: 'Business / Commercial Revenue',
+        sourceOfFundsDetails: 'Verified commercial FX & e-commerce settlement inflows with full Commercial Bank SL statements.',
+        tradingExperience: 'Experienced Trader (2+ years P2P / OTC)',
+        expectedMonthlyVolume: '$10,000 – $50,000 / month',
+        paymentMethodsPlanned: ['Commercial Bank CEFTS', 'Bank Transfer'],
+        documentUrls: [uploadedProofUrl || '/uploads/receipts/sample-sof.png'],
+      });
+      if (appRes.status !== 201 || !appRes.json?.application?.id) {
+        throw new Error(`Onboarding submission failed: ${appRes.status} ${JSON.stringify(appRes.json)}`);
+      }
+      const app1Id = appRes.json.application.id;
+
+      // Still blocked while PENDING_REVIEW
+      const pendingBlocked = await apiCall('POST', '/api/v1/p2p/merchant/deposit', freshToken);
+      if (pendingBlocked.status < 400) {
+        throw new Error('Expected PENDING_REVIEW applicant to remain blocked before Admin approval');
+      }
+
+      // 3. Admin inspects queue, rejects first, applicant resubmits, Admin approves with 2FA
+      const adminQueue = await apiCall('GET', '/api/v1/admin/p2p/applications?status=PENDING', adminToken);
+      if (adminQueue.status !== 200 || !adminQueue.json?.data?.some((a: any) => a.id === app1Id)) {
+        throw new Error('Admin P2P applications queue missing newly submitted application');
+      }
+
+      const rejRes = await apiCall(
+        'POST',
+        `/api/v1/admin/p2p/applications/${app1Id}/review`,
+        adminToken,
+        { decision: 'REJECT', reviewNotes: 'Please provide clearer bank statement header.' },
+        { 'x-admin-2fa': authenticator.generate(adminSecret) }
+      );
+      if (rejRes.status !== 200 || rejRes.json?.status !== 'REJECTED') {
+        throw new Error(`Admin rejection failed: ${rejRes.status} ${JSON.stringify(rejRes.json)}`);
+      }
+
+      const resubRes = await apiCall('POST', '/api/v1/p2p/onboarding/apply', freshToken, {
+        sourceOfFunds: 'Business / Commercial Revenue',
+        sourceOfFundsDetails: 'Updated certified Commercial Bank SL statements and business registration provided.',
+        tradingExperience: 'Experienced Trader (2+ years P2P / OTC)',
+        expectedMonthlyVolume: '$10,000 – $50,000 / month',
+        paymentMethodsPlanned: ['Commercial Bank CEFTS'],
+        documentUrls: [uploadedProofUrl || '/uploads/receipts/sample-sof-v2.png'],
+      });
+      if (resubRes.status !== 201 || !resubRes.json?.application?.id) {
+        throw new Error(`Resubmission after reject failed: ${resubRes.status}`);
+      }
+      const app2Id = resubRes.json.application.id;
+
+      const apprRes = await apiCall(
+        'POST',
+        `/api/v1/admin/p2p/applications/${app2Id}/review`,
+        adminToken,
+        { decision: 'APPROVE', reviewNotes: 'SOF, ID, and Commercial Bank statements verified.', approveKyc: true },
+        { 'x-admin-2fa': authenticator.generate(adminSecret) }
+      );
+      if (apprRes.status !== 200 || apprRes.json?.status !== 'APPROVED') {
+        throw new Error(`Admin approval failed: ${apprRes.status} ${JSON.stringify(apprRes.json)}`);
+      }
+
+      // 4. Approved trader locks $50 merchant deposit -> $100 USD remains
+      const merchOk = await apiCall('POST', '/api/v1/p2p/merchant/deposit', freshToken);
+      if (merchOk.status !== 201 || !merchOk.json?.isP2pMerchant) {
+        throw new Error(`Expected approved trader to lock $50 deposit cleanly, got ${merchOk.status} ${JSON.stringify(merchOk.json)}`);
+      }
+
+      // 5. Create BOOST_24H ($10) sponsored offer + non-sponsored offer then promote to PRIORITY_72H ($25)
+      const promoCreateRes = await apiCall('POST', '/api/v1/p2p/offers', freshToken, {
+        side: 'BUY',
+        cryptoCurrency: 'USDT',
+        fiatCurrency: 'LKR',
+        price: 306.0,
+        totalAmount: 100,
+        minLimit: 3000,
+        maxLimit: 30000,
+        paymentMethods: ['Commercial Bank CEFTS'],
+        promoteListing: true,
+        promotionTier: 'BOOST_24H',
+      });
+      if (promoCreateRes.status !== 201 || !promoCreateRes.json?.offer?.isSponsored) {
+        throw new Error(`Sponsored offer creation failed: ${promoCreateRes.status} ${JSON.stringify(promoCreateRes.json)}`);
+      }
+      const boostOfferId = promoCreateRes.json.offer.id;
+
+      const organicRes = await apiCall('POST', '/api/v1/p2p/offers', freshToken, {
+        side: 'BUY',
+        cryptoCurrency: 'USDT',
+        fiatCurrency: 'LKR',
+        price: 307.0,
+        totalAmount: 100,
+        minLimit: 3000,
+        maxLimit: 30000,
+        paymentMethods: ['Commercial Bank CEFTS'],
+      });
+      if (organicRes.status !== 201 || !organicRes.json?.offer?.id) {
+        throw new Error(`Second offer creation failed: ${organicRes.status}`);
+      }
+      const priorityOfferId = organicRes.json.offer.id;
+
+      const promoteAction = await apiCall('POST', `/api/v1/p2p/offers/${priorityOfferId}/promote`, freshToken, {
+        promotionTier: 'PRIORITY_72H',
+      });
+      if (promoteAction.status !== 200 || promoteAction.json?.promotionTier !== 'PRIORITY_72H') {
+        throw new Error(`Promote existing offer failed: ${promoteAction.status} ${JSON.stringify(promoteAction.json)}`);
+      }
+
+      // 6. Marketplace sorting: PRIORITY_72H first, BOOST_24H second, organic non-sponsored after
+      const marketList = await apiCall('GET', '/api/v1/p2p/offers?side=BUY&cryptoCurrency=USDT&fiatCurrency=LKR&sortBy=price_asc');
+      const rows: any[] = marketList.json?.data || [];
+      const idxPriority = rows.findIndex((o) => o.id === priorityOfferId);
+      const idxBoost = rows.findIndex((o) => o.id === boostOfferId);
+      const idxOrganic = rows.findIndex((o) => o.id === offerId);
+      if (idxPriority === -1 || idxBoost === -1 || idxOrganic === -1 || !(idxPriority < idxBoost && idxBoost < idxOrganic)) {
+        throw new Error(
+          `Expected Sponsored priority ordering (72h < 24h < organic), got indices ${idxPriority}, ${idxBoost}, ${idxOrganic}`
+        );
+      }
+      if (!rows[idxPriority].isSponsored || !rows[idxBoost].isSponsored || rows[idxOrganic].isSponsored) {
+        throw new Error('Unexpected isSponsored flag values on marketplace offers');
+      }
+
+      // 7. Verify $35 total promotion fees deducted ($150 - $50 deposit - $10 - $25 = $65) & credited in revenue ledger
+      const balAfter = await prisma.walletBalance.findUnique({
+        where: { walletId_currency: { walletId: freshWallet.id, currency: 'USD' } },
+      });
+      if (Number(balAfter?.availableBalance || 0) !== 65) {
+        throw new Error(`Expected $65 USD remaining after $50 deposit + $35 promotions, got ${balAfter?.availableBalance}`);
+      }
+
+      const revRes = await apiCall('GET', '/api/v1/admin/ledger/revenue', adminToken);
+      const promoRev = parseFloat(revRes.json?.data?.moduleBreakdown?.p2pPromotionFeeTotal || '0');
+      if (!revRes.json?.data?.ledgerIsBalanced || promoRev < 35) {
+        throw new Error(`Expected balanced ledger and >= $35 p2pPromotionFeeTotal, got promoRev=${promoRev}, balanced=${revRes.json?.data?.ledgerIsBalanced}`);
       }
     });
 

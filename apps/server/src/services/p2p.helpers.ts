@@ -23,6 +23,46 @@ export const P2P_TIMERS = {
   EXPIRING_SOON_WARN_MINUTES: 5,
 };
 
+export interface P2PPromotionTierSpec {
+  id: 'BOOST_24H' | 'PRIORITY_72H' | 'FEATURED_7D';
+  name: string;
+  badgeLabel: string;
+  feeUsd: number;
+  durationHours: number;
+  priority: number;
+  description: string;
+}
+
+export const P2P_PROMOTION_TIERS: Record<string, P2PPromotionTierSpec> = {
+  BOOST_24H: {
+    id: 'BOOST_24H',
+    name: '24-Hour Sponsored Boost',
+    badgeLabel: 'Sponsored • 24h Boost',
+    feeUsd: 10,
+    durationHours: 24,
+    priority: 1,
+    description: 'Highlights your ad at the top of the P2P order book for 24 hours with a Sponsored badge.',
+  },
+  PRIORITY_72H: {
+    id: 'PRIORITY_72H',
+    name: '72-Hour Priority Placement',
+    badgeLabel: 'Sponsored • 72h Priority',
+    feeUsd: 25,
+    durationHours: 72,
+    priority: 2,
+    description: 'Outranks 24h boosts and keeps your listing pinned at the top for 3 full days.',
+  },
+  FEATURED_7D: {
+    id: 'FEATURED_7D',
+    name: '7-Day Featured Desk Pin',
+    badgeLabel: 'Sponsored • 7d Featured',
+    feeUsd: 50,
+    durationHours: 168,
+    priority: 3,
+    description: 'Maximum top-tier visibility for 7 days, outranking all standard and lower-tier sponsored ads.',
+  },
+};
+
 export interface UserP2PStats {
   userId: string;
   totalOrders: number;

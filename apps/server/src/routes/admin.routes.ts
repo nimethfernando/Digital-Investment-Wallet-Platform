@@ -116,7 +116,11 @@ router.post('/investments/listings', requireRole([Role.ADMIN]), requireAdmin2FA,
 router.put('/investments/listings/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateStartupListing(req, res, next));
 router.delete('/investments/listings/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.deleteStartupListing(req, res, next));
 
-// P2P Escrow & Dispute Resolution
+// P2P Escrow, Onboarding Applications & Dispute Resolution
+router.get('/p2p/applications', (req, res, next) => adminController.getP2PApplications(req, res, next));
+router.post('/p2p/applications/:id/review', requireRole([Role.ADMIN, Role.STAFF]), requireAdmin2FA, (req, res, next) =>
+  adminController.reviewP2PApplication(req, res, next)
+);
 router.get('/p2p/orders', (req, res, next) => adminController.getP2POrders(req, res, next));
 router.post('/p2p/orders/:id/freeze', requireRole([Role.ADMIN]), (req, res, next) => adminController.freezeP2POrder(req, res, next));
 router.post('/p2p/orders/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resolveP2PDispute(req, res, next));

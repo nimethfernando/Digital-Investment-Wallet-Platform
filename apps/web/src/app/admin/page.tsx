@@ -1503,7 +1503,7 @@ export default function AdminPortalPage() {
     packages: adminPackages.length > 0 ? adminPackages.length : (overviewAnalytics?.totalPackages || 0),
     remittance: remittanceTransfers.length > 0 ? remittanceTransfers.length : (overviewAnalytics?.totalTransfers || 0),
     investments: adminInvestments.length > 0 ? adminInvestments.length : (overviewAnalytics?.totalStartups || 0),
-    p2p: p2pOrders.length || 0,
+    p2p: (p2pOrders.length || 0) + (commandCenterSummary?.pendingP2PApplicationsCount ?? 0),
     otc: otcDesks.length > 0 ? otcDesks.length : (overviewAnalytics?.totalOtcDesks ?? 0),
     deposits: (Array.isArray(deposits) && deposits.length > 0)
       ? deposits.filter((d) => d?.status === 'PENDING').length
@@ -3356,6 +3356,15 @@ export default function AdminPortalPage() {
                       {platformRevenue.moduleBreakdown?.p2pFeeTotal || '0.0000'} Crypto
                     </div>
                     <div className="text-[10px] text-slate-500 mt-0.5">Deducted on escrow release</div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">P2P Listing Promos</div>
+                    <div className="text-lg font-black text-amber-400 font-mono mt-1">
+                      ${platformRevenue.moduleBreakdown?.p2pPromotionFeeTotal || '0.00'}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      {platformRevenue.moduleBreakdown?.p2pPromotionCount || 0} sponsored placement(s)
+                    </div>
                   </div>
                   <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
                     <div className="text-[10px] text-slate-400 uppercase font-bold">Venture Equity Fees</div>
