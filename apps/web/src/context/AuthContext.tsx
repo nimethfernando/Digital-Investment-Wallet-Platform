@@ -30,6 +30,13 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const LAST_ACTIVITY_STORAGE_KEY = 'avora_last_activity';
+// 2 hours of genuine inactivity across ALL open tabs (never 20-30s, 1m, 5m, 10m, or 15m)
+const INACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+// Sliding session refresh interval while user is active
+const SESSION_KEEPALIVE_INTERVAL_MS = 15 * 60 * 1000;
+const ACTIVITY_STORAGE_THROTTLE_MS = 5000;
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -103,34 +110,137 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Session Management: Auto-logout after 15 minutes of user inactivity
+  // Cross-tab Session Sync & Activity-Aware Sliding Session Management
   useEffect(() => {
     if (!token) return;
 
-    const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes of idle
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let lastLocalActivity = Date.now();
+    let lastStorageWrite = 0;
 
-    const resetTimer = () => {
-      clearTimeout(timeoutId);
+    const persistActivity = (force = false) => {
+      const now = Date.now();
+      lastLocalActivity = now;
+      if (force || now - lastStorageWrite >= ACTIVITY_STORAGE_THROTTLE_MS) {
+        lastStorageWrite = now;
+        try {
+          localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(now));
+        } catch {
+          // Ignore storage quota / private mode errors
+        }
+      }
+    };
+
+    const scheduleInactivityCheck = (delayMs = INACTIVITY_TIMEOUT_MS) => {
+      if (timeoutId) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
+        let sharedActivity = 0;
+        try {
+          sharedActivity = Number(localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY) || '0');
+        } catch {
+          sharedActivity = 0;
+        }
+        const latestActivity = Math.max(lastLocalActivity, sharedActivity);
+        const elapsed = Date.now() - latestActivity;
+
+        // If the user was active recently in this or another tab, extend instead of logging out
+        if (elapsed < INACTIVITY_TIMEOUT_MS) {
+          scheduleInactivityCheck(Math.max(1000, INACTIVITY_TIMEOUT_MS - elapsed));
+          return;
+        }
+
+        // Also treat open/active tab interactions or recent input as active before clearing
         setUser(null);
         setToken(null);
         localStorage.removeItem('avora_token');
         localStorage.removeItem('avora_user');
         localStorage.removeItem('nexis_token');
         localStorage.removeItem('nexis_user');
+        localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
         window.location.href = '/login?reason=inactivity';
-      }, INACTIVITY_TIMEOUT_MS);
+      }, delayMs);
     };
 
-    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
-    activityEvents.forEach((ev) => window.addEventListener(ev, resetTimer, { passive: true }));
+    const handleUserActivity = () => {
+      persistActivity(false);
+      scheduleInactivityCheck(INACTIVITY_TIMEOUT_MS);
+    };
 
-    resetTimer();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        persistActivity(true);
+        scheduleInactivityCheck(INACTIVITY_TIMEOUT_MS);
+      }
+    };
+
+    const handleActivityStorageSync = (e: StorageEvent) => {
+      if (e.key === LAST_ACTIVITY_STORAGE_KEY && e.newValue) {
+        const ts = Number(e.newValue);
+        if (Number.isFinite(ts) && ts > lastLocalActivity) {
+          lastLocalActivity = ts;
+          const remaining = Math.max(1000, INACTIVITY_TIMEOUT_MS - (Date.now() - ts));
+          scheduleInactivityCheck(remaining);
+        }
+      }
+    };
+
+    // Initialize activity timestamp on mount/login
+    persistActivity(true);
+    scheduleInactivityCheck(INACTIVITY_TIMEOUT_MS);
+
+    const windowEvents: Array<keyof WindowEventMap> = [
+      'mousedown',
+      'pointerdown',
+      'mousemove',
+      'keydown',
+      'input',
+      'change',
+      'wheel',
+      'touchstart',
+      'click',
+      'focus',
+    ];
+    windowEvents.forEach((ev) => window.addEventListener(ev, handleUserActivity, { passive: true }));
+    // Capture scroll & input inside modal overlays (scroll events do not bubble to window)
+    document.addEventListener('scroll', handleUserActivity, { passive: true, capture: true });
+    document.addEventListener('input', handleUserActivity, { passive: true, capture: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('storage', handleActivityStorageSync);
+
+    // Periodic sliding JWT keepalive: refresh token while the user has recent activity
+    const keepaliveInterval = setInterval(async () => {
+      let sharedActivity = 0;
+      try {
+        sharedActivity = Number(localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY) || '0');
+      } catch {
+        sharedActivity = 0;
+      }
+      const latestActivity = Math.max(lastLocalActivity, sharedActivity);
+      const isRecentlyActive =
+        Date.now() - latestActivity < SESSION_KEEPALIVE_INTERVAL_MS * 2 ||
+        (typeof document !== 'undefined' && document.visibilityState === 'visible');
+
+      if (!isRecentlyActive) return;
+
+      try {
+        const res = await api.post('/auth/refresh');
+        if (res.data?.token) {
+          localStorage.setItem('avora_token', res.data.token);
+          setToken(res.data.token);
+        }
+      } catch {
+        // Ignore transient network / 503 errors; do not disrupt the active session
+      }
+    }, SESSION_KEEPALIVE_INTERVAL_MS);
 
     return () => {
-      clearTimeout(timeoutId);
-      activityEvents.forEach((ev) => window.removeEventListener(ev, resetTimer));
+      if (timeoutId) clearTimeout(timeoutId);
+      clearInterval(keepaliveInterval);
+      windowEvents.forEach((ev) => window.removeEventListener(ev, handleUserActivity));
+      document.removeEventListener('scroll', handleUserActivity, { capture: true });
+      document.removeEventListener('input', handleUserActivity, { capture: true });
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('storage', handleActivityStorageSync);
     };
   }, [token]);
 
@@ -145,6 +255,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(res.data.user);
       localStorage.setItem('avora_token', res.data.token);
       localStorage.setItem('avora_user', JSON.stringify(res.data.user));
+      localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
     }
     return res.data;
   };
@@ -156,6 +267,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(res.data.user);
       localStorage.setItem('avora_token', res.data.token);
       localStorage.setItem('avora_user', JSON.stringify(res.data.user));
+      localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
     }
     return res.data;
   };
@@ -167,6 +279,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('avora_user');
     localStorage.removeItem('nexis_token');
     localStorage.removeItem('nexis_user');
+    localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
     const destination = typeof redirectTo === 'string' ? redirectTo : '/login';
     window.location.href = destination;
   };

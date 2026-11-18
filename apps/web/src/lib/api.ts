@@ -80,18 +80,34 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+const NON_SESSION_EXPIRY_AUTH_PATHS = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/2fa',
+  '/auth/change-password',
+  '/auth/reset-password',
+  '/auth/forgot-password',
+];
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (typeof window !== 'undefined') {
       const status = error.response?.status;
       const errMsg = String(error.response?.data?.message || '');
+      const requestUrl = String(error.config?.url || '');
       const hadAuthHeader = Boolean(
         error.config?.headers?.Authorization || error.config?.headers?.authorization
       );
+      const isCredentialEndpoint = NON_SESSION_EXPIRY_AUTH_PATHS.some((p) =>
+        requestUrl.includes(p)
+      );
       const isExpiredJwt =
-        (status === 401 && hadAuthHeader) ||
-        (status === 403 && errMsg === 'Invalid or expired access token');
+        !isCredentialEndpoint &&
+        status !== undefined &&
+        status < 500 &&
+        ((status === 401 && hadAuthHeader) ||
+          (status === 403 && errMsg === 'Invalid or expired access token'));
       const currentPath = window.location.pathname;
 
       if (isExpiredJwt && !currentPath.includes('/login') && !currentPath.includes('/register')) {
@@ -99,6 +115,7 @@ api.interceptors.response.use(
         localStorage.removeItem('avora_user');
         localStorage.removeItem('nexis_token');
         localStorage.removeItem('nexis_user');
+        localStorage.removeItem('avora_last_activity');
         window.dispatchEvent(new Event('avora-auth-cleared'));
       }
     }

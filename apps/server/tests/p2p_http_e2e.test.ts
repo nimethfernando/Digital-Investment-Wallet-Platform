@@ -1041,6 +1041,25 @@ async function runHttpProductionE2E() {
       }
     });
 
+    await assertHttp('H11: Sliding session keepalive /api/v1/auth/refresh renews active JWT without logout', async () => {
+      const noTokenRes = await apiCall('POST', '/api/v1/auth/refresh');
+      if (noTokenRes.status !== 401) {
+        throw new Error(`Expected 401 without token on /auth/refresh, got ${noTokenRes.status}`);
+      }
+      const badTokenRes = await apiCall('POST', '/api/v1/auth/refresh', 'invalid.jwt.token');
+      if (badTokenRes.status !== 403) {
+        throw new Error(`Expected 403 for invalid token on /auth/refresh, got ${badTokenRes.status}`);
+      }
+      const refreshRes = await apiCall('POST', '/api/v1/auth/refresh', adminToken);
+      if (refreshRes.status !== 200 || !refreshRes.json?.success || !refreshRes.json?.token) {
+        throw new Error(`Expected 200 + renewed token from /auth/refresh, got ${refreshRes.status} ${JSON.stringify(refreshRes.json)}`);
+      }
+      const meRes = await apiCall('GET', '/api/v1/auth/me', refreshRes.json.token);
+      if (meRes.status !== 200 || !meRes.json?.success || !meRes.json?.user?.id) {
+        throw new Error(`Refreshed JWT failed /auth/me verification: ${meRes.status}`);
+      }
+    });
+
     console.log('\n================================================================');
     console.log(`🌐 HTTP Production E2E Results: ${passed}/${total} Tests Passed`);
     console.log('================================================================\n');

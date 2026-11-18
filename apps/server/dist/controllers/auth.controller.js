@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.instantVerifyKyc = exports.resetKyc = exports.getSumsubToken = exports.getKycStatus = exports.submitKyc = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.detectLocation = exports.register = void 0;
+exports.instantVerifyKyc = exports.resetKyc = exports.getSumsubToken = exports.getKycStatus = exports.submitKyc = exports.refreshSession = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.detectLocation = exports.register = void 0;
 const zod_1 = require("zod");
 const prisma_1 = require("../lib/prisma");
 const auth_service_1 = require("../services/auth.service");
@@ -186,6 +186,18 @@ const getMe = async (req, res, next) => {
     }
 };
 exports.getMe = getMe;
+const refreshSession = async (req, res, next) => {
+    try {
+        if (!req.user)
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const result = await auth_service_1.authService.refreshSession(req.user.userId);
+        res.json({ success: true, ...result });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.refreshSession = refreshSession;
 const submitKyc = async (req, res, next) => {
     try {
         if (!req.user)

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Award,
@@ -98,6 +98,66 @@ export function P2POnboardingWizard({
   const [appFeedback, setAppFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const feedbackRef = useRef<HTMLDivElement | null>(null);
+  const p2pDraftHydratedRef = useRef(false);
+  const P2P_DRAFT_KEY = 'avora_p2p_onboarding_draft';
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(P2P_DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (typeof draft.sourceOfFunds === 'string' && draft.sourceOfFunds) setSourceOfFunds(draft.sourceOfFunds);
+        if (typeof draft.sourceOfFundsDetails === 'string') setSourceOfFundsDetails(draft.sourceOfFundsDetails);
+        if (typeof draft.tradingExperience === 'string' && draft.tradingExperience) setTradingExperience(draft.tradingExperience);
+        if (typeof draft.expectedMonthlyVolume === 'string' && draft.expectedMonthlyVolume) setExpectedMonthlyVolume(draft.expectedMonthlyVolume);
+        if (Array.isArray(draft.plannedMethods) && draft.plannedMethods.length > 0) setPlannedMethods(draft.plannedMethods);
+        if (Array.isArray(draft.documentUrls)) setDocumentUrls(draft.documentUrls);
+        if (typeof draft.additionalNotes === 'string') setAdditionalNotes(draft.additionalNotes);
+      }
+    } catch {
+      // Ignore malformed draft
+    } finally {
+      p2pDraftHydratedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!p2pDraftHydratedRef.current) return;
+    const hasDraftData = Boolean(
+      sourceOfFundsDetails.trim() ||
+        additionalNotes.trim() ||
+        documentUrls.length > 0 ||
+        sourceOfFunds !== SOURCE_OF_FUNDS_OPTIONS[0] ||
+        tradingExperience !== EXPERIENCE_OPTIONS[1] ||
+        expectedMonthlyVolume !== VOLUME_OPTIONS[1] ||
+        plannedMethods.join(',') !== 'Bank Transfer'
+    );
+    if (!hasDraftData) return;
+    try {
+      localStorage.setItem(
+        P2P_DRAFT_KEY,
+        JSON.stringify({
+          sourceOfFunds,
+          sourceOfFundsDetails,
+          tradingExperience,
+          expectedMonthlyVolume,
+          plannedMethods,
+          documentUrls,
+          additionalNotes,
+        })
+      );
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [
+    sourceOfFunds,
+    sourceOfFundsDetails,
+    tradingExperience,
+    expectedMonthlyVolume,
+    plannedMethods,
+    documentUrls,
+    additionalNotes,
+  ]);
 
   const showFeedback = (type: 'success' | 'error', text: string) => {
     setAppFeedback({ type, text });
@@ -193,6 +253,9 @@ export function P2POnboardingWizard({
         additionalNotes: additionalNotes.trim() || undefined,
       });
       if (res.data?.success) {
+        try {
+          localStorage.removeItem(P2P_DRAFT_KEY);
+        } catch {}
         const refCode = res.data.application?.applicationCode ? ` (${res.data.application.applicationCode})` : '';
         showFeedback(
           'success',

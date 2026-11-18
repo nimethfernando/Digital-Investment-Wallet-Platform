@@ -9,6 +9,7 @@ import {
   verify2fa,
   disable2fa,
   getMe,
+  refreshSession,
   submitKyc,
   getKycStatus,
   getSumsubToken,
@@ -30,6 +31,7 @@ router.post('/reset-password', authRateLimiter, resetPassword);
 
 // Protected routes
 router.get('/me', authenticateToken, getMe);
+router.post('/refresh', authenticateToken, refreshSession);
 router.post('/change-password', authenticateToken, authRateLimiter, changePassword);
 
 // Identity Verification (KYC / AML & Sumsub/Onfido SDK integration)

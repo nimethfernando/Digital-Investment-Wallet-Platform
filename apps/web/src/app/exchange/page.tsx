@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
@@ -145,6 +145,87 @@ export default function ExchangeDeskPage() {
   const [applyError, setApplyError] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
   const [otcDepositUsd, setOtcDepositUsd] = useState<number>(1000);
+  const otcDraftHydratedRef = useRef(false);
+
+  const OTC_DESK_DRAFT_KEY = 'avora_otc_desk_draft';
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(OTC_DESK_DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (typeof draft.applyDeskName === 'string') setApplyDeskName(draft.applyDeskName);
+        if (typeof draft.applyCountry === 'string' && draft.applyCountry) setApplyCountry(draft.applyCountry);
+        if (typeof draft.applyCountryCode === 'string' && draft.applyCountryCode) setApplyCountryCode(draft.applyCountryCode);
+        if (typeof draft.applyCity === 'string') setApplyCity(draft.applyCity);
+        if (typeof draft.applyAddress === 'string') setApplyAddress(draft.applyAddress);
+        if (typeof draft.applyLandmark === 'string') setApplyLandmark(draft.applyLandmark);
+        if (typeof draft.applyGoogleMapsUrl === 'string') setApplyGoogleMapsUrl(draft.applyGoogleMapsUrl);
+        if (draft.applyCoords && typeof draft.applyCoords.lat === 'number' && typeof draft.applyCoords.lng === 'number') {
+          setApplyCoords(draft.applyCoords);
+        }
+        if (typeof draft.applyCurrencies === 'string' && draft.applyCurrencies) setApplyCurrencies(draft.applyCurrencies);
+        if (typeof draft.applyMethods === 'string' && draft.applyMethods) setApplyMethods(draft.applyMethods);
+        if (typeof draft.applyBuyMargin === 'string' && draft.applyBuyMargin) setApplyBuyMargin(draft.applyBuyMargin);
+        if (typeof draft.applySellMargin === 'string' && draft.applySellMargin) setApplySellMargin(draft.applySellMargin);
+      }
+    } catch {
+      // Ignore malformed draft
+    } finally {
+      otcDraftHydratedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!otcDraftHydratedRef.current) return;
+    const hasCustomDraft = Boolean(
+      applyDeskName.trim() ||
+        applyCity.trim() ||
+        applyAddress.trim() ||
+        applyLandmark.trim() ||
+        applyGoogleMapsUrl.trim() ||
+        applyCoords ||
+        applyCurrencies !== 'USDT, USD' ||
+        applyMethods !== 'Physical Cash, Bank Transfer' ||
+        applyBuyMargin !== '1.2' ||
+        applySellMargin !== '1.0'
+    );
+    if (!hasCustomDraft) return;
+    try {
+      localStorage.setItem(
+        OTC_DESK_DRAFT_KEY,
+        JSON.stringify({
+          applyDeskName,
+          applyCountry,
+          applyCountryCode,
+          applyCity,
+          applyAddress,
+          applyLandmark,
+          applyGoogleMapsUrl,
+          applyCoords,
+          applyCurrencies,
+          applyMethods,
+          applyBuyMargin,
+          applySellMargin,
+        })
+      );
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [
+    applyDeskName,
+    applyCountry,
+    applyCountryCode,
+    applyCity,
+    applyAddress,
+    applyLandmark,
+    applyGoogleMapsUrl,
+    applyCoords,
+    applyCurrencies,
+    applyMethods,
+    applyBuyMargin,
+    applySellMargin,
+  ]);
 
   useEffect(() => {
     api.get('/cms/settings')
@@ -563,6 +644,9 @@ export default function ExchangeDeskPage() {
       });
 
       if (res.data.success) {
+        try {
+          localStorage.removeItem(OTC_DESK_DRAFT_KEY);
+        } catch {}
         setApplySuccess(
           `Congratulations! Your OTC Desk with verified Google Maps location has been activated and $${otcDepositUsd.toLocaleString()} security deposit is locked.`
         );

@@ -177,6 +177,16 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
   }
 };
 
+export const refreshSession = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const result = await authService.refreshSession(req.user.userId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const submitKyc = async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });

@@ -20,6 +20,22 @@ export default function LoginPage() {
   const [requires2FA, setRequires2FA] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get('reason');
+    if (reason === 'inactivity') {
+      setSessionNotice(
+        'Your session was closed after an extended period of inactivity. Sign back in to continue — any application drafts remain saved on this browser.'
+      );
+    } else if (reason === 'expired') {
+      setSessionNotice(
+        'Your session expired. Please sign back in to continue.'
+      );
+    }
+  }, []);
 
   // If user is already authenticated, redirect them away immediately so clicking browser Back button does not show login form
   useEffect(() => {
@@ -98,6 +114,13 @@ export default function LoginPage() {
               : 'Sign in to access all private banking facilities, global transfers, and investment desks.'}
           </p>
         </div>
+
+        {sessionNotice && !error && (
+          <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-amber-800 dark:text-amber-200 text-xs flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{sessionNotice}</span>
+          </div>
+        )}
 
         {error && (
           <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">

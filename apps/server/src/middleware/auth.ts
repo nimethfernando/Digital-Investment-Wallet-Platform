@@ -30,14 +30,19 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
     return;
   }
 
+  let payload: AuthenticatedUser;
   try {
-    let payload: AuthenticatedUser;
     try {
       payload = jwt.verify(token, config.jwtSecret) as AuthenticatedUser;
     } catch {
       payload = jwt.verify(token, config.adminJwtSecret) as AuthenticatedUser;
     }
-    
+  } catch {
+    res.status(403).json({ success: false, message: 'Invalid or expired access token' });
+    return;
+  }
+
+  try {
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
       select: { id: true, email: true, role: true, status: true, mustChangePassword: true, twoFactorEnabled: true }
@@ -59,7 +64,8 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
 
     next();
   } catch (err) {
-    res.status(403).json({ success: false, message: 'Invalid or expired access token' });
+    console.error('[AuthMiddleware] Transient database error during user lookup:', err);
+    res.status(503).json({ success: false, message: 'Service temporarily unavailable. Please retry.' });
     return;
   }
 };

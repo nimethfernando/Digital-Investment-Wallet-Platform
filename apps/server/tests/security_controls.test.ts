@@ -8,6 +8,8 @@ import { p2pService } from '../src/services/p2p.service';
 import { withdrawalService } from '../src/services/withdrawal.service';
 import { ledgerService } from '../src/services/ledger.service';
 import { authRateLimiter, withdrawalRateLimiter, p2pRateLimiter } from '../src/middleware/rate-limiter';
+import { authenticateToken } from '../src/middleware/auth';
+import { prisma as appPrisma } from '../src/lib/prisma';
 
 const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -335,6 +337,45 @@ async function runSecurityTestSuite() {
     }
     if (typeof p2pRateLimiter !== 'function') {
       throw new Error('p2pRateLimiter is not an Express middleware function');
+    }
+  });
+
+  await assertTest('4.2: Verify authenticateToken returns 503 (not 403 expired JWT) on transient DB failure & refreshSession renews active user', async () => {
+    const refreshed = await authService.refreshSession(sender.id);
+    if (!refreshed?.token) {
+      throw new Error('authService.refreshSession did not return a token');
+    }
+
+    const origFindUnique = appPrisma.user.findUnique;
+    let capturedStatus = 0;
+    let capturedBody: any = null;
+    try {
+      (appPrisma.user as any).findUnique = async () => {
+        throw new Error('Simulated DB connection timeout');
+      };
+      const fakeReq: any = { headers: { authorization: `Bearer ${refreshed.token}` } };
+      const fakeRes: any = {
+        status(code: number) {
+          capturedStatus = code;
+          return this;
+        },
+        json(body: any) {
+          capturedBody = body;
+          return this;
+        },
+      };
+      let nextCalled = false;
+      await authenticateToken(fakeReq, fakeRes, () => {
+        nextCalled = true;
+      });
+      if (nextCalled) {
+        throw new Error('Expected authenticateToken not to call next() on DB failure');
+      }
+      if (capturedStatus !== 503 || capturedBody?.message === 'Invalid or expired access token') {
+        throw new Error(`Expected 503 transient error without invalidating JWT, got ${capturedStatus} ${JSON.stringify(capturedBody)}`);
+      }
+    } finally {
+      appPrisma.user.findUnique = origFindUnique;
     }
   });
 

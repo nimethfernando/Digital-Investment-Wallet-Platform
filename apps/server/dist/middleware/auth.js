@@ -48,14 +48,20 @@ const authenticateToken = async (req, res, next) => {
         res.status(401).json({ success: false, message: 'Access token required' });
         return;
     }
+    let payload;
     try {
-        let payload;
         try {
             payload = jsonwebtoken_1.default.verify(token, config_1.config.jwtSecret);
         }
         catch {
             payload = jsonwebtoken_1.default.verify(token, config_1.config.adminJwtSecret);
         }
+    }
+    catch {
+        res.status(403).json({ success: false, message: 'Invalid or expired access token' });
+        return;
+    }
+    try {
         const user = await prisma_1.prisma.user.findUnique({
             where: { id: payload.userId },
             select: { id: true, email: true, role: true, status: true, mustChangePassword: true, twoFactorEnabled: true }
@@ -75,7 +81,8 @@ const authenticateToken = async (req, res, next) => {
         next();
     }
     catch (err) {
-        res.status(403).json({ success: false, message: 'Invalid or expired access token' });
+        console.error('[AuthMiddleware] Transient database error during user lookup:', err);
+        res.status(503).json({ success: false, message: 'Service temporarily unavailable. Please retry.' });
         return;
     }
 };

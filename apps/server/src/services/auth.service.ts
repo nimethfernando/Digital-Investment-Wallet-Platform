@@ -427,6 +427,20 @@ export class AuthService {
     }
   }
 
+  public async refreshSession(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true, status: true, mustChangePassword: true },
+    });
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new Error('User account is inactive or not found');
+    }
+
+    const token = this.generateToken(user.id, user.email, user.role, user.mustChangePassword);
+    return { token };
+  }
+
   private generateToken(userId: string, email: string, role: Role, mustChangePassword = false): string {
     const secret = role === Role.ADMIN ? config.adminJwtSecret : config.jwtSecret;
     return jwt.sign(

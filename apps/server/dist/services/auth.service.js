@@ -374,6 +374,17 @@ class AuthService {
             throw new Error(`Withdrawals and outbound transfers are temporarily locked for security following a recent credential update. Lock expires in ${remainingHours} hour(s) at ${user.withdrawalLockedUntil.toUTCString()}.`);
         }
     }
+    async refreshSession(userId) {
+        const user = await prisma_1.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, email: true, role: true, status: true, mustChangePassword: true },
+        });
+        if (!user || user.status !== client_1.UserStatus.ACTIVE) {
+            throw new Error('User account is inactive or not found');
+        }
+        const token = this.generateToken(user.id, user.email, user.role, user.mustChangePassword);
+        return { token };
+    }
     generateToken(userId, email, role, mustChangePassword = false) {
         const secret = role === client_1.Role.ADMIN ? config_1.config.adminJwtSecret : config_1.config.jwtSecret;
         return jsonwebtoken_1.default.sign({ userId, email, role, mustChangePassword }, secret, { expiresIn: '7d' });
