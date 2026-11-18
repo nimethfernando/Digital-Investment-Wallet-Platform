@@ -76,6 +76,7 @@ export default function InvestmentsMarketplacePage() {
 
   // Selected Campaign for Detail Modal / Investment
   const [selectedCampaign, setSelectedCampaign] = useState<StartupItem | null>(null);
+  const [detailsModalOpen, setDetailsModalOpen] = useState<boolean>(false);
   const [investModalOpen, setInvestModalOpen] = useState<boolean>(false);
   const [investAmount, setInvestAmount] = useState<number>(1000);
   const [investLoading, setInvestLoading] = useState<boolean>(false);
@@ -506,8 +507,12 @@ export default function InvestmentsMarketplacePage() {
               </button>
 
               <button
-                onClick={() => setSelectedCampaign(c)}
-                className="py-3 rounded-2xl font-bold text-xs border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-slate-800 dark:text-slate-200 flex items-center justify-center gap-1.5 transition-all"
+                type="button"
+                onClick={() => {
+                  setSelectedCampaign(c);
+                  setDetailsModalOpen(true);
+                }}
+                className="py-3 rounded-2xl font-bold text-xs border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
               >
                 <FileText className="w-3.5 h-3.5" />
                 <span>Due Diligence Details</span>
@@ -516,6 +521,212 @@ export default function InvestmentsMarketplacePage() {
           </div>
         ))}
       </div>
+
+      {/* ========================================================================= */}
+      {/* MODAL 0: DUE DILIGENCE DETAILS & COMPANY BRIEF                            */}
+      {/* ========================================================================= */}
+      {detailsModalOpen && selectedCampaign && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setDetailsModalOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setDetailsModalOpen(false)}
+              aria-label="Close due diligence details"
+              className="sticky float-right top-0 p-1.5 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="space-y-2 pr-8">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  {selectedCampaign.industry}
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>{selectedCampaign.dueDiligenceStatus || 'VERIFIED'} Due Diligence</span>
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  {selectedCampaign.stage} • {selectedCampaign.instrument}
+                </span>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+                {selectedCampaign.companyName}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {selectedCampaign.tagline} • {selectedCampaign.city}, {selectedCampaign.country}
+              </p>
+            </div>
+
+            {/* Key Deal Metrics */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Post-Money Valuation</span>
+                <span className="text-sm font-black font-mono text-slate-900 dark:text-white">
+                  ${Number(selectedCampaign.valuation || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Raised / Target</span>
+                <span className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400">
+                  ${Number(selectedCampaign.verifiedFundsRaised || 0).toLocaleString()} ({selectedCampaign.progressPct}%)
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Min Ticket</span>
+                <span className="text-sm font-black font-mono text-slate-900 dark:text-white">
+                  ${Number(selectedCampaign.minInvestment || 250).toLocaleString()}
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Committed Investors</span>
+                <span className="text-sm font-black font-mono text-slate-900 dark:text-white">
+                  {selectedCampaign.investorCount}
+                </span>
+              </div>
+            </div>
+
+            {/* Due Diligence Report Summary */}
+            <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-500/30 space-y-1.5 text-xs">
+              <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>Avora Nominee Due Diligence Summary</span>
+              </div>
+              <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                {selectedCampaign.dueDiligenceSummary ||
+                  'Corporate registry, cap table structure, KYC/KYB founder background verification, and escrow custody checks have been completed by Avora Compliance Desk.'}
+              </p>
+            </div>
+
+            {/* Pitch Overview */}
+            <div className="space-y-1.5 text-xs">
+              <h4 className="font-bold uppercase tracking-wider text-slate-500 text-[11px]">
+                Business &amp; Market Overview
+              </h4>
+              <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                {selectedCampaign.pitchOverview}
+              </p>
+            </div>
+
+            {/* Use of Funds & Financial Highlights */}
+            {(selectedCampaign.useOfFunds || selectedCampaign.financialHighlights) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {selectedCampaign.useOfFunds && Object.keys(selectedCampaign.useOfFunds).length > 0 && (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <h4 className="font-bold text-slate-900 dark:text-white text-[11px] uppercase tracking-wider">
+                      Use of Funds
+                    </h4>
+                    <div className="space-y-1">
+                      {Object.entries(selectedCampaign.useOfFunds).map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-2 text-[11px]">
+                          <span className="text-slate-500 capitalize">{k.replace(/_/g, ' ')}</span>
+                          <span className="font-mono font-bold text-slate-900 dark:text-white">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedCampaign.financialHighlights && (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <h4 className="font-bold text-slate-900 dark:text-white text-[11px] uppercase tracking-wider">
+                      Financial Highlights
+                    </h4>
+                    {typeof selectedCampaign.financialHighlights === 'string' ? (
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 whitespace-pre-line">
+                        {selectedCampaign.financialHighlights}
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {Object.entries(selectedCampaign.financialHighlights).map(([k, v]) => (
+                          <div key={k} className="flex justify-between gap-2 text-[11px]">
+                            <span className="text-slate-500 capitalize">{k.replace(/_/g, ' ')}</span>
+                            <span className="font-mono font-bold text-slate-900 dark:text-white">{String(v)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Milestones */}
+            {Array.isArray(selectedCampaign.milestones) && selectedCampaign.milestones.length > 0 && (
+              <div className="space-y-2 text-xs">
+                <h4 className="font-bold uppercase tracking-wider text-slate-500 text-[11px]">
+                  Verified Roadmap Milestones
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {selectedCampaign.milestones.map((m, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2"
+                    >
+                      <div>
+                        <div className="font-bold text-slate-900 dark:text-white text-[11px]">{m.title}</div>
+                        <div className="text-[10px] text-slate-400">{m.date}</div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                        {m.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Founders */}
+            {Array.isArray(selectedCampaign.founders) && selectedCampaign.founders.length > 0 && (
+              <div className="space-y-2 text-xs">
+                <h4 className="font-bold uppercase tracking-wider text-slate-500 text-[11px]">
+                  Leadership &amp; Founders
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {selectedCampaign.founders.map((f, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1"
+                    >
+                      <div className="font-bold text-slate-900 dark:text-white text-xs">{f.name}</div>
+                      <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">{f.role}</div>
+                      {f.bio && <p className="text-[11px] text-slate-500 leading-snug">{f.bio}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDetailsModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDetailsModalOpen(false);
+                  setInvestAmount(Math.max(1000, selectedCampaign.minInvestment));
+                  setInvestModalOpen(true);
+                }}
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Invest in {selectedCampaign.companyName.split(' ')[0]}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* MODAL 1: INVEST NOW (WITH TRANSPARENT 5% ALLOCATION FEE BREAKDOWN) */}
