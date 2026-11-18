@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { upload, getUploadPath, persistUploadedAsset } from '../services/storage.service';
-import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { authenticateToken, requireAdmin, requireRole } from '../middleware/auth';
+import { Role } from '@prisma/client';
 import { cmsService } from '../services/cms.service';
 
 const router = Router();
@@ -94,6 +95,36 @@ router.post(
         success: true,
         message: 'File uploaded successfully',
         url,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/venture-asset',
+  authenticateToken,
+  requireRole([Role.ADMIN, Role.STAFF]),
+  upload.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.file) return res.status(400).json({ success: false, message: 'No asset file uploaded' });
+      const url = getUploadPath('documents', req.file.filename);
+      await persistUploadedAsset({
+        urlPath: url,
+        filePath: req.file.path,
+        mimeType: req.file.mimetype,
+        originalName: req.file.originalname,
+        sizeBytes: req.file.size,
+      });
+      res.json({
+        success: true,
+        message: 'Venture project asset uploaded successfully',
+        url,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        sizeBytes: req.file.size,
       });
     } catch (err) {
       next(err);

@@ -23,8 +23,12 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  Upload,
+  FileText,
+  Calendar,
+  Lock,
 } from 'lucide-react';
-import { api } from '../../../lib/api';
+import { api, resolveMediaUrl } from '../../../lib/api';
 
 interface StartupsTabProps {
   listings: any[];
@@ -62,23 +66,80 @@ export default function AdminStartupsTab({
     instrument: 'SAFE',
     valuation: '5000000',
     fundingTarget: '500000',
+    verifiedFundsRaised: '0',
+    investorCount: '0',
     minInvestment: '250',
+    lockInMonths: '12',
+    expectedReturnPct: '18.0',
+    startDate: new Date().toISOString().slice(0, 10),
+    deadline: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    maturityDate: new Date(new Date().setMonth(new Date().getMonth() + 12)).toISOString().slice(0, 10),
+    termsAndNotes: '',
     pitchOverview: '',
     logoUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80',
     coverImageUrl: 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&auto=format&fit=crop&q=80',
   });
+  const [newStartupDocs, setNewStartupDocs] = useState<{ title: string; url: string; uploadedAt: string }[]>([]);
+  const [uploadingAsset, setUploadingAsset] = useState(false);
+  const [docTitleInput, setDocTitleInput] = useState('');
 
-  // Valuation, Funding Range & Mark-to-Market Modal
+  // Valuation, Funding Range, Performance, Lock-In & Provider Fund Tracking Modal
   const [valuationModalOpen, setValuationModalOpen] = useState(false);
+  const [editModalTab, setEditModalTab] = useState<'ROUND' | 'DOCS' | 'PROVIDER'>('ROUND');
+  const [editCompanyName, setEditCompanyName] = useState('');
+  const [editTagline, setEditTagline] = useState('');
+  const [editPitchOverview, setEditPitchOverview] = useState('');
+  const [editLogoUrl, setEditLogoUrl] = useState('');
   const [newValuation, setNewValuation] = useState('');
+  const [newPerformancePct, setNewPerformancePct] = useState('0');
+  const [newExpectedReturnPct, setNewExpectedReturnPct] = useState('0');
   const [newFundsRaised, setNewFundsRaised] = useState('');
   const [newFundingTarget, setNewFundingTarget] = useState('');
   const [newMinInvestment, setNewMinInvestment] = useState('');
   const [newInvestorCount, setNewInvestorCount] = useState('');
+  const [newStartDate, setNewStartDate] = useState('');
+  const [newDeadline, setNewDeadline] = useState('');
+  const [newLockInMonths, setNewLockInMonths] = useState('12');
+  const [newMaturityDate, setNewMaturityDate] = useState('');
   const [newStage, setNewStage] = useState('SEED');
+  const [newInstrument, setNewInstrument] = useState('SAFE');
   const [newListingStatus, setNewListingStatus] = useState('PUBLISHED');
+  const [newTermsAndNotes, setNewTermsAndNotes] = useState('');
+  const [newDueDiligenceSummary, setNewDueDiligenceSummary] = useState('');
+  const [editDocs, setEditDocs] = useState<{ title: string; url: string; uploadedAt: string }[]>([]);
+  const [editDocTitle, setEditDocTitle] = useState('');
   const [growthNotes, setGrowthNotes] = useState('');
+  // Crowdfunding Provider Tracking Fields
+  const [provName, setProvName] = useState('');
+  const [provInvestedAmt, setProvInvestedAmt] = useState('0');
+  const [provTransferredAt, setProvTransferredAt] = useState('');
+  const [provExpectedReturnAmt, setProvExpectedReturnAmt] = useState('0');
+  const [provExpectedReturnDate, setProvExpectedReturnDate] = useState('');
+  const [provActualReceivedAmt, setProvActualReceivedAmt] = useState('0');
+  const [provReceivedAt, setProvReceivedAt] = useState('');
+  const [provNotes, setProvNotes] = useState('');
   const [savingValuation, setSavingValuation] = useState(false);
+
+  const uploadVentureAsset = async (file: File): Promise<{ url: string; originalName: string } | null> => {
+    setUploadingAsset(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/uploads/venture-asset', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (res.data?.success && res.data?.url) {
+        return { url: res.data.url, originalName: res.data.originalName || file.name };
+      }
+      onFeedback({ text: 'Upload failed — server did not return a URL', type: 'error' });
+      return null;
+    } catch (err: any) {
+      onFeedback({ text: err.response?.data?.message || 'Failed to upload file', type: 'error' });
+      return null;
+    } finally {
+      setUploadingAsset(false);
+    }
+  };
 
   // Exit Distribution Modal
   const [exitModalOpen, setExitModalOpen] = useState(false);
@@ -98,13 +159,14 @@ export default function AdminStartupsTab({
 
     setCreating(true);
     try {
-      const res = await api.post(
-        '/admin/investments/listings',
-        newStartup
-      );
+      const res = await api.post('/admin/investments/listings', {
+        ...newStartup,
+        supportingDocuments: newStartupDocs,
+      });
       if (res.data?.success) {
-        onFeedback({ text: res.data.message || 'Startup listing created successfully!', type: 'success' });
+        onFeedback({ text: res.data.message || 'Crowdfunding round created successfully!', type: 'success' });
         setCreateModalOpen(false);
+        setNewStartupDocs([]);
         onRefresh();
       }
     } catch (err: any) {
@@ -114,16 +176,49 @@ export default function AdminStartupsTab({
     }
   };
 
-  const handleOpenValuationModal = (listing: any) => {
+  const toDateInput = (d: any) => {
+    if (!d) return '';
+    try {
+      return new Date(d).toISOString().slice(0, 10);
+    } catch {
+      return '';
+    }
+  };
+
+  const handleOpenValuationModal = (listing: any, initialTab: 'ROUND' | 'DOCS' | 'PROVIDER' = 'ROUND') => {
     setSelectedListing(listing);
+    setEditModalTab(initialTab);
+    setEditCompanyName(listing.companyName || '');
+    setEditTagline(listing.tagline || '');
+    setEditPitchOverview(listing.pitchOverview || '');
+    setEditLogoUrl(listing.logoUrl || '');
     setNewValuation(String(listing.valuation || ''));
+    setNewPerformancePct(String(listing.performancePct ?? '0'));
+    setNewExpectedReturnPct(String(listing.expectedReturnPct ?? '0'));
     setNewFundsRaised(String(listing.verifiedFundsRaised ?? '0'));
     setNewFundingTarget(String(listing.fundingTarget || ''));
     setNewMinInvestment(String(listing.minInvestment ?? '250'));
     setNewInvestorCount(String(listing.investorCount ?? '0'));
+    setNewStartDate(toDateInput(listing.startDate || listing.createdAt));
+    setNewDeadline(toDateInput(listing.deadline));
+    setNewLockInMonths(String(listing.lockInMonths ?? '12'));
+    setNewMaturityDate(toDateInput(listing.maturityDate));
     setNewStage(listing.stage || 'SEED');
+    setNewInstrument(listing.instrument || 'SAFE');
     setNewListingStatus(listing.status || 'PUBLISHED');
+    setNewTermsAndNotes(listing.termsAndNotes || '');
+    setNewDueDiligenceSummary(listing.dueDiligenceSummary || '');
+    setEditDocs(Array.isArray(listing.supportingDocuments) ? listing.supportingDocuments : []);
+    setEditDocTitle('');
     setGrowthNotes('');
+    setProvName(listing.providerName || '');
+    setProvInvestedAmt(String(listing.providerInvestedAmount ?? '0'));
+    setProvTransferredAt(toDateInput(listing.providerTransferredAt));
+    setProvExpectedReturnAmt(String(listing.providerExpectedReturnAmount ?? '0'));
+    setProvExpectedReturnDate(toDateInput(listing.providerExpectedReturnDate));
+    setProvActualReceivedAmt(String(listing.providerActualReceivedAmount ?? '0'));
+    setProvReceivedAt(toDateInput(listing.providerReceivedAt));
+    setProvNotes(listing.providerNotes || '');
     setValuationModalOpen(true);
   };
 
@@ -156,23 +251,45 @@ export default function AdminStartupsTab({
       const res = await api.patch(
         `/admin/investments/listings/${selectedListing.id}/valuation`,
         {
+          companyName: editCompanyName,
+          tagline: editTagline,
+          pitchOverview: editPitchOverview,
+          logoUrl: editLogoUrl,
           valuation: parseFloat(newValuation),
+          performancePct: newPerformancePct !== '' ? parseFloat(newPerformancePct) : undefined,
+          expectedReturnPct: newExpectedReturnPct !== '' ? parseFloat(newExpectedReturnPct) : undefined,
           verifiedFundsRaised: raisedNum,
           fundingTarget: targetNum,
           minInvestment: minNum,
           investorCount: Number.isFinite(investorsNum) && investorsNum >= 0 ? investorsNum : 0,
+          startDate: newStartDate || null,
+          deadline: newDeadline || undefined,
+          lockInMonths: parseInt(newLockInMonths || '12', 10),
+          maturityDate: newMaturityDate || null,
           stage: newStage,
+          instrument: newInstrument,
           status: newListingStatus,
+          termsAndNotes: newTermsAndNotes,
+          dueDiligenceSummary: newDueDiligenceSummary,
+          supportingDocuments: editDocs,
           growthNotes,
+          providerName: provName,
+          providerInvestedAmount: parseFloat(provInvestedAmt || '0') || 0,
+          providerTransferredAt: provTransferredAt || null,
+          providerExpectedReturnAmount: parseFloat(provExpectedReturnAmt || '0') || 0,
+          providerExpectedReturnDate: provExpectedReturnDate || null,
+          providerActualReceivedAmount: parseFloat(provActualReceivedAmt || '0') || 0,
+          providerReceivedAt: provReceivedAt || null,
+          providerNotes: provNotes,
         }
       );
       if (res.data?.success) {
-        onFeedback({ text: res.data.message || 'Investment range & valuation updated!', type: 'success' });
+        onFeedback({ text: res.data.message || 'Crowdfunding round updated successfully!', type: 'success' });
         setValuationModalOpen(false);
         onRefresh();
       }
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to update valuation & funding range', type: 'error' });
+      onFeedback({ text: err.response?.data?.message || 'Failed to update crowdfunding round', type: 'error' });
     } finally {
       setSavingValuation(false);
     }
@@ -353,17 +470,33 @@ export default function AdminStartupsTab({
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <img
-                      src={l.logoUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80'}
+                      src={resolveMediaUrl(l.logoUrl) || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80'}
                       alt={l.companyName}
-                      className="w-12 h-12 rounded-2xl object-cover border border-slate-800"
+                      className="w-12 h-12 rounded-2xl object-cover border border-slate-800 shrink-0"
                     />
                     <div>
                       <h4 className="font-extrabold text-white text-base">{l.companyName}</h4>
                       <p className="text-xs text-slate-400">{l.tagline}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
                         <span className="px-2 py-0.5 rounded text-[10px] font-black bg-purple-500/20 text-purple-300">
                           {l.stage} • {l.instrument}
                         </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 flex items-center gap-1">
+                          <Lock className="w-2.5 h-2.5 text-amber-400" />
+                          {l.lockInMonths ?? 12}m Lock
+                        </span>
+                        {Number(l.performancePct || 0) !== 0 && (
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                              Number(l.performancePct) >= 0
+                                ? 'bg-emerald-500/20 text-emerald-300'
+                                : 'bg-rose-500/20 text-rose-300'
+                            }`}
+                          >
+                            {Number(l.performancePct) >= 0 ? '+' : ''}
+                            {Number(l.performancePct).toFixed(1)}% Perf
+                          </span>
+                        )}
                         <span className="text-[10px] text-slate-500">{l.industry}</span>
                       </div>
                     </div>
@@ -387,8 +520,8 @@ export default function AdminStartupsTab({
                   </div>
                 </div>
 
-                {/* Valuation & Details */}
-                <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 text-[11px]">
+                {/* Valuation, Lock-In & Reconciliation Details */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 text-[11px]">
                   <div>
                     <span className="text-slate-500 block">Valuation</span>
                     <strong className="text-white font-mono">${parseFloat(l.valuation).toLocaleString('en-US')}</strong>
@@ -401,7 +534,27 @@ export default function AdminStartupsTab({
                     <span className="text-slate-500 block">Investors</span>
                     <strong className="text-white font-mono">{l.investorCount || 0}</strong>
                   </div>
+                  <div>
+                    <span className="text-slate-500 block">Maturity / Docs</span>
+                    <strong className="text-slate-200 font-mono text-[10px]">
+                      {l.maturityDate ? new Date(l.maturityDate).toLocaleDateString() : `${l.lockInMonths ?? 12}m`} · {Array.isArray(l.supportingDocuments) ? l.supportingDocuments.length : 0} doc
+                    </strong>
+                  </div>
                 </div>
+
+                {(Number(l.providerInvestedAmount || 0) > 0 || Number(l.providerActualReceivedAmount || 0) > 0) && (
+                  <div className="p-2.5 rounded-xl bg-emerald-950/25 border border-emerald-500/25 text-[10px] font-mono flex flex-wrap items-center justify-between gap-2 text-slate-300">
+                    <span>
+                      Provider Sent: <strong className="text-white">${Number(l.providerInvestedAmount || 0).toLocaleString()}</strong>
+                    </span>
+                    <span>
+                      Received Back: <strong className="text-emerald-400">${Number(l.providerActualReceivedAmount || 0).toLocaleString()}</strong>
+                    </span>
+                    <span>
+                      Distributed: <strong className="text-sky-300">${Number(l.actualDistributedToUsersUsd || 0).toLocaleString()}</strong>
+                    </span>
+                  </div>
+                )}
 
                 {/* Action Buttons */}
                 <div
@@ -435,11 +588,20 @@ export default function AdminStartupsTab({
                     </button>
 
                     <button
-                      onClick={() => handleOpenValuationModal(l)}
+                      onClick={() => handleOpenValuationModal(l, 'ROUND')}
                       className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-slate-950 text-xs font-bold transition-all border border-amber-500/30 cursor-pointer flex items-center gap-1"
                     >
                       <TrendingUp className="w-3.5 h-3.5" />
-                      <span>Edit Range &amp; Valuation</span>
+                      <span>Manage &amp; Performance</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenValuationModal(l, 'PROVIDER')}
+                      className="px-3 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500 text-sky-300 hover:text-white text-xs font-bold transition-all border border-sky-500/30 cursor-pointer flex items-center gap-1"
+                    >
+                      <DollarSign className="w-3.5 h-3.5" />
+                      <span>Provider Tracking</span>
                     </button>
 
                     <button
@@ -686,24 +848,32 @@ export default function AdminStartupsTab({
         );
       })()}
 
-      {/* UPDATE VALUATION, INVESTED RANGE & MARK-TO-MARKET MODAL */}
+      {/* MANAGE CROWDFUNDING ROUND, PERFORMANCE (+/- %), LOCK-IN, DOCS & PROVIDER TRACKING MODAL */}
       {valuationModalOpen && selectedListing && (() => {
         const previewRaised = Math.max(0, parseFloat(newFundsRaised || '0') || 0);
         const previewTarget = Math.max(1, parseFloat(newFundingTarget || '1') || 1);
         const previewPct = Math.min(100, Math.round((previewRaised / previewTarget) * 100));
+        const provSent = parseFloat(provInvestedAmt || '0') || 0;
+        const provExp = parseFloat(provExpectedReturnAmt || '0') || 0;
+        const provRec = parseFloat(provActualReceivedAmt || '0') || 0;
+        const provPnl = provRec - provSent;
+        const distToUsers = Number(selectedListing.actualDistributedToUsersUsd || 0);
+
         return (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <form
             onSubmit={handleSaveValuation}
-            className="bg-slate-950 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95 my-auto"
+            className="bg-slate-950 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95 my-auto max-h-[92vh] overflow-y-auto"
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black">
-                  <TrendingUp className="w-5 h-5" />
-                </div>
+                <img
+                  src={resolveMediaUrl(editLogoUrl) || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80'}
+                  alt={editCompanyName}
+                  className="w-10 h-10 rounded-xl object-cover border border-slate-800"
+                />
                 <div>
-                  <h3 className="text-base font-extrabold text-white">Edit Invested Range &amp; Valuation</h3>
+                  <h3 className="text-base font-extrabold text-white">Crowdfunding Round Management</h3>
                   <p className="text-xs text-slate-400">{selectedListing.companyName}</p>
                 </div>
               </div>
@@ -712,167 +882,523 @@ export default function AdminStartupsTab({
               </button>
             </div>
 
-            <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400">Live Campaign Progress Preview:</span>
-                <span className="font-mono font-bold text-purple-300">{previewPct}% Funded</span>
-              </div>
-              <div className="flex items-center justify-between font-mono text-xs">
-                <span className="text-white font-bold">${previewRaised.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                <span className="text-slate-400">/ ${previewTarget.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-slate-950 overflow-hidden">
-                <div className="h-full bg-purple-500 transition-all rounded-full" style={{ width: `${previewPct}%` }} />
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
-                <span>
-                  Current Valuation:{' '}
-                  <strong className="font-mono text-emerald-400">
-                    ${parseFloat(selectedListing.valuation || '0').toLocaleString('en-US')}
-                  </strong>
-                </span>
-                {newValuation && parseFloat(newValuation) > 0 && parseFloat(selectedListing.valuation || '0') > 0 && (
-                  <span className="text-amber-300 font-semibold">
-                    Shift:{' '}
-                    {(((parseFloat(newValuation) / parseFloat(selectedListing.valuation)) - 1) * 100).toFixed(1)}%
-                  </span>
-                )}
-              </div>
+            {/* 3-Tab Switcher */}
+            <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-xs font-bold">
+              {[
+                { id: 'ROUND', label: 'Round, Value & Lock-In' },
+                { id: 'DOCS', label: `Terms & Docs (${editDocs.length})` },
+                { id: 'PROVIDER', label: 'Provider Fund Tracking' },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setEditModalTab(t.id as any)}
+                  className={`py-2 px-3 rounded-xl transition-all cursor-pointer ${
+                    editModalTab === t.id
+                      ? 'bg-purple-600 text-white shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
 
-            <div className="space-y-4 text-xs">
-              {/* Editable Invested Money & Target Range */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
-                      Invested / Raised ($ USD)
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewFundsRaised('0');
-                        setNewInvestorCount('0');
-                      }}
-                      className="text-[10px] font-bold text-rose-400 hover:underline cursor-pointer"
-                    >
-                      Reset to $0
-                    </button>
+            {editModalTab === 'ROUND' && (
+              <div className="space-y-4 text-xs">
+                <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Live Campaign Progress Preview:</span>
+                    <span className="font-mono font-bold text-purple-300">{previewPct}% Funded</span>
                   </div>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    required
-                    value={newFundsRaised}
-                    onChange={(e) => setNewFundsRaised(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-purple-500"
-                  />
+                  <div className="flex items-center justify-between font-mono text-xs">
+                    <span className="text-white font-bold">${previewRaised.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-slate-400">/ ${previewTarget.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-slate-950 overflow-hidden">
+                    <div className="h-full bg-purple-500 transition-all rounded-full" style={{ width: `${previewPct}%` }} />
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
-                    Funding Target ($ USD)
+                {/* Project Logo Upload */}
+                <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={resolveMediaUrl(editLogoUrl) || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80'}
+                      alt="Project Logo"
+                      className="w-12 h-12 rounded-xl object-cover border border-slate-700"
+                    />
+                    <div>
+                      <div className="font-bold text-white">Project Logo</div>
+                      <p className="text-[10px] text-slate-400">Upload PNG/JPG/WebP/SVG logo stored persistently</p>
+                    </div>
+                  </div>
+                  <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold border border-slate-700 cursor-pointer shrink-0">
+                    <Upload className="w-3.5 h-3.5 text-purple-400" />
+                    <span>{uploadingAsset ? 'Uploading...' : 'Upload Logo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const uploaded = await uploadVentureAsset(file);
+                        if (uploaded) setEditLogoUrl(uploaded.url);
+                      }}
+                    />
                   </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Project / Company Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={editCompanyName}
+                      onChange={(e) => setEditCompanyName(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Tagline</label>
+                    <input
+                      type="text"
+                      required
+                      value={editTagline}
+                      onChange={(e) => setEditTagline(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Invested / Raised ($ USD)</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewFundsRaised('0');
+                          setNewInvestorCount('0');
+                        }}
+                        className="text-[10px] font-bold text-rose-400 hover:underline cursor-pointer"
+                      >
+                        Reset to $0
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      value={newFundsRaised}
+                      onChange={(e) => setNewFundsRaised(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Funding Target ($ USD)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      required
+                      value={newFundingTarget}
+                      onChange={(e) => setNewFundingTarget(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Min Check ($ USD)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      required
+                      value={newMinInvestment}
+                      onChange={(e) => setNewMinInvestment(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Investors Count</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      required
+                      value={newInvestorCount}
+                      onChange={(e) => setNewInvestorCount(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Current Valuation ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={newValuation}
+                      onChange={(e) => setNewValuation(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Performance / Profit-Loss % & Expected Return */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-2xl bg-emerald-950/20 border border-emerald-500/30">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-emerald-300 uppercase font-mono">
+                      Profit / Loss Performance (% • +/-)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 5 for +5% or -3 for -3% loss"
+                      value={newPerformancePct}
+                      onChange={(e) => setNewPerformancePct(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-950 border border-emerald-500/40 rounded-xl text-white font-mono text-sm outline-none"
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      Automatically updates Current Holding Value &amp; P&amp;L across all investor accounts.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-300 uppercase font-mono">Expected Target Return (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={newExpectedReturnPct}
+                      onChange={(e) => setNewExpectedReturnPct(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none"
+                    />
+                    <p className="text-[10px] text-slate-400">Disclosed projected annual/round return %.</p>
+                  </div>
+                </div>
+
+                {/* Lock-In Period & Dates */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Lock-In (Months)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newLockInMonths}
+                      onChange={(e) => setNewLockInMonths(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Start Date</label>
+                    <input
+                      type="date"
+                      value={newStartDate}
+                      onChange={(e) => setNewStartDate(e.target.value)}
+                      className="w-full px-2.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Closing Date</label>
+                    <input
+                      type="date"
+                      value={newDeadline}
+                      onChange={(e) => setNewDeadline(e.target.value)}
+                      className="w-full px-2.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-amber-300 uppercase font-mono">Maturity / Exit</label>
+                    <input
+                      type="date"
+                      value={newMaturityDate}
+                      onChange={(e) => setNewMaturityDate(e.target.value)}
+                      className="w-full px-2.5 py-2 bg-slate-900 border border-amber-500/40 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Round Stage</label>
+                    <select
+                      value={newStage}
+                      onChange={(e) => setNewStage(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                    >
+                      <option value="PRE_SEED">PRE-SEED</option>
+                      <option value="SEED">SEED</option>
+                      <option value="SERIES_A">SERIES A</option>
+                      <option value="SERIES_B">SERIES B</option>
+                      <option value="GROWTH">GROWTH</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Instrument</label>
+                    <select
+                      value={newInstrument}
+                      onChange={(e) => setNewInstrument(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                    >
+                      <option value="SAFE">SAFE</option>
+                      <option value="EQUITY">EQUITY</option>
+                      <option value="CONVERTIBLE_NOTE">CONVERTIBLE_NOTE</option>
+                      <option value="DEBT">DEBT</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Status</label>
+                    <select
+                      value={newListingStatus}
+                      onChange={(e) => setNewListingStatus(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                    >
+                      <option value="PUBLISHED">PUBLISHED</option>
+                      <option value="DRAFT">DRAFT</option>
+                      <option value="CLOSED">CLOSED</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Performance / Audit Note</label>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="1"
-                    required
-                    value={newFundingTarget}
-                    onChange={(e) => setNewFundingTarget(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-purple-500"
+                    type="text"
+                    placeholder="e.g. Q3 audit verified +5.0% valuation uplift"
+                    value={growthNotes}
+                    onChange={(e) => setGrowthNotes(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
                   />
                 </div>
               </div>
+            )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {editModalTab === 'DOCS' && (
+              <div className="space-y-4 text-xs">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
-                    Min Investor Check ($ USD)
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    min="1"
-                    required
-                    value={newMinInvestment}
-                    onChange={(e) => setNewMinInvestment(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-amber-500"
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Description / Investment Thesis</label>
+                  <textarea
+                    rows={3}
+                    value={editPitchOverview}
+                    onChange={(e) => setEditPitchOverview(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
-                    Displayed Investors Count
-                  </label>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Terms, Conditions &amp; Lock-In Notes (Shown to Investors)</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Lock-in release terms, waterfall distribution schedule, fees & reporting cadence..."
+                    value={newTermsAndNotes}
+                    onChange={(e) => setNewTermsAndNotes(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Due Diligence Summary</label>
+                  <textarea
+                    rows={2}
+                    value={newDueDiligenceSummary}
+                    onChange={(e) => setNewDueDiligenceSummary(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-white">Supporting Documents (PDF / Financial Reports)</div>
+                      <p className="text-[10px] text-slate-400">Available to investors in Due Diligence &amp; Client Portfolio.</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      placeholder="Document title (e.g. SPV Term Sheet Q4)"
+                      value={editDocTitle}
+                      onChange={(e) => setEditDocTitle(e.target.value)}
+                      className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <label className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold cursor-pointer shrink-0">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{uploadingAsset ? 'Uploading...' : 'Attach File'}</span>
+                      <input
+                        type="file"
+                        accept=".pdf,image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const uploaded = await uploadVentureAsset(file);
+                          if (uploaded) {
+                            setEditDocs((prev) => [
+                              ...prev,
+                              {
+                                title: editDocTitle.trim() || uploaded.originalName,
+                                url: uploaded.url,
+                                uploadedAt: new Date().toISOString(),
+                              },
+                            ]);
+                            setEditDocTitle('');
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  {editDocs.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {editDocs.map((doc, idx) => (
+                        <div key={idx} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                          <a
+                            href={resolveMediaUrl(doc.url)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-emerald-400 hover:underline font-bold truncate"
+                          >
+                            <FileText className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">{doc.title}</span>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => setEditDocs((prev) => prev.filter((_, i) => i !== idx))}
+                            className="text-rose-400 hover:text-rose-300 text-[11px] font-bold cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {editModalTab === 'PROVIDER' && (
+              <div className="space-y-4 text-xs">
+                {/* Live Provider Reconciliation Summary */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 rounded-2xl bg-slate-900 border border-sky-500/30">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Sent to Provider</span>
+                    <strong className="font-mono text-sm text-white">${provSent.toLocaleString()}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Actual Received Back</span>
+                    <strong className="font-mono text-sm text-emerald-400">${provRec.toLocaleString()}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Provider Profit/Loss</span>
+                    <strong className={`font-mono text-sm ${provPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {provPnl >= 0 ? '+' : '-'}${Math.abs(provPnl).toLocaleString()}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Distributed to Users</span>
+                    <strong className="font-mono text-sm text-sky-300">${distToUsers.toLocaleString()}</strong>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Crowdfunding Provider / SPV Partner</label>
                   <input
-                    type="number"
-                    step="1"
-                    min="0"
-                    required
-                    value={newInvestorCount}
-                    onChange={(e) => setNewInvestorCount(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-amber-500"
+                    type="text"
+                    placeholder="e.g. Republic Institutional SPV / SeedInvest Custody"
+                    value={provName}
+                    onChange={(e) => setProvName(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Amount Transferred to Provider ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={provInvestedAmt}
+                      onChange={(e) => setProvInvestedAmt(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Date Funds Transferred</label>
+                    <input
+                      type="date"
+                      value={provTransferredAt}
+                      onChange={(e) => setProvTransferredAt(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Expected Return Amount ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={provExpectedReturnAmt}
+                      onChange={(e) => setProvExpectedReturnAmt(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Expected Return / Maturity Date</label>
+                    <input
+                      type="date"
+                      value={provExpectedReturnDate}
+                      onChange={(e) => setProvExpectedReturnDate(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-emerald-300 uppercase font-mono">Actual Amount Received Back ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={provActualReceivedAmt}
+                      onChange={(e) => setProvActualReceivedAmt(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-emerald-500/40 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-emerald-300 uppercase font-mono">Date Received Back</label>
+                    <input
+                      type="date"
+                      value={provReceivedAt}
+                      onChange={(e) => setProvReceivedAt(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-emerald-500/40 rounded-xl text-white font-mono outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Wire Reference &amp; Reconciliation Notes</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Bank wire MT103 / on-chain settlement tx hash, SPV audit note..."
+                    value={provNotes}
+                    onChange={(e) => setProvNotes(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
                   />
                 </div>
               </div>
+            )}
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Post-Money Valuation ($ USD)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={newValuation}
-                  onChange={(e) => setNewValuation(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Updated Round Stage</label>
-                  <select
-                    value={newStage}
-                    onChange={(e) => setNewStage(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-amber-500"
-                  >
-                    <option value="PRE_SEED">PRE-SEED</option>
-                    <option value="SEED">SEED</option>
-                    <option value="SERIES_A">SERIES A</option>
-                    <option value="SERIES_B">SERIES B</option>
-                    <option value="GROWTH">GROWTH</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Campaign Visibility</label>
-                  <select
-                    value={newListingStatus}
-                    onChange={(e) => setNewListingStatus(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-amber-500"
-                  >
-                    <option value="PUBLISHED">PUBLISHED</option>
-                    <option value="DRAFT">DRAFT</option>
-                    <option value="CLOSED">CLOSED</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Audit / Growth Notes</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Adjusted initial target & seed raised range for launch"
-                  value={growthNotes}
-                  onChange={(e) => setGrowthNotes(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-amber-500"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
+            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => setValuationModalOpen(false)}
@@ -886,7 +1412,7 @@ export default function AdminStartupsTab({
                 className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
               >
                 {savingValuation && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Save Changes</span>
+                <span>Save Round Updates</span>
               </button>
             </div>
           </form>
@@ -894,7 +1420,7 @@ export default function AdminStartupsTab({
         );
       })()}
 
-      {/* CREATE STARTUP LISTING MODAL */}
+      {/* CREATE CROWDFUNDING ROUND MODAL */}
       {createModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <form
@@ -907,8 +1433,8 @@ export default function AdminStartupsTab({
                   <Plus className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-extrabold text-white">List New Startup Equity Offering</h3>
-                  <p className="text-xs text-slate-400">Institutional nominee crowdfunding round</p>
+                  <h3 className="text-base font-extrabold text-white">Create Crowdfunding Investment Round</h3>
+                  <p className="text-xs text-slate-400">Configure valuation, lock-in period, logo upload &amp; supporting documents</p>
                 </div>
               </div>
               <button type="button" onClick={() => setCreateModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
@@ -917,9 +1443,39 @@ export default function AdminStartupsTab({
             </div>
 
             <div className="space-y-4 text-xs">
+              {/* Project Logo Upload */}
+              <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <img
+                    src={resolveMediaUrl(newStartup.logoUrl)}
+                    alt="Logo preview"
+                    className="w-12 h-12 rounded-xl object-cover border border-slate-700"
+                  />
+                  <div>
+                    <div className="font-bold text-white">Project Logo Upload</div>
+                    <p className="text-[10px] text-slate-400">Shown on the crowdfunding marketplace &amp; investor cards</p>
+                  </div>
+                </div>
+                <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold border border-slate-700 cursor-pointer shrink-0">
+                  <Upload className="w-3.5 h-3.5 text-purple-400" />
+                  <span>{uploadingAsset ? 'Uploading...' : 'Upload Logo'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const uploaded = await uploadVentureAsset(file);
+                      if (uploaded) setNewStartup((prev) => ({ ...prev, logoUrl: uploaded.url }));
+                    }}
+                  />
+                </label>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Company Name</label>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Project / Company Name</label>
                   <input
                     type="text"
                     required
@@ -943,7 +1499,7 @@ export default function AdminStartupsTab({
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Tagline / Pitch</label>
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Tagline / Summary</label>
                 <input
                   type="text"
                   required
@@ -956,7 +1512,7 @@ export default function AdminStartupsTab({
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Pre-Money Valuation ($)</label>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Current Valuation ($)</label>
                   <input
                     type="number"
                     required
@@ -989,6 +1545,47 @@ export default function AdminStartupsTab({
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Lock-In (Months)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={newStartup.lockInMonths}
+                    onChange={(e) => setNewStartup({ ...newStartup, lockInMonths: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Expected Return (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={newStartup.expectedReturnPct}
+                    onChange={(e) => setNewStartup({ ...newStartup, expectedReturnPct: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Start Date</label>
+                  <input
+                    type="date"
+                    value={newStartup.startDate}
+                    onChange={(e) => setNewStartup({ ...newStartup, startDate: e.target.value })}
+                    className="w-full px-2.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-amber-300 uppercase font-mono">Maturity / Exit Date</label>
+                  <input
+                    type="date"
+                    value={newStartup.maturityDate}
+                    onChange={(e) => setNewStartup({ ...newStartup, maturityDate: e.target.value })}
+                    className="w-full px-2.5 py-2 bg-slate-900 border border-amber-500/40 rounded-xl text-white font-mono outline-none"
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Round Stage</label>
@@ -1013,21 +1610,75 @@ export default function AdminStartupsTab({
                   >
                     <option value="SAFE">SAFE (Post-Money Valuation Cap)</option>
                     <option value="EQUITY">Priced Preferred Equity</option>
-                    <option value="DEBT">Convertible Promissory Note</option>
+                    <option value="CONVERTIBLE_NOTE">Convertible Note</option>
                   </select>
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Pitch Overview &amp; Thesis</label>
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Description &amp; Investment Thesis</label>
                 <textarea
                   required
                   rows={3}
-                  placeholder="Detail the market opportunity, founder track record, traction, and competitive moat..."
+                  placeholder="Detail the project scope, use of funds, and revenue model..."
                   value={newStartup.pitchOverview}
                   onChange={(e) => setNewStartup({ ...newStartup, pitchOverview: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500 resize-none"
                 />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Terms, Conditions &amp; Notes</label>
+                <textarea
+                  rows={2}
+                  placeholder="Lock-in terms, exit waterfall rules, fees..."
+                  value={newStartup.termsAndNotes}
+                  onChange={(e) => setNewStartup({ ...newStartup, termsAndNotes: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none resize-none"
+                />
+              </div>
+
+              {/* Supporting Document Upload */}
+              <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                <div className="font-bold text-white">Attach Supporting Documents (Optional)</div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    placeholder="Document title (e.g. Offering Memo PDF)"
+                    value={docTitleInput}
+                    onChange={(e) => setDocTitleInput(e.target.value)}
+                    className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <label className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold border border-slate-700 cursor-pointer shrink-0">
+                    <Upload className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Attach PDF/Image</span>
+                    <input
+                      type="file"
+                      accept=".pdf,image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const uploaded = await uploadVentureAsset(file);
+                        if (uploaded) {
+                          setNewStartupDocs((prev) => [
+                            ...prev,
+                            { title: docTitleInput.trim() || uploaded.originalName, url: uploaded.url, uploadedAt: new Date().toISOString() },
+                          ]);
+                          setDocTitleInput('');
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                {newStartupDocs.map((d, i) => (
+                  <div key={i} className="text-[11px] flex justify-between text-emerald-400">
+                    <span>📄 {d.title}</span>
+                    <button type="button" onClick={() => setNewStartupDocs((p) => p.filter((_, idx) => idx !== i))} className="text-rose-400 cursor-pointer">
+                      Remove
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -1045,7 +1696,7 @@ export default function AdminStartupsTab({
                 className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-lg shadow-purple-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
               >
                 {creating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Publish Startup Offering</span>
+                <span>Publish Crowdfunding Round</span>
               </button>
             </div>
           </form>

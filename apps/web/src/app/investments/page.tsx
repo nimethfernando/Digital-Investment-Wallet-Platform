@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
-import { api, extractErrorMessage } from '../../lib/api';
+import { api, extractErrorMessage, resolveMediaUrl } from '../../lib/api';
 import {
   TrendingUp,
   ShieldCheck,
@@ -50,7 +50,14 @@ interface StartupItem {
   verifiedFundsRaised: number;
   investorCount: number;
   progressPct: number;
+  startDate?: string;
   deadline: string;
+  lockInMonths?: number;
+  maturityDate?: string;
+  expectedReturnPct?: number;
+  performancePct?: number;
+  termsAndNotes?: string;
+  supportingDocuments?: { title: string; url: string; uploadedAt?: string }[];
   dueDiligenceStatus: string;
   dueDiligenceSummary: string;
   pitchOverview: string;
@@ -423,11 +430,20 @@ export default function InvestmentsMarketplacePage() {
 
               {/* Company Title & Tagline */}
               <div>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xl font-black text-slate-900 dark:text-white">
-                    {c.companyName}
-                  </h3>
-                  <span className="text-xs font-mono font-bold text-slate-400">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {c.logoUrl && (
+                      <img
+                        src={resolveMediaUrl(c.logoUrl)}
+                        alt={c.companyName}
+                        className="w-10 h-10 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                      />
+                    )}
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white truncate">
+                      {c.companyName}
+                    </h3>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-slate-400 shrink-0">
                     {c.city}, {c.country}
                   </span>
                 </div>
@@ -698,6 +714,68 @@ export default function InvestmentsMarketplacePage() {
                       <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">{f.role}</div>
                       {f.bio && <p className="text-[11px] text-slate-500 leading-snug">{f.bio}</p>}
                     </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Lock-In Period, Timeline & Return Outlook */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Lock-In Period</span>
+                <span className="text-xs font-black font-mono text-amber-600 dark:text-amber-400">
+                  {selectedCampaign.lockInMonths ?? 12} Months
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Expected / Current Perf</span>
+                <span className="text-xs font-black font-mono text-emerald-600 dark:text-emerald-400">
+                  {Number(selectedCampaign.expectedReturnPct || 0)}% · {Number(selectedCampaign.performancePct || 0) >= 0 ? '+' : ''}
+                  {Number(selectedCampaign.performancePct || 0).toFixed(1)}%
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Round Closing</span>
+                <span className="text-xs font-bold font-mono text-slate-800 dark:text-slate-200">
+                  {selectedCampaign.deadline ? new Date(selectedCampaign.deadline).toLocaleDateString() : '—'}
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 block">Maturity / Exit Date</span>
+                <span className="text-xs font-bold font-mono text-slate-800 dark:text-slate-200">
+                  {selectedCampaign.maturityDate ? new Date(selectedCampaign.maturityDate).toLocaleDateString() : `${selectedCampaign.lockInMonths ?? 12}m lock`}
+                </span>
+              </div>
+            </div>
+
+            {selectedCampaign.termsAndNotes && (
+              <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-500/30 space-y-1 text-xs">
+                <div className="font-bold text-amber-800 dark:text-amber-300">
+                  Round Terms, Conditions &amp; Lock-In Policy
+                </div>
+                <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                  {selectedCampaign.termsAndNotes}
+                </p>
+              </div>
+            )}
+
+            {Array.isArray(selectedCampaign.supportingDocuments) && selectedCampaign.supportingDocuments.length > 0 && (
+              <div className="space-y-2 text-xs">
+                <h4 className="font-bold uppercase tracking-wider text-slate-500 text-[11px]">
+                  Supporting Round Documents
+                </h4>
+                <div className="flex flex-wrap gap-2">
+                  {selectedCampaign.supportingDocuments.map((doc, idx) => (
+                    <a
+                      key={idx}
+                      href={resolveMediaUrl(doc.url)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 hover:text-emerald-600 transition-colors"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>{doc.title}</span>
+                    </a>
                   ))}
                 </div>
               </div>

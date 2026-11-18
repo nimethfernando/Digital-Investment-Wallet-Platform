@@ -1042,7 +1042,22 @@ model StartupListing {
   minInvestment       Decimal                @default(250.00) @db.Decimal(20, 2)
   verifiedFundsRaised Decimal                @default(0.00) @db.Decimal(20, 2)
   investorCount       Int                    @default(0)
+  startDate           DateTime?
   deadline            DateTime
+  lockInMonths        Int                    @default(12)
+  maturityDate        DateTime?
+  expectedReturnPct   Decimal                @default(0.00) @db.Decimal(8, 2)
+  performancePct      Decimal                @default(0.00) @db.Decimal(8, 2)
+  termsAndNotes       String?                @db.Text
+  supportingDocuments String?                @db.Text
+  providerName        String?                @db.VarChar(150)
+  providerInvestedAmount Decimal             @default(0.00) @db.Decimal(20, 2)
+  providerTransferredAt DateTime?
+  providerExpectedReturnAmount Decimal       @default(0.00) @db.Decimal(20, 2)
+  providerExpectedReturnDate DateTime?
+  providerActualReceivedAmount Decimal       @default(0.00) @db.Decimal(20, 2)
+  providerReceivedAt  DateTime?
+  providerNotes       String?                @db.Text
   status              String                 @default("PUBLISHED") // DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED, PUBLISHED, CLOSED, SUSPENDED
   dueDiligenceStatus  String                 @default("VERIFIED") // PENDING, UNDER_REVIEW, VERIFIED, REJECTED
   dueDiligenceSummary String?                @db.Text
@@ -1095,6 +1110,8 @@ model InvestmentCommitment {
   profitShareFeeAmount Decimal        @default(0.00) @db.Decimal(20, 2)
   netDistributedProfit Decimal        @default(0.00) @db.Decimal(20, 2)
   settlementReference  String?        @db.VarChar(50)
+  lockInEnd            DateTime?
+  maturedAt            DateTime?
   notes                String?        @db.Text
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { api, resolveMediaUrl } from '../../lib/api';
 import { VirtualCardModule } from '../../components/VirtualCardModule';
 import { RedotPayAppModule } from '../../components/RedotPayAppModule';
 import { SupportTicketModule } from '../../components/SupportTicketModule';
@@ -63,6 +63,7 @@ import {
   RefreshCw,
   ArrowLeftRight,
   Eye,
+  FileText,
 } from 'lucide-react';
 
 interface WalletSummary {
@@ -122,6 +123,13 @@ interface StartupInvestmentItem {
   createdAt: string;
   realizedProceeds?: string;
   netDistributedProfit?: string;
+  profitLossUsd?: number;
+  lockInMonths?: number;
+  lockInEnd?: string | null;
+  expectedMaturityDate?: string | null;
+  isLockInEnded?: boolean;
+  daysRemaining?: number;
+  notes?: string | null;
   listing: {
     id: string;
     slug: string;
@@ -130,6 +138,12 @@ interface StartupInvestmentItem {
     industry: string;
     country: string;
     stage: string;
+    lockInMonths?: number;
+    maturityDate?: string | null;
+    expectedReturnPct?: number;
+    performancePct?: number;
+    termsAndNotes?: string | null;
+    supportingDocuments?: { title: string; url: string; uploadedAt?: string }[];
   };
 }
 
@@ -2628,33 +2642,64 @@ function DashboardContent() {
                       const currentVal = parseFloat(String(inv.currentValuation || inv.netInvestedAmount || '0'));
                       const unrealizedGrowth = currentVal - netInvested;
                       const growthPct = netInvested > 0 ? (unrealizedGrowth / netInvested) * 100 : 0;
+                      const lockMonths = inv.lockInMonths ?? inv.listing?.lockInMonths ?? 12;
+                      const matDate = inv.expectedMaturityDate || inv.lockInEnd || inv.listing?.maturityDate;
+                      const isProfit = unrealizedGrowth >= 0;
+                      const docs = Array.isArray(inv.listing?.supportingDocuments) ? inv.listing.supportingDocuments : [];
                       return (
                         <div
                           key={inv.id}
                           className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-4 relative overflow-hidden"
                         >
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between gap-2">
                             <span className="font-mono text-xs font-bold text-amber-600">{inv.investmentCode}</span>
-                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
-                              {inv.status === 'CLEARED_FUNDS' ? 'Active Holding' : inv.status}
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                              inv.status === 'EXITED'
+                                ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 border-purple-500/20'
+                                : inv.isLockInEnded
+                                ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-500/20'
+                                : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-500/20'
+                            }`}>
+                              {inv.status === 'EXITED'
+                                ? 'Exited / Distributed'
+                                : inv.isLockInEnded
+                                ? 'Lock-In Ended'
+                                : `Locked · ${inv.daysRemaining ?? 0}d left`}
                             </span>
                           </div>
 
-                          <div>
-                            <h4 className="text-lg font-black text-slate-900 dark:text-white">{inv.listing?.companyName}</h4>
-                            <p className="text-xs text-slate-500">
-                              {inv.listing?.industry} • {inv.listing?.stage} • {inv.instrument}
-                            </p>
+                          <div className="flex items-center gap-3">
+                            {inv.listing?.logoUrl && (
+                              <img
+                                src={resolveMediaUrl(inv.listing.logoUrl)}
+                                alt={inv.listing.companyName}
+                                className="w-11 h-11 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                              />
+                            )}
+                            <div>
+                              <h4 className="text-lg font-black text-slate-900 dark:text-white">{inv.listing?.companyName || (inv as any).companyName}</h4>
+                              <p className="text-xs text-slate-500">
+                                {inv.listing?.industry} • {inv.listing?.stage} • {inv.instrument}
+                              </p>
+                            </div>
                           </div>
 
-                          {/* Live Holding Valuation & Money Growing Tracker */}
-                          <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/10 via-emerald-500/10 to-transparent border border-emerald-500/30 space-y-2">
+                          {/* Live Holding Valuation & Profit/Loss Tracker */}
+                          <div className={`p-4 rounded-2xl bg-gradient-to-br border space-y-2 ${
+                            isProfit
+                              ? 'from-amber-500/10 via-emerald-500/10 to-transparent border-emerald-500/30'
+                              : 'from-rose-500/10 via-amber-500/5 to-transparent border-rose-500/30'
+                          }`}>
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                                Current Holding Valuation
+                                Current Investment Value
                               </span>
-                              <span className="text-[10px] font-mono font-black text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/20">
-                                {growthPct >= 0 ? '+' : ''}{growthPct.toFixed(1)}% Growth
+                              <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-full ${
+                                isProfit
+                                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                                  : 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
+                              }`}>
+                                {growthPct >= 0 ? '+' : ''}{growthPct.toFixed(2)}% Return
                               </span>
                             </div>
                             <div className="text-2xl font-black text-slate-900 dark:text-white font-mono">
@@ -2662,39 +2707,68 @@ function DashboardContent() {
                             </div>
                             <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
                               <span>Invested: ${netInvested.toLocaleString()} USD</span>
-                              <span className="text-emerald-600 font-bold">Unrealized: +${unrealizedGrowth.toFixed(2)} USD</span>
+                              <span className={`font-bold ${isProfit ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                {isProfit ? 'Profit' : 'Loss'}: {isProfit ? '+' : '-'}${Math.abs(unrealizedGrowth).toFixed(2)} USD
+                              </span>
                             </div>
                           </div>
 
                           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
                             <div className="flex justify-between">
-                              <span className="text-slate-500">Gross Committed:</span>
-                              <span className="font-bold text-slate-900 dark:text-white">${parseFloat(inv.grossAmount).toLocaleString()} USD</span>
+                              <span className="text-slate-500">Investment Date:</span>
+                              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                                {new Date(inv.createdAt).toLocaleDateString()}
+                              </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-500">{Number(inv.allocationFeePct ?? (parseFloat(startupSummary?.feeRules?.allocationFeePct || '5') || 5))}% Allocation Fee:</span>
-                              <span className="text-amber-600 font-mono">${parseFloat(inv.allocationFeeAmount).toFixed(2)} USD</span>
+                              <span className="text-slate-500">Lock-In Period:</span>
+                              <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                                {lockMonths} Months ({inv.isLockInEnded ? 'Completed' : 'In Lock-In'})
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">Expected Maturity / Exit:</span>
+                              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                {matDate ? new Date(matDate).toLocaleDateString() : 'Per Round Schedule'}
+                              </span>
                             </div>
                             <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1">
-                              <span className="font-bold text-slate-700 dark:text-slate-300">Net Principal Capital:</span>
-                              <span className="font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                                ${netInvested.toLocaleString()} USD
+                              <span className="text-slate-500">Gross / Fee / Net Principal:</span>
+                              <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                ${parseFloat(inv.grossAmount).toLocaleString()} / ${parseFloat(inv.allocationFeeAmount).toFixed(2)} / ${netInvested.toLocaleString()}
                               </span>
                             </div>
                           </div>
 
-                          {/* How Returns Work for this Startup */}
-                          <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-[11px] text-amber-800 dark:text-amber-200 space-y-1">
-                            <strong className="block font-bold">Return &amp; Exit Payout Terms:</strong>
+                          {/* Terms, Notes & Supporting Documents */}
+                          <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-[11px] text-amber-800 dark:text-amber-200 space-y-1.5">
+                            <strong className="block font-bold">Terms &amp; Exit Payout Disclosures:</strong>
                             <p className="leading-relaxed">
-                              Upon an acquisition, dividend distribution, or IPO, your full principal is returned 100% fee-free. Avora Bank applies a {Number(inv.profitShareFeePct ?? (parseFloat(startupSummary?.feeRules?.profitShareFeePct || '5') || 5))}% profit-share fee strictly to net profits generated above your principal. Proceeds land directly in your internal USD balance.
+                              {inv.listing?.termsAndNotes ||
+                                `Principal is locked for ${lockMonths} months until maturity/exit. Upon distribution, principal returns 100% fee-free and Avora applies ${Number(inv.profitShareFeePct ?? (parseFloat(startupSummary?.feeRules?.profitShareFeePct || '5') || 5))}% profit-share only on net profits above principal.`}
                             </p>
+                            {docs.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                {docs.map((doc, dIdx) => (
+                                  <a
+                                    key={dIdx}
+                                    href={resolveMediaUrl(doc.url)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/80 dark:bg-slate-900 border border-amber-300 dark:border-amber-800 text-[10px] font-bold text-slate-900 dark:text-amber-200 hover:underline"
+                                  >
+                                    <FileText className="w-3 h-3" />
+                                    <span>{doc.title}</span>
+                                  </a>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
-                            <span>Committed: {new Date(inv.createdAt).toLocaleDateString()}</span>
+                            <span>Status: <strong className="text-slate-600 dark:text-slate-300">{inv.status}</strong></span>
                             <span className="font-mono text-emerald-600 font-bold">
-                              Paid Out: ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
+                              Distributed: ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
                             </span>
                           </div>
                         </div>

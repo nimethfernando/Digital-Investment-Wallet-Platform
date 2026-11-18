@@ -976,6 +976,7 @@ export class AdminController {
    */
   async getInvestments(req: Request, res: Response, next: NextFunction) {
     try {
+      await investmentsService.ensureVentureSchema();
       const [commitments, listings] = await Promise.all([
         prisma.investmentCommitment.findMany({
           include: {
@@ -993,9 +994,13 @@ export class AdminController {
                 id: true,
                 slug: true,
                 companyName: true,
+                logoUrl: true,
                 industry: true,
                 stage: true,
                 country: true,
+                lockInMonths: true,
+                maturityDate: true,
+                performancePct: true,
               },
             },
           },
@@ -1005,7 +1010,39 @@ export class AdminController {
           orderBy: { createdAt: 'desc' },
         }),
       ]);
-      res.json({ success: true, data: { commitments, listings } });
+
+      const formattedListings = listings.map((l) => {
+        const listingCommitments = commitments.filter((c) => c.listingId === l.id);
+        const actualCollectedFromUsersUsd = listingCommitments.reduce(
+          (s, c) => s + Number(c.netInvestedAmount || 0),
+          0
+        );
+        const actualDistributedToUsersUsd = listingCommitments.reduce(
+          (s, c) => s + Number(c.realizedProceeds || 0),
+          0
+        );
+        const provInvested = Number(l.providerInvestedAmount || 0);
+        const provReceived = Number(l.providerActualReceivedAmount || 0);
+        const providerProfitLossUsd = provReceived - provInvested;
+
+        let parsedDocs: any[] = [];
+        try {
+          parsedDocs = l.supportingDocuments ? JSON.parse(l.supportingDocuments) : [];
+        } catch {
+          parsedDocs = [];
+        }
+
+        return {
+          ...l,
+          supportingDocuments: Array.isArray(parsedDocs) ? parsedDocs : [],
+          actualCollectedFromUsersUsd: Number(actualCollectedFromUsersUsd.toFixed(2)),
+          actualDistributedToUsersUsd: Number(actualDistributedToUsersUsd.toFixed(2)),
+          actualCommitmentsCount: listingCommitments.length,
+          providerProfitLossUsd: Number(providerProfitLossUsd.toFixed(2)),
+        };
+      });
+
+      res.json({ success: true, data: { commitments, listings: formattedListings } });
     } catch (err) {
       next(err);
     }
@@ -1149,17 +1186,40 @@ export class AdminController {
    */
   async updateStartupValuation(req: Request, res: Response, next: NextFunction) {
     try {
+      await investmentsService.ensureVentureSchema();
       const adminUserId = (req as any).user.id;
       const listingId = req.params.id as string;
       const {
+        companyName,
+        tagline,
+        pitchOverview,
+        logoUrl,
         valuation,
         stage,
+        instrument,
         growthNotes,
         verifiedFundsRaised,
         fundingTarget,
         minInvestment,
         investorCount,
         status,
+        startDate,
+        deadline,
+        lockInMonths,
+        maturityDate,
+        expectedReturnPct,
+        performancePct,
+        termsAndNotes,
+        dueDiligenceSummary,
+        supportingDocuments,
+        providerName,
+        providerInvestedAmount,
+        providerTransferredAt,
+        providerExpectedReturnAmount,
+        providerExpectedReturnDate,
+        providerActualReceivedAmount,
+        providerReceivedAt,
+        providerNotes,
       } = req.body;
 
       const listing = await prisma.startupListing.findUnique({
@@ -1182,6 +1242,11 @@ export class AdminController {
       const valuationMultiplier = newValuation.dividedBy(oldValuation);
       const gainPct = valuationMultiplier.minus(1).times(100);
 
+      const hasPerfOverride = performancePct !== undefined && performancePct !== '' && Number.isFinite(Number(performancePct));
+      const parsedPerfPct = hasPerfOverride ? new Decimal(Number(performancePct).toFixed(2)) : null;
+      const prevPerfPct = new Decimal(listing.performancePct?.toString() || '0');
+      const perfChanged = parsedPerfPct !== null && !parsedPerfPct.equals(prevPerfPct);
+
       const updateData: any = {
         valuation: newValuation,
         stage: stage || listing.stage,
@@ -1189,6 +1254,68 @@ export class AdminController {
           ? `${listing.financialHighlights || ''}\n[${new Date().toISOString()}] ${growthNotes}`
           : listing.financialHighlights,
       };
+
+      if (companyName) updateData.companyName = String(companyName).trim();
+      if (tagline) updateData.tagline = String(tagline).trim();
+      if (pitchOverview) updateData.pitchOverview = String(pitchOverview).trim();
+      if (logoUrl !== undefined) updateData.logoUrl = logoUrl || listing.logoUrl;
+      if (instrument) updateData.instrument = String(instrument).toUpperCase();
+      if (dueDiligenceSummary !== undefined) updateData.dueDiligenceSummary = dueDiligenceSummary || null;
+      if (termsAndNotes !== undefined) updateData.termsAndNotes = termsAndNotes || null;
+
+      if (supportingDocuments !== undefined) {
+        updateData.supportingDocuments =
+          typeof supportingDocuments === 'string'
+            ? supportingDocuments
+            : JSON.stringify(Array.isArray(supportingDocuments) ? supportingDocuments : []);
+      }
+
+      if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null;
+      if (deadline !== undefined && deadline !== '') updateData.deadline = new Date(deadline);
+      if (maturityDate !== undefined) updateData.maturityDate = maturityDate ? new Date(maturityDate) : null;
+      if (lockInMonths !== undefined && lockInMonths !== '') {
+        const lockM = Math.max(0, Math.floor(Number(lockInMonths)));
+        if (Number.isFinite(lockM)) updateData.lockInMonths = lockM;
+      }
+      if (expectedReturnPct !== undefined && expectedReturnPct !== '') {
+        const expRet = Number(expectedReturnPct);
+        if (Number.isFinite(expRet)) updateData.expectedReturnPct = new Decimal(expRet.toFixed(2));
+      }
+
+      if (parsedPerfPct !== null) {
+        updateData.performancePct = parsedPerfPct;
+      } else if (valuationChanged) {
+        const compoundedPerf = new Decimal(1)
+          .plus(prevPerfPct.div(100))
+          .times(valuationMultiplier)
+          .minus(1)
+          .times(100);
+        updateData.performancePct = new Decimal(compoundedPerf.toFixed(2));
+      }
+
+      if (providerName !== undefined) updateData.providerName = providerName || null;
+      if (providerInvestedAmount !== undefined && providerInvestedAmount !== '') {
+        const v = Number(providerInvestedAmount);
+        if (Number.isFinite(v) && v >= 0) updateData.providerInvestedAmount = new Decimal(v.toFixed(2));
+      }
+      if (providerTransferredAt !== undefined) {
+        updateData.providerTransferredAt = providerTransferredAt ? new Date(providerTransferredAt) : null;
+      }
+      if (providerExpectedReturnAmount !== undefined && providerExpectedReturnAmount !== '') {
+        const v = Number(providerExpectedReturnAmount);
+        if (Number.isFinite(v) && v >= 0) updateData.providerExpectedReturnAmount = new Decimal(v.toFixed(2));
+      }
+      if (providerExpectedReturnDate !== undefined) {
+        updateData.providerExpectedReturnDate = providerExpectedReturnDate ? new Date(providerExpectedReturnDate) : null;
+      }
+      if (providerActualReceivedAmount !== undefined && providerActualReceivedAmount !== '') {
+        const v = Number(providerActualReceivedAmount);
+        if (Number.isFinite(v) && v >= 0) updateData.providerActualReceivedAmount = new Decimal(v.toFixed(2));
+      }
+      if (providerReceivedAt !== undefined) {
+        updateData.providerReceivedAt = providerReceivedAt ? new Date(providerReceivedAt) : null;
+      }
+      if (providerNotes !== undefined) updateData.providerNotes = providerNotes || null;
 
       if (verifiedFundsRaised !== undefined && verifiedFundsRaised !== '') {
         const raisedNum = parseFloat(String(verifiedFundsRaised));
@@ -1232,20 +1359,57 @@ export class AdminController {
         data: updateData,
       });
 
-      // Recalculate investor commitment mark-to-market holdings only when valuation changed
-      if (valuationChanged) {
+      const lockChanged =
+        (maturityDate !== undefined && String(maturityDate) !== String(listing.maturityDate || '')) ||
+        (lockInMonths !== undefined && lockInMonths !== '' && Number(lockInMonths) !== Number(listing.lockInMonths));
+
+      // Recalculate investor commitment values automatically when performancePct, valuation, or lock-in changes
+      if (perfChanged || valuationChanged || lockChanged) {
         for (const commitment of listing.investments) {
           const netInvested = new Decimal(commitment.netInvestedAmount.toString());
-          const updatedHoldingValue = netInvested.times(valuationMultiplier);
-          const commitmentGainPct = updatedHoldingValue.minus(netInvested).dividedBy(netInvested).times(100);
+          const prevHold = commitment.currentValuation ? new Decimal(commitment.currentValuation.toString()) : netInvested;
+
+          let updatedHoldingValue = prevHold;
+          let commitmentGainPct = new Decimal(commitment.unrealizedReturnPct?.toString() || '0');
+
+          if (perfChanged && parsedPerfPct !== null) {
+            updatedHoldingValue = new Decimal(
+              netInvested.times(new Decimal(1).plus(parsedPerfPct.div(100))).toFixed(2)
+            );
+            commitmentGainPct = parsedPerfPct;
+          } else if (valuationChanged) {
+            const safeBaseHold =
+              Number(commitment.unrealizedReturnPct || 0) === 0 &&
+              prevHold.equals(oldValuation) &&
+              netInvested.lessThan(oldValuation)
+                ? netInvested
+                : prevHold;
+            updatedHoldingValue = new Decimal(safeBaseHold.times(valuationMultiplier).toFixed(2));
+            commitmentGainPct = netInvested.greaterThan(0)
+              ? new Decimal(updatedHoldingValue.minus(netInvested).dividedBy(netInvested).times(100).toFixed(2))
+              : new Decimal(0);
+          }
+
+          let updatedLockInEnd = commitment.lockInEnd;
+          if (lockChanged) {
+            if (updatedListing.maturityDate) {
+              updatedLockInEnd = updatedListing.maturityDate;
+            } else {
+              const lm = Math.max(0, Number(updatedListing.lockInMonths ?? 12));
+              const d = new Date(commitment.createdAt);
+              d.setMonth(d.getMonth() + lm);
+              updatedLockInEnd = d;
+            }
+          }
 
           await prisma.investmentCommitment.update({
             where: { id: commitment.id },
             data: {
               currentValuation: updatedHoldingValue,
               unrealizedReturnPct: commitmentGainPct,
+              lockInEnd: updatedLockInEnd,
               notes: growthNotes
-                ? `${commitment.notes || ''}\n[${new Date().toISOString()}] Valuation updated to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(1)}%)`
+                ? `${commitment.notes || ''}\n[${new Date().toISOString()}] Performance updated (${commitmentGainPct.greaterThanOrEqualTo(0) ? '+' : ''}${commitmentGainPct.toFixed(2)}%, Holding: $${updatedHoldingValue.toFixed(2)}): ${growthNotes}`
                 : commitment.notes,
             },
           });
@@ -1259,18 +1423,16 @@ export class AdminController {
           action: 'UPDATE_STARTUP_VALUATION',
           entity: 'StartupListing',
           entityId: listingId,
-          details: `Updated ${listing.companyName}: Valuation $${newValuation.toLocaleString()}, Raised $${Number(updatedListing.verifiedFundsRaised).toLocaleString()}, Target $${Number(updatedListing.fundingTarget).toLocaleString()}, Min Check $${Number(updatedListing.minInvestment).toLocaleString()}, Investors ${updatedListing.investorCount}.`,
+          details: `Updated ${listing.companyName}: Valuation $${newValuation.toLocaleString()}, Performance ${Number(updatedListing.performancePct).toFixed(2)}%, Lock-In ${updatedListing.lockInMonths}mo, Raised $${Number(updatedListing.verifiedFundsRaised).toLocaleString()}, Provider Invested $${Number(updatedListing.providerInvestedAmount).toLocaleString()}, Provider Received $${Number(updatedListing.providerActualReceivedAmount).toLocaleString()}.`,
         },
       });
 
       res.json({
         success: true,
-        message: valuationChanged
-          ? `Updated ${listing.companyName} range & valuation to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(1)}%).`
-          : `Updated ${listing.companyName} investment range & raised figures successfully.`,
+        message: `Updated ${updatedListing.companyName} (${Number(updatedListing.performancePct) >= 0 ? '+' : ''}${Number(updatedListing.performancePct).toFixed(2)}% performance, Valuation $${newValuation.toLocaleString()}).`,
         data: {
           listing: updatedListing,
-          gainPct: gainPct.toFixed(2),
+          gainPct: Number(updatedListing.performancePct).toFixed(2),
         },
       });
     } catch (err) {
@@ -2531,6 +2693,7 @@ export class AdminController {
    */
   async createStartupListing(req: Request, res: Response, next: NextFunction) {
     try {
+      await investmentsService.ensureVentureSchema();
       const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
       const {
         companyName,
@@ -2543,12 +2706,28 @@ export class AdminController {
         instrument = 'SAFE',
         valuation,
         fundingTarget,
+        verifiedFundsRaised = 0,
+        investorCount = 0,
         minInvestment = 250,
         pitchOverview,
+        startDate,
         deadline,
+        lockInMonths = 12,
+        maturityDate,
+        expectedReturnPct = 0,
+        performancePct = 0,
+        termsAndNotes,
+        dueDiligenceSummary,
+        supportingDocuments,
         logoUrl,
         coverImageUrl,
         pitchDeckUrl,
+        providerName,
+        providerInvestedAmount = 0,
+        providerTransferredAt,
+        providerExpectedReturnAmount = 0,
+        providerExpectedReturnDate,
+        providerNotes,
       } = req.body;
 
       if (!companyName || !tagline || !valuation || !fundingTarget || !pitchOverview) {
@@ -2556,6 +2735,14 @@ export class AdminController {
       }
 
       const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).substring(2, 6);
+      const lockM = Math.max(0, Math.floor(Number(lockInMonths) || 12));
+      const startDt = startDate ? new Date(startDate) : new Date();
+      const matDt = maturityDate
+        ? new Date(maturityDate)
+        : lockM > 0
+        ? new Date(new Date(startDt).setMonth(startDt.getMonth() + lockM))
+        : null;
+
       const listing = await prisma.startupListing.create({
         data: {
           slug,
@@ -2569,12 +2756,32 @@ export class AdminController {
           instrument,
           valuation: new Decimal(valuation.toString()),
           fundingTarget: new Decimal(fundingTarget.toString()),
+          verifiedFundsRaised: new Decimal((verifiedFundsRaised || 0).toString()),
+          investorCount: Math.max(0, Math.floor(Number(investorCount) || 0)),
           minInvestment: new Decimal(minInvestment.toString()),
           pitchOverview,
+          startDate: startDt,
           deadline: deadline ? new Date(deadline) : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+          lockInMonths: lockM,
+          maturityDate: matDt,
+          expectedReturnPct: new Decimal((expectedReturnPct || 0).toString()),
+          performancePct: new Decimal((performancePct || 0).toString()),
+          termsAndNotes: termsAndNotes || null,
+          dueDiligenceSummary: dueDiligenceSummary || null,
+          supportingDocuments: supportingDocuments
+            ? typeof supportingDocuments === 'string'
+              ? supportingDocuments
+              : JSON.stringify(supportingDocuments)
+            : null,
           logoUrl: logoUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80',
           coverImageUrl: coverImageUrl || 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&auto=format&fit=crop&q=80',
           pitchDeckUrl,
+          providerName: providerName || null,
+          providerInvestedAmount: new Decimal((providerInvestedAmount || 0).toString()),
+          providerTransferredAt: providerTransferredAt ? new Date(providerTransferredAt) : null,
+          providerExpectedReturnAmount: new Decimal((providerExpectedReturnAmount || 0).toString()),
+          providerExpectedReturnDate: providerExpectedReturnDate ? new Date(providerExpectedReturnDate) : null,
+          providerNotes: providerNotes || null,
           status: 'PUBLISHED',
           dueDiligenceStatus: 'VERIFIED',
         },
@@ -2605,6 +2812,7 @@ export class AdminController {
    */
   async updateStartupListing(req: Request, res: Response, next: NextFunction) {
     try {
+      await investmentsService.ensureVentureSchema();
       const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
       const id = String(req.params.id);
       const {
@@ -2619,6 +2827,15 @@ export class AdminController {
         dueDiligenceSummary,
         pitchOverview,
         tagline,
+        logoUrl,
+        lockInMonths,
+        maturityDate,
+        startDate,
+        deadline,
+        expectedReturnPct,
+        performancePct,
+        termsAndNotes,
+        supportingDocuments,
       } = req.body;
 
       const updateData: any = {};
@@ -2633,6 +2850,18 @@ export class AdminController {
       if (dueDiligenceSummary !== undefined) updateData.dueDiligenceSummary = dueDiligenceSummary;
       if (pitchOverview) updateData.pitchOverview = pitchOverview;
       if (tagline) updateData.tagline = tagline;
+      if (logoUrl !== undefined) updateData.logoUrl = logoUrl;
+      if (lockInMonths !== undefined && lockInMonths !== '') updateData.lockInMonths = Math.max(0, Math.floor(Number(lockInMonths)));
+      if (maturityDate !== undefined) updateData.maturityDate = maturityDate ? new Date(maturityDate) : null;
+      if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null;
+      if (deadline !== undefined && deadline !== '') updateData.deadline = new Date(deadline);
+      if (expectedReturnPct !== undefined && expectedReturnPct !== '') updateData.expectedReturnPct = new Decimal(expectedReturnPct.toString());
+      if (performancePct !== undefined && performancePct !== '') updateData.performancePct = new Decimal(performancePct.toString());
+      if (termsAndNotes !== undefined) updateData.termsAndNotes = termsAndNotes;
+      if (supportingDocuments !== undefined) {
+        updateData.supportingDocuments =
+          typeof supportingDocuments === 'string' ? supportingDocuments : JSON.stringify(supportingDocuments);
+      }
 
       const updated = await prisma.startupListing.update({
         where: { id },

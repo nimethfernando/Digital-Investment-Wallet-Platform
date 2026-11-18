@@ -6,10 +6,67 @@ import { TransactionType, TransactionStatus, JournalReferenceType } from '@prism
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 export class InvestmentsService {
+  private schemaEnsured = false;
+
+  /**
+   * Idempotently ensure crowdfunding management, lock-in, supporting documents,
+   * and provider fund tracking columns exist in MySQL without blocking boot.
+   */
+  async ensureVentureSchema() {
+    if (this.schemaEnsured) return;
+    try {
+      const checks: [string, string, string][] = [
+        ['diw_startup_listings', 'startDate', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `startDate` DATETIME(3) NULL'],
+        ['diw_startup_listings', 'lockInMonths', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `lockInMonths` INT NOT NULL DEFAULT 12'],
+        ['diw_startup_listings', 'maturityDate', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `maturityDate` DATETIME(3) NULL'],
+        ['diw_startup_listings', 'expectedReturnPct', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `expectedReturnPct` DECIMAL(8,2) NOT NULL DEFAULT 0.00'],
+        ['diw_startup_listings', 'performancePct', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `performancePct` DECIMAL(8,2) NOT NULL DEFAULT 0.00'],
+        ['diw_startup_listings', 'termsAndNotes', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `termsAndNotes` TEXT NULL'],
+        ['diw_startup_listings', 'supportingDocuments', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `supportingDocuments` TEXT NULL'],
+        ['diw_startup_listings', 'providerName', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerName` VARCHAR(150) NULL'],
+        ['diw_startup_listings', 'providerInvestedAmount', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerInvestedAmount` DECIMAL(20,2) NOT NULL DEFAULT 0.00'],
+        ['diw_startup_listings', 'providerTransferredAt', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerTransferredAt` DATETIME(3) NULL'],
+        ['diw_startup_listings', 'providerExpectedReturnAmount', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerExpectedReturnAmount` DECIMAL(20,2) NOT NULL DEFAULT 0.00'],
+        ['diw_startup_listings', 'providerExpectedReturnDate', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerExpectedReturnDate` DATETIME(3) NULL'],
+        ['diw_startup_listings', 'providerActualReceivedAmount', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerActualReceivedAmount` DECIMAL(20,2) NOT NULL DEFAULT 0.00'],
+        ['diw_startup_listings', 'providerReceivedAt', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerReceivedAt` DATETIME(3) NULL'],
+        ['diw_startup_listings', 'providerNotes', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerNotes` TEXT NULL'],
+        ['diw_investment_commitments', 'lockInEnd', 'ALTER TABLE `diw_investment_commitments` ADD COLUMN `lockInEnd` DATETIME(3) NULL'],
+        ['diw_investment_commitments', 'maturedAt', 'ALTER TABLE `diw_investment_commitments` ADD COLUMN `maturedAt` DATETIME(3) NULL'],
+      ];
+      for (const [tableName, colName, ddl] of checks) {
+        const rows = (await prisma
+          .$queryRawUnsafe<any[]>(
+            `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+            tableName,
+            colName
+          )
+          .catch(() => [] as any[])) as any[];
+        if (Number(rows?.[0]?.cnt || 0) === 0) {
+          await prisma.$executeRawUnsafe(ddl).catch(() => {});
+        }
+      }
+      this.schemaEnsured = true;
+    } catch {
+      // Non-fatal fallback
+    }
+  }
+
+  private safeParseJson(raw: any, fallback: any = null) {
+    if (!raw) return fallback;
+    if (typeof raw !== 'string') return raw;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return fallback ?? raw;
+    }
+  }
+
   /**
    * Ensure default institutional startup campaigns exist in the database
    */
   async ensureDefaultCampaigns() {
+    await this.ensureVentureSchema();
     const count = await prisma.startupListing.count();
     if (count > 0) return;
 
@@ -129,6 +186,7 @@ export class InvestmentsService {
     instrument?: string;
     search?: string;
   }) {
+    await this.ensureVentureSchema();
     const where: any = { status: 'PUBLISHED' };
 
     if (filters?.industry && filters.industry !== 'ALL') {
@@ -163,6 +221,7 @@ export class InvestmentsService {
    * Get single startup campaign by slug
    */
   async getCampaignBySlug(slug: string, userId?: string) {
+    await this.ensureVentureSchema();
     const campaign = await prisma.startupListing.findUnique({
       where: { slug },
       include: {
@@ -200,20 +259,40 @@ export class InvestmentsService {
     const target = new Decimal(c.fundingTarget?.toString() || '1');
     const raised = new Decimal(c.verifiedFundsRaised?.toString() || '0');
     const progressPct = Math.min(100, Math.round(raised.dividedBy(target).times(100).toNumber()));
+    const docs = this.safeParseJson(c.supportingDocuments, []);
+
+    const {
+      providerName: _pn,
+      providerInvestedAmount: _pia,
+      providerTransferredAt: _pta,
+      providerExpectedReturnAmount: _pera,
+      providerExpectedReturnDate: _perd,
+      providerActualReceivedAmount: _para,
+      providerReceivedAt: _pra,
+      providerNotes: _pnotes,
+      ...publicFields
+    } = c;
 
     return {
-      ...c,
+      ...publicFields,
       fundingTarget: Number(c.fundingTarget),
       verifiedFundsRaised: Number(c.verifiedFundsRaised),
       valuation: Number(c.valuation),
       minInvestment: Number(c.minInvestment),
       allocationFeePct: Number(c.allocationFeePct),
       profitShareFeePct: Number(c.profitShareFeePct),
+      lockInMonths: Number(c.lockInMonths ?? 12),
+      expectedReturnPct: Number(c.expectedReturnPct ?? 0),
+      performancePct: Number(c.performancePct ?? 0),
+      startDate: c.startDate || null,
+      maturityDate: c.maturityDate || null,
+      termsAndNotes: c.termsAndNotes || null,
+      supportingDocuments: Array.isArray(docs) ? docs : [],
       progressPct,
-      useOfFunds: c.useOfFunds ? JSON.parse(c.useOfFunds) : null,
-      milestones: c.milestones ? JSON.parse(c.milestones) : [],
-      financialHighlights: c.financialHighlights ? JSON.parse(c.financialHighlights) : null,
-      founders: c.founders ? JSON.parse(c.founders) : [],
+      useOfFunds: this.safeParseJson(c.useOfFunds, null),
+      milestones: this.safeParseJson(c.milestones, []),
+      financialHighlights: this.safeParseJson(c.financialHighlights, null),
+      founders: this.safeParseJson(c.founders, []),
     };
   }
 
@@ -373,7 +452,21 @@ export class InvestmentsService {
           },
         });
 
-        // 3. Create InvestmentCommitment
+        // 3. Create InvestmentCommitment (with lock-in end computed from round maturityDate or lockInMonths)
+        const now = new Date();
+        const lockMonths = Math.max(0, Number(campaign.lockInMonths ?? 12));
+        const computedLockEnd =
+          campaign.maturityDate && new Date(campaign.maturityDate) > now
+            ? new Date(campaign.maturityDate)
+            : lockMonths > 0
+            ? new Date(new Date(now).setMonth(now.getMonth() + lockMonths))
+            : null;
+        const initialPerfPct = Number(campaign.performancePct || 0);
+        const initialVal =
+          initialPerfPct !== 0
+            ? new Decimal(netDec.times(new Decimal(1).plus(new Decimal(initialPerfPct).div(100))).toFixed(2))
+            : netDec;
+
         const inv = await tx.investmentCommitment.create({
           data: {
             investmentCode,
@@ -385,8 +478,9 @@ export class InvestmentsService {
             netInvestedAmount: netDec,
             instrument: data.instrument || campaign.instrument,
             status: 'CLEARED_FUNDS',
-            currentValuation: netDec,
-            unrealizedReturnPct: new Decimal('0.00'),
+            currentValuation: initialVal,
+            unrealizedReturnPct: new Decimal(initialPerfPct.toFixed(2)),
+            lockInEnd: computedLockEnd,
             realizedProceeds: new Decimal('0.00'),
             returnOfCapital: new Decimal('0.00'),
             eligibleNetProfit: new Decimal('0.00'),
@@ -594,6 +688,7 @@ export class InvestmentsService {
    *  - Net profit payable to investor
    */
   async getInvestorDashboard(userId: string) {
+    await this.ensureVentureSchema();
     // 1. Confirmed investments
     const commitments = await prisma.investmentCommitment.findMany({
       where: { investorUserId: userId },
@@ -608,6 +703,14 @@ export class InvestmentsService {
             country: true,
             stage: true,
             valuation: true,
+            lockInMonths: true,
+            maturityDate: true,
+            startDate: true,
+            deadline: true,
+            expectedReturnPct: true,
+            performancePct: true,
+            termsAndNotes: true,
+            supportingDocuments: true,
           },
         },
       },
@@ -679,6 +782,22 @@ export class InvestmentsService {
           rawRetPct === 0 && listingVal > 0 && rawCurVal === listingVal && netNum < listingVal
             ? netNum
             : rawCurVal;
+        const lockMonths = Number(c.listing?.lockInMonths ?? 12);
+        const lockEnd =
+          c.lockInEnd ||
+          c.listing?.maturityDate ||
+          (lockMonths > 0
+            ? new Date(new Date(c.createdAt).setMonth(new Date(c.createdAt).getMonth() + lockMonths))
+            : null);
+        const now = new Date();
+        const isLockInEnded = lockEnd ? now >= new Date(lockEnd) : true;
+        const daysRemaining =
+          lockEnd && !isLockInEnded
+            ? Math.max(0, Math.ceil((new Date(lockEnd).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+            : 0;
+        const profitLossUsd = normalizedHoldingVal - netNum;
+        const docs = this.safeParseJson(c.listing?.supportingDocuments, []);
+
         return {
           id: c.id,
           investmentCode: c.investmentCode,
@@ -695,6 +814,12 @@ export class InvestmentsService {
             country: c.listing.country,
             stage: c.listing.stage,
             valuation: listingVal,
+            lockInMonths: lockMonths,
+            maturityDate: c.listing.maturityDate,
+            expectedReturnPct: Number(c.listing.expectedReturnPct ?? 0),
+            performancePct: Number(c.listing.performancePct ?? 0),
+            termsAndNotes: c.listing.termsAndNotes || null,
+            supportingDocuments: Array.isArray(docs) ? docs : [],
           },
           instrument: c.instrument,
           ownershipPct: c.ownershipPct ? Number(c.ownershipPct) : null,
@@ -706,11 +831,18 @@ export class InvestmentsService {
           status: c.status,
           currentValuation: normalizedHoldingVal,
           unrealizedReturnPct: rawRetPct,
+          profitLossUsd,
+          lockInMonths: lockMonths,
+          lockInEnd: lockEnd,
+          expectedMaturityDate: c.listing?.maturityDate || lockEnd,
+          isLockInEnded,
+          daysRemaining,
           realizedProceeds: Number(c.realizedProceeds),
           returnOfCapital: Number(c.returnOfCapital),
           eligibleNetProfit: Number(c.eligibleNetProfit),
           profitShareFeeAmount: Number(c.profitShareFeeAmount),
           netDistributedProfit: Number(c.netDistributedProfit),
+          notes: c.notes,
           createdAt: c.createdAt,
         };
       }),
