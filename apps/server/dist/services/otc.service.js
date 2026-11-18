@@ -912,6 +912,43 @@ class OtcService {
             });
             return createdTrade;
         }, { timeout: 30000, maxWait: 10000 });
+        // Notify OTC Desk operator immediately in Notification Bell & Email
+        const customerUser = await prisma_1.prisma.user
+            .findUnique({
+            where: { id: customerId },
+            select: { firstName: true, lastName: true, displayName: true, email: true },
+        })
+            .catch(() => null);
+        const custLabel = customerUser?.displayName
+            ? `@${customerUser.displayName}`
+            : `${customerUser?.firstName || ''} ${customerUser?.lastName || ''}`.trim() || 'Client';
+        await prisma_1.prisma.userNotification
+            .create({
+            data: {
+                userId: quote.desk.userId,
+                category: 'OTC',
+                type: 'OTC_TRADE_STARTED',
+                severity: 'INFO',
+                title: `New OTC Trade ${trade.tradeCode} — ${quote.desk.deskName}`,
+                message: `${custLabel} initiated ${quote.tradeType.replace('_', ' ')} for ${cryptoAmountDec.toFixed(2)} USDT (${new decimal_js_1.default(quote.fiatAmount.toString()).toFixed(2)} ${quote.fiatCurrency}). Open the OTC chat room to coordinate.`,
+                referenceCode: trade.tradeCode,
+                amount: cryptoAmountDec.toFixed(2),
+                currency: 'USDT',
+                status: 'IN_PROGRESS',
+                actionUrl: `/exchange?tradeId=${trade.id}`,
+                actionLabel: 'Open OTC Chat',
+            },
+        })
+            .catch(() => { });
+        if (quote.desk.user?.email) {
+            notification_provider_1.notificationService
+                .sendEmail({
+                to: quote.desk.user.email,
+                subject: `New OTC Trade Started (${trade.tradeCode}) — ${quote.desk.deskName}`,
+                html: `<p><strong>${custLabel}</strong> opened OTC Escrow Trade <strong>${trade.tradeCode}</strong> for ${cryptoAmountDec.toFixed(2)} USDT (${new decimal_js_1.default(quote.fiatAmount.toString()).toFixed(2)} ${quote.fiatCurrency}). Visit your <strong>OTC Exchange</strong> page to chat and complete settlement.</p>`,
+            })
+                .catch(() => { });
+        }
         return trade;
     }
     /**
@@ -1245,14 +1282,22 @@ class OtcService {
             },
             include: {
                 desk: true,
-                customer: { select: { id: true, firstName: true, lastName: true, email: true } },
-                operator: { select: { id: true, firstName: true, lastName: true, email: true } },
+                customer: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true } },
+                operator: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true } },
                 messages: { orderBy: { createdAt: 'asc' } },
             },
             orderBy: { createdAt: 'desc' },
             take: 30,
         });
-        return trades.map((t) => ({
+        const rank = (s) => (s === 'DISPUTED' ? 0 : s === 'IN_PROGRESS' ? 1 : 2);
+        const sorted = [...trades].sort((a, b) => {
+            const ra = rank(a.status);
+            const rb = rank(b.status);
+            if (ra !== rb)
+                return ra - rb;
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+        return sorted.map((t) => ({
             ...t,
             desk: t.desk ? this.formatDesk(t.desk, false) : null,
         }));
@@ -1270,18 +1315,56 @@ class OtcService {
                 throw new Error('Unauthorized');
             }
         }
-        const sender = await prisma_1.prisma.user.findUnique({ where: { id: senderId } });
+        const sender = await prisma_1.prisma.user.findUnique({
+            where: { id: senderId },
+            select: { id: true, role: true, firstName: true, lastName: true, displayName: true },
+        });
         const senderName = sender?.role === 'ADMIN'
             ? 'Avora Compliance Officer'
-            : `${sender?.firstName || ''} ${sender?.lastName || ''}`.trim() || 'User';
-        return await prisma_1.prisma.otcMessage.create({
+            : sender?.displayName
+                ? `${`${sender.firstName || ''} ${sender.lastName || ''}`.trim() || 'Trader'} (@${sender.displayName})`
+                : `${sender?.firstName || ''} ${sender?.lastName || ''}`.trim() || 'User';
+        const cleanMsg = messageText.trim();
+        const createdMsg = await prisma_1.prisma.otcMessage.create({
             data: {
                 tradeId,
                 senderId,
                 senderName,
-                message: messageText.trim(),
+                message: cleanMsg,
             },
         });
+        // Notify counterparty / participants in real-time Notification Bell
+        const recipientIds = [];
+        if (sender?.role === 'ADMIN') {
+            if (trade.customerId !== senderId)
+                recipientIds.push(trade.customerId);
+            if (trade.operatorId !== senderId && trade.operatorId !== trade.customerId) {
+                recipientIds.push(trade.operatorId);
+            }
+        }
+        else if (senderId === trade.customerId) {
+            recipientIds.push(trade.operatorId);
+        }
+        else if (senderId === trade.operatorId) {
+            recipientIds.push(trade.customerId);
+        }
+        await Promise.all(recipientIds.map((uid) => prisma_1.prisma.userNotification
+            .create({
+            data: {
+                userId: uid,
+                category: 'OTC',
+                type: 'OTC_NEW_MESSAGE',
+                severity: 'INFO',
+                title: `New OTC Message on ${trade.tradeCode}`,
+                message: `${senderName}: "${cleanMsg.slice(0, 140)}"`,
+                referenceCode: trade.tradeCode,
+                status: trade.status,
+                actionUrl: `/exchange?tradeId=${trade.id}`,
+                actionLabel: 'Open OTC Chat',
+            },
+        })
+            .catch(() => { })));
+        return createdMsg;
     }
     /**
      * Get Trade details with chat history
@@ -1291,8 +1374,8 @@ class OtcService {
             where: { id: tradeId },
             include: {
                 desk: { include: { user: true } },
-                customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
-                operator: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+                customer: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, phone: true } },
+                operator: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, phone: true } },
                 messages: { orderBy: { createdAt: 'asc' } },
             },
         });

@@ -1227,6 +1227,46 @@ async function runHttpProductionE2E() {
       if (Number(op2BalAfter?.availableBalance || 0) !== 1500) {
         throw new Error(`Expected $1,500 USD refunded back to op2 wallet, got ${op2BalAfter?.availableBalance}`);
       }
+
+      // Quote -> Accept -> Send Message -> Confirm operator sees trade + notification + message
+      await prisma.$transaction(async (tx) => {
+        const u1 = await ledgerService.lockWalletBalance(tx, w1.id, 'USDT');
+        await tx.walletBalance.update({ where: { id: u1.id }, data: { availableBalance: '200.00000000' } });
+      });
+      const qRes = await apiCall('POST', '/api/v1/otc/quote', op2Token, {
+        deskId: desk1Id,
+        tradeType: 'BUY_USDT',
+        cryptoAmount: 100,
+        fiatCurrency: 'LKR',
+      });
+      if (qRes.status !== 200 || !qRes.json?.data?.id) {
+        throw new Error(`Expected quote created for active desk, got ${qRes.status} ${JSON.stringify(qRes.json)}`);
+      }
+      const trRes = await apiCall('POST', '/api/v1/otc/trades/accept-quote', op2Token, {
+        quoteId: qRes.json.data.id,
+      });
+      if (trRes.status !== 201 || !trRes.json?.data?.id) {
+        throw new Error(`Expected OTC trade accepted, got ${trRes.status} ${JSON.stringify(trRes.json)}`);
+      }
+      const trId = trRes.json.data.id;
+      const msgRes = await apiCall('POST', `/api/v1/otc/trades/${trId}/messages`, op2Token, {
+        message: 'Hello desk operator, testing live chat visibility',
+      });
+      if (msgRes.status !== 201 || !msgRes.json?.data?.id) {
+        throw new Error(`Expected OTC message posted, got ${msgRes.status} ${JSON.stringify(msgRes.json)}`);
+      }
+      const op1Trades = await apiCall('GET', '/api/v1/otc/my-trades', op1Token);
+      const foundTrade = op1Trades.json?.data?.find((t: any) => t.id === trId);
+      if (!foundTrade || !foundTrade.messages?.some((m: any) => m.message.includes('Hello desk operator'))) {
+        throw new Error(`Operator did not receive customer message in /otc/my-trades: ${JSON.stringify(foundTrade)}`);
+      }
+      const op1Notifs = await prisma.userNotification.findMany({
+        where: { userId: otcOp1.id, type: { in: ['OTC_TRADE_STARTED', 'OTC_NEW_MESSAGE'] } },
+      });
+      if (op1Notifs.length < 2) {
+        throw new Error(`Expected OTC_TRADE_STARTED and OTC_NEW_MESSAGE notifications for operator, got ${op1Notifs.length}`);
+      }
+      await apiCall('POST', `/api/v1/otc/trades/${trId}/cancel`, op2Token, { reason: 'E2E cleanup' });
     });
 
     console.log('\n================================================================');

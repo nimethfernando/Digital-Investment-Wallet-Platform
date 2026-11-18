@@ -274,6 +274,8 @@ export default function ExchangeDeskPage() {
   const [msgLoading, setMsgLoading] = useState<boolean>(false);
   const [releasing, setReleasing] = useState<boolean>(false);
   const [tradeActionLoading, setTradeActionLoading] = useState<boolean>(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const deepLinkTradeHandledRef = useRef<string | null>(null);
 
   // Benchmark Rates & Dynamic OTC Commission Structure (Default: 1.5% Broker + 0.5% Platform = 2.0%)
   const [baseRates, setBaseRates] = useState<Record<string, number>>({
@@ -568,14 +570,71 @@ export default function ExchangeDeskPage() {
   }, []);
 
   useEffect(() => {
-    if (user) {
-      fetchMyTrades();
-      fetchMyDesk();
-    } else {
+    if (!user) {
       setMyTrades([]);
       setMyDesk(null);
+      return;
     }
+    fetchMyTrades();
+    fetchMyDesk();
+    const interval = setInterval(() => {
+      fetchMyTrades();
+    }, 6000);
+    return () => clearInterval(interval);
   }, [user]);
+
+  // Deep-link ?tradeId=... support when navigating from live notifications
+  useEffect(() => {
+    if (!user || typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const targetTradeId = params.get('tradeId');
+    if (!targetTradeId || deepLinkTradeHandledRef.current === targetTradeId) return;
+
+    const matched = myTrades.find((t) => t.id === targetTradeId);
+    if (matched) {
+      deepLinkTradeHandledRef.current = targetTradeId;
+      handleOpenExistingTrade(matched);
+    } else {
+      api
+        .get(`/otc/trades/${targetTradeId}`)
+        .then((res) => {
+          if (res.data?.success && res.data?.data) {
+            deepLinkTradeHandledRef.current = targetTradeId;
+            handleOpenExistingTrade(res.data.data);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [user, myTrades]);
+
+  // Live 3-second chat & escrow status polling while trade room is open
+  useEffect(() => {
+    if (!user || !chatModalOpen || !activeTrade?.id) return;
+    let cancelled = false;
+    const refreshActiveChat = async () => {
+      try {
+        const res = await api.get(`/otc/trades/${activeTrade.id}`);
+        if (!cancelled && res.data?.success && res.data?.data) {
+          setActiveTrade(res.data.data);
+          setMessages(res.data.data.messages || []);
+        }
+      } catch {
+        // Ignore transient network hiccups
+      }
+    };
+    const interval = setInterval(refreshActiveChat, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user, chatModalOpen, activeTrade?.id]);
+
+  // Auto-scroll message log when new messages arrive
+  useEffect(() => {
+    if (chatModalOpen && activeTrade && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [chatModalOpen, activeTrade?.id, messages.length]);
 
   const filteredDesks = desks.filter((d) => {
     if (
@@ -777,6 +836,7 @@ export default function ExchangeDeskPage() {
       if (res.data.success) {
         setMessages((prev) => [...prev, res.data.data]);
         setChatInput('');
+        fetchMyTrades();
       }
     } catch (err: any) {
       setQuoteError(extractErrorMessage(err, 'Failed to send message.'));
@@ -1101,48 +1161,69 @@ export default function ExchangeDeskPage() {
       {/* My Active / Recent OTC Escrow Trades */}
       {user && myTrades.length > 0 && (
         <div className="p-5 rounded-3xl bg-slate-900/90 border border-emerald-500/30 text-white space-y-3 shadow-lg">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-black flex items-center gap-2 text-emerald-400">
               <MessageSquare className="w-4 h-4" />
               <span>Your Active &amp; Recent OTC Escrow Trades ({myTrades.length})</span>
             </h2>
+            <span className="text-[11px] text-slate-400 font-mono">
+              Live auto-syncing incoming messages every 6s
+            </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {myTrades.slice(0, 6).map((tr) => (
-              <div
-                key={tr.id}
-                className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3 text-xs"
-              >
-                <div className="min-w-0">
-                  <div className="font-mono font-bold text-white flex items-center gap-2">
-                    <span>{tr.tradeCode}</span>
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                        tr.status === 'COMPLETED'
-                          ? 'bg-emerald-500/20 text-emerald-300'
-                          : tr.status === 'DISPUTED'
-                          ? 'bg-rose-500/20 text-rose-300'
-                          : tr.status === 'IN_PROGRESS'
-                          ? 'bg-amber-500/20 text-amber-300'
-                          : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {tr.status}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-400 truncate mt-0.5">
-                    {parseFloat(tr.cryptoAmount).toFixed(2)} USDT • {tr.desk?.deskName || 'OTC Desk'}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleOpenExistingTrade(tr)}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shrink-0 cursor-pointer"
+            {myTrades.slice(0, 9).map((tr) => {
+              const msgs = Array.isArray(tr.messages) ? tr.messages : [];
+              const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+              const isOperatorRole = user.id === tr.operatorId;
+              const counterpartyLabel = isOperatorRole
+                ? `${tr.customer?.firstName || ''} ${tr.customer?.lastName || ''}`.trim() ||
+                  (tr.customer?.displayName ? `@${tr.customer.displayName}` : 'Client')
+                : tr.desk?.deskName || 'OTC Desk';
+              return (
+                <div
+                  key={tr.id}
+                  className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-2.5 text-xs"
                 >
-                  Open Room
-                </button>
-              </div>
-            ))}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono font-bold text-white flex flex-wrap items-center gap-1.5">
+                        <span>{tr.tradeCode}</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                            tr.status === 'COMPLETED'
+                              ? 'bg-emerald-500/20 text-emerald-300'
+                              : tr.status === 'DISPUTED'
+                              ? 'bg-rose-500/20 text-rose-300'
+                              : tr.status === 'IN_PROGRESS'
+                              ? 'bg-amber-500/20 text-amber-300'
+                              : 'bg-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {tr.status}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-300 truncate mt-0.5">
+                        {parseFloat(tr.cryptoAmount).toFixed(2)} USDT •{' '}
+                        <span className="text-emerald-300 font-semibold">{counterpartyLabel}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenExistingTrade(tr)}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shrink-0 cursor-pointer"
+                    >
+                      Open Room ({msgs.length})
+                    </button>
+                  </div>
+                  {lastMsg && (
+                    <div className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800/80 text-[11px] text-slate-300 truncate">
+                      <span className="font-bold text-emerald-400">{lastMsg.senderName}: </span>
+                      <span>{lastMsg.message}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -2213,6 +2294,7 @@ export default function ExchangeDeskPage() {
                         <div>{m.message}</div>
                       </div>
                     ))}
+                    <div ref={messagesEndRef} />
                   </div>
 
                   {/* Chat Input */}
