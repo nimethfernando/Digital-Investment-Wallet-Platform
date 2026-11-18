@@ -350,6 +350,9 @@ export default function AdminOverviewTab({
               <div className="font-mono font-black text-white">
                 ${(Number(revBreakdown?.otcPlatformFeeUsdt || 0) + Number(revBreakdown?.swapSpreadFeeTotalUsd || 0)).toFixed(2)}
               </div>
+              <div className="text-[10px] font-mono text-emerald-400 mt-0.5">
+                OTC Bank: ${Number(revBreakdown?.otcPlatformFeeUsdt || 0).toFixed(2)} • Brokers: ${Number(revBreakdown?.otcBrokerCommissionUsdt || 0).toFixed(2)}
+              </div>
             </div>
             <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
               <div className="text-slate-400">GMT + Razorpay</div>

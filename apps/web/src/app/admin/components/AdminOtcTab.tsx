@@ -402,17 +402,23 @@ export default function AdminOtcTab({
           <div className="text-xl font-black font-mono text-white">
             {parseFloat(summary?.completedVolumeUsdt || '0').toLocaleString()} USDT
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-1 text-[10px]">
-            <span className="text-emerald-400 font-mono font-bold">
-              Broker {otcCommission.operatorFeePct}% + Bank {otcCommission.platformFeePct}% (${parseFloat(summary?.platformRevenueUsdt || '0').toFixed(2)})
-            </span>
+          <div className="space-y-0.5 text-[10px]">
+            <div className="text-emerald-400 font-mono font-bold">
+              Settled: Broker {parseFloat(summary?.brokerCommissionUsdt || '0').toFixed(2)} + Bank {parseFloat(summary?.platformRevenueUsdt || '0').toFixed(2)} USDT
+            </div>
+            {(parseFloat(summary?.pendingBrokerCommissionUsdt || '0') > 0 ||
+              parseFloat(summary?.pendingPlatformRevenueUsdt || '0') > 0) && (
+              <div className="text-amber-300 font-mono">
+                In Escrow: {parseFloat(summary?.pendingBrokerCommissionUsdt || '0').toFixed(2)} Broker + {parseFloat(summary?.pendingPlatformRevenueUsdt || '0').toFixed(2)} Bank
+              </div>
+            )}
             {onOpenRatesConfig && (
               <button
                 type="button"
                 onClick={onOpenRatesConfig}
                 className="text-cyan-400 hover:underline font-bold cursor-pointer"
               >
-                Edit FX &amp; Fees →
+                Edit FX &amp; Fees ({otcCommission.operatorFeePct}% / {otcCommission.platformFeePct}%) →
               </button>
             )}
           </div>
@@ -664,6 +670,15 @@ export default function AdminOtcTab({
                         <div className="text-[11px] font-mono text-slate-300">
                           {d.completedTrades}/{d.totalTrades} trades ({d.completionRate})
                         </div>
+                        <div className="text-[10px] font-mono text-emerald-400">
+                          Broker: +{parseFloat(d.brokerCommissionEarnedUsdt || '0').toFixed(2)} • Bank: +{parseFloat(d.platformCommissionEarnedUsdt || '0').toFixed(2)} USDT
+                        </div>
+                        {(parseFloat(d.pendingBrokerCommissionUsdt || '0') > 0 ||
+                          parseFloat(d.pendingPlatformCommissionUsdt || '0') > 0) && (
+                          <div className="text-[10px] font-mono text-amber-300">
+                            Pending: {parseFloat(d.pendingBrokerCommissionUsdt || '0').toFixed(2)} + {parseFloat(d.pendingPlatformCommissionUsdt || '0').toFixed(2)} USDT
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-4 text-right space-y-1.5 whitespace-nowrap">

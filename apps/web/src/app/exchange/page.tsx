@@ -78,6 +78,14 @@ interface OtcDeskItem {
   operatorName?: string;
   operatorDisplayName?: string | null;
   adminNotes?: string | null;
+  commissionStats?: {
+    earnedCommissionUsdt: string;
+    pendingCommissionUsdt: string;
+    platformFeeGeneratedUsdt: string;
+    pendingPlatformFeeUsdt: string;
+    completedVolumeUsdt: string;
+    inProgressVolumeUsdt: string;
+  };
   user?: {
     firstName?: string;
     lastName?: string;
@@ -1298,6 +1306,43 @@ export default function ExchangeDeskPage() {
                     Rails: <strong className="text-white">{(myDesk.settlementMethods || []).join(', ')}</strong>
                   </span>
                 </div>
+
+                {myDesk.status === 'ACTIVE' && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+                    <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/30">
+                      <div className="text-[10px] text-emerald-300 font-bold uppercase">
+                        Your Earned ({otcCommission.operatorFeePct}%)
+                      </div>
+                      <div className="text-sm font-black font-mono text-emerald-400">
+                        +{myDesk.commissionStats?.earnedCommissionUsdt || '0.00'} USDT
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/30">
+                      <div className="text-[10px] text-amber-300 font-bold uppercase">
+                        Pending in Escrow
+                      </div>
+                      <div className="text-sm font-black font-mono text-amber-300">
+                        {myDesk.commissionStats?.pendingCommissionUsdt || '0.00'} USDT
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80">
+                      <div className="text-[10px] text-slate-400 font-bold uppercase">
+                        Avora Fee ({otcCommission.platformFeePct}%)
+                      </div>
+                      <div className="text-sm font-black font-mono text-white">
+                        {myDesk.commissionStats?.platformFeeGeneratedUsdt || '0.00'} USDT
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80">
+                      <div className="text-[10px] text-slate-400 font-bold uppercase">
+                        Settled Volume
+                      </div>
+                      <div className="text-sm font-black font-mono text-sky-300">
+                        {myDesk.commissionStats?.completedVolumeUsdt || '0.00'} USDT
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1395,6 +1440,18 @@ export default function ExchangeDeskPage() {
                         {parseFloat(tr.cryptoAmount).toFixed(2)} USDT •{' '}
                         <span className="text-emerald-300 font-semibold">{counterpartyLabel}</span>
                       </div>
+                      {(Number(tr.operatorFee || 0) > 0 || Number(tr.platformFee || 0) > 0) && (
+                        <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                          Comm:{' '}
+                          <span className="text-emerald-400 font-bold">
+                            {Number(tr.operatorFee || 0).toFixed(2)} USDT Broker
+                          </span>{' '}
+                          + {Number(tr.platformFee || 0).toFixed(2)} Bank{' '}
+                          <span className={tr.status === 'COMPLETED' ? 'text-emerald-300' : 'text-amber-300'}>
+                            ({tr.status === 'COMPLETED' ? 'Credited' : tr.status === 'CANCELLED' ? 'Void' : 'Escrowed'})
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -2508,6 +2565,26 @@ export default function ExchangeDeskPage() {
                         {activeTrade.status === 'IN_PROGRESS'
                           ? 'ESCROW LOCKED'
                           : activeTrade.status}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-600 dark:text-slate-300 bg-white/80 dark:bg-slate-900/70 px-2.5 py-1.5 rounded-lg border border-slate-200/80 dark:border-slate-800">
+                      <span>
+                        Broker Commission ({otcCommission.operatorFeePct}%):{' '}
+                        <strong className="text-emerald-600 dark:text-emerald-400">
+                          +{Number(activeTrade.operatorFee || 0).toFixed(2)} USDT
+                        </strong>{' '}
+                        • Avora Bank ({otcCommission.platformFeePct}%):{' '}
+                        <strong className="text-slate-800 dark:text-white">
+                          +{Number(activeTrade.platformFee || 0).toFixed(2)} USDT
+                        </strong>
+                      </span>
+                      <span className={activeTrade.status === 'COMPLETED' ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'}>
+                        {activeTrade.status === 'COMPLETED'
+                          ? 'Credited to Wallet'
+                          : activeTrade.status === 'CANCELLED'
+                          ? 'Cancelled'
+                          : 'Releases on Settlement'}
                       </span>
                     </div>
 

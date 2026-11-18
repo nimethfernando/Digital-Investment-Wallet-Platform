@@ -297,12 +297,12 @@ export class AdminController {
    */
   private async buildPlatformRevenueData(adminUserId?: string) {
     // Execute in compact bounded batches (<= 4 queries at once) to respect shared MySQL connection_limit=5
-    const [reconcile, liveRates, otcCompleted, p2pCompleted] = await Promise.all([
+    const [reconcile, liveRates, otcAllTrades, p2pCompleted] = await Promise.all([
       ledgerService.reconcileLedger(),
       rateService.getLiveRates().catch(() => ({ rates: { USD: 1, USDT: 1 } as Record<string, number> })),
       prisma.otcTrade.findMany({
-        where: { status: 'COMPLETED' },
-        select: { platformFee: true, operatorFee: true },
+        where: { status: { in: ['COMPLETED', 'IN_PROGRESS', 'DISPUTED'] } },
+        select: { status: true, platformFee: true, operatorFee: true },
       }),
       prisma.p2POrder.findMany({
         where: { status: P2POrderStatus.COMPLETED },
@@ -343,6 +343,8 @@ export class AdminController {
                 ],
               },
             },
+            { transactionCode: { startsWith: 'OTCF-' } },
+            { transactionCode: { startsWith: 'OTCAF-' } },
             { transactionCode: { startsWith: 'TX-ADMREV-' } },
           ],
         },
@@ -391,11 +393,21 @@ export class AdminController {
       return amt;
     };
 
+    const otcCompleted = otcAllTrades.filter((t) => t.status === 'COMPLETED');
+    const otcActive = otcAllTrades.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'DISPUTED');
     const otcPlatformUsdt = otcCompleted.reduce(
       (s, t) => s.plus(new Decimal(t.platformFee?.toString() || '0')),
       new Decimal(0)
     );
     const otcBrokerUsdt = otcCompleted.reduce(
+      (s, t) => s.plus(new Decimal(t.operatorFee?.toString() || '0')),
+      new Decimal(0)
+    );
+    const otcPendingPlatformUsdt = otcActive.reduce(
+      (s, t) => s.plus(new Decimal(t.platformFee?.toString() || '0')),
+      new Decimal(0)
+    );
+    const otcPendingBrokerUsdt = otcActive.reduce(
       (s, t) => s.plus(new Decimal(t.operatorFee?.toString() || '0')),
       new Decimal(0)
     );
@@ -518,6 +530,8 @@ export class AdminController {
         grandTotalEarningsUsd: grandTotalModuleEarningsUsd.toFixed(2),
         otcPlatformFeeUsdt: otcPlatformUsdt.toFixed(2),
         otcBrokerCommissionUsdt: otcBrokerUsdt.toFixed(2),
+        otcPendingPlatformFeeUsdt: otcPendingPlatformUsdt.toFixed(2),
+        otcPendingBrokerCommissionUsdt: otcPendingBrokerUsdt.toFixed(2),
         p2pFeeTotal: p2pTotalCrypto.toFixed(4),
         p2pFeeUsdEq: p2pFeeUsdEq.toFixed(2),
         p2pFeesByCurrency: Object.fromEntries(

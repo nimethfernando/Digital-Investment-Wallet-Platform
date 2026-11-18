@@ -1425,6 +1425,50 @@ export class OtcService {
       { timeout: 30000, maxWait: 10000 }
     );
 
+    const opPctNote = cryptoAmountDec.greaterThan(0)
+      ? operatorFeeDec.div(cryptoAmountDec).times(100).toFixed(2)
+      : '1.50';
+    await Promise.all([
+      prisma.userNotification
+        .create({
+          data: {
+            userId: trade.operatorId,
+            category: 'OTC',
+            type: 'OTC_COMMISSION_CREDITED',
+            severity: 'SUCCESS',
+            title: `OTC Commission Credited: +${operatorFeeDec.toFixed(2)} USDT [${trade.tradeCode}]`,
+            message: `You earned ${operatorFeeDec.toFixed(2)} USDT (${opPctNote}% broker commission) on settled trade ${trade.tradeCode}. Avora Bank fee: ${platformFeeDec.toFixed(2)} USDT.`,
+            referenceCode: trade.tradeCode,
+            amount: operatorFeeDec.toFixed(2),
+            currency: 'USDT',
+            status: 'COMPLETED',
+            actionUrl: `/exchange?tradeId=${trade.id}`,
+            actionLabel: 'View Settlement',
+          },
+        })
+        .catch(() => {}),
+      trade.customerId !== trade.operatorId
+        ? prisma.userNotification
+            .create({
+              data: {
+                userId: trade.customerId,
+                category: 'OTC',
+                type: 'OTC_TRADE_COMPLETED',
+                severity: 'SUCCESS',
+                title: `OTC Trade Settled [${trade.tradeCode}]`,
+                message: `Trade ${trade.tradeCode} completed (${buyerNetCrypto.toFixed(2)} USDT net settled; ${operatorFeeDec.toFixed(2)} USDT broker + ${platformFeeDec.toFixed(2)} USDT bank commission).`,
+                referenceCode: trade.tradeCode,
+                amount: buyerNetCrypto.toFixed(2),
+                currency: 'USDT',
+                status: 'COMPLETED',
+                actionUrl: `/exchange?tradeId=${trade.id}`,
+                actionLabel: 'View Trade',
+              },
+            })
+            .catch(() => {})
+        : Promise.resolve(),
+    ]);
+
     return completed;
   }
 
@@ -1753,9 +1797,35 @@ export class OtcService {
       },
     });
     if (!desk) return null;
+
+    const allDeskTrades = await prisma.otcTrade.findMany({
+      where: { deskId: desk.id },
+      select: {
+        status: true,
+        cryptoAmount: true,
+        operatorFee: true,
+        platformFee: true,
+      },
+    });
+    const completedDeskTrades = allDeskTrades.filter((t) => t.status === 'COMPLETED');
+    const activeDeskTrades = allDeskTrades.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'DISPUTED');
+
+    const sumField = (rows: typeof allDeskTrades, key: 'cryptoAmount' | 'operatorFee' | 'platformFee') =>
+      rows
+        .reduce((sum, r) => sum.plus(new Decimal(r[key]?.toString() || '0')), new Decimal(0))
+        .toFixed(2);
+
     return {
       ...this.formatDesk(desk, true),
       trades: desk.trades,
+      commissionStats: {
+        earnedCommissionUsdt: sumField(completedDeskTrades, 'operatorFee'),
+        pendingCommissionUsdt: sumField(activeDeskTrades, 'operatorFee'),
+        platformFeeGeneratedUsdt: sumField(completedDeskTrades, 'platformFee'),
+        pendingPlatformFeeUsdt: sumField(activeDeskTrades, 'platformFee'),
+        completedVolumeUsdt: sumField(completedDeskTrades, 'cryptoAmount'),
+        inProgressVolumeUsdt: sumField(activeDeskTrades, 'cryptoAmount'),
+      },
     };
   }
 
@@ -1899,6 +1969,7 @@ export class OtcService {
       prisma.otcTrade.findMany({
         select: {
           id: true,
+          deskId: true,
           status: true,
           cryptoAmount: true,
           platformFee: true,
@@ -1907,7 +1978,49 @@ export class OtcService {
       }),
     ]);
 
-    let formatted = desks.map((d) => this.formatDesk(d, true));
+    const deskStatsMap = new Map<
+      string,
+      {
+        completedVolumeUsdt: Decimal;
+        brokerCommissionEarnedUsdt: Decimal;
+        platformCommissionEarnedUsdt: Decimal;
+        pendingBrokerCommissionUsdt: Decimal;
+        pendingPlatformCommissionUsdt: Decimal;
+      }
+    >();
+    for (const tr of allTrades) {
+      let cur = deskStatsMap.get(tr.deskId);
+      if (!cur) {
+        cur = {
+          completedVolumeUsdt: new Decimal(0),
+          brokerCommissionEarnedUsdt: new Decimal(0),
+          platformCommissionEarnedUsdt: new Decimal(0),
+          pendingBrokerCommissionUsdt: new Decimal(0),
+          pendingPlatformCommissionUsdt: new Decimal(0),
+        };
+        deskStatsMap.set(tr.deskId, cur);
+      }
+      if (tr.status === 'COMPLETED') {
+        cur.completedVolumeUsdt = cur.completedVolumeUsdt.plus(new Decimal(tr.cryptoAmount.toString()));
+        cur.brokerCommissionEarnedUsdt = cur.brokerCommissionEarnedUsdt.plus(new Decimal(tr.operatorFee.toString()));
+        cur.platformCommissionEarnedUsdt = cur.platformCommissionEarnedUsdt.plus(new Decimal(tr.platformFee.toString()));
+      } else if (tr.status === 'IN_PROGRESS' || tr.status === 'DISPUTED') {
+        cur.pendingBrokerCommissionUsdt = cur.pendingBrokerCommissionUsdt.plus(new Decimal(tr.operatorFee.toString()));
+        cur.pendingPlatformCommissionUsdt = cur.pendingPlatformCommissionUsdt.plus(new Decimal(tr.platformFee.toString()));
+      }
+    }
+
+    let formatted = desks.map((d) => {
+      const ds = deskStatsMap.get(d.id);
+      return {
+        ...this.formatDesk(d, true),
+        completedVolumeUsdt: (ds?.completedVolumeUsdt || new Decimal(0)).toFixed(2),
+        brokerCommissionEarnedUsdt: (ds?.brokerCommissionEarnedUsdt || new Decimal(0)).toFixed(2),
+        platformCommissionEarnedUsdt: (ds?.platformCommissionEarnedUsdt || new Decimal(0)).toFixed(2),
+        pendingBrokerCommissionUsdt: (ds?.pendingBrokerCommissionUsdt || new Decimal(0)).toFixed(2),
+        pendingPlatformCommissionUsdt: (ds?.pendingPlatformCommissionUsdt || new Decimal(0)).toFixed(2),
+      };
+    });
 
     if (filters?.search && filters.search.trim()) {
       const q = filters.search.trim().toLowerCase();
@@ -1923,12 +2036,25 @@ export class OtcService {
       .reduce((sum, d) => sum.plus(new Decimal(d.securityDeposit)), new Decimal(0));
 
     const completedTradesList = allTrades.filter((t) => t.status === 'COMPLETED');
+    const activeTradesList = allTrades.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'DISPUTED');
     const completedVolumeUsdt = completedTradesList.reduce(
       (sum, t) => sum.plus(new Decimal(t.cryptoAmount.toString())),
       new Decimal(0)
     );
     const platformRevenueUsdt = completedTradesList.reduce(
       (sum, t) => sum.plus(new Decimal(t.platformFee.toString())),
+      new Decimal(0)
+    );
+    const brokerCommissionUsdt = completedTradesList.reduce(
+      (sum, t) => sum.plus(new Decimal(t.operatorFee.toString())),
+      new Decimal(0)
+    );
+    const pendingPlatformRevenueUsdt = activeTradesList.reduce(
+      (sum, t) => sum.plus(new Decimal(t.platformFee.toString())),
+      new Decimal(0)
+    );
+    const pendingBrokerCommissionUsdt = activeTradesList.reduce(
+      (sum, t) => sum.plus(new Decimal(t.operatorFee.toString())),
       new Decimal(0)
     );
 
@@ -1946,6 +2072,9 @@ export class OtcService {
       completedTrades: completedTradesList.length,
       completedVolumeUsdt: completedVolumeUsdt.toFixed(2),
       platformRevenueUsdt: platformRevenueUsdt.toFixed(2),
+      brokerCommissionUsdt: brokerCommissionUsdt.toFixed(2),
+      pendingPlatformRevenueUsdt: pendingPlatformRevenueUsdt.toFixed(2),
+      pendingBrokerCommissionUsdt: pendingBrokerCommissionUsdt.toFixed(2),
     };
 
     return { desks: formatted, summary };
@@ -2571,6 +2700,27 @@ export class OtcService {
       },
       { timeout: 30000, maxWait: 10000 }
     );
+
+    if (resolution === 'RELEASE_TO_BUYER') {
+      await prisma.userNotification
+        .create({
+          data: {
+            userId: trade.operatorId,
+            category: 'OTC',
+            type: 'OTC_COMMISSION_CREDITED',
+            severity: 'SUCCESS',
+            title: `OTC Commission Credited: +${operatorFeeDec.toFixed(2)} USDT [${trade.tradeCode}]`,
+            message: `Admin settled ${trade.tradeCode} and credited ${operatorFeeDec.toFixed(2)} USDT broker commission to your wallet. Platform fee: ${platformFeeDec.toFixed(2)} USDT.`,
+            referenceCode: trade.tradeCode,
+            amount: operatorFeeDec.toFixed(2),
+            currency: 'USDT',
+            status: 'COMPLETED',
+            actionUrl: `/exchange?tradeId=${trade.id}`,
+            actionLabel: 'View Settlement',
+          },
+        })
+        .catch(() => {});
+    }
 
     return result;
   }

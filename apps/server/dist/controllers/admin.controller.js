@@ -307,12 +307,12 @@ class AdminController {
      */
     async buildPlatformRevenueData(adminUserId) {
         // Execute in compact bounded batches (<= 4 queries at once) to respect shared MySQL connection_limit=5
-        const [reconcile, liveRates, otcCompleted, p2pCompleted] = await Promise.all([
+        const [reconcile, liveRates, otcAllTrades, p2pCompleted] = await Promise.all([
             ledger_service_1.ledgerService.reconcileLedger(),
             rate_service_1.rateService.getLiveRates().catch(() => ({ rates: { USD: 1, USDT: 1 } })),
             prisma_1.prisma.otcTrade.findMany({
-                where: { status: 'COMPLETED' },
-                select: { platformFee: true, operatorFee: true },
+                where: { status: { in: ['COMPLETED', 'IN_PROGRESS', 'DISPUTED'] } },
+                select: { status: true, platformFee: true, operatorFee: true },
             }),
             prisma_1.prisma.p2POrder.findMany({
                 where: { status: client_1.P2POrderStatus.COMPLETED },
@@ -351,6 +351,8 @@ class AdminController {
                                 ],
                             },
                         },
+                        { transactionCode: { startsWith: 'OTCF-' } },
+                        { transactionCode: { startsWith: 'OTCAF-' } },
                         { transactionCode: { startsWith: 'TX-ADMREV-' } },
                     ],
                 },
@@ -392,8 +394,12 @@ class AdminController {
                 return amt.div(new decimal_js_1.default(unitsPerUsd));
             return amt;
         };
+        const otcCompleted = otcAllTrades.filter((t) => t.status === 'COMPLETED');
+        const otcActive = otcAllTrades.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'DISPUTED');
         const otcPlatformUsdt = otcCompleted.reduce((s, t) => s.plus(new decimal_js_1.default(t.platformFee?.toString() || '0')), new decimal_js_1.default(0));
         const otcBrokerUsdt = otcCompleted.reduce((s, t) => s.plus(new decimal_js_1.default(t.operatorFee?.toString() || '0')), new decimal_js_1.default(0));
+        const otcPendingPlatformUsdt = otcActive.reduce((s, t) => s.plus(new decimal_js_1.default(t.platformFee?.toString() || '0')), new decimal_js_1.default(0));
+        const otcPendingBrokerUsdt = otcActive.reduce((s, t) => s.plus(new decimal_js_1.default(t.operatorFee?.toString() || '0')), new decimal_js_1.default(0));
         const p2pFeesByCurrency = {};
         let p2pTotalCrypto = new decimal_js_1.default(0);
         let p2pFeeUsdEq = new decimal_js_1.default(0);
@@ -501,6 +507,8 @@ class AdminController {
                 grandTotalEarningsUsd: grandTotalModuleEarningsUsd.toFixed(2),
                 otcPlatformFeeUsdt: otcPlatformUsdt.toFixed(2),
                 otcBrokerCommissionUsdt: otcBrokerUsdt.toFixed(2),
+                otcPendingPlatformFeeUsdt: otcPendingPlatformUsdt.toFixed(2),
+                otcPendingBrokerCommissionUsdt: otcPendingBrokerUsdt.toFixed(2),
                 p2pFeeTotal: p2pTotalCrypto.toFixed(4),
                 p2pFeeUsdEq: p2pFeeUsdEq.toFixed(2),
                 p2pFeesByCurrency: Object.fromEntries(Object.entries(p2pFeesByCurrency).map(([k, v]) => [k, v.toFixed(4)])),

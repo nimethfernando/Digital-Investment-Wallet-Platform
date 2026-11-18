@@ -1436,6 +1436,75 @@ async function runHttpProductionE2E() {
       if (desksOn.json?.data?.find((d: any) => d.id === deskId)?.isOnline !== true) {
         throw new Error('Expected OTC desk back Online after PATCH /auth/availability true');
       }
+
+      // Quote -> Accept -> Release -> Verify BOTH operator & admin commission visibility & wallet credit
+      const balBeforeRelease = await prisma.walletBalance.findFirst({ where: { walletId: opWallet.id, currency: 'USDT' } });
+      const opUsdtBefore = Number(balBeforeRelease?.availableBalance || 0);
+      const qOtc = await apiCall('POST', '/api/v1/otc/quote', cliTok, {
+        deskId,
+        tradeType: 'BUY_USDT',
+        cryptoAmount: 100,
+        fiatCurrency: 'LKR',
+      });
+      if (qOtc.status !== 200 || !qOtc.json?.data?.id) {
+        throw new Error(`OTC quote failed in H14: ${qOtc.status}`);
+      }
+      const trOtc = await apiCall('POST', '/api/v1/otc/trades/accept-quote', cliTok, {
+        quoteId: qOtc.json.data.id,
+      });
+      if (trOtc.status !== 201 || !trOtc.json?.data?.id) {
+        throw new Error(`OTC accept-quote failed in H14: ${trOtc.status}`);
+      }
+      const trOtcId = trOtc.json.data.id;
+      const expectedOpFee = Number(trOtc.json.data.operatorFee || 0);
+      const expectedPlatFee = Number(trOtc.json.data.platformFee || 0);
+      if (!(expectedOpFee > 0) || !(expectedPlatFee > 0)) {
+        throw new Error(`Expected non-zero operatorFee & platformFee on trade, got ${JSON.stringify(trOtc.json.data)}`);
+      }
+      const relOtc = await apiCall('POST', `/api/v1/otc/trades/${trOtcId}/release`, opTok, {});
+      if (relOtc.status !== 200 || relOtc.json?.data?.status !== 'COMPLETED') {
+        throw new Error(`OTC release failed in H14: ${relOtc.status} ${JSON.stringify(relOtc.json)}`);
+      }
+      const balAfterRelease = await prisma.walletBalance.findFirst({ where: { walletId: opWallet.id, currency: 'USDT' } });
+      const opUsdtAfter = Number(balAfterRelease?.availableBalance || 0);
+      // BUY_USDT locks 100 from opUsdtBefore, then credits expectedOpFee to operator wallet -> net change is -100 + expectedOpFee
+      if (Math.abs((opUsdtAfter - opUsdtBefore) - (expectedOpFee - 100)) > 0.01) {
+        throw new Error(`Expected operator USDT wallet change ${expectedOpFee - 100}, got ${opUsdtAfter - opUsdtBefore}`);
+      }
+
+      const [myDeskStatsRes, adminDesksStatsRes, revStatsRes, opBellAfterRel] = await Promise.all([
+        apiCall('GET', '/api/v1/otc/my-desk', opTok),
+        apiCall('GET', '/api/v1/admin/otc/desks', adminToken),
+        apiCall('GET', '/api/v1/admin/ledger/revenue', adminToken),
+        apiCall('GET', '/api/v1/wallet/notifications', opTok),
+      ]);
+      const cs = myDeskStatsRes.json?.data?.commissionStats;
+      if (!cs || Number(cs.earnedCommissionUsdt) < expectedOpFee || Number(cs.platformFeeGeneratedUsdt) < expectedPlatFee) {
+        throw new Error(`Expected /otc/my-desk commissionStats populated, got ${JSON.stringify(cs)}`);
+      }
+      const admDeskRow = (adminDesksStatsRes.json?.desks || []).find((d: any) => d.id === deskId);
+      const admSummary = adminDesksStatsRes.json?.summary || {};
+      if (
+        !admDeskRow ||
+        Number(admDeskRow.brokerCommissionEarnedUsdt) < expectedOpFee ||
+        Number(admDeskRow.platformCommissionEarnedUsdt) < expectedPlatFee ||
+        Number(admSummary.brokerCommissionUsdt) < expectedOpFee ||
+        Number(admSummary.platformRevenueUsdt) < expectedPlatFee
+      ) {
+        throw new Error(`Expected Admin desk commission breakdown populated, got row=${JSON.stringify(admDeskRow)} summary=${JSON.stringify(admSummary)}`);
+      }
+      const revMod = revStatsRes.json?.data?.moduleBreakdown || {};
+      const recentTxs: any[] = revStatsRes.json?.data?.recentFeeTransactions || [];
+      if (
+        Number(revMod.otcBrokerCommissionUsdt) < expectedOpFee ||
+        Number(revMod.otcPlatformFeeUsdt) < expectedPlatFee ||
+        !recentTxs.some((t) => String(t.transactionCode || '').startsWith('OTCF-'))
+      ) {
+        throw new Error(`Expected Admin revenue analytics to expose OTC broker & platform commissions, got ${JSON.stringify(revMod)}`);
+      }
+      if (!opBellAfterRel.json?.notifications?.some((n: any) => n.type === 'OTC_COMMISSION_CREDITED' && n.category === 'OTC')) {
+        throw new Error(`Expected OTC_COMMISSION_CREDITED notification in operator bell`);
+      }
     });
 
     console.log('\n================================================================');

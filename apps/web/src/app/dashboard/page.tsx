@@ -2790,6 +2790,7 @@ function DashboardContent() {
                 <option value="MONTHLY_RETURN" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Monthly Returns</option>
                 <option value="P2P_TRANSFER_OUT" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">P2P Outbound</option>
                 <option value="P2P_TRANSFER_IN" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">P2P Inbound</option>
+                <option value="OTC_TRADE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">OTC Trades &amp; Commissions</option>
                 <option value="WITHDRAWAL_REQUEST" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Withdrawals</option>
               </select>
             </div>
