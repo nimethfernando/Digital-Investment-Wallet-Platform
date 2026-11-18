@@ -21,22 +21,28 @@ interface Leader {
 
 export default function AboutPage() {
   const [leadership, setLeadership] = useState<Leader[]>([]);
+  const [showLeadershipSection, setShowLeadershipSection] = useState<boolean>(false);
 
   useEffect(() => {
-    api.get('/cms/sections/ABOUT')
-      .then((res) => {
-        if (res.data.sections) {
-          const leaderSection = res.data.sections.find((s: any) => s.section === 'LEADERSHIP');
-          if (leaderSection && leaderSection.metadata) {
-            try {
-              setLeadership(JSON.parse(leaderSection.metadata));
-            } catch (e) {
-              // Ignore
-            }
+    Promise.all([
+      api.get('/cms/sections/ABOUT').catch(() => null),
+      api.get('/cms/platform-config').catch(() => null),
+    ]).then(([cmsRes, cfgRes]) => {
+      if (cmsRes?.data?.sections) {
+        const leaderSection = cmsRes.data.sections.find((s: any) => s.section === 'LEADERSHIP');
+        if (leaderSection && leaderSection.metadata) {
+          try {
+            setLeadership(JSON.parse(leaderSection.metadata));
+          } catch {
+            // Ignore
           }
         }
-      })
-      .catch((e) => console.log('About CMS fetch:', e));
+      }
+      const cfg = cfgRes?.data?.data || cfgRes?.data;
+      if (cfg && typeof cfg.show_about_leadership_section !== 'undefined') {
+        setShowLeadershipSection(String(cfg.show_about_leadership_section) === 'true');
+      }
+    });
   }, []);
 
   const defaultLeaders: Leader[] = [
@@ -113,6 +119,7 @@ export default function AboutPage() {
         </div>
       </div>
 
+      {showLeadershipSection && (
       <div className="space-y-10">
         <div className="text-center max-w-2xl mx-auto space-y-2">
           <h2 className="text-xs font-bold uppercase tracking-widest text-blue-600 dark:text-blue-400">
@@ -164,6 +171,7 @@ export default function AboutPage() {
           ))}
         </div>
       </div>
+      )}
 
     </div>
   );

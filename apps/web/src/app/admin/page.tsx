@@ -143,6 +143,7 @@ export default function AdminPortalPage() {
     remittance_fee_percent: '3.0',
     remittance_margin_percent: '2.0',
     show_remittance_spread_controls: 'false',
+    show_about_leadership_section: 'false',
     remittance_corridors_count: '7',
     remittance_countries_count: '110+',
     remittance_delivery_days: '2',
@@ -2778,6 +2779,37 @@ export default function AdminPortalPage() {
                           }`}
                         >
                           {platformConfig.show_remittance_spread_controls === 'true'
+                            ? 'Shown to Users'
+                            : 'Hidden (Default)'}
+                        </button>
+                      </div>
+
+                      {/* Visibility Toggle for About Page Executive Governance / Leadership & Advisory Section */}
+                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <div className="text-[11px] font-bold text-white">
+                            Show &ldquo;Leadership &amp; Advisory&rdquo; Section on About Page
+                          </div>
+                          <p className="text-[10px] text-slate-400">
+                            Hide or unhide the Executive Governance / Leadership &amp; Advisory team cards on `/about`. Hidden by default until you publish your final executive profiles.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPlatformConfig({
+                              ...platformConfig,
+                              show_about_leadership_section:
+                                platformConfig.show_about_leadership_section === 'true' ? 'false' : 'true',
+                            })
+                          }
+                          className={`shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                            platformConfig.show_about_leadership_section === 'true'
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-600'
+                          }`}
+                        >
+                          {platformConfig.show_about_leadership_section === 'true'
                             ? 'Shown to Users'
                             : 'Hidden (Default)'}
                         </button>

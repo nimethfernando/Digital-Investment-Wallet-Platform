@@ -19,6 +19,7 @@ export const PUBLIC_PLATFORM_CONFIG_DEFAULTS: Record<string, string> = {
   remittance_fee_percent: '3.0',
   remittance_margin_percent: '2.0',
   show_remittance_spread_controls: 'false',
+  show_about_leadership_section: 'false',
   remittance_corridors_count: '7',
   remittance_countries_count: '110+',
   remittance_delivery_days: '2',
