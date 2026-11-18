@@ -131,13 +131,13 @@ export default function ExchangeDeskPage() {
   const [applyDeskName, setApplyDeskName] = useState<string>('');
   const [applyCountry, setApplyCountry] = useState<string>('Sri Lanka');
   const [applyCountryCode, setApplyCountryCode] = useState<string>('LK');
-  const [applyCity, setApplyCity] = useState<string>('Colombo');
+  const [applyCity, setApplyCity] = useState<string>('');
   const [applyAddress, setApplyAddress] = useState<string>('');
   const [applyLandmark, setApplyLandmark] = useState<string>('');
   const [applyGoogleMapsUrl, setApplyGoogleMapsUrl] = useState<string>('');
   const [applyCoords, setApplyCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locatingGps, setLocatingGps] = useState<boolean>(false);
-  const [applyCurrencies, setApplyCurrencies] = useState<string>('USDT, LKR, USD');
+  const [applyCurrencies, setApplyCurrencies] = useState<string>('USDT, USD');
   const [applyMethods, setApplyMethods] = useState<string>('Physical Cash, Bank Transfer');
   const [applyBuyMargin, setApplyBuyMargin] = useState<string>('1.2');
   const [applySellMargin, setApplySellMargin] = useState<string>('1.0');
@@ -239,6 +239,9 @@ export default function ExchangeDeskPage() {
   const resolvedLocationQuery = useMemo(() => {
     if (applyCoords) {
       return `${applyCoords.lat},${applyCoords.lng}`;
+    }
+    if (!applyAddress.trim() && !applyCity.trim()) {
+      return '';
     }
     return [applyAddress.trim(), applyCity.trim(), applyCountry.trim()]
       .filter(Boolean)
@@ -510,6 +513,11 @@ export default function ExchangeDeskPage() {
     e.preventDefault();
     if (!user) {
       router.push('/login?redirect=/exchange');
+      return;
+    }
+
+    if (!applyCity.trim()) {
+      setApplyError('Please enter the city where your OTC desk operates.');
       return;
     }
 
@@ -1487,7 +1495,7 @@ export default function ExchangeDeskPage() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Colombo Premier OTC Liquidity"
+                    placeholder="e.g. Metro Premier OTC Liquidity"
                     value={applyDeskName}
                     onChange={(e) => setApplyDeskName(e.target.value)}
                     className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
@@ -1516,7 +1524,7 @@ export default function ExchangeDeskPage() {
                     <input
                       type="text"
                       required
-                      placeholder="Colombo"
+                      placeholder="Enter city (e.g. Mumbai, Dubai, London)"
                       value={applyCity}
                       onChange={(e) => setApplyCity(e.target.value)}
                       className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
