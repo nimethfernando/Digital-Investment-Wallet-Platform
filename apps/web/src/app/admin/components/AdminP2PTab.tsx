@@ -98,8 +98,18 @@ export default function AdminP2PTab({
   const [resolving, setResolving] = useState(false);
   const [freezingId, setFreezingId] = useState<string | null>(null);
 
-  // Proof Image Modal
+  // Proof / Document Preview Modal
   const [proofModalUrl, setProofModalUrl] = useState<string | null>(null);
+  const [proofModalTitle, setProofModalTitle] = useState<string>('Uploaded Payment Proof Receipt');
+  const [proofLoadError, setProofLoadError] = useState<boolean>(false);
+
+  const openDocumentPreview = (rawUrl: string, title = 'Uploaded Payment Proof Receipt') => {
+    const resolved = resolveMediaUrl(rawUrl);
+    if (!resolved) return;
+    setProofLoadError(false);
+    setProofModalTitle(title);
+    setProofModalUrl(resolved);
+  };
 
   // P2P Onboarding Applications Compliance Queue
   const [p2pSubTab, setP2pSubTab] = useState<'orders' | 'applications'>('orders');
@@ -478,7 +488,7 @@ export default function AdminP2PTab({
                         {o.paymentProofUrl && (
                           <div>
                             <button
-                              onClick={() => setProofModalUrl(resolveMediaUrl(o.paymentProofUrl))}
+                              onClick={() => openDocumentPreview(o.paymentProofUrl, `Payment Proof Receipt — ${o.orderCode}`)}
                               className="text-[11px] text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
                             >
                               <span>View Proof Receipt</span>
@@ -669,7 +679,9 @@ export default function AdminP2PTab({
                           <button
                             key={url + idx}
                             type="button"
-                            onClick={() => setProofModalUrl(resolveMediaUrl(url))}
+                            onClick={() =>
+                              openDocumentPreview(url, `P2P Verification Document #${idx + 1} — ${app.applicationCode}`)
+                            }
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 hover:border-amber-400 text-amber-300 text-[11px] font-semibold cursor-pointer"
                           >
                             <FileText className="w-3 h-3" />
@@ -715,7 +727,9 @@ export default function AdminP2PTab({
                   <button
                     key={url + idx}
                     type="button"
-                    onClick={() => setProofModalUrl(resolveMediaUrl(url))}
+                    onClick={() =>
+                      openDocumentPreview(url, `P2P Verification Document #${idx + 1} — ${reviewingApp.applicationCode}`)
+                    }
                     className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 hover:border-amber-400 text-amber-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
                   >
                     <FileText className="w-3 h-3" />
@@ -926,7 +940,12 @@ export default function AdminP2PTab({
                   {selectedOrder.paymentProofUrl && (
                     <button
                       type="button"
-                      onClick={() => setProofModalUrl(resolveMediaUrl(selectedOrder.paymentProofUrl))}
+                      onClick={() =>
+                        openDocumentPreview(
+                          selectedOrder.paymentProofUrl,
+                          `Payment Proof Receipt — ${selectedOrder.orderCode}`
+                        )
+                      }
                       className="text-amber-400 hover:underline flex items-center gap-1 cursor-pointer text-[11px]"
                     >
                       <span>Open Fullscreen</span>
@@ -993,7 +1012,9 @@ export default function AdminP2PTab({
                           {m.attachmentUrl && (
                             <button
                               type="button"
-                              onClick={() => setProofModalUrl(resolveMediaUrl(m.attachmentUrl))}
+                              onClick={() =>
+                                openDocumentPreview(m.attachmentUrl, `Trade Chat Attachment — ${selectedOrder.orderCode}`)
+                              }
                               className="mt-1 text-[10px] text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
                             >
                               <span>View Chat Attachment</span>
@@ -1094,21 +1115,49 @@ export default function AdminP2PTab({
         );
       })()}
 
-      {/* PROOF IMAGE MODAL */}
+      {/* PROOF / DOCUMENT PREVIEW MODAL */}
       {proofModalUrl && (
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-white">Uploaded Payment Proof Receipt</h3>
-              <button onClick={() => setProofModalUrl(null)} className="text-slate-400 hover:text-white cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-extrabold text-white truncate">{proofModalTitle}</h3>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={proofModalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 hover:border-amber-400 text-amber-300 text-[11px] font-bold inline-flex items-center gap-1"
+                >
+                  <span>Open in New Tab</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setProofModalUrl(null)}
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
-            <div className="rounded-2xl overflow-hidden border border-slate-800 max-h-[70vh] flex items-center justify-center bg-black">
+            <div className="rounded-2xl overflow-hidden border border-slate-800 max-h-[70vh] min-h-[220px] flex items-center justify-center bg-black p-2">
               {isPdfAttachment(proofModalUrl) ? (
-                <iframe src={proofModalUrl} title="Payment Receipt PDF" className="w-full h-[65vh] bg-white" />
+                <iframe src={proofModalUrl} title={proofModalTitle} className="w-full h-[65vh] bg-white rounded-xl" />
+              ) : proofLoadError ? (
+                <div className="p-6 text-center space-y-2 max-w-md">
+                  <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto" />
+                  <p className="text-sm font-bold text-white">Document File Unavailable on Server</p>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    This legacy file was stored only on temporary disk before persistent database upload storage was enabled and was cleared by a prior server redeploy. New uploads persist permanently across deployments.
+                  </p>
+                </div>
               ) : (
-                <img src={proofModalUrl} alt="Payment Receipt Proof" className="max-h-[70vh] object-contain" />
+                <img
+                  src={proofModalUrl}
+                  alt={proofModalTitle}
+                  onError={() => setProofLoadError(true)}
+                  className="max-h-[70vh] object-contain"
+                />
               )}
             </div>
           </div>

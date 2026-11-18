@@ -10,6 +10,7 @@ import routes from './routes';
 import { errorHandler } from './middleware/error';
 import { returnsJobService } from './services/returns.job';
 import { p2pService } from './services/p2p.service';
+import { getPersistedUploadedAsset } from './services/storage.service';
 
 const app = express();
 
@@ -72,20 +73,33 @@ try {
   console.warn('[Server] Note on uploads directory creation:', err);
 }
 
-app.use('/uploads', (req, res, next) => {
-  const filePath = path.join(uploadsDirectory, req.path);
-  if (!fs.existsSync(filePath)) {
-    if (req.path.match(/\.(png|jpg|jpeg|svg|webp)$/i)) {
-      res.setHeader('Content-Type', 'image/svg+xml');
-      return res.send(`
-        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200" fill="#f1f5f9">
-          <rect width="300" height="200" fill="#e2e8f0"/>
-          <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#64748b">Avora Bank Asset Placeholder</text>
-        </svg>
-      `);
+app.use('/uploads', async (req, res, next) => {
+  try {
+    const safeRelPath = path.posix.normalize(req.path || '/');
+    if (safeRelPath.includes('..')) {
+      return res.status(400).json({ success: false, message: 'Invalid upload path' });
     }
+    const filePath = path.join(uploadsDirectory, safeRelPath);
+    if (fs.existsSync(filePath)) {
+      return next();
+    }
+
+    const urlPath = `/uploads${safeRelPath.startsWith('/') ? safeRelPath : `/${safeRelPath}`}`;
+    const persisted = await getPersistedUploadedAsset(urlPath);
+    if (persisted) {
+      fs.promises
+        .mkdir(path.dirname(filePath), { recursive: true })
+        .then(() => fs.promises.writeFile(filePath, persisted.buffer))
+        .catch(() => {});
+      res.setHeader('Content-Type', persisted.mimeType);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(persisted.buffer);
+    }
+
+    return res.status(404).json({ success: false, message: 'Uploaded document file not found' });
+  } catch (err) {
+    return next(err);
   }
-  next();
 }, express.static(uploadsDirectory));
 
 // Robust Health & Diagnostic Endpoint (runs without requiring DB access)

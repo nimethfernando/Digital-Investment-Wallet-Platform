@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { upload, getUploadPath } from '../services/storage.service';
+import { upload, getUploadPath, persistUploadedAsset } from '../services/storage.service';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
 import { cmsService } from '../services/cms.service';
 
@@ -15,6 +15,13 @@ router.post(
       if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
       const assetType = req.body.type || 'logo_light';
       const url = getUploadPath('branding', req.file.filename);
+      await persistUploadedAsset({
+        urlPath: url,
+        filePath: req.file.path,
+        mimeType: req.file.mimetype,
+        originalName: req.file.originalname,
+        sizeBytes: req.file.size,
+      });
       
       const keyMap: Record<string, string> = {
         logo_light: 'logo_light_url',
@@ -46,6 +53,13 @@ router.post(
     try {
       if (!req.file) return res.status(400).json({ success: false, message: 'No PDF brochure uploaded' });
       const url = getUploadPath('brochures', req.file.filename);
+      await persistUploadedAsset({
+        urlPath: url,
+        filePath: req.file.path,
+        mimeType: req.file.mimetype,
+        originalName: req.file.originalname,
+        sizeBytes: req.file.size,
+      });
       await cmsService.updateSetting('brochure_pdf_url', url, 'BRANDING');
       await cmsService.updateSetting('brochure_enabled', 'true', 'BRANDING');
 
@@ -69,6 +83,13 @@ router.post(
       if (!req.file) return res.status(400).json({ success: false, message: 'No document uploaded' });
       const folder = req.file.fieldname === 'proof' ? 'receipts' : 'documents';
       const url = getUploadPath(folder, req.file.filename);
+      await persistUploadedAsset({
+        urlPath: url,
+        filePath: req.file.path,
+        mimeType: req.file.mimetype,
+        originalName: req.file.originalname,
+        sizeBytes: req.file.size,
+      });
       res.json({
         success: true,
         message: 'File uploaded successfully',

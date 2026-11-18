@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { Request } from 'express';
 import { config } from '../config';
+import { prisma } from '../lib/prisma';
 
 const isServerless = Boolean(
   process.env.VERCEL || process.env.VERCEL_ENV || process.env.NOW_REGION || process.env.AWS_LAMBDA_FUNCTION_NAME
@@ -55,4 +56,89 @@ export const upload = multer({
 
 export const getUploadPath = (folder: string, filename: string): string => {
   return `/uploads/${folder}/${filename}`;
+};
+
+let uploadedAssetTableReady: Promise<void> | null = null;
+
+export const ensureUploadedAssetTable = async (): Promise<void> => {
+  if (!uploadedAssetTableReady) {
+    uploadedAssetTableReady = prisma
+      .$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS \`diw_uploaded_assets\` (
+          \`urlPath\` VARCHAR(255) NOT NULL PRIMARY KEY,
+          \`mimeType\` VARCHAR(120) NOT NULL,
+          \`originalName\` VARCHAR(255) NULL,
+          \`contentBase64\` LONGTEXT NOT NULL,
+          \`sizeBytes\` INT NOT NULL DEFAULT 0,
+          \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+        ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+      )
+      .then(() => undefined)
+      .catch((err) => {
+        uploadedAssetTableReady = null;
+        throw err;
+      });
+  }
+  return uploadedAssetTableReady;
+};
+
+/**
+ * Persist uploaded file bytes into MySQL so files survive ephemeral container restarts (e.g. Render redeploys).
+ */
+export const persistUploadedAsset = async (params: {
+  urlPath: string;
+  filePath: string;
+  mimeType: string;
+  originalName?: string;
+  sizeBytes?: number;
+}): Promise<void> => {
+  try {
+    await ensureUploadedAssetTable();
+    const buf = await fs.promises.readFile(params.filePath);
+    const contentBase64 = buf.toString('base64');
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO \`diw_uploaded_assets\` (\`urlPath\`, \`mimeType\`, \`originalName\`, \`contentBase64\`, \`sizeBytes\`, \`createdAt\`)
+       VALUES (?, ?, ?, ?, ?, NOW(3))
+       ON DUPLICATE KEY UPDATE
+         \`mimeType\` = VALUES(\`mimeType\`),
+         \`originalName\` = VALUES(\`originalName\`),
+         \`contentBase64\` = VALUES(\`contentBase64\`),
+         \`sizeBytes\` = VALUES(\`sizeBytes\`)`,
+      params.urlPath,
+      params.mimeType || 'application/octet-stream',
+      params.originalName || null,
+      contentBase64,
+      params.sizeBytes || buf.length
+    );
+  } catch (err) {
+    console.warn('[Storage] Failed to persist upload to database fallback:', err);
+  }
+};
+
+export const getPersistedUploadedAsset = async (
+  urlPath: string
+): Promise<{ buffer: Buffer; mimeType: string; originalName: string | null } | null> => {
+  try {
+    await ensureUploadedAssetTable();
+    const rows = (await prisma.$queryRawUnsafe(
+      `SELECT \`mimeType\`, \`originalName\`, \`contentBase64\`
+       FROM \`diw_uploaded_assets\`
+       WHERE \`urlPath\` = ?
+       LIMIT 1`,
+      urlPath
+    )) as Array<{ mimeType: string; originalName: string | null; contentBase64: string }>;
+
+    if (!Array.isArray(rows) || rows.length === 0 || !rows[0]?.contentBase64) {
+      return null;
+    }
+
+    return {
+      buffer: Buffer.from(rows[0].contentBase64, 'base64'),
+      mimeType: rows[0].mimeType || 'application/octet-stream',
+      originalName: rows[0].originalName || null,
+    };
+  } catch (err) {
+    console.warn('[Storage] Failed to read upload from database fallback:', err);
+    return null;
+  }
 };
