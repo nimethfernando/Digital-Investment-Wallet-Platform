@@ -1094,10 +1094,19 @@ Return ONLY valid JSON matching this schema:
       aiParsed?.category ||
       (quote.isCrypto ? 'Digital Assets' : 'Equities & Markets');
 
+    const fallbackTagSets: string[][] = [
+      [quote.symbol, 'Valuation & Multiples', quote.companyName.split(' ')[0], 'Institutional Research', quote.exchange],
+      [quote.symbol, 'Technical Momentum', 'RSI & Moving Averages', 'Breakout Setup', quote.exchange],
+      [quote.symbol, 'Catalyst Dispatch', 'Breaking Wire News', 'Market Sentiment', quote.exchange],
+      [quote.symbol, '52-Week Range', 'Liquidity Depth', 'Order Flow', quote.exchange],
+      [quote.symbol, 'Bull vs Bear Matrix', 'Risk Assessment', 'Key Levels', quote.exchange],
+      [quote.symbol, '3-Month Outlook', 'Capital Allocation', 'Macro Flows', quote.exchange],
+    ];
+
     const tags: string[] =
       Array.isArray(aiParsed?.tags) && aiParsed.tags.length > 0
         ? aiParsed.tags.slice(0, 6)
-        : [quote.symbol, quote.exchange, 'Quantitative Research', 'Technical Analysis', 'Live News'];
+        : fallbackTagSets[angleIndex] || fallbackTagSets[0];
 
     const keyTakeaways: string[] =
       Array.isArray(aiParsed?.keyTakeaways) && aiParsed.keyTakeaways.length > 0
@@ -1459,12 +1468,56 @@ Return ONLY valid JSON matching this schema:
       take: 15,
     });
 
+    // Determine deterministic distinct edition index among sibling posts on the same ticker/topic
+    // so auto-sync NEVER overwrites multiple posts into clones.
+    const siblingPosts = await prisma.blogPost
+      .findMany({
+        where: {
+          OR: [
+            ...(post.ticker ? [{ ticker: post.ticker }] : []),
+            ...(post.topicQuery ? [{ topicQuery: post.topicQuery }] : []),
+          ],
+        },
+        orderBy: { publishedAt: 'asc' },
+        select: { id: true, title: true },
+      })
+      .catch(() => []);
+
+    const siblingIdx = Math.max(0, siblingPosts.findIndex((s) => s.id === post.id));
+    const editionNumber = siblingIdx + 1;
+    const siblingPriorTitles = siblingPosts.filter((s) => s.id !== post.id).map((s) => s.title);
+
+    const variantPool = [
+      'emerald-grid',
+      'cobalt-terminal',
+      'amber-bullion',
+      'violet-quant',
+      'cyan-horizon',
+      'crimson-brief',
+    ];
+    let existingVariant = variantPool[siblingIdx % variantPool.length];
+    try {
+      if (post.bannerData) {
+        const parsedBanner = JSON.parse(post.bannerData);
+        if (parsedBanner?.variant && variantPool.includes(parsedBanner.variant)) {
+          existingVariant = parsedBanner.variant;
+        }
+      }
+    } catch {}
+    // If two sibling posts still had the default same variant, ensure distinct per-index palette
+    if (siblingIdx > 0 && existingVariant === variantPool[0]) {
+      existingVariant = variantPool[siblingIdx % variantPool.length];
+    }
+
     const pkg = await this.generateEditorialPackage({
       topic: post.topicQuery || post.ticker || post.title,
       quote,
       news: latestNews.length > 0 ? (latestNews as any) : news,
       categoryOverride: post.category,
       includeMeme: Boolean(post.memeUrl),
+      priorTitles: siblingPriorTitles,
+      editionNumber,
+      visualVariant: existingVariant,
     });
 
     const updatedPost = await prisma.blogPost.update({
@@ -1475,6 +1528,7 @@ Return ONLY valid JSON matching this schema:
               title: pkg.title.slice(0, 250),
               summary: pkg.summary,
               content: pkg.content,
+              tags: pkg.tags.join(', '),
               keyTakeaways: JSON.stringify(pkg.keyTakeaways),
             }
           : {}),
