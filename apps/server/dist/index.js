@@ -14,6 +14,7 @@ const config_1 = require("./config");
 const routes_1 = __importDefault(require("./routes"));
 const error_1 = require("./middleware/error");
 const returns_job_1 = require("./services/returns.job");
+const p2p_service_1 = require("./services/p2p.service");
 const app = (0, express_1.default)();
 app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -113,6 +114,8 @@ if (process.env.NODE_ENV !== 'test' && (process.env.PORT || !isServerless)) {
             console.log(`📂 Uploads Volume: ${uploadsDirectory}`);
             console.log(`🔒 Environment: ${config_1.config.nodeEnv}`);
             console.log(`====================================================`);
+            // Non-destructively verify non-breaking schema extensions (e.g. displayName column) on boot
+            p2p_service_1.p2pService.ensureP2PReady().catch(() => { });
             // Register automated financial background cron jobs
             returns_job_1.returnsJobService.startScheduler();
         });

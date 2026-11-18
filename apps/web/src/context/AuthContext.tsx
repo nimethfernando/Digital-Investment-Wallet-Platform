@@ -8,6 +8,7 @@ export interface User {
   email: string;
   firstName?: string;
   lastName?: string;
+  displayName?: string | null;
   role: 'USER' | 'STAFF' | 'ADMIN';
   kycStatus: 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
   twoFactorEnabled: boolean;

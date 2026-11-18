@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.instantVerifyKyc = exports.resetKyc = exports.getSumsubToken = exports.getKycStatus = exports.submitKyc = exports.refreshSession = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.detectLocation = exports.register = void 0;
+exports.instantVerifyKyc = exports.resetKyc = exports.getSumsubToken = exports.getKycStatus = exports.submitKyc = exports.updateDisplayName = exports.checkDisplayName = exports.refreshSession = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.detectLocation = exports.register = void 0;
 const zod_1 = require("zod");
 const prisma_1 = require("../lib/prisma");
 const auth_service_1 = require("../services/auth.service");
@@ -8,8 +8,9 @@ const kyc_service_1 = require("../services/kyc.service");
 const registerSchema = zod_1.z.object({
     email: zod_1.z.string().email(),
     password: zod_1.z.string().min(8, 'Password must be at least 8 characters'),
-    firstName: zod_1.z.string().optional(),
-    lastName: zod_1.z.string().optional(),
+    firstName: zod_1.z.string().trim().min(2, 'First name must be at least 2 characters'),
+    lastName: zod_1.z.string().trim().min(2, 'Last name must be at least 2 characters'),
+    displayName: zod_1.z.string().trim().min(4, 'Unique Display Name / Trader Handle must be at least 4 characters').max(30),
     phone: zod_1.z.string().max(25, 'Phone number must not exceed 25 characters').optional(),
     country: zod_1.z.string().max(100).optional(),
     countryCode: zod_1.z.string().max(10).optional(),
@@ -158,6 +159,7 @@ const getMe = async (req, res, next) => {
                 email: true,
                 firstName: true,
                 lastName: true,
+                displayName: true,
                 phone: true,
                 country: true,
                 signupLocation: true,
@@ -198,6 +200,30 @@ const refreshSession = async (req, res, next) => {
     }
 };
 exports.refreshSession = refreshSession;
+const checkDisplayName = async (req, res, next) => {
+    try {
+        const raw = String(req.query.displayName || '');
+        const result = await auth_service_1.authService.checkDisplayNameAvailability(raw);
+        res.json({ success: true, ...result });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.checkDisplayName = checkDisplayName;
+const updateDisplayName = async (req, res, next) => {
+    try {
+        if (!req.user)
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const raw = String(req.body?.displayName || '');
+        const user = await auth_service_1.authService.updateDisplayName(req.user.userId, raw);
+        res.json({ success: true, user, message: `Unique trader handle set to @${user.displayName}` });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.updateDisplayName = updateDisplayName;
 const submitKyc = async (req, res, next) => {
     try {
         if (!req.user)

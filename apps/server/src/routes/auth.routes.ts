@@ -10,6 +10,8 @@ import {
   disable2fa,
   getMe,
   refreshSession,
+  checkDisplayName,
+  updateDisplayName,
   submitKyc,
   getKycStatus,
   getSumsubToken,
@@ -24,6 +26,7 @@ const router = Router();
 
 // Public auth routes with strict anti-brute force rate limiting (10 attempts / 15 min)
 router.get('/detect-location', detectLocation);
+router.get('/check-display-name', checkDisplayName);
 router.post('/register', authRateLimiter, register);
 router.post('/login', authRateLimiter, login);
 router.post('/forgot-password', authRateLimiter, forgotPassword);
@@ -32,6 +35,7 @@ router.post('/reset-password', authRateLimiter, resetPassword);
 // Protected routes
 router.get('/me', authenticateToken, getMe);
 router.post('/refresh', authenticateToken, refreshSession);
+router.patch('/display-name', authenticateToken, updateDisplayName);
 router.post('/change-password', authenticateToken, authRateLimiter, changePassword);
 
 // Identity Verification (KYC / AML & Sumsub/Onfido SDK integration)

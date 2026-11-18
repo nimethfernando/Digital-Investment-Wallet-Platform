@@ -74,9 +74,14 @@ interface OtcDeskItem {
   totalTrades: number;
   completedTrades: number;
   rating: number;
+  status?: string;
+  operatorName?: string;
+  operatorDisplayName?: string | null;
+  adminNotes?: string | null;
   user?: {
     firstName?: string;
     lastName?: string;
+    displayName?: string | null;
     email: string;
   };
 }
@@ -109,7 +114,7 @@ function getDeskGoogleMapsHref(desk: {
 
 export default function ExchangeDeskPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
 
   // Filter States
   const [selectedCountry, setSelectedCountry] = useState<string>('ALL');
@@ -129,6 +134,7 @@ export default function ExchangeDeskPage() {
   // Apply Desk Modal State ($1,000 Security Deposit + Required Google Maps Location + Optional Landmark)
   const [applyModalOpen, setApplyModalOpen] = useState<boolean>(false);
   const [applyDeskName, setApplyDeskName] = useState<string>('');
+  const [applyOperatorDisplayName, setApplyOperatorDisplayName] = useState<string>('');
   const [applyCountry, setApplyCountry] = useState<string>('Sri Lanka');
   const [applyCountryCode, setApplyCountryCode] = useState<string>('LK');
   const [applyCity, setApplyCity] = useState<string>('');
@@ -155,6 +161,7 @@ export default function ExchangeDeskPage() {
       if (raw) {
         const draft = JSON.parse(raw);
         if (typeof draft.applyDeskName === 'string') setApplyDeskName(draft.applyDeskName);
+        if (typeof draft.applyOperatorDisplayName === 'string') setApplyOperatorDisplayName(draft.applyOperatorDisplayName);
         if (typeof draft.applyCountry === 'string' && draft.applyCountry) setApplyCountry(draft.applyCountry);
         if (typeof draft.applyCountryCode === 'string' && draft.applyCountryCode) setApplyCountryCode(draft.applyCountryCode);
         if (typeof draft.applyCity === 'string') setApplyCity(draft.applyCity);
@@ -623,6 +630,9 @@ export default function ExchangeDeskPage() {
     try {
       const res = await api.post('/otc/apply', {
         deskName: applyDeskName.trim(),
+        operatorDisplayName: !user.displayName && applyOperatorDisplayName.trim()
+          ? applyOperatorDisplayName.trim()
+          : undefined,
         country: applyCountry.trim(),
         countryCode: applyCountryCode.trim(),
         city: applyCity.trim(),
@@ -648,14 +658,15 @@ export default function ExchangeDeskPage() {
           localStorage.removeItem(OTC_DESK_DRAFT_KEY);
         } catch {}
         setApplySuccess(
-          `Congratulations! Your OTC Desk with verified Google Maps location has been activated and $${otcDepositUsd.toLocaleString()} security deposit is locked.`
+          `Application Submitted (${res.data.data?.deskCode || 'UNDER REVIEW'})! Your OTC Desk has been submitted for Admin Compliance approval with $${otcDepositUsd.toLocaleString()} held safely in escrow. It will go live once approved by Admin.`
         );
+        refreshUser();
         fetchDesks();
         fetchMyDesk();
         setTimeout(() => {
           setApplyModalOpen(false);
           setApplySuccess(null);
-        }, 2000);
+        }, 3000);
       }
     } catch (err: any) {
       setApplyError(
@@ -926,44 +937,81 @@ export default function ExchangeDeskPage() {
         </div>
       </div>
 
-      {/* Operator Live Rate & Pricing Control Card (Shown directly on OTC section when user operates a desk) */}
+      {/* Operator Application / Live Rate & Pricing Control Card */}
       {user && myDesk && (
-        <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-emerald-950/90 via-slate-900 to-slate-950 border border-emerald-500/40 text-white shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div
+          className={`p-5 sm:p-6 rounded-3xl border text-white shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
+            myDesk.status === 'UNDER_REVIEW'
+              ? 'bg-gradient-to-r from-amber-950/90 via-slate-900 to-slate-950 border-amber-500/40'
+              : myDesk.status === 'SUSPENDED' || myDesk.status === 'CLOSED'
+              ? 'bg-gradient-to-r from-rose-950/90 via-slate-900 to-slate-950 border-rose-500/40'
+              : 'bg-gradient-to-r from-emerald-950/90 via-slate-900 to-slate-950 border-emerald-500/40'
+          }`}
+        >
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider border border-emerald-500/30">
-                My OTC Provider Desk • {myDesk.isOnline ? 'ONLINE' : 'OFFLINE'}
-              </span>
+              {myDesk.status === 'UNDER_REVIEW' ? (
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase tracking-wider border border-amber-500/30">
+                  OTC Desk Application • PENDING ADMIN APPROVAL
+                </span>
+              ) : myDesk.status === 'SUSPENDED' ? (
+                <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-black uppercase tracking-wider border border-rose-500/30">
+                  OTC Desk • SUSPENDED
+                </span>
+              ) : myDesk.status === 'CLOSED' ? (
+                <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-black uppercase tracking-wider border border-slate-700">
+                  OTC Desk • CLOSED / DECLINED
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider border border-emerald-500/30">
+                  My OTC Provider Desk • {myDesk.isOnline ? 'ONLINE' : 'OFFLINE'}
+                </span>
+              )}
               <span className="font-mono text-xs text-slate-400">{myDesk.deskCode}</span>
+              {myDesk.operatorDisplayName && (
+                <span className="font-mono text-xs text-emerald-300">@{myDesk.operatorDisplayName}</span>
+              )}
             </div>
             <h2 className="text-lg font-black text-white">{myDesk.deskName}</h2>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 font-mono">
-              <span>Buy Margin: <strong className="text-emerald-400">+{myDesk.buyRateMarginPct}%</strong></span>
-              <span>•</span>
-              <span>Sell Margin: <strong className="text-sky-400">-{myDesk.sellRateMarginPct}%</strong></span>
-              <span>•</span>
-              <span>
-                Custom Fixed Rates:{' '}
-                <strong className="text-amber-300">
-                  {myDesk.customRates && Object.keys(myDesk.customRates).length > 0
-                    ? Object.entries(myDesk.customRates)
-                        .map(([cur, p]) => `${cur}: ${p.buyRate || '-'} / ${p.sellRate || '-'}`)
-                        .join(' | ')
-                    : 'Following Live Market + Margins'}
-                </strong>
-              </span>
+            {myDesk.status === 'UNDER_REVIEW' ? (
+              <p className="text-xs text-amber-200/90 leading-relaxed max-w-2xl">
+                Your OTC Desk application is currently under Admin Compliance verification (${Number(myDesk.securityDeposit || otcDepositUsd).toLocaleString()} security deposit held in escrow). It will go live in the public OTC directory once approved by Admin.
+              </p>
+            ) : myDesk.status === 'CLOSED' ? (
+              <p className="text-xs text-rose-200/90 leading-relaxed max-w-2xl">
+                This OTC desk listing is closed ({myDesk.depositStatus}). {myDesk.adminNotes ? `Compliance Note: ${myDesk.adminNotes}` : 'You may submit a new application anytime.'}
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 font-mono">
+                <span>Buy Margin: <strong className="text-emerald-400">+{myDesk.buyRateMarginPct}%</strong></span>
+                <span>•</span>
+                <span>Sell Margin: <strong className="text-sky-400">-{myDesk.sellRateMarginPct}%</strong></span>
+                <span>•</span>
+                <span>
+                  Custom Fixed Rates:{' '}
+                  <strong className="text-amber-300">
+                    {myDesk.customRates && Object.keys(myDesk.customRates).length > 0
+                      ? Object.entries(myDesk.customRates)
+                          .map(([cur, p]) => `${cur}: ${p.buyRate || '-'} / ${p.sellRate || '-'}`)
+                          .join(' | ')
+                      : 'Following Live Market + Margins'}
+                  </strong>
+                </span>
+              </div>
+            )}
+          </div>
+          {myDesk.status === 'ACTIVE' && (
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => openManageDeskModal(myDesk)}
+                className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md flex items-center gap-2 cursor-pointer"
+              >
+                <Sliders className="w-4 h-4" />
+                <span>Set &amp; Update My OTC Rates</span>
+              </button>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => openManageDeskModal(myDesk)}
-              className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md flex items-center gap-2 cursor-pointer"
-            >
-              <Sliders className="w-4 h-4" />
-              <span>Set &amp; Update My OTC Rates</span>
-            </button>
-          </div>
+          )}
         </div>
       )}
 
@@ -1141,6 +1189,11 @@ export default function ExchangeDeskPage() {
                       <h3 className="text-lg font-black text-slate-900 dark:text-white">
                         {desk.deskName}
                       </h3>
+                      {desk.operatorDisplayName && (
+                        <div className="text-[11px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          Operator: @{desk.operatorDisplayName}
+                        </div>
+                      )}
                       <div className="flex items-start gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                         <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                         <span>
@@ -1574,17 +1627,44 @@ export default function ExchangeDeskPage() {
 
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Desk Name <span className="text-rose-500">*</span>
+                    Unique Desk Name <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
+                    minLength={4}
                     placeholder="e.g. Metro Premier OTC Liquidity"
                     value={applyDeskName}
                     onChange={(e) => setApplyDeskName(e.target.value)}
                     className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                   />
                 </div>
+
+                {user && !user.displayName && (
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Unique Operator Display Handle (@username) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative mt-1">
+                      <span className="text-slate-400 font-mono text-xs font-bold absolute left-3 top-2.5">@</span>
+                      <input
+                        type="text"
+                        required
+                        minLength={4}
+                        maxLength={30}
+                        placeholder="e.g. amit_batra_mumbai"
+                        value={applyOperatorDisplayName}
+                        onChange={(e) =>
+                          setApplyOperatorDisplayName(e.target.value.replace(/^@+/, '').replace(/\s+/g, '_'))
+                        }
+                        className="w-full pl-7 pr-4 py-2 rounded-xl text-xs font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Required once so Admin &amp; customers can uniquely identify your account.
+                    </p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>

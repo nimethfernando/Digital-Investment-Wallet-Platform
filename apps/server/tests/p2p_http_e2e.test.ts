@@ -1060,6 +1060,175 @@ async function runHttpProductionE2E() {
       }
     });
 
+    await assertHttp('H12: Unique Display Name validation prevents duplicate trader handles (e.g. multiple Amit accounts)', async () => {
+      const uniqueHandle = `amit_batra_${String(ts).slice(-5)}`;
+      const check1 = await apiCall('GET', `/api/v1/auth/check-display-name?displayName=${encodeURIComponent(uniqueHandle)}`);
+      if (check1.status !== 200 || !check1.json?.available) {
+        throw new Error(`Expected handle ${uniqueHandle} available, got ${check1.status} ${JSON.stringify(check1.json)}`);
+      }
+
+      const badReg = await apiCall('POST', '/api/v1/auth/register', undefined, {
+        email: `bad_name_${ts}@testmail.com`,
+        password: 'Password123!',
+        firstName: 'A',
+        lastName: 'B',
+        displayName: 'admin',
+      });
+      if (badReg.status < 400) {
+        throw new Error(`Expected short/reserved name signup rejection, got ${badReg.status}`);
+      }
+
+      const reg1 = await apiCall('POST', '/api/v1/auth/register', undefined, {
+        email: `amit1_${ts}@testmail.com`,
+        password: 'Password123!',
+        firstName: 'Amit',
+        lastName: 'Batra',
+        displayName: uniqueHandle,
+      });
+      if (reg1.status !== 201 || reg1.json?.user?.displayName !== uniqueHandle) {
+        throw new Error(`Expected 201 with displayName=${uniqueHandle}, got ${reg1.status} ${JSON.stringify(reg1.json)}`);
+      }
+
+      const checkTaken = await apiCall('GET', `/api/v1/auth/check-display-name?displayName=${encodeURIComponent(uniqueHandle.toUpperCase())}`);
+      if (checkTaken.status !== 200 || checkTaken.json?.available !== false) {
+        throw new Error(`Expected case-insensitive taken check=false for ${uniqueHandle}, got ${JSON.stringify(checkTaken.json)}`);
+      }
+
+      const regDup = await apiCall('POST', '/api/v1/auth/register', undefined, {
+        email: `amit2_${ts}@testmail.com`,
+        password: 'Password123!',
+        firstName: 'Amit',
+        lastName: 'Batra',
+        displayName: uniqueHandle.toUpperCase(),
+      });
+      if (regDup.status < 400) {
+        throw new Error(`Expected duplicate displayName rejection, got ${regDup.status}`);
+      }
+    });
+
+    await assertHttp('H13: OTC Desk application enters UNDER_REVIEW, enforces unique deskName, & goes live only after Admin approval (plus Reject refunds $1k)', async () => {
+      const otcOp1 = await prisma.user.create({
+        data: {
+          email: `otc_op1_${ts}@testmail.com`,
+          passwordHash: seller.passwordHash,
+          firstName: 'Nimal',
+          lastName: 'Perera',
+          displayName: `nimal_otc_${String(ts).slice(-5)}`,
+          country: 'Sri Lanka',
+        },
+      });
+      const otcOp2 = await prisma.user.create({
+        data: {
+          email: `otc_op2_${ts}@testmail.com`,
+          passwordHash: seller.passwordHash,
+          firstName: 'Kamal',
+          lastName: 'Silva',
+          displayName: `kamal_otc_${String(ts).slice(-5)}`,
+          country: 'Sri Lanka',
+        },
+      });
+      const [w1, w2] = await Promise.all([
+        ledgerService.ensureWallet(otcOp1.id),
+        ledgerService.ensureWallet(otcOp2.id),
+      ]);
+      await prisma.$transaction(async (tx) => {
+        const b1 = await ledgerService.lockWalletBalance(tx, w1.id, 'USD');
+        await tx.walletBalance.update({ where: { id: b1.id }, data: { availableBalance: '1500.00000000' } });
+        const b2 = await ledgerService.lockWalletBalance(tx, w2.id, 'USD');
+        await tx.walletBalance.update({ where: { id: b2.id }, data: { availableBalance: '1500.00000000' } });
+      });
+      const op1Token = authService.generateToken(otcOp1.id, otcOp1.email, otcOp1.role);
+      const op2Token = authService.generateToken(otcOp2.id, otcOp2.email, otcOp2.role);
+
+      const deskTitle = `Test Colombo OTC ${ts}`;
+      const apply1 = await apiCall('POST', '/api/v1/otc/apply', op1Token, {
+        deskName: deskTitle,
+        country: 'Sri Lanka',
+        countryCode: 'LK',
+        city: 'Colombo',
+        locationAddress: 'World Trade Center Level 18, Colombo 01',
+        supportedCurrencies: ['USDT', 'LKR', 'USD'],
+        settlementMethods: ['Physical Cash', 'Bank Transfer'],
+        buyRateMarginPct: 1.2,
+        sellRateMarginPct: 1.0,
+      });
+      if (apply1.status !== 201 || apply1.json?.data?.status !== 'UNDER_REVIEW' || apply1.json?.data?.isOnline !== false) {
+        throw new Error(`Expected new OTC desk UNDER_REVIEW & offline until Admin approval, got ${apply1.status} ${JSON.stringify(apply1.json)}`);
+      }
+      const desk1Id = apply1.json.data.id;
+
+      // Confirm UNDER_REVIEW desk is NOT visible in public listing yet
+      const pubListBefore = await apiCall('GET', '/api/v1/otc/desks?countryCode=LK');
+      if (Array.isArray(pubListBefore.json?.data) && pubListBefore.json.data.some((d: any) => d.id === desk1Id)) {
+        throw new Error('Unapproved UNDER_REVIEW OTC desk leaked into public /otc/desks list!');
+      }
+
+      // Confirm operator cannot toggle isOnline=true before Admin approves
+      const selfOnlineAttempt = await apiCall('PATCH', '/api/v1/otc/my-desk', op1Token, { isOnline: true });
+      if (selfOnlineAttempt.status < 400) {
+        throw new Error(`Expected operator self-online blocked while UNDER_REVIEW, got ${selfOnlineAttempt.status}`);
+      }
+
+      // Confirm second user cannot reuse same deskName
+      const dupDeskNameAttempt = await apiCall('POST', '/api/v1/otc/apply', op2Token, {
+        deskName: deskTitle.toLowerCase(),
+        country: 'Sri Lanka',
+        countryCode: 'LK',
+        city: 'Kandy',
+        locationAddress: 'Dalada Veediya 22, Kandy',
+        supportedCurrencies: ['USDT', 'LKR'],
+        settlementMethods: ['Bank Transfer'],
+      });
+      if (dupDeskNameAttempt.status < 400) {
+        throw new Error(`Expected duplicate deskName rejection, got ${dupDeskNameAttempt.status}`);
+      }
+
+      // Admin approves desk1 -> goes ACTIVE & appears on public marketplace
+      const approveRes = await apiCall(
+        'PATCH',
+        `/api/v1/admin/otc/desks/${desk1Id}`,
+        adminToken,
+        { status: 'ACTIVE', isOnline: true },
+        { 'x-admin-2fa': authenticator.generate(adminSecret) }
+      );
+      if (approveRes.status !== 200 || approveRes.json?.data?.status !== 'ACTIVE' || approveRes.json?.data?.isOnline !== true) {
+        throw new Error(`Admin approval failed: ${approveRes.status} ${JSON.stringify(approveRes.json)}`);
+      }
+      const pubListAfter = await apiCall('GET', '/api/v1/otc/desks?countryCode=LK');
+      const approvedPublicDesk = pubListAfter.json?.data?.find((d: any) => d.id === desk1Id);
+      if (!approvedPublicDesk || approvedPublicDesk.operatorDisplayName !== otcOp1.displayName) {
+        throw new Error(`Approved desk not visible publicly with operatorDisplayName: ${JSON.stringify(approvedPublicDesk)}`);
+      }
+
+      // Op2 applies with unique deskName -> Admin rejects & refunds deposit
+      const apply2 = await apiCall('POST', '/api/v1/otc/apply', op2Token, {
+        deskName: `Test Kandy OTC ${ts}`,
+        country: 'Sri Lanka',
+        countryCode: 'LK',
+        city: 'Kandy',
+        locationAddress: 'Peradeniya Road 45, Kandy',
+        supportedCurrencies: ['USDT', 'LKR'],
+        settlementMethods: ['Bank Transfer'],
+      });
+      if (apply2.status !== 201 || apply2.json?.data?.status !== 'UNDER_REVIEW') {
+        throw new Error(`Expected second OTC application UNDER_REVIEW, got ${apply2.status}`);
+      }
+      const rejectRes = await apiCall(
+        'PATCH',
+        `/api/v1/admin/otc/desks/${apply2.json.data.id}`,
+        adminToken,
+        { status: 'CLOSED', depositAction: 'REFUND', adminNotes: 'Synthetic test rejection' },
+        { 'x-admin-2fa': authenticator.generate(adminSecret) }
+      );
+      if (rejectRes.status !== 200 || rejectRes.json?.data?.status !== 'CLOSED' || rejectRes.json?.data?.depositStatus !== 'REFUNDED') {
+        throw new Error(`Expected CLOSED & REFUNDED on Admin reject, got ${rejectRes.status} ${JSON.stringify(rejectRes.json)}`);
+      }
+      const op2BalAfter = await prisma.walletBalance.findFirst({ where: { walletId: w2.id, currency: 'USD' } });
+      if (Number(op2BalAfter?.availableBalance || 0) !== 1500) {
+        throw new Error(`Expected $1,500 USD refunded back to op2 wallet, got ${op2BalAfter?.availableBalance}`);
+      }
+    });
+
     console.log('\n================================================================');
     console.log(`🌐 HTTP Production E2E Results: ${passed}/${total} Tests Passed`);
     console.log('================================================================\n');
@@ -1074,6 +1243,7 @@ async function runHttpProductionE2E() {
       .then(async (testUsers) => {
         const ids = testUsers.map((u) => u.id);
         if (ids.length > 0) {
+          await prisma.otcDesk.updateMany({ where: { userId: { in: ids } }, data: { status: 'CLOSED', isOnline: false } }).catch(() => {});
           await prisma.p2POffer.updateMany({ where: { userId: { in: ids } }, data: { status: 'CANCELLED' } }).catch(() => {});
           await prisma.user.updateMany({ where: { id: { in: ids } }, data: { status: 'SUSPENDED', p2pBlocked: true } }).catch(() => {});
         }

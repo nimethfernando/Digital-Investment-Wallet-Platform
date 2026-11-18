@@ -69,7 +69,7 @@ class OtcController {
     async applyOtcDesk(req, res, next) {
         try {
             const userId = req.user.id;
-            const { deskName, country, countryCode, city, locationAddress, landmark, googleMapsUrl, latitude, longitude, supportedCurrencies, settlementMethods, buyRateMarginPct, sellRateMarginPct, customRates, } = req.body;
+            const { deskName, operatorDisplayName, country, countryCode, city, locationAddress, landmark, googleMapsUrl, latitude, longitude, supportedCurrencies, settlementMethods, buyRateMarginPct, sellRateMarginPct, customRates, } = req.body;
             if (!deskName ||
                 !country ||
                 !countryCode ||
@@ -85,6 +85,7 @@ class OtcController {
             }
             const desk = await otc_service_1.otcService.applyOtcDesk(userId, {
                 deskName,
+                operatorDisplayName,
                 country,
                 countryCode,
                 city,
@@ -101,7 +102,7 @@ class OtcController {
             });
             res.status(201).json({
                 success: true,
-                message: 'OTC Desk created successfully with $1,000 security deposit locked.',
+                message: 'OTC Desk application submitted for Admin review! Your $1,000 security deposit is held safely in escrow and your desk will go live once approved by Admin.',
                 data: desk,
             });
         }

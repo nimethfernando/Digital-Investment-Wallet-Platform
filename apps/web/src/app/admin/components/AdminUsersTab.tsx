@@ -252,6 +252,7 @@ export default function AdminUsersTab({
       u.email?.toLowerCase().includes(q) ||
       u.firstName?.toLowerCase().includes(q) ||
       u.lastName?.toLowerCase().includes(q) ||
+      u.displayName?.toLowerCase().includes(q) ||
       u.phone?.toLowerCase().includes(q) ||
       u.accountNumber?.toLowerCase().includes(q);
 
@@ -377,8 +378,15 @@ export default function AdminUsersTab({
                 {filteredUsers.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3.5 px-4">
-                      <div className="font-bold text-white text-sm">
-                        {u.firstName || u.lastName ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : 'Client Account'}
+                      <div className="font-bold text-white text-sm flex flex-wrap items-center gap-1.5">
+                        <span>
+                          {u.firstName || u.lastName ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : 'Client Account'}
+                        </span>
+                        {u.displayName && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[10px]">
+                            @{u.displayName}
+                          </span>
+                        )}
                       </div>
                       <div className="text-slate-400 text-[11px] font-mono flex items-center gap-1.5 mt-0.5">
                         <span>{u.accountNumber || 'AVR-PENDING'}</span>

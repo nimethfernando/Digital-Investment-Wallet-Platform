@@ -7,8 +7,9 @@ import { kycService } from '../services/kyc.service';
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, 'Password must be at least 8 characters'),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
+  firstName: z.string().trim().min(2, 'First name must be at least 2 characters'),
+  lastName: z.string().trim().min(2, 'Last name must be at least 2 characters'),
+  displayName: z.string().trim().min(4, 'Unique Display Name / Trader Handle must be at least 4 characters').max(30),
   phone: z.string().max(25, 'Phone number must not exceed 25 characters').optional(),
   country: z.string().max(100).optional(),
   countryCode: z.string().max(10).optional(),
@@ -148,6 +149,7 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
         email: true,
         firstName: true,
         lastName: true,
+        displayName: true,
         phone: true,
         country: true,
         signupLocation: true,
@@ -182,6 +184,27 @@ export const refreshSession = async (req: Request, res: Response, next: NextFunc
     if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
     const result = await authService.refreshSession(req.user.userId);
     res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const checkDisplayName = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const raw = String(req.query.displayName || '');
+    const result = await authService.checkDisplayNameAvailability(raw);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateDisplayName = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const raw = String(req.body?.displayName || '');
+    const user = await authService.updateDisplayName(req.user.userId, raw);
+    res.json({ success: true, user, message: `Unique trader handle set to @${user.displayName}` });
   } catch (err) {
     next(err);
   }

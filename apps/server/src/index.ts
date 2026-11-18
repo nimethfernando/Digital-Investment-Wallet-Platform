@@ -9,6 +9,7 @@ import { config } from './config';
 import routes from './routes';
 import { errorHandler } from './middleware/error';
 import { returnsJobService } from './services/returns.job';
+import { p2pService } from './services/p2p.service';
 
 const app = express();
 
@@ -123,6 +124,9 @@ if (process.env.NODE_ENV !== 'test' && (process.env.PORT || !isServerless)) {
       console.log(`🔒 Environment: ${config.nodeEnv}`);
       console.log(`====================================================`);
       
+      // Non-destructively verify non-breaking schema extensions (e.g. displayName column) on boot
+      p2pService.ensureP2PReady().catch(() => {});
+
       // Register automated financial background cron jobs
       returnsJobService.startScheduler();
     });

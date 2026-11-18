@@ -86,6 +86,7 @@ export function P2POnboardingWizard({
   onViewPublicProfile,
 }: P2POnboardingWizardProps) {
   const [sourceOfFunds, setSourceOfFunds] = useState(SOURCE_OF_FUNDS_OPTIONS[0]);
+  const [traderDisplayName, setTraderDisplayName] = useState('');
   const [sourceOfFundsDetails, setSourceOfFundsDetails] = useState('');
   const [tradingExperience, setTradingExperience] = useState(EXPERIENCE_OPTIONS[1]);
   const [expectedMonthlyVolume, setExpectedMonthlyVolume] = useState(VOLUME_OPTIONS[1]);
@@ -244,6 +245,7 @@ export function P2POnboardingWizard({
     setSubmittingApp(true);
     try {
       const res = await api.post('/p2p/onboarding/apply', {
+        displayName: !user?.displayName && traderDisplayName.trim() ? traderDisplayName.trim() : undefined,
         sourceOfFunds,
         sourceOfFundsDetails: sourceOfFundsDetails.trim(),
         tradingExperience,
@@ -642,6 +644,32 @@ export function P2POnboardingWizard({
                 </p>
               </div>
             </div>
+
+            {user && !user.displayName && (
+              <div>
+                <label className="block text-slate-300 font-bold mb-1.5">
+                  Unique P2P Trader Handle (@displayName) *
+                </label>
+                <div className="relative">
+                  <span className="text-slate-400 font-mono text-xs font-bold absolute left-3.5 top-3">@</span>
+                  <input
+                    type="text"
+                    required
+                    minLength={4}
+                    maxLength={30}
+                    value={traderDisplayName}
+                    onChange={(e) =>
+                      setTraderDisplayName(e.target.value.replace(/^@+/, '').replace(/\s+/g, '_'))
+                    }
+                    placeholder="e.g. amit_batra_fx (must be unique across all traders)"
+                    className="w-full pl-8 pr-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono placeholder:text-slate-500 outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Required once so your P2P profile has a unique identifier distinct from other traders.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>

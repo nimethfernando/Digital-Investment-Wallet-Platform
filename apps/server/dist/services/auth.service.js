@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authService = exports.AuthService = void 0;
+exports.validatePersonNames = validatePersonNames;
 const client_1 = require("@prisma/client");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
@@ -14,8 +15,131 @@ const prisma_1 = require("../lib/prisma");
 const config_1 = require("../config");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
 const crypto_2 = require("../utils/crypto");
+const RESERVED_DISPLAY_NAMES = new Set([
+    'admin',
+    'administrator',
+    'avora',
+    'avorabank',
+    'support',
+    'system',
+    'treasury',
+    'compliance',
+    'moderator',
+    'escrow',
+    'staff',
+    'official',
+    'root',
+    'helpdesk',
+]);
+function validatePersonNames(firstName, lastName) {
+    const cleanFirst = (firstName || '').trim().replace(/\s+/g, ' ');
+    const cleanLast = (lastName || '').trim().replace(/\s+/g, ' ');
+    if (cleanFirst.length < 2 || cleanFirst.length > 40) {
+        throw Object.assign(new Error('First name must be between 2 and 40 characters.'), { statusCode: 400 });
+    }
+    if (cleanLast.length < 2 || cleanLast.length > 40) {
+        throw Object.assign(new Error('Last name must be between 2 and 40 characters.'), { statusCode: 400 });
+    }
+    const namePattern = /^[\p{L}][\p{L}\s'.-]{1,39}$/u;
+    if (!namePattern.test(cleanFirst) || !namePattern.test(cleanLast)) {
+        throw Object.assign(new Error('First and last names must contain valid alphabetic characters (no numbers or symbols).'), { statusCode: 400 });
+    }
+    return { firstName: cleanFirst, lastName: cleanLast };
+}
 class AuthService {
+    normalizeDisplayName(raw) {
+        return (raw || '').trim().replace(/^@+/, '').replace(/\s+/g, '_');
+    }
+    validateDisplayNameFormat(raw) {
+        const clean = this.normalizeDisplayName(raw);
+        if (clean.length < 4 || clean.length > 30) {
+            throw new Error('Unique Display Name / Trader Handle must be 4 to 30 characters.');
+        }
+        if (!/^[a-zA-Z][a-zA-Z0-9_.-]{3,29}$/.test(clean)) {
+            throw new Error('Display Name must start with a letter and use only letters, numbers, underscores (_), dots (.), or hyphens (-).');
+        }
+        if (/[_.-]{2,}/.test(clean) || /[_.-]$/.test(clean)) {
+            throw new Error('Display Name cannot end with punctuation or contain consecutive punctuation (e.g. __ or ..).');
+        }
+        const lower = clean.toLowerCase();
+        if (RESERVED_DISPLAY_NAMES.has(lower) || lower.startsWith('avora_admin') || lower.startsWith('avora_official')) {
+            throw new Error('This Display Name is reserved for Avora Bank staff. Please choose another handle.');
+        }
+        return clean;
+    }
+    async ensureUniqueDisplayName(raw, excludeUserId) {
+        const clean = this.validateDisplayNameFormat(raw);
+        const conflict = await prisma_1.prisma.user.findFirst({
+            where: {
+                ...(excludeUserId ? { NOT: { id: excludeUserId } } : {}),
+                OR: [
+                    { displayName: clean },
+                    { AND: [{ displayName: null }, { firstName: clean }] },
+                ],
+            },
+            select: { id: true },
+        });
+        if (conflict) {
+            throw Object.assign(new Error(`Display name "@${clean}" is already taken or in use by another trader. Please choose a more unique name (e.g. "${clean}_01" or include your city/surname).`), { statusCode: 409 });
+        }
+        return clean;
+    }
+    async checkDisplayNameAvailability(raw, excludeUserId) {
+        try {
+            const clean = this.validateDisplayNameFormat(raw);
+            const conflict = await prisma_1.prisma.user.findFirst({
+                where: {
+                    ...(excludeUserId ? { NOT: { id: excludeUserId } } : {}),
+                    OR: [
+                        { displayName: clean },
+                        { AND: [{ displayName: null }, { firstName: clean }] },
+                    ],
+                },
+                select: { id: true },
+            });
+            if (conflict) {
+                const suffix = Math.floor(100 + Math.random() * 899);
+                return {
+                    available: false,
+                    normalized: clean,
+                    message: `@${clean} is already taken. Suggested: @${clean.slice(0, 22)}_${suffix}`,
+                    suggestions: [`${clean.slice(0, 22)}_${suffix}`, `${clean.slice(0, 22)}_fx`],
+                };
+            }
+            return {
+                available: true,
+                normalized: clean,
+                message: `@${clean} is available!`,
+                suggestions: [],
+            };
+        }
+        catch (err) {
+            return {
+                available: false,
+                normalized: this.normalizeDisplayName(raw),
+                message: err?.message || 'Invalid display name.',
+                suggestions: [],
+            };
+        }
+    }
+    async updateDisplayName(userId, rawDisplayName) {
+        const clean = await this.ensureUniqueDisplayName(rawDisplayName, userId);
+        const updated = await prisma_1.prisma.user.update({
+            where: { id: userId },
+            data: { displayName: clean },
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                displayName: true,
+            },
+        });
+        return updated;
+    }
     async register(data) {
+        const { firstName: validFirstName, lastName: validLastName } = validatePersonNames(data.firstName, data.lastName);
+        const validDisplayName = await this.ensureUniqueDisplayName(data.displayName);
         const existing = await prisma_1.prisma.user.findUnique({ where: { email: data.email.toLowerCase().trim() } });
         if (existing) {
             throw new Error('An account with this email address already exists');
@@ -26,8 +150,9 @@ class AuthService {
             data: {
                 email: data.email.toLowerCase().trim(),
                 passwordHash,
-                firstName: data.firstName,
-                lastName: data.lastName,
+                firstName: validFirstName,
+                lastName: validLastName,
+                displayName: validDisplayName,
                 phone: data.phone,
                 country: data.country,
                 signupLocation: data.signupLocation,
@@ -59,7 +184,7 @@ class AuthService {
             subject: 'Welcome to Avora Bank - Verify Your Account',
             html: `
         <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
-          <h2>Welcome to Avora Bank, ${user.firstName || 'Investor'}!</h2>
+          <h2>Welcome to Avora Bank, ${user.firstName || 'Investor'} (@${user.displayName})!</h2>
           <p>Your digital investment wallet has been successfully created.</p>
           <p>You can now explore our curated investment packages, check live USDT exchange rates, or fund your wallet.</p>
         </div>
@@ -72,6 +197,7 @@ class AuthService {
                 email: user.email,
                 firstName: user.firstName,
                 lastName: user.lastName,
+                displayName: user.displayName,
                 phone: user.phone,
                 country: user.country,
                 signupLocation: user.signupLocation,
@@ -146,6 +272,7 @@ class AuthService {
                 email: user.email,
                 firstName: user.firstName,
                 lastName: user.lastName,
+                displayName: user.displayName,
                 phone: user.phone,
                 country: user.country,
                 signupLocation: user.signupLocation,

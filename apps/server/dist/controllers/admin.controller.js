@@ -1357,6 +1357,7 @@ class AdminController {
                     { email: { contains: query } },
                     { firstName: { contains: query } },
                     { lastName: { contains: query } },
+                    { displayName: { contains: query } },
                     { phone: { contains: query } },
                 ];
             }
@@ -1391,6 +1392,7 @@ class AdminController {
                     email: u.email,
                     firstName: u.firstName,
                     lastName: u.lastName,
+                    displayName: u.displayName || null,
                     phone: u.phone,
                     country: u.country,
                     role: u.role,

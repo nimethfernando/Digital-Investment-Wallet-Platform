@@ -163,6 +163,8 @@ interface P2POfferItem {
   trader: {
     id: string;
     name: string;
+    displayName?: string | null;
+    accountNumber?: string;
     avatar: string;
     isVerified: boolean;
     isP2pMerchant?: boolean;
@@ -2816,6 +2818,11 @@ function P2PPageContent() {
                           >
                             {offer.trader.name}
                           </button>
+                          {offer.trader.displayName && (
+                            <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                              @{offer.trader.displayName}
+                            </span>
+                          )}
                           {offer.trader.isVerified && (
                             <span title="Admin KYC & Source-of-Funds Verified">
                               <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />

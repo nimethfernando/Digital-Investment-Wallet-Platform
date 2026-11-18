@@ -201,6 +201,7 @@ model User {
   role                   Role       @default(USER)
   firstName              String?
   lastName               String?
+  displayName            String?    @unique @db.VarChar(50)
   phone                  String?
   country                String?    @db.VarChar(100)
   signupLocation         String?    @db.VarChar(191)

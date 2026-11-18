@@ -72,6 +72,7 @@ export class OtcController {
       const userId = (req as any).user.id;
       const {
         deskName,
+        operatorDisplayName,
         country,
         countryCode,
         city,
@@ -106,6 +107,7 @@ export class OtcController {
 
       const desk = await otcService.applyOtcDesk(userId, {
         deskName,
+        operatorDisplayName,
         country,
         countryCode,
         city,
@@ -123,7 +125,8 @@ export class OtcController {
 
       res.status(201).json({
         success: true,
-        message: 'OTC Desk created successfully with $1,000 security deposit locked.',
+        message:
+          'OTC Desk application submitted for Admin review! Your $1,000 security deposit is held safely in escrow and your desk will go live once approved by Admin.',
         data: desk,
       });
     } catch (err) {

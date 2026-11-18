@@ -56,6 +56,7 @@ class P2PService {
             await prisma_1.prisma.$executeRawUnsafe(`ALTER TABLE \`diw_ledger_journals\` MODIFY COLUMN \`referenceType\` ENUM('DEPOSIT','PACKAGE_PURCHASE','MONTHLY_RETURN','PRINCIPAL_RELEASE','WITHDRAWAL_REQUEST','WITHDRAWAL_SETTLEMENT','WITHDRAWAL_REJECTED','P2P_TRANSFER','P2P_ESCROW_LOCK','P2P_ESCROW_RELEASE','EXCHANGE_BUY','EXCHANGE_SELL','OTC_DEPOSIT_LOCK','OTC_DEPOSIT_REFUND','P2P_DEPOSIT_LOCK','P2P_DEPOSIT_REFUND','OTC_TRADE_SETTLEMENT','GLOBAL_TRANSFER','INVESTMENT_ALLOCATION','INVESTMENT_PROFIT_SHARE','INVESTMENT_DISTRIBUTION','FEE','ADJUSTMENT','REVERSAL') NOT NULL`).catch(() => { });
             await prisma_1.prisma.$executeRawUnsafe(`ALTER TABLE \`diw_p2p_orders\` MODIFY COLUMN \`status\` ENUM('PENDING','ACCEPTED','PENDING_PAYMENT','PAYMENT_SENT','SELLER_CONFIRMING','COMPLETED','DISPUTED','CANCELLED','EXPIRED','DECLINED','FROZEN') NOT NULL DEFAULT 'PENDING'`).catch(() => { });
             await this.ensureColumns('diw_users', [
+                ['displayName', 'ALTER TABLE `diw_users` ADD COLUMN `displayName` VARCHAR(50) NULL UNIQUE'],
                 ['p2pBlocked', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlocked` BOOLEAN NOT NULL DEFAULT false'],
                 ['p2pBlockedReason', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlockedReason` VARCHAR(500) NULL'],
                 ['p2pBlockedAt', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlockedAt` DATETIME(3) NULL'],
@@ -464,13 +465,14 @@ class P2PService {
                 email: true,
                 firstName: true,
                 lastName: true,
+                displayName: true,
                 status: true,
                 kycStatus: true,
             },
         });
         if (!recipient && (cleanId.toUpperCase().startsWith('AVR-') || cleanId.toLowerCase().startsWith('0xavora'))) {
             const allUsers = await prisma_1.prisma.user.findMany({
-                select: { id: true, email: true, firstName: true, lastName: true, status: true, kycStatus: true },
+                select: { id: true, email: true, firstName: true, lastName: true, displayName: true, status: true, kycStatus: true },
             });
             const upperTarget = cleanId.toUpperCase();
             const lowerTarget = cleanId.toLowerCase();
@@ -934,6 +936,7 @@ class P2PService {
                         id: true,
                         firstName: true,
                         lastName: true,
+                        displayName: true,
                         email: true,
                         kycStatus: true,
                         isP2pMerchant: true,
@@ -978,7 +981,9 @@ class P2PService {
                 trader: {
                     id: o.user.id,
                     name: `${o.user.firstName || 'Avora'} ${o.user.lastName || 'Trader'}`.trim(),
-                    avatar: (o.user.firstName || o.user.email || 'T')[0].toUpperCase(),
+                    displayName: o.user.displayName || null,
+                    accountNumber: generateAvoraAccountNumber(o.user.id),
+                    avatar: (o.user.displayName || o.user.firstName || o.user.email || 'T')[0].toUpperCase(),
                     isVerified: o.user.kycStatus === 'APPROVED',
                     isP2pMerchant: Boolean(o.user.isP2pMerchant),
                     isInstitutional: (0, p2p_helpers_1.isInstitutionalDeskEmail)(o.user.email),
@@ -1063,6 +1068,7 @@ class P2PService {
                 id: true,
                 firstName: true,
                 lastName: true,
+                displayName: true,
                 email: true,
                 kycStatus: true,
                 isP2pMerchant: true,
@@ -1096,7 +1102,9 @@ class P2PService {
             user: {
                 id: user.id,
                 name: `${user.firstName || 'Avora'} ${user.lastName || 'Trader'}`.trim(),
-                avatar: (user.firstName || user.email || 'T')[0].toUpperCase(),
+                displayName: user.displayName || null,
+                accountNumber: generateAvoraAccountNumber(user.id),
+                avatar: (user.displayName || user.firstName || user.email || 'T')[0].toUpperCase(),
                 isVerified: user.kycStatus === 'APPROVED',
                 isP2pMerchant: Boolean(user.isP2pMerchant),
                 isInstitutional: (0, p2p_helpers_1.isInstitutionalDeskEmail)(user.email),
@@ -2904,6 +2912,7 @@ class P2PService {
                 email: true,
                 firstName: true,
                 lastName: true,
+                displayName: true,
                 status: true,
                 kycStatus: true,
                 p2pOnboardingStatus: true,
@@ -2952,10 +2961,20 @@ class P2PService {
         if (docs.length === 0) {
             throw new Error('At least 1 supporting document or screenshot (ID, bank statement, source of funds, or prior P2P trading history) is required.');
         }
+        let validatedDisplayName = null;
+        if (input.displayName && String(input.displayName).trim()) {
+            validatedDisplayName = await auth_service_1.authService.ensureUniqueDisplayName(String(input.displayName), userId);
+        }
         const appCode = `P2PAPP-${Date.now().toString().slice(-6)}${Math.floor(10 + Math.random() * 90)}`;
         const createdApp = await prisma_1.prisma.$transaction(async (tx) => {
             // Lock the user row to prevent concurrent duplicate submissions
             await tx.$queryRaw `SELECT id FROM diw_users WHERE id = ${userId} FOR UPDATE`;
+            if (validatedDisplayName && validatedDisplayName !== user.displayName) {
+                await tx.user.update({
+                    where: { id: userId },
+                    data: { displayName: validatedDisplayName },
+                });
+            }
             const existingInTx = await tx.p2POnboardingApplication.findFirst({
                 where: { userId },
                 orderBy: { createdAt: 'desc' },
@@ -3069,6 +3088,7 @@ class P2PService {
                 { user: { email: { contains: q } } },
                 { user: { firstName: { contains: q } } },
                 { user: { lastName: { contains: q } } },
+                { user: { displayName: { contains: q } } },
             ];
         }
         const apps = await prisma_1.prisma.p2POnboardingApplication.findMany({
@@ -3080,6 +3100,7 @@ class P2PService {
                         email: true,
                         firstName: true,
                         lastName: true,
+                        displayName: true,
                         country: true,
                         kycStatus: true,
                         p2pOnboardingStatus: true,

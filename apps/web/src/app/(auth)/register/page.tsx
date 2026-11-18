@@ -35,10 +35,18 @@ export default function RegisterPage() {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
+    displayName: '',
     email: '',
     password: '',
     confirmPassword: '',
   });
+
+  const [displayNameCheck, setDisplayNameCheck] = useState<{
+    checking: boolean;
+    available: boolean | null;
+    message: string | null;
+    suggestions: string[];
+  }>({ checking: false, available: null, message: null, suggestions: [] });
 
   // If user is already authenticated, redirect them away immediately so browser Back button does not show register form
   useEffect(() => {
@@ -136,9 +144,61 @@ export default function RegisterPage() {
     setCountryDropdownOpen(false);
   };
 
+  // Debounced availability check for unique Display Name / Trader Handle
+  useEffect(() => {
+    const raw = formData.displayName.trim().replace(/^@+/, '');
+    if (!raw) {
+      setDisplayNameCheck({ checking: false, available: null, message: null, suggestions: [] });
+      return;
+    }
+    if (raw.length < 4) {
+      setDisplayNameCheck({
+        checking: false,
+        available: false,
+        message: 'Display Name must be at least 4 characters (e.g. amit_mumbai).',
+        suggestions: [],
+      });
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setDisplayNameCheck((prev) => ({ ...prev, checking: true }));
+      try {
+        const res = await api.get(`/auth/check-display-name?displayName=${encodeURIComponent(raw)}`);
+        setDisplayNameCheck({
+          checking: false,
+          available: Boolean(res.data?.available),
+          message: res.data?.message || null,
+          suggestions: Array.isArray(res.data?.suggestions) ? res.data.suggestions : [],
+        });
+      } catch {
+        setDisplayNameCheck({ checking: false, available: null, message: null, suggestions: [] });
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [formData.displayName]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    const firstTrimmed = formData.firstName.trim();
+    const lastTrimmed = formData.lastName.trim();
+    const displayTrimmed = formData.displayName.trim().replace(/^@+/, '');
+
+    if (firstTrimmed.length < 2 || lastTrimmed.length < 2) {
+      setError('First name and Last name must each be at least 2 characters.');
+      return;
+    }
+    if (displayTrimmed.length < 4) {
+      setError('Please choose a unique Display Name / Trader Handle (4–30 characters, e.g. amit_batra_01).');
+      return;
+    }
+    if (displayNameCheck.available === false) {
+      setError(displayNameCheck.message || 'This Display Name is already taken. Please choose another unique name.');
+      return;
+    }
 
     const emailTrimmed = formData.email.trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -176,8 +236,9 @@ export default function RegisterPage() {
       const signupLocationString = detectedCity ? `${detectedCity}, ${selectedCountry.name}` : selectedCountry.name;
 
       await register({
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
+        firstName: firstTrimmed,
+        lastName: lastTrimmed,
+        displayName: displayTrimmed,
         email: emailTrimmed,
         phone: fullPhoneNumber,
         country: selectedCountry.name,
@@ -303,6 +364,61 @@ export default function RegisterPage() {
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-base outline-none focus:border-blue-600"
               />
             </div>
+          </div>
+
+          {/* Unique Display Name / Trader Handle */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Unique Display Name / Trader Handle <span className="text-rose-500">*</span>
+              </label>
+              <span className="text-[10px] text-slate-400">Shown on P2P &amp; OTC desks</span>
+            </div>
+            <div className="relative">
+              <span className="text-slate-400 font-mono text-sm font-bold absolute left-3.5 top-3">@</span>
+              <input
+                type="text"
+                required
+                minLength={4}
+                maxLength={30}
+                value={formData.displayName}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    displayName: e.target.value.replace(/^@+/, '').replace(/\s+/g, '_'),
+                  })
+                }
+                placeholder="e.g. amit_batra_in"
+                className="w-full pl-8 pr-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-base font-mono outline-none focus:border-blue-600"
+              />
+            </div>
+            {displayNameCheck.checking && (
+              <p className="text-[11px] text-slate-400">Checking availability...</p>
+            )}
+            {!displayNameCheck.checking && displayNameCheck.message && (
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span
+                  className={
+                    displayNameCheck.available
+                      ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                      : 'text-rose-600 dark:text-rose-400 font-semibold'
+                  }
+                >
+                  {displayNameCheck.message}
+                </span>
+                {!displayNameCheck.available &&
+                  displayNameCheck.suggestions.map((sug) => (
+                    <button
+                      key={sug}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, displayName: sug })}
+                      className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 font-mono text-[10px] hover:underline cursor-pointer"
+                    >
+                      Use @{sug}
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
 
           {/* Email Address */}

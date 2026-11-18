@@ -2,6 +2,9 @@ import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { rateService } from './rate.service';
+import { authService } from './auth.service';
+import { config } from '../config';
+import { notificationService } from '../adapters/notification/notification.provider';
 import { TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -15,6 +18,7 @@ export type CustomCurrencyRatesMap = Record<string, CustomCurrencyRateEntry>;
 
 export interface ApplyOtcDeskParams {
   deskName: string;
+  operatorDisplayName?: string;
   country: string;
   countryCode: string;
   city: string;
@@ -236,6 +240,8 @@ export class OtcService {
       deskName: d.deskName,
       operatorName:
         `${d.user?.firstName || ''} ${d.user?.lastName || ''}`.trim() || 'Verified Operator',
+      operatorDisplayName: d.user?.displayName || null,
+      operatorHandle: d.user?.displayName ? `@${d.user.displayName}` : null,
       ...(includeOperatorContact && d.user
         ? {
             operatorEmail: d.user.email,
@@ -450,6 +456,7 @@ export class OtcService {
             id: true,
             firstName: true,
             lastName: true,
+            displayName: true,
             kycStatus: true,
             createdAt: true,
           },
@@ -471,9 +478,19 @@ export class OtcService {
   }
 
   /**
-   * Apply to operate an OTC Desk (requires $1,000 security deposit locked and verified physical/Google Maps location)
+   * Apply to operate an OTC Desk (requires $1,000 security deposit locked, unique desk & operator names,
+   * and verified physical/Google Maps location). Goes into UNDER_REVIEW until approved by Admin.
    */
   async applyOtcDesk(userId: string, data: ApplyOtcDeskParams) {
+    const cleanDeskName = (data.deskName || '').trim().replace(/\s+/g, ' ');
+    if (cleanDeskName.length < 4 || cleanDeskName.length > 80) {
+      throw new Error('OTC Desk name must be between 4 and 80 characters.');
+    }
+    const genericDeskNames = new Set(['otc', 'desk', 'otc desk', 'test', 'test desk', 'admin', 'crypto desk']);
+    if (genericDeskNames.has(cleanDeskName.toLowerCase())) {
+      throw new Error('Please provide a distinct, descriptive OTC Desk name (e.g. "Colombo Metro OTC Liquidity").');
+    }
+
     const cleanAddress = (data.locationAddress || '').trim();
     if (cleanAddress.length < 5) {
       throw new Error(
@@ -507,14 +524,33 @@ export class OtcService {
     if (!user || user.status !== 'ACTIVE') {
       throw new Error('User account is not active or not found.');
     }
-    if (user.kycStatus !== 'APPROVED') {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { kycStatus: 'APPROVED' },
-      });
-    }
     if (user.otcDesk && user.otcDesk.status !== 'CLOSED') {
       throw new Error('You already have an active or pending OTC desk registered.');
+    }
+
+    // Ensure unique Operator Display Name / Handle so no two operators share an ambiguous name
+    let resolvedDisplayName = user.displayName || null;
+    if (data.operatorDisplayName && data.operatorDisplayName.trim()) {
+      resolvedDisplayName = await authService.ensureUniqueDisplayName(data.operatorDisplayName, userId);
+    } else if (!resolvedDisplayName) {
+      throw new Error(
+        'Please choose a unique Operator Display Name / Trader Handle (e.g. "amit_mumbai") so customers and Admin can clearly identify your account.'
+      );
+    }
+
+    // Enforce unique OTC Desk Name across all non-closed desks (case-insensitive)
+    const existingNamedDesks = await prisma.otcDesk.findMany({
+      where: {
+        status: { not: 'CLOSED' },
+        NOT: { userId },
+      },
+      select: { id: true, deskName: true },
+    });
+    const normalizedTargetDeskName = cleanDeskName.toLowerCase();
+    if (existingNamedDesks.some((d) => d.deskName.trim().toLowerCase() === normalizedTargetDeskName)) {
+      throw new Error(
+        `An OTC Desk named "${cleanDeskName}" is already registered. Please choose a unique desk name.`
+      );
     }
 
     const depositSetting = await prisma.cmsSetting
@@ -569,6 +605,9 @@ export class OtcService {
           where: { id: userId },
           data: {
             otcDepositLocked: { increment: DEPOSIT_REQUIRED.toFixed(8) },
+            ...(resolvedDisplayName && resolvedDisplayName !== user.displayName
+              ? { displayName: resolvedDisplayName }
+              : {}),
           },
         });
 
@@ -601,7 +640,7 @@ export class OtcService {
 
         const deskPayload = {
           deskCode,
-          deskName: data.deskName.trim(),
+          deskName: cleanDeskName,
           country: data.country.trim(),
           countryCode: data.countryCode.trim().toUpperCase(),
           city: data.city.trim(),
@@ -615,10 +654,10 @@ export class OtcService {
           ),
           securityDeposit: DEPOSIT_REQUIRED.toFixed(8),
           depositStatus: 'ACTIVE',
-          isOnline: true,
+          isOnline: false,
           buyRateMarginPct: new Decimal(data.buyRateMarginPct ?? 1.0).toFixed(4),
           sellRateMarginPct: new Decimal(data.sellRateMarginPct ?? 1.0).toFixed(4),
-          status: 'ACTIVE',
+          status: 'UNDER_REVIEW',
         };
 
         if (existingDesk) {
@@ -639,6 +678,43 @@ export class OtcService {
       },
       { timeout: 30000, maxWait: 10000 }
     );
+
+    // Notify operator & Admin Compliance team that application is under review
+    await prisma.userNotification
+      .create({
+        data: {
+          userId,
+          category: 'OTC',
+          type: 'OTC_DESK_SUBMITTED',
+          severity: 'INFO',
+          title: 'OTC Desk Application Submitted — Pending Admin Review',
+          message: `Your application for "${cleanDeskName}" (${deskCode}) is under Admin Compliance review. $${DEPOSIT_REQUIRED.toFixed(2)} is held in custody escrow.`,
+          referenceCode: deskCode,
+          amount: DEPOSIT_REQUIRED.toFixed(2),
+          currency: 'USD',
+          status: 'UNDER_REVIEW',
+          actionUrl: '/exchange',
+          actionLabel: 'View OTC Status',
+        },
+      })
+      .catch(() => {});
+
+    notificationService
+      .sendEmail({
+        to: user.email,
+        subject: `OTC Desk Application Submitted (${deskCode}) — Pending Admin Approval`,
+        html: `<p>Your OTC Desk application <strong>${cleanDeskName}</strong> (${deskCode}) has been received with $${DEPOSIT_REQUIRED.toFixed(2)} security deposit held in escrow. Our Compliance team will review and notify you before it goes live.</p>`,
+      })
+      .catch(() => {});
+
+    const adminEmail = config.email.adminNotify || config.email.user || 'admin@avorabank.com';
+    notificationService
+      .sendEmail({
+        to: adminEmail,
+        subject: `[ADMIN ALERT] New OTC Desk Application Pending Approval (${deskCode})`,
+        html: `<p><strong>${cleanDeskName}</strong> (${deskCode}) submitted by ${user.firstName || ''} ${user.lastName || ''} (@${resolvedDisplayName}, ${user.email}) in ${data.city}, ${data.country}. Please review under <strong>Admin &rarr; OTC Desks &amp; Trades</strong>.</p>`,
+      })
+      .catch(() => {});
 
     return this.formatDesk(createdDesk, true);
   }
@@ -1481,7 +1557,7 @@ export class OtcService {
     const desk = await prisma.otcDesk.findUnique({
       where: { userId },
       include: {
-        user: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true } },
+        user: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, kycStatus: true } },
         trades: {
           orderBy: { createdAt: 'desc' },
           take: 15,
@@ -1516,9 +1592,22 @@ export class OtcService {
   ) {
     const desk = await prisma.otcDesk.findUnique({ where: { userId } });
     if (!desk) throw new Error('No active OTC desk found for this user.');
+    if (desk.status === 'SUSPENDED' || desk.status === 'CLOSED') {
+      throw new Error(`Your OTC Desk is currently ${desk.status} and cannot be edited.`);
+    }
+    if (desk.status !== 'ACTIVE' && data.isOnline === true) {
+      throw Object.assign(
+        new Error(
+          `Your OTC Desk (${desk.deskCode}) is currently under Admin review and cannot go online until approved.`
+        ),
+        { statusCode: 403 }
+      );
+    }
 
     const updateData: any = {};
-    if (data.isOnline !== undefined) updateData.isOnline = data.isOnline;
+    if (data.isOnline !== undefined) {
+      updateData.isOnline = desk.status === 'ACTIVE' ? data.isOnline : false;
+    }
     if (data.buyRateMarginPct !== undefined && Number.isFinite(Number(data.buyRateMarginPct))) {
       updateData.buyRateMarginPct = new Decimal(data.buyRateMarginPct).toFixed(4);
     }
@@ -1598,6 +1687,7 @@ export class OtcService {
               email: true,
               firstName: true,
               lastName: true,
+              displayName: true,
               phone: true,
               kycStatus: true,
             },
@@ -1706,11 +1796,16 @@ export class OtcService {
         const updateData: any = {};
         if (data.status && ['ACTIVE', 'UNDER_REVIEW', 'SUSPENDED', 'CLOSED'].includes(data.status)) {
           updateData.status = data.status;
-          if (data.status === 'SUSPENDED' || data.status === 'CLOSED') {
+          if (data.status === 'SUSPENDED' || data.status === 'CLOSED' || data.status === 'UNDER_REVIEW') {
             updateData.isOnline = false;
+          } else if (freshDesk.status === 'UNDER_REVIEW' && data.status === 'ACTIVE') {
+            updateData.isOnline = data.isOnline ?? true;
           }
         }
-        if (data.isOnline !== undefined) updateData.isOnline = data.isOnline;
+        if (data.isOnline !== undefined) {
+          const targetStatus = updateData.status || freshDesk.status;
+          updateData.isOnline = targetStatus === 'ACTIVE' ? data.isOnline : false;
+        }
         if (data.buyRateMarginPct !== undefined && Number.isFinite(Number(data.buyRateMarginPct))) {
           updateData.buyRateMarginPct = new Decimal(data.buyRateMarginPct).toFixed(4);
         }
@@ -1742,8 +1837,14 @@ export class OtcService {
           );
         }
 
-        // Security deposit governance
-        if (data.depositAction === 'REFUND') {
+        // Security deposit governance (auto-refund if closing/rejecting a pending application with active deposit)
+        const effectiveDepositAction =
+          data.depositAction ||
+          (freshDesk.status === 'UNDER_REVIEW' && data.status === 'CLOSED' && freshDesk.depositStatus === 'ACTIVE'
+            ? 'REFUND'
+            : undefined);
+
+        if (effectiveDepositAction === 'REFUND') {
           if (freshDesk.depositStatus !== 'ACTIVE') {
             throw new Error(`Security deposit is already ${freshDesk.depositStatus}.`);
           }
@@ -1794,7 +1895,7 @@ export class OtcService {
           updateData.depositStatus = 'REFUNDED';
           updateData.status = 'CLOSED';
           updateData.isOnline = false;
-        } else if (data.depositAction === 'FORFEIT') {
+        } else if (effectiveDepositAction === 'FORFEIT') {
           if (freshDesk.depositStatus !== 'ACTIVE') {
             throw new Error(`Security deposit is already ${freshDesk.depositStatus}.`);
           }
@@ -1836,6 +1937,7 @@ export class OtcService {
                 email: true,
                 firstName: true,
                 lastName: true,
+                displayName: true,
                 phone: true,
                 kycStatus: true,
               },
@@ -1860,6 +1962,60 @@ export class OtcService {
       },
       { timeout: 30000, maxWait: 10000 }
     );
+
+    // Notify OTC operator on approval / rejection / suspension transitions
+    if (desk.status === 'UNDER_REVIEW' && updatedDesk.status === 'ACTIVE') {
+      await prisma.userNotification
+        .create({
+          data: {
+            userId: updatedDesk.userId,
+            category: 'OTC',
+            type: 'OTC_DESK_APPROVED',
+            severity: 'SUCCESS',
+            title: `OTC Desk Approved & Live (${updatedDesk.deskCode})`,
+            message: `Your OTC Desk "${updatedDesk.deskName}" has been approved by Admin Compliance and is now live on the marketplace.`,
+            referenceCode: updatedDesk.deskCode,
+            status: 'ACTIVE',
+            actionUrl: '/exchange',
+            actionLabel: 'Manage Desk',
+          },
+        })
+        .catch(() => {});
+
+      notificationService
+        .sendEmail({
+          to: updatedDesk.user.email,
+          subject: `OTC Desk Approved & Live (${updatedDesk.deskCode})`,
+          html: `<p>Congratulations! Your OTC Desk <strong>${updatedDesk.deskName}</strong> (${updatedDesk.deskCode}) has been approved by Admin Compliance and is now live.</p>`,
+        })
+        .catch(() => {});
+    } else if (desk.status === 'UNDER_REVIEW' && updatedDesk.status === 'CLOSED') {
+      const reasonText = data.adminNotes?.trim() || 'Application declined by Admin Compliance';
+      await prisma.userNotification
+        .create({
+          data: {
+            userId: updatedDesk.userId,
+            category: 'OTC',
+            type: 'OTC_DESK_REJECTED',
+            severity: 'WARNING',
+            title: `OTC Desk Application Declined (${updatedDesk.deskCode})`,
+            message: `${reasonText}. ${updatedDesk.depositStatus === 'REFUNDED' ? 'Your security deposit has been refunded to your wallet.' : ''}`.trim(),
+            referenceCode: updatedDesk.deskCode,
+            status: 'CLOSED',
+            actionUrl: '/exchange',
+            actionLabel: 'View OTC Desks',
+          },
+        })
+        .catch(() => {});
+
+      notificationService
+        .sendEmail({
+          to: updatedDesk.user.email,
+          subject: `OTC Desk Application Declined (${updatedDesk.deskCode})`,
+          html: `<p>Your OTC Desk application <strong>${updatedDesk.deskName}</strong> (${updatedDesk.deskCode}) was declined. Reason: ${reasonText}. ${updatedDesk.depositStatus === 'REFUNDED' ? 'Your security deposit has been refunded.' : ''}</p>`,
+        })
+        .catch(() => {});
+    }
 
     return this.formatDesk(updatedDesk, true);
   }

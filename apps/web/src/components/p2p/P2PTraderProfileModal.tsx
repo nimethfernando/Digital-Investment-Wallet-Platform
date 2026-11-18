@@ -69,6 +69,11 @@ export function P2PTraderProfileModal({ userId, onClose }: TraderProfileModalPro
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-base font-extrabold text-white">{u?.name || 'P2P Trader Profile'}</h3>
+                {u?.displayName && (
+                  <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-emerald-400 font-mono text-[11px] font-bold">
+                    @{u.displayName}
+                  </span>
+                )}
                 {u?.isVerified && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[10px] font-bold">
                     <ShieldCheck className="w-3 h-3" /> KYC Verified
