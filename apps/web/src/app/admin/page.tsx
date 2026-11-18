@@ -209,6 +209,7 @@ export default function AdminPortalPage() {
   // Startup Equity & Valuation / Exit State
   const [adminInvestments, setAdminInvestments] = useState<any[]>([]);
   const [startupListings, setStartupListings] = useState<any[]>([]);
+  const [adminStartupInquiries, setAdminStartupInquiries] = useState<any[]>([]);
   const [investmentsLoading, setInvestmentsLoading] = useState(false);
   const [valuationModalOpen, setValuationModalOpen] = useState(false);
   const [selectedListing, setSelectedListing] = useState<any | null>(null);
@@ -562,21 +563,34 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'investments') {
       setInvestmentsLoading(true);
       try {
-        const [invRes, listRes] = await Promise.all([
-          api.get('/admin/investments').catch(() => ({ data: { commitments: [], listings: [] } })),
+        const [invRes, listRes, usersRes] = await Promise.all([
+          api.get('/admin/investments'),
           api.get('/investments/campaigns').catch(() => ({ data: { data: [] } })),
+          users.length === 0
+            ? api.get('/admin/users?limit=1000').catch(() => ({ data: { users: [] } }))
+            : Promise.resolve(null),
         ]);
         const commitments = invRes.data?.data?.commitments || invRes.data?.commitments || [];
         const adminListings = invRes.data?.data?.listings || invRes.data?.listings;
+        const inquiriesList = invRes.data?.data?.inquiries || invRes.data?.inquiries || [];
         const publicCampaigns = Array.isArray(listRes.data?.data) ? listRes.data.data : [];
         setAdminInvestments(Array.isArray(commitments) ? commitments : []);
+        setAdminStartupInquiries(Array.isArray(inquiriesList) ? inquiriesList : []);
         setStartupListings(
           Array.isArray(adminListings) && adminListings.length > 0
             ? adminListings
             : publicCampaigns
         );
-      } catch (e) {
+        if (usersRes) {
+          const userList = usersRes.data?.data?.users || usersRes.data?.users || usersRes.data?.data;
+          if (Array.isArray(userList)) setUsers(userList);
+        }
+      } catch (e: any) {
         console.error('Failed to load investments:', e);
+        setFeedback({
+          text: e?.response?.data?.message || 'Failed to load startup listings and investor commitments from server.',
+          type: 'error',
+        });
       } finally {
         setInvestmentsLoading(false);
       }
@@ -1628,7 +1642,9 @@ export default function AdminPortalPage() {
     users: users.length > 0 ? users.length : (overviewAnalytics?.totalUsers || 0),
     packages: adminPackages.length > 0 ? adminPackages.length : (overviewAnalytics?.totalPackages || 0),
     remittance: remittanceTransfers.length > 0 ? remittanceTransfers.length : (overviewAnalytics?.totalTransfers || 0),
-    investments: adminInvestments.length > 0 ? adminInvestments.length : (overviewAnalytics?.totalStartups || 0),
+    investments: adminInvestments.length > 0
+      ? adminInvestments.length
+      : (overviewAnalytics?.sectionMetrics?.venture?.totalCommitments ?? overviewAnalytics?.totalStartups ?? 0),
     p2p: (p2pOrders.length || 0) + (commandCenterSummary?.pendingP2PApplicationsCount ?? 0),
     otc: otcDesks.length > 0 ? otcDesks.length : (overviewAnalytics?.totalOtcDesks ?? 0),
     deposits: (Array.isArray(deposits) && deposits.length > 0)
@@ -4630,6 +4646,8 @@ export default function AdminPortalPage() {
           <AdminStartupsTab
             listings={startupListings}
             commitments={adminInvestments}
+            inquiries={adminStartupInquiries}
+            users={users}
             listingsLoading={investmentsLoading}
             admin2FaCode={admin2FaCode}
             onAdmin2FaCodeChange={setAdmin2FaCode}

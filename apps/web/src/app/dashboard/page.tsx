@@ -89,6 +89,7 @@ interface PackageItem {
   monthlyReturnPct?: string;
   returnRatePercent?: string;
   returnRateSnapshot?: string;
+  projectedMonthly?: string;
   lockInMonths?: number;
   startDate?: string;
   purchaseDate?: string;
@@ -102,8 +103,10 @@ interface PackageItem {
   status: string;
   returns?: Array<{
     periodIndex: number;
-    returnAmount: string;
-    paidAt: string;
+    amount?: string;
+    returnAmount?: string;
+    payoutDate?: string;
+    paidAt?: string;
     status: string;
   }>;
 }
@@ -1906,7 +1909,13 @@ function DashboardContent() {
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
                   <span>
-                    Packages: <span className="font-semibold text-slate-700 dark:text-slate-300">{packages.filter((p) => p.status === 'ACTIVE').length} Active (6-mo lock)</span>
+                    Packages:{' '}
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      {packages.filter((p) => p.status === 'ACTIVE').length} Active
+                      {packages.find((p) => p.status === 'ACTIVE')?.lockInMonths
+                        ? ` (${packages.find((p) => p.status === 'ACTIVE')!.lockInMonths}-mo lock)`
+                        : ''}
+                    </span>
                   </span>
                   <span className="text-blue-500 font-bold opacity-80 group-hover:opacity-100">View →</span>
                 </div>
@@ -1927,7 +1936,10 @@ function DashboardContent() {
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
                   <span>
-                    Rate: <span className="font-semibold text-slate-700 dark:text-slate-300">1.0% Monthly Return</span>
+                    Rate:{' '}
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      {packages.find((p) => p.status === 'ACTIVE')?.returnRatePercent || '1.0%'} Monthly Return
+                    </span>
                   </span>
                   <span className="text-emerald-500 font-bold opacity-80 group-hover:opacity-100">Ledger →</span>
                 </div>
@@ -1994,7 +2006,7 @@ function DashboardContent() {
                 >
                   <div className="flex items-center justify-between text-xs text-slate-500">
                     <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-                      <Package className="w-3.5 h-3.5 text-emerald-500" /> Fixed Deposits (1% Mo)
+                      <Package className="w-3.5 h-3.5 text-emerald-500" /> Fixed Deposits ({packages.find((p) => p.status === 'ACTIVE')?.returnRatePercent || '1.0%'} Mo)
                     </span>
                     <span className="font-mono text-[11px] font-bold text-emerald-600">{packages.filter((p) => p.status === 'ACTIVE').length} Active</span>
                   </div>
@@ -2433,6 +2445,27 @@ function DashboardContent() {
                                   </span>
                                   <ExternalLink className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                                 </a>
+                              ) : tx.settlementReference && /^INV-/i.test(tx.settlementReference) ? (
+                                (() => {
+                                  const matchedInv = startupInvestments.find(
+                                    (s) => s.investmentCode === tx.settlementReference
+                                  );
+                                  return matchedInv ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedStartupDetail(matchedInv)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 cursor-pointer"
+                                      title={`Inspect ${matchedInv.listing?.companyName || matchedInv.companyName || tx.settlementReference}`}
+                                    >
+                                      <span>{tx.settlementReference}</span>
+                                      <span className="font-sans font-bold">
+                                        · {(matchedInv.listing?.companyName || matchedInv.companyName || '').split(' ')[0]} →
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <span className="text-slate-500 text-[11px]">{tx.settlementReference}</span>
+                                  );
+                                })()
                               ) : (
                                 <span className="text-slate-500 text-[11px]">
                                   {tx.settlementReference || '—'}
@@ -2618,7 +2651,7 @@ function DashboardContent() {
                             ${parseFloat(pkg.amount).toLocaleString()} USD
                           </div>
                           <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-1">
-                            Yield: {pkg.returnRatePercent || '1.0%'} Monthly (+${(parseFloat(pkg.amount) * 0.01).toFixed(2)}/mo)
+                            Yield: {pkg.returnRatePercent || '1.0%'} Monthly (+${parseFloat(String(pkg.projectedMonthly ?? (parseFloat(pkg.amount) * 0.01))).toFixed(2)}/mo)
                           </p>
                         </div>
 
@@ -2673,12 +2706,16 @@ function DashboardContent() {
                               Payout History ({pkg.returns.length} Periods Paid)
                             </span>
                             <div className="space-y-1 max-h-24 overflow-y-auto">
-                              {pkg.returns.map((r: any, idx: number) => (
-                                <div key={idx} className="flex justify-between text-slate-500 font-mono text-[10px]">
-                                  <span>Period #{r.periodIndex} ({new Date(r.paidAt).toLocaleDateString()}):</span>
-                                  <span className="text-emerald-600 font-bold">+${parseFloat(r.returnAmount).toFixed(2)}</span>
-                                </div>
-                              ))}
+                              {pkg.returns.map((r: any, idx: number) => {
+                                const dtRaw = r.payoutDate || r.paidAt;
+                                const amtVal = parseFloat(String(r.amount ?? r.returnAmount ?? '0'));
+                                return (
+                                  <div key={idx} className="flex justify-between text-slate-500 font-mono text-[10px]">
+                                    <span>Period #{r.periodIndex} ({dtRaw ? new Date(dtRaw).toLocaleDateString() : 'Credited'}):</span>
+                                    <span className="text-emerald-600 font-bold">+${Number.isFinite(amtVal) ? amtVal.toFixed(2) : '0.00'}</span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -2764,12 +2801,24 @@ function DashboardContent() {
                         </p>
                       </div>
 
-                      <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 shadow-sm">
-                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Money Growing (Unrealized)</span>
-                        <p className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono mt-1 flex items-center gap-1.5">
-                          <span>+{totalGain >= 0 ? '' : '-'}${Math.abs(totalGain).toFixed(2)} USD</span>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 font-bold">
-                            +{totalGainPct.toFixed(1)}%
+                      <div className={`p-4 rounded-2xl border shadow-sm ${
+                        totalGain >= 0
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/30'
+                          : 'bg-rose-50 dark:bg-rose-950/40 border-rose-500/30'
+                      }`}>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider block ${
+                          totalGain >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
+                        }`}>
+                          Portfolio Valuation P&amp;L (Unrealized)
+                        </span>
+                        <p className={`text-lg font-black font-mono mt-1 flex items-center gap-1.5 ${
+                          totalGain >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                        }`}>
+                          <span>{totalGain >= 0 ? '+' : '-'}${Math.abs(totalGain).toFixed(2)} USD</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                            totalGain >= 0 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-300' : 'bg-rose-500/20 text-rose-600 dark:text-rose-300'
+                          }`}>
+                            {totalGainPct >= 0 ? '+' : ''}{totalGainPct.toFixed(1)}%
                           </span>
                         </p>
                       </div>
@@ -3272,6 +3321,26 @@ function DashboardContent() {
                                 </span>
                                 <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                               </a>
+                            ) : tx.settlementReference && /^INV-/i.test(tx.settlementReference) ? (
+                              (() => {
+                                const matchedInv = startupInvestments.find(
+                                  (s) => s.investmentCode === tx.settlementReference
+                                );
+                                return matchedInv ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedStartupDetail(matchedInv)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-mono font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 cursor-pointer"
+                                  >
+                                    <span>{tx.settlementReference}</span>
+                                    <span className="font-sans font-semibold">
+                                      · {(matchedInv.listing?.companyName || matchedInv.companyName || '').split(' ')[0]} →
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-400 text-xs font-mono">{tx.settlementReference}</span>
+                                );
+                              })()
                             ) : (
                               <span className="text-slate-400 text-xs font-mono">
                                 {tx.settlementReference || '—'}
@@ -5624,12 +5693,16 @@ function DashboardContent() {
             {selectedFdDetail.returns && selectedFdDetail.returns.length > 0 && (
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 max-h-44 overflow-y-auto text-xs">
                 <span className="text-[10px] font-bold uppercase text-slate-400 block">Monthly Payout Schedule</span>
-                {selectedFdDetail.returns.map((r, i) => (
-                  <div key={i} className="flex justify-between font-mono text-[11px] text-slate-600 dark:text-slate-300">
-                    <span>Period #{r.periodIndex} • {new Date(r.paidAt).toLocaleDateString()}</span>
-                    <span className="font-bold text-emerald-600">+${parseFloat(r.returnAmount).toFixed(2)} USD ({r.status})</span>
-                  </div>
-                ))}
+                {selectedFdDetail.returns.map((r: any, i: number) => {
+                  const dtRaw = r.payoutDate || r.paidAt;
+                  const amtVal = parseFloat(String(r.amount ?? r.returnAmount ?? '0'));
+                  return (
+                    <div key={i} className="flex justify-between font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                      <span>Period #{r.periodIndex} • {dtRaw ? new Date(dtRaw).toLocaleDateString() : 'Credited'}</span>
+                      <span className="font-bold text-emerald-600">+${Number.isFinite(amtVal) ? amtVal.toFixed(2) : '0.00'} USD ({r.status})</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <div className="flex justify-between pt-2">

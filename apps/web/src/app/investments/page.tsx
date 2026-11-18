@@ -226,6 +226,7 @@ export default function InvestmentsMarketplacePage() {
           text: `Your inquiry for ${selectedCampaign.companyName} has been delivered to the Investor Relations Desk.`,
         });
         setContactMessage('');
+        loadInvestorDashboard();
       }
     } catch (err: any) {
       setContactFeedback({ type: 'error', text: extractErrorMessage(err) });
@@ -262,8 +263,10 @@ export default function InvestmentsMarketplacePage() {
     minInvestmentUsd: 250,
   });
 
+  const [watchlistIds, setWatchlistIds] = useState<Set<string>>(new Set());
+
   // Load Campaigns
-  const fetchCampaigns = async () => {
+  const fetchCampaigns = async (overrideSearch?: string) => {
     setLoading(true);
     try {
       const res = await api.get('/investments/campaigns', {
@@ -271,7 +274,7 @@ export default function InvestmentsMarketplacePage() {
           industry: industryFilter,
           countryCode: countryFilter,
           instrument: instrumentFilter,
-          search: searchQuery,
+          search: overrideSearch !== undefined ? overrideSearch : searchQuery,
         },
       });
       if (res.data?.success) {
@@ -310,8 +313,30 @@ export default function InvestmentsMarketplacePage() {
       const res = await api.get('/investments/dashboard');
       if (res.data?.success) {
         setInvestorData(res.data.data);
+        const wl = Array.isArray(res.data.data?.watchlist) ? res.data.data.watchlist : [];
+        setWatchlistIds(new Set(wl.map((w: any) => w.id)));
       }
     } catch (e) {
+      // ignore
+    }
+  };
+
+  const handleToggleWatchlist = async (listingId: string) => {
+    if (!user) {
+      router.push('/login?redirect=/investments');
+      return;
+    }
+    try {
+      const res = await api.post('/investments/watchlist/toggle', { listingId });
+      if (res.data?.success) {
+        setWatchlistIds((prev) => {
+          const next = new Set(prev);
+          if (res.data.watchlisted) next.add(listingId);
+          else next.delete(listingId);
+          return next;
+        });
+      }
+    } catch {
       // ignore
     }
   };
@@ -544,8 +569,29 @@ export default function InvestmentsMarketplacePage() {
           ))}
         </div>
 
-        {/* Country & Instrument Selectors */}
+        {/* Search, Country & Instrument Selectors */}
         <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') fetchCampaigns(searchQuery);
+              }}
+              placeholder="Search startup..."
+              className="pl-8 pr-3 py-2 rounded-xl text-xs font-medium border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500 w-44 sm:w-52"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchCampaigns(searchQuery)}
+            className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-emerald-600 text-white hover:opacity-90 cursor-pointer"
+          >
+            Search
+          </button>
+
           <SearchableCountrySelect
             showAllOption
             allOptionLabel="All Countries"
@@ -563,11 +609,35 @@ export default function InvestmentsMarketplacePage() {
             <option value="SAFE">SAFE Note</option>
             <option value="EQUITY">Preferred Equity</option>
             <option value="CONVERTIBLE_NOTE">Convertible Note</option>
+            <option value="REVENUE_SHARE">Revenue Share</option>
           </select>
         </div>
       </div>
 
       {/* Startup Campaign Grid */}
+      {loading ? (
+        <div className="p-16 text-center text-xs text-slate-500">
+          Loading verified startup offerings...
+        </div>
+      ) : campaigns.length === 0 ? (
+        <div className="p-14 text-center rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+          <Building2 className="w-10 h-10 text-slate-400 mx-auto" />
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No offerings match your current filters</p>
+          <button
+            type="button"
+            onClick={() => {
+              setIndustryFilter('ALL');
+              setCountryFilter('ALL');
+              setInstrumentFilter('ALL');
+              setSearchQuery('');
+              fetchCampaigns('');
+            }}
+            className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+          >
+            Reset Filters
+          </button>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
         {campaignsPagination.pagedItems.map((c) => (
           <div
@@ -576,14 +646,28 @@ export default function InvestmentsMarketplacePage() {
           >
             <div className="space-y-4">
               {/* Header Badges */}
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                   {c.industry}
                 </span>
 
-                <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Avora Due Diligence Verified</span>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Avora Due Diligence Verified</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleWatchlist(c.id)}
+                    title={watchlistIds.has(c.id) ? 'Saved to Watchlist' : 'Save to Watchlist'}
+                    className={`p-1.5 rounded-full border transition-colors cursor-pointer ${
+                      watchlistIds.has(c.id)
+                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-500'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 hover:text-amber-500'
+                    }`}
+                  >
+                    <Bookmark className="w-3.5 h-3.5" fill={watchlistIds.has(c.id) ? 'currentColor' : 'none'} />
+                  </button>
                 </div>
               </div>
 
@@ -735,6 +819,7 @@ export default function InvestmentsMarketplacePage() {
           </div>
         ))}
       </div>
+      )}
       <PaginationControls
         currentPage={campaignsPagination.page}
         totalItems={campaigns.length}
@@ -1614,12 +1699,12 @@ export default function InvestmentsMarketplacePage() {
             {/* Fee & Profit-Sharing Summary Cards */}
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
-                <span className="text-slate-400 block font-semibold">Total Gross Committed</span>
+                <span className="text-slate-400 block font-semibold">Total Gross Paid (Principal + Fee)</span>
                 <span className="text-lg font-black font-mono text-slate-900 dark:text-white">
                   ${investorData.summary.totalGrossCommitted} USD
                 </span>
                 <div className="text-[11px] text-amber-500">
-                  {feeConfig.allocationFeePct}% Fee Deducted: ${investorData.summary.totalAllocationFees}
+                  {feeConfig.allocationFeePct}% Entry Fee Paid: ${investorData.summary.totalAllocationFees}
                 </div>
               </div>
 
@@ -1629,7 +1714,7 @@ export default function InvestmentsMarketplacePage() {
                   ${investorData.summary.totalNetInvested} USD
                 </span>
                 <div className="text-[11px] text-slate-400">
-                  {investorData.summary.totalInvestmentsCount} active startup(s)
+                  {investorData.summary.totalInvestmentsCount} startup {investorData.summary.totalInvestmentsCount === 1 ? 'commitment' : 'commitments'}
                 </div>
               </div>
 
@@ -1664,24 +1749,89 @@ export default function InvestmentsMarketplacePage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {myCommitmentsPagination.pagedItems.map((c: any) => (
+                  {myCommitmentsPagination.pagedItems.map((c: any) => {
+                    const netAmt = Number(c.netInvestedAmount || 0);
+                    const curVal = Number(c.currentValuation ?? netAmt);
+                    const plUsd = c.profitLossUsd !== undefined ? Number(c.profitLossUsd) : curVal - netAmt;
+                    const plPct = netAmt > 0 ? (plUsd / netAmt) * 100 : 0;
+                    const matDate = c.expectedMaturityDate || c.lockInEnd || c.listing?.maturityDate;
+                    const docs = Array.isArray(c.listing?.supportingDocuments) ? c.listing.supportingDocuments : [];
+                    return (
                     <div
                       key={c.id}
-                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs"
+                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs"
                     >
-                      <div className="flex justify-between items-center">
-                        <span className="font-bold text-sm text-slate-900 dark:text-white">{c.companyName}</span>
-                        <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold">
+                      <div className="flex justify-between items-start gap-2">
+                        <div>
+                          <span className="font-bold text-sm text-slate-900 dark:text-white block">{c.companyName}</span>
+                          <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400">
+                            {c.investmentCode} • Invested {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}
+                          </span>
+                        </div>
+                        <span className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold ${
+                          c.status === 'EXITED'
+                            ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                            : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                        }`}>
                           {c.status}
                         </span>
                       </div>
-                      <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-500">
-                        <div>Gross: <span className="font-mono font-bold text-slate-800 dark:text-slate-200">${c.grossAmount}</span></div>
-                        <div>Fee: <span className="font-mono text-amber-500">${c.allocationFeeAmount}</span></div>
-                        <div>Net: <span className="font-mono font-bold text-emerald-600">${c.netInvestedAmount}</span></div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1 border-t border-slate-200/70 dark:border-slate-800">
+                        <div>
+                          <span className="text-slate-400 block">Invested (Net)</span>
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">${netAmt.toLocaleString()}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Current Value</span>
+                          <span className="font-mono font-bold text-slate-900 dark:text-white">${curVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Profit / Loss</span>
+                          <span className={`font-mono font-bold ${plUsd >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                            {plUsd >= 0 ? '+' : '-'}${Math.abs(plUsd).toFixed(2)} ({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Lock-In / Exit</span>
+                          <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                            {c.status === 'EXITED'
+                              ? 'Exited'
+                              : c.isLockInEnded
+                              ? 'Unlocked'
+                              : `${c.lockInMonths ?? 12}m (${c.daysRemaining ?? 0}d left)`}
+                          </span>
+                        </div>
                       </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
+                        <span>
+                          Gross Paid: <strong className="font-mono">${c.grossAmount}</strong> (Entry Fee: <strong className="font-mono">${c.allocationFeeAmount}</strong>)
+                        </span>
+                        {matDate && (
+                          <span className="font-mono">Maturity: {new Date(matDate).toLocaleDateString()}</span>
+                        )}
+                      </div>
+
+                      {docs.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {docs.map((doc: any, i: number) => (
+                            <a
+                              key={i}
+                              href={resolveMediaUrl(doc.url)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-emerald-600 hover:underline"
+                            >
+                              <FileText className="w-3 h-3" />
+                              <span>{doc.title}</span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  );
+                  })}
                   <PaginationControls
                     currentPage={myCommitmentsPagination.page}
                     totalItems={investorData.commitments.length}
@@ -1694,6 +1844,37 @@ export default function InvestmentsMarketplacePage() {
                 </div>
               )}
             </div>
+
+            {/* Investor Submitted Inquiries & Replies */}
+            {Array.isArray(investorData.inquiries) && investorData.inquiries.length > 0 && (
+              <div className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Your Submitted Inquiries &amp; Official Responses ({investorData.inquiries.length})
+                </h4>
+                <div className="space-y-2.5 text-xs">
+                  {investorData.inquiries.map((inq: any) => (
+                    <div key={inq.id} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {inq.listing?.companyName ? `${inq.listing.companyName}: ` : ''}{inq.subject}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          inq.response ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                        }`}>
+                          {inq.status || 'OPEN'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400">{inq.message}</p>
+                      {inq.response && (
+                        <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-800 dark:text-emerald-200">
+                          <strong>Response:</strong> {inq.response}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

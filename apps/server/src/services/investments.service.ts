@@ -215,7 +215,7 @@ export class InvestmentsService {
 
     const campaigns = await prisma.startupListing.findMany({
       where,
-      orderBy: { verifiedFundsRaised: 'desc' },
+      orderBy: [{ verifiedFundsRaised: 'desc' }, { createdAt: 'desc' }],
     });
 
     return campaigns.map((c) => this.formatCampaign(c));
@@ -420,7 +420,8 @@ export class InvestmentsService {
     const profitShareDec = new Decimal(feeCalc.profitShareFeePct || '5.00');
 
     const wallet = await ledgerService.ensureWallet(userId);
-    const investmentCode = `INV-${Date.now().toString().slice(-6)}`;
+    const invRand = Math.random().toString(36).substring(2, 5).toUpperCase();
+    const investmentCode = `INV-${Date.now().toString().slice(-6)}-${invRand}`;
 
     const commitment = await prisma.$transaction(
       async (tx) => {
@@ -458,12 +459,16 @@ export class InvestmentsService {
           data: { availableBalance: newBal.toFixed(8) },
         });
 
-        // 2. Increment campaign funds and investor count
+        // 2. Check if investor is new to this campaign (distinct investor count) & increment funds
+        const priorInvestorCommitments = await tx.investmentCommitment.count({
+          where: { listingId: campaign.id, investorUserId: userId },
+        });
+
         await tx.startupListing.update({
           where: { id: campaign.id },
           data: {
-            verifiedFundsRaised: { increment: netDec.toFixed(2) },
-            investorCount: { increment: 1 },
+            verifiedFundsRaised: { increment: Number(netDec.toFixed(2)) },
+            ...(priorInvestorCommitments === 0 ? { investorCount: { increment: 1 } } : {}),
           },
         });
 

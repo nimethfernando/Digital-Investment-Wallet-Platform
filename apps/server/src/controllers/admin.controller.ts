@@ -977,7 +977,7 @@ export class AdminController {
   async getInvestments(req: Request, res: Response, next: NextFunction) {
     try {
       await investmentsService.ensureVentureSchema();
-      const [commitments, listings] = await Promise.all([
+      const [commitments, listings, inquiries] = await Promise.all([
         prisma.investmentCommitment.findMany({
           include: {
             investor: {
@@ -987,6 +987,7 @@ export class AdminController {
                 firstName: true,
                 lastName: true,
                 phone: true,
+                country: true,
               },
             },
             listing: {
@@ -1017,18 +1018,58 @@ export class AdminController {
         prisma.startupListing.findMany({
           orderBy: { createdAt: 'desc' },
         }),
+        prisma.investmentInquiry
+          .findMany({
+            include: {
+              investor: {
+                select: { id: true, email: true, firstName: true, lastName: true, phone: true },
+              },
+              listing: {
+                select: { id: true, companyName: true, slug: true },
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+          .catch(() => []),
       ]);
 
+      const now = new Date();
       const formattedListings = listings.map((l) => {
         const listingCommitments = commitments.filter((c) => c.listingId === l.id);
         const actualCollectedFromUsersUsd = listingCommitments.reduce(
           (s, c) => s + Number(c.netInvestedAmount || 0),
           0
         );
+        const actualGrossCollectedUsd = listingCommitments.reduce(
+          (s, c) => s + Number(c.grossAmount || 0),
+          0
+        );
+        const actualAllocationFeesUsd = listingCommitments.reduce(
+          (s, c) => s + Number(c.allocationFeeAmount || 0),
+          0
+        );
         const actualDistributedToUsersUsd = listingCommitments.reduce(
           (s, c) => s + Number(c.realizedProceeds || 0),
           0
         );
+        const actualDistinctInvestorsCount = new Set(listingCommitments.map((c) => c.investorUserId)).size;
+        const actualCurrentPortfolioValueUsd = listingCommitments.reduce((s, c) => {
+          const netNum = Number(c.netInvestedAmount || 0);
+          const rawCurVal = c.currentValuation ? Number(c.currentValuation) : netNum;
+          const rawRetPct = c.unrealizedReturnPct ? Number(c.unrealizedReturnPct) : 0;
+          const listingVal = l.valuation ? Number(l.valuation) : 0;
+          const normVal =
+            rawRetPct === 0 && listingVal > 0 && rawCurVal === listingVal && netNum < listingVal
+              ? netNum
+              : rawCurVal;
+          return s + normVal;
+        }, 0);
+
+        const headlineRaisedUsd = Number(l.verifiedFundsRaised || 0);
+        const headlineInvestorsCount = Number(l.investorCount || 0);
+        const fundingDiscrepancyUsd = Number((headlineRaisedUsd - actualCollectedFromUsersUsd).toFixed(2));
+        const investorCountDiscrepancy = headlineInvestorsCount - actualDistinctInvestorsCount;
+
         const provInvested = Number(l.providerInvestedAmount || 0);
         const provReceived = Number(l.providerActualReceivedAmount || 0);
         const providerProfitLossUsd = provReceived - provInvested;
@@ -1060,13 +1101,43 @@ export class AdminController {
           officialLinks: parsedLinks && typeof parsedLinks === 'object' ? parsedLinks : {},
           contactInfo: parsedContact && typeof parsedContact === 'object' ? parsedContact : {},
           actualCollectedFromUsersUsd: Number(actualCollectedFromUsersUsd.toFixed(2)),
+          actualGrossCollectedUsd: Number(actualGrossCollectedUsd.toFixed(2)),
+          actualAllocationFeesUsd: Number(actualAllocationFeesUsd.toFixed(2)),
           actualDistributedToUsersUsd: Number(actualDistributedToUsersUsd.toFixed(2)),
+          actualCurrentPortfolioValueUsd: Number(actualCurrentPortfolioValueUsd.toFixed(2)),
           actualCommitmentsCount: listingCommitments.length,
+          actualDistinctInvestorsCount,
+          fundingDiscrepancyUsd,
+          investorCountDiscrepancy,
           providerProfitLossUsd: Number(providerProfitLossUsd.toFixed(2)),
         };
       });
 
       const formattedCommitments = commitments.map((c) => {
+        const netNum = Number(c.netInvestedAmount || 0);
+        const rawCurVal = c.currentValuation ? Number(c.currentValuation) : netNum;
+        const rawRetPct = c.unrealizedReturnPct ? Number(c.unrealizedReturnPct) : 0;
+        const listingVal = c.listing?.valuation ? Number(c.listing.valuation) : 0;
+        const normalizedHoldingVal =
+          rawRetPct === 0 && listingVal > 0 && rawCurVal === listingVal && netNum < listingVal
+            ? netNum
+            : rawCurVal;
+        const lockMonths = Number(c.listing?.lockInMonths ?? 12);
+        const lockEnd =
+          c.lockInEnd ||
+          c.listing?.maturityDate ||
+          (lockMonths > 0
+            ? new Date(new Date(c.createdAt).setMonth(new Date(c.createdAt).getMonth() + lockMonths))
+            : null);
+        const isLockInEnded = c.status === 'EXITED' ? true : lockEnd ? now >= new Date(lockEnd) : true;
+        const daysRemaining =
+          c.status !== 'EXITED' && lockEnd && !isLockInEnded
+            ? Math.max(0, Math.ceil((new Date(lockEnd).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+            : 0;
+        const profitLossUsd = Number((normalizedHoldingVal - netNum).toFixed(2));
+        const returnPctNormalized =
+          netNum > 0 ? Number((((normalizedHoldingVal - netNum) / netNum) * 100).toFixed(2)) : rawRetPct;
+
         let docs: any[] = [];
         try {
           docs = c.listing?.supportingDocuments ? JSON.parse(c.listing.supportingDocuments) : [];
@@ -1075,6 +1146,14 @@ export class AdminController {
         }
         return {
           ...c,
+          currentValuation: normalizedHoldingVal,
+          unrealizedReturnPct: returnPctNormalized,
+          profitLossUsd,
+          lockInMonths: lockMonths,
+          lockInEnd: lockEnd,
+          expectedMaturityDate: c.listing?.maturityDate || lockEnd,
+          isLockInEnded,
+          daysRemaining,
           listing: c.listing
             ? {
                 ...c.listing,
@@ -1084,7 +1163,14 @@ export class AdminController {
         };
       });
 
-      res.json({ success: true, data: { commitments: formattedCommitments, listings: formattedListings } });
+      res.json({
+        success: true,
+        data: {
+          commitments: formattedCommitments,
+          listings: formattedListings,
+          inquiries,
+        },
+      });
     } catch (err) {
       next(err);
     }
@@ -1438,7 +1524,7 @@ export class AdminController {
         updateData.investorCount = invNum;
       }
 
-      if (status && ['DRAFT', 'PUBLISHED', 'CLOSED', 'SUSPENDED'].includes(String(status).toUpperCase())) {
+      if (status && ['DRAFT', 'UNDER_REVIEW', 'PUBLISHED', 'CLOSED', 'SUSPENDED'].includes(String(status).toUpperCase())) {
         updateData.status = String(status).toUpperCase();
       }
 
@@ -1452,9 +1538,10 @@ export class AdminController {
         (maturityDate !== undefined && String(maturityDate) !== String(listing.maturityDate || '')) ||
         (lockInMonths !== undefined && lockInMonths !== '' && Number(lockInMonths) !== Number(listing.lockInMonths));
 
-      // Recalculate investor commitment values automatically when performancePct, valuation, or lock-in changes
+      // Recalculate active/open investor commitment values automatically when performancePct, valuation, or lock-in changes
       if (perfChanged || valuationChanged || lockChanged) {
         for (const commitment of listing.investments) {
+          if (commitment.status === 'EXITED') continue;
           const netInvested = new Decimal(commitment.netInvestedAmount.toString());
           const prevHold = commitment.currentValuation ? new Decimal(commitment.currentValuation.toString()) : netInvested;
 
@@ -1592,9 +1679,11 @@ export class AdminController {
         const investorShareFraction = netInvested.dividedBy(totalRaised);
         const grossInvestorProceeds = new Decimal(totalPool.times(investorShareFraction).toFixed(8));
 
-        // Principal returned 100% fee-free
-        const capitalReturn = Decimal.min(grossInvestorProceeds, netInvested);
-        const eligibleProfit = Decimal.max(grossInvestorProceeds.minus(netInvested), new Decimal(0));
+        // Principal returned 100% fee-free (accounts for any earlier partial dividend returns of capital)
+        const priorReturnedCapital = new Decimal(inv.returnOfCapital?.toString() || '0');
+        const remainingPrincipal = Decimal.max(netInvested.minus(priorReturnedCapital), new Decimal(0));
+        const capitalReturn = Decimal.min(grossInvestorProceeds, remainingPrincipal);
+        const eligibleProfit = Decimal.max(grossInvestorProceeds.minus(remainingPrincipal), new Decimal(0));
 
         // Admin-configurable profit-share fee strictly on net profit
         const profitFeePct = configuredProfitFeePct;
@@ -1698,6 +1787,7 @@ export class AdminController {
                 profitShareFeeAmount: { increment: platformFeeAmount.toFixed(8) },
                 netDistributedProfit: { increment: netProfitGain.toFixed(8) },
                 status: distributionType === 'DIVIDEND' ? 'ACTIVE' : 'EXITED',
+                ...(distributionType !== 'DIVIDEND' ? { maturedAt: new Date() } : {}),
                 settlementReference: txCode,
                 notes: notes ? `${inv.notes || ''}\n[${new Date().toISOString()}] ${notes}` : inv.notes,
               },
@@ -3070,6 +3160,316 @@ export class AdminController {
       res.json({
         success: true,
         message: `Startup listing ${listing.companyName} suspended successfully`,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Synchronize a startup listing's headline verifiedFundsRaised & investorCount from actual InvestmentCommitment rows
+   */
+  async syncStartupListingMetrics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const listing = await prisma.startupListing.findUnique({
+        where: { id },
+        include: { investments: true },
+      });
+      if (!listing) {
+        return res.status(404).json({ success: false, message: 'Startup listing not found' });
+      }
+
+      const totalNet = listing.investments.reduce(
+        (sum, c) => sum.plus(new Decimal(c.netInvestedAmount.toString())),
+        new Decimal(0)
+      );
+      const distinctInvestors = new Set(listing.investments.map((c) => c.investorUserId)).size;
+
+      const updated = await prisma.startupListing.update({
+        where: { id },
+        data: {
+          verifiedFundsRaised: new Decimal(totalNet.toFixed(2)),
+          investorCount: distinctInvestors,
+        },
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'SYNC_STARTUP_METRICS',
+          entity: 'StartupListing',
+          entityId: id,
+          details: `Synchronized ${listing.companyName} metrics to match recorded commitments: $${totalNet.toFixed(2)} USD across ${distinctInvestors} distinct investors (${listing.investments.length} commitments).`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Synced ${listing.companyName}: $${totalNet.toFixed(2)} USD raised from ${distinctInvestors} distinct investors (${listing.investments.length} commitments).`,
+        data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Admin: Record a verified investor commitment manually (with optional wallet debit or external/nominee settlement)
+   */
+  async createManualInvestmentCommitment(req: Request, res: Response, next: NextFunction) {
+    try {
+      await investmentsService.ensureVentureSchema();
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const {
+        listingId,
+        investorUserId,
+        netAmount,
+        debitWallet = false,
+        applyAllocationFee = true,
+        investmentDate,
+        status = 'CLEARED_FUNDS',
+        notes,
+      } = req.body || {};
+
+      if (!listingId || !investorUserId) {
+        return res.status(400).json({ success: false, message: 'Startup listing and investor user are required' });
+      }
+      const amtNum = parseFloat(String(netAmount || '0'));
+      if (!Number.isFinite(amtNum) || amtNum <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid net invested amount (> 0) is required' });
+      }
+
+      const [investor, listing, feeCfg] = await Promise.all([
+        prisma.user.findUnique({ where: { id: String(investorUserId) } }),
+        prisma.startupListing.findUnique({ where: { id: String(listingId) } }),
+        investmentsService.getStartupFeeConfig(),
+      ]);
+
+      if (!investor) {
+        return res.status(404).json({ success: false, message: 'Investor user not found' });
+      }
+      if (!listing) {
+        return res.status(404).json({ success: false, message: 'Startup listing not found' });
+      }
+
+      const netDec = new Decimal(amtNum.toFixed(2));
+      const feePct = applyAllocationFee ? new Decimal(feeCfg.allocationFeePct) : new Decimal(0);
+      const feeDec = new Decimal(netDec.times(feePct.div(100)).toFixed(2));
+      const grossDec = netDec.plus(feeDec);
+      const createdAtDate = investmentDate ? new Date(investmentDate) : new Date();
+      if (isNaN(createdAtDate.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid investment date' });
+      }
+
+      const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
+      const investmentCode = `INV-${Date.now().toString().slice(-6)}-${rand}`;
+      const wallet = await ledgerService.ensureWallet(investor.id);
+
+      const commitment = await prisma.$transaction(async (tx) => {
+        if (debitWallet) {
+          const usdRow = await ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
+          const avail = new Decimal(usdRow.availableBalance.toString());
+          if (avail.lessThan(grossDec)) {
+            throw new Error(
+              `Investor ${investor.email} has insufficient USD available balance ($${avail.toFixed(2)}) for $${grossDec.toFixed(2)} gross commitment.`
+            );
+          }
+          const balAfterNet = avail.minus(netDec);
+          const balAfterTotal = avail.minus(grossDec);
+          await tx.walletBalance.update({
+            where: { id: usdRow.id },
+            data: { availableBalance: balAfterTotal.toFixed(8) },
+          });
+
+          const entries: any[] = [
+            {
+              accountId: 'USER_AVAILABLE_USD',
+              userId: investor.id,
+              direction: 'DEBIT',
+              amount: grossDec.toFixed(8),
+              currency: 'USD',
+            },
+            {
+              accountId: 'USER_VENTURE_ESCROW_USD',
+              userId: investor.id,
+              direction: 'CREDIT',
+              amount: netDec.toFixed(8),
+              currency: 'USD',
+            },
+          ];
+          if (feeDec.greaterThan(0)) {
+            entries.push({
+              accountId: 'PLATFORM_FEE_REVENUE_USD',
+              direction: 'CREDIT',
+              amount: feeDec.toFixed(8),
+              currency: 'USD',
+            });
+          }
+
+          await ledgerService.recordJournal(tx, {
+            idempotencyKey: `INV-JRN-${investmentCode}`,
+            referenceType: JournalReferenceType.INVESTMENT_ALLOCATION,
+            referenceId: investmentCode,
+            notes: `Admin-recorded wallet venture allocation in ${listing.companyName}`,
+            createdBy: adminUserId,
+            entries,
+          });
+
+          await tx.transaction.create({
+            data: {
+              transactionCode: `TX-${investmentCode}`,
+              userId: investor.id,
+              type: TransactionType.INVESTMENT_ALLOCATION,
+              amount: netDec.toFixed(8),
+              currency: 'USD',
+              status: TransactionStatus.COMPLETED,
+              balanceBefore: avail.toFixed(8),
+              balanceAfter: balAfterNet.toFixed(8),
+              idempotencyKey: `INV-ALLOC-${investmentCode}`,
+              notes: notes || `Admin-recorded investment in ${listing.companyName} ($${netDec.toFixed(2)} net)`,
+              settlementReference: investmentCode,
+              createdBy: adminUserId,
+            },
+          });
+
+          if (feeDec.greaterThan(0)) {
+            await tx.transaction.create({
+              data: {
+                transactionCode: `TX-INVF-${investmentCode.replace('INV-', '')}`,
+                userId: investor.id,
+                type: TransactionType.INVESTMENT_FEE,
+                amount: feeDec.toFixed(8),
+                currency: 'USD',
+                status: TransactionStatus.COMPLETED,
+                balanceBefore: balAfterNet.toFixed(8),
+                balanceAfter: balAfterTotal.toFixed(8),
+                idempotencyKey: `INV-FEE-${investmentCode}`,
+                notes: `${feePct.toFixed(1)}% Allocation Fee for ${listing.companyName} (${investmentCode})`,
+                settlementReference: investmentCode,
+                createdBy: adminUserId,
+              },
+            });
+          }
+        }
+
+        const priorCount = await tx.investmentCommitment.count({
+          where: { listingId: listing.id, investorUserId: investor.id },
+        });
+
+        await tx.startupListing.update({
+          where: { id: listing.id },
+          data: {
+            verifiedFundsRaised: { increment: Number(netDec.toFixed(2)) },
+            ...(priorCount === 0 ? { investorCount: { increment: 1 } } : {}),
+          },
+        });
+
+        const lockMonths = Math.max(0, Number(listing.lockInMonths ?? 12));
+        const lockEnd =
+          listing.maturityDate && new Date(listing.maturityDate) > createdAtDate
+            ? new Date(listing.maturityDate)
+            : lockMonths > 0
+            ? new Date(new Date(createdAtDate).setMonth(createdAtDate.getMonth() + lockMonths))
+            : null;
+        const perfPct = Number(listing.performancePct || 0);
+        const curVal =
+          perfPct !== 0
+            ? new Decimal(netDec.times(new Decimal(1).plus(new Decimal(perfPct).div(100))).toFixed(2))
+            : netDec;
+
+        return tx.investmentCommitment.create({
+          data: {
+            investmentCode,
+            listingId: listing.id,
+            investorUserId: investor.id,
+            grossAmount: grossDec,
+            allocationFeePct: feePct,
+            allocationFeeAmount: feeDec,
+            netInvestedAmount: netDec,
+            instrument: listing.instrument,
+            status: ['CLEARED_FUNDS', 'ACTIVE', 'DOCUMENT_SIGNED'].includes(String(status)) ? String(status) : 'CLEARED_FUNDS',
+            currentValuation: curVal,
+            unrealizedReturnPct: new Decimal(perfPct.toFixed(2)),
+            lockInEnd: lockEnd,
+            realizedProceeds: new Decimal('0.00'),
+            returnOfCapital: new Decimal('0.00'),
+            eligibleNetProfit: new Decimal('0.00'),
+            profitShareFeePct: new Decimal(feeCfg.profitSharePct),
+            profitShareFeeAmount: new Decimal('0.00'),
+            netDistributedProfit: new Decimal('0.00'),
+            settlementReference: investmentCode,
+            createdAt: createdAtDate,
+            notes:
+              notes ||
+              `Recorded by Admin (${debitWallet ? 'Wallet Debited' : 'External/Nominee Settled'}) for ${listing.companyName}`,
+          },
+        });
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'CREATE_MANUAL_INVESTMENT_COMMITMENT',
+          entity: 'InvestmentCommitment',
+          entityId: commitment.id,
+          details: `Recorded commitment ${investmentCode} for ${investor.email} in ${listing.companyName}: $${netDec.toFixed(2)} net ($${grossDec.toFixed(2)} gross, walletDebit=${Boolean(debitWallet)}).`,
+        },
+      });
+
+      res.status(201).json({
+        success: true,
+        message: `Commitment ${investmentCode} recorded for ${investor.email} in ${listing.companyName} ($${netDec.toFixed(2)} USD).`,
+        data: commitment,
+      });
+    } catch (err: any) {
+      if (err?.message?.includes('insufficient USD')) {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      next(err);
+    }
+  }
+
+  /**
+   * Admin: Respond to a Startup Investor Inquiry
+   */
+  async replyStartupInquiry(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { response, status = 'ANSWERED' } = req.body || {};
+
+      if (!response || !String(response).trim()) {
+        return res.status(400).json({ success: false, message: 'Reply message is required' });
+      }
+
+      const updated = await prisma.investmentInquiry.update({
+        where: { id },
+        data: {
+          response: String(response).trim(),
+          status: status === 'CLOSED' ? 'CLOSED' : 'ANSWERED',
+        },
+        include: {
+          listing: { select: { companyName: true } },
+          investor: { select: { email: true } },
+        },
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'REPLY_STARTUP_INQUIRY',
+          entity: 'InvestmentInquiry',
+          entityId: id,
+          details: `Replied to inquiry from ${updated.investor?.email || 'investor'} regarding ${updated.listing?.companyName || 'startup'}.`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: 'Inquiry reply saved and delivered to investor account.',
+        data: updated,
       });
     } catch (err) {
       next(err);

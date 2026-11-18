@@ -247,13 +247,18 @@ export class PackageService {
         daysUntilNextYield: yieldSchedule.daysUntilNextYield,
         depositMethod: pkg.depositMethod,
         depositProofUrl: pkg.depositProofUrl,
-        returns: pkg.returns.map((r) => ({
-          periodIndex: r.periodIndex,
-          amount: new Decimal(r.returnAmount.toString()).toFixed(2),
-          currency: r.currency,
-          payoutDate: r.payoutDate,
-          status: r.status,
-        })),
+        returns: pkg.returns.map((r) => {
+          const amtStr = new Decimal(r.returnAmount.toString()).toFixed(2);
+          return {
+            periodIndex: r.periodIndex,
+            amount: amtStr,
+            returnAmount: amtStr,
+            currency: r.currency,
+            payoutDate: r.payoutDate,
+            paidAt: r.payoutDate,
+            status: r.status,
+          };
+        }),
       };
     });
   }
