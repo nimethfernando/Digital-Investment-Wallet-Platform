@@ -33,6 +33,10 @@ export const PUBLIC_PLATFORM_CONFIG_DEFAULTS: Record<string, string> = {
   p2p_daily_limit_usd: '5000',
   p2p_fee_percent: '0.0',
   virtual_card_issuance_fee: '10.00',
+  avr_token_price_usd: '0.10',
+  avr_lockin_days: '180',
+  avr_redemption_enabled: 'true',
+  avr_unlock_all_now: 'false',
 };
 
 const SECRET_SETTING_KEYS = new Set([

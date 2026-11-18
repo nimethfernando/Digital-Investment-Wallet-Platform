@@ -1774,7 +1774,7 @@ export class AdminController {
     try {
       const settings = await prisma.cmsSetting.findMany({
         where: {
-          group: { in: ['INVESTMENT', 'COMMISSION', 'WITHDRAWAL', 'REMITTANCE', 'OTC', 'P2P', 'CARDS'] },
+          group: { in: ['INVESTMENT', 'COMMISSION', 'WITHDRAWAL', 'REMITTANCE', 'OTC', 'P2P', 'CARDS', 'TOKEN'] },
         },
       });
 
@@ -1818,6 +1818,10 @@ export class AdminController {
         p2p_security_deposit_usd: configMap['p2p_security_deposit_usd'] || '50',
         p2p_daily_limit_usd: configMap['p2p_daily_limit_usd'] || '5000',
         virtual_card_issuance_fee: configMap['virtual_card_issuance_fee'] || '10.00',
+        avr_token_price_usd: configMap['avr_token_price_usd'] || '0.10',
+        avr_lockin_days: configMap['avr_lockin_days'] || '180',
+        avr_redemption_enabled: configMap['avr_redemption_enabled'] || 'true',
+        avr_unlock_all_now: configMap['avr_unlock_all_now'] || 'false',
         admin_exchange_rate_overrides: configMap['admin_exchange_rate_overrides'] || '{}',
       };
 
@@ -1875,6 +1879,10 @@ export class AdminController {
         'p2p_security_deposit_usd',
         'p2p_daily_limit_usd',
         'virtual_card_issuance_fee',
+        'avr_token_price_usd',
+        'avr_lockin_days',
+        'avr_redemption_enabled',
+        'avr_unlock_all_now',
         'admin_exchange_rate_overrides',
       ]);
 
@@ -1889,6 +1897,7 @@ export class AdminController {
           if (key.startsWith('remittance_') || key === 'show_remittance_spread_controls') group = 'REMITTANCE';
           if (key.startsWith('otc_')) group = 'OTC';
           if (key.startsWith('p2p_')) group = 'P2P';
+          if (key.startsWith('avr_')) group = 'TOKEN';
 
           await prisma.cmsSetting.upsert({
             where: { key },

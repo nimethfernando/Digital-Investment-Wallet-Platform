@@ -22,6 +22,7 @@ import {
   TrendingUp,
   Cpu,
   Lock,
+  Unlock,
 } from 'lucide-react';
 
 export default function AvoraTokenPage() {
@@ -40,7 +41,21 @@ export default function AvoraTokenPage() {
   const [lastReceipt, setLastReceipt] = useState<any | null>(null);
   const [showWhitelistOnly, setShowWhitelistOnly] = useState<boolean>(false);
 
+  // Redemption / Cashout State ($AVR -> Wallet USD/USDT/USDC)
+  const [redeemAmountTokens, setRedeemAmountTokens] = useState<string>('');
+  const [redeemCurrency, setRedeemCurrency] = useState<'USD' | 'USDT' | 'USDC'>('USD');
+  const [redeemLoading, setRedeemLoading] = useState<boolean>(false);
+  const [redeemMsg, setRedeemMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [lastRedeemReceipt, setLastRedeemReceipt] = useState<any | null>(null);
+
   const [copiedAddress, setCopiedAddress] = useState<boolean>(false);
+
+  const livePriceUsd = Number(
+    userStatus?.earlyAccess?.currentTokenPriceUsd ??
+      tokenInfo?.currentPriceUsd ??
+      tokenInfo?.proposedEarlyAccessPriceUsd ??
+      0.1
+  );
 
   // Fetch token specs and user status
   const loadData = async () => {
@@ -58,6 +73,12 @@ export default function AvoraTokenPage() {
           if (bals.USD > 0) setPayCurrency('USD');
           else if (bals.USDT > 0) setPayCurrency('USDT');
           else if (bals.USDC > 0) setPayCurrency('USDC');
+          if (data?.earlyAccess?.paidCurrency && ['USD', 'USDT', 'USDC'].includes(data.earlyAccess.paidCurrency)) {
+            setRedeemCurrency(data.earlyAccess.paidCurrency);
+          }
+          if (Number(data?.earlyAccess?.tokensAllocated || 0) > 0) {
+            setRedeemAmountTokens((prev) => prev || String(Number(data.earlyAccess.tokensAllocated)));
+          }
         }
       }
     } catch (e) {
@@ -99,6 +120,44 @@ export default function AvoraTokenPage() {
       setAllocMsg({ type: 'error', text: extractErrorMessage(err, 'Token purchase failed.') });
     } finally {
       setAllocLoading(false);
+    }
+  };
+
+  // Redeem Unlocked $AVR Tokens back to USD / USDT / USDC Wallet Balance
+  const handleRedeemTokens = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) {
+      alert('Please sign in to redeem your Avora Token ($AVR) holdings.');
+      return;
+    }
+    const tokensNum = parseFloat(redeemAmountTokens || '0');
+    if (!tokensNum || tokensNum <= 0) {
+      setRedeemMsg({ type: 'error', text: 'Enter a positive amount of $AVR tokens to redeem.' });
+      return;
+    }
+    setRedeemLoading(true);
+    setRedeemMsg(null);
+    setLastRedeemReceipt(null);
+    try {
+      const res = await api.post('/token/redeem', {
+        tokensToRedeem: tokensNum,
+        payoutCurrency: redeemCurrency,
+      });
+      if (res.data?.success) {
+        setRedeemMsg({ type: 'success', text: res.data.message });
+        setLastRedeemReceipt(res.data.data);
+        setRedeemAmountTokens(
+          res.data.data?.remainingTokens > 0 ? String(res.data.data.remainingTokens) : ''
+        );
+        await loadData();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('avora-notifications-refresh'));
+        }
+      }
+    } catch (err: any) {
+      setRedeemMsg({ type: 'error', text: extractErrorMessage(err, 'Token redemption failed.') });
+    } finally {
+      setRedeemLoading(false);
     }
   };
 
@@ -170,15 +229,19 @@ export default function AvoraTokenPage() {
         </div>
 
         <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Proposed Early-Access</span>
-          <div className="text-lg font-black font-mono text-slate-900 dark:text-white">$0.10 USD</div>
-          <div className="text-[11px] text-slate-500">Per token reference price</div>
+          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Live Reference Price</span>
+          <div className="text-lg font-black font-mono text-slate-900 dark:text-white">${livePriceUsd.toFixed(2)} USD</div>
+          <div className="text-[11px] text-slate-500">Seed ref: $0.10 • Live buy &amp; redeem rate</div>
         </div>
 
         <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Target Mainnet Launch</span>
-          <div className="text-lg font-black text-emerald-600 dark:text-emerald-400">Q4 2027</div>
-          <div className="text-[11px] text-slate-500">Subject to final testing</div>
+          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Unlock &amp; Redemption</span>
+          <div className="text-lg font-black text-emerald-600 dark:text-emerald-400">
+            {tokenInfo?.unlockAllNow || (tokenInfo?.lockinDays ?? 180) <= 0
+              ? 'Unlocked Now'
+              : `${tokenInfo?.lockinDays ?? 180}-Day Vesting`}
+          </div>
+          <div className="text-[11px] text-slate-500">Redeem to USD / USDT / USDC after unlock</div>
         </div>
       </div>
 
@@ -287,7 +350,7 @@ export default function AvoraTokenPage() {
               <h3 className="text-lg font-black text-slate-900 dark:text-white">
                 Buy Avora Token ($AVR)
               </h3>
-              <p className="text-xs text-slate-500">Instant Wallet Purchase @ $0.10 USD / AVR</p>
+              <p className="text-xs text-slate-500">Instant Wallet Purchase @ ${livePriceUsd.toFixed(2)} USD / AVR</p>
             </div>
             {userStatus?.earlyAccess?.isPaidAllocation ? (
               <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
@@ -402,7 +465,7 @@ export default function AvoraTokenPage() {
               </div>
               <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1.5">
                 <span>
-                  You receive: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{Math.round((allocAmount || 0) / 0.10).toLocaleString()} AVR</strong> @ $0.10
+                  You receive: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{Math.round((allocAmount || 0) / (livePriceUsd || 0.10)).toLocaleString()} AVR</strong> @ ${livePriceUsd.toFixed(2)}
                 </span>
                 {user && (
                   <span className="font-mono">
@@ -438,7 +501,7 @@ export default function AvoraTokenPage() {
             className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md disabled:opacity-50 transition-all cursor-pointer flex items-center justify-center gap-2"
           >
             <Coins className="w-4 h-4" />
-            <span>{allocLoading ? 'Processing Wallet Deduction...' : `Buy ${Math.round((allocAmount || 0) / 0.10).toLocaleString()} $AVR ($${Number(allocAmount || 0).toLocaleString()} ${payCurrency})`}</span>
+            <span>{allocLoading ? 'Processing Wallet Deduction...' : `Buy ${Math.round((allocAmount || 0) / (livePriceUsd || 0.10)).toLocaleString()} $AVR ($${Number(allocAmount || 0).toLocaleString()} ${payCurrency})`}</span>
           </button>
 
           {lastReceipt && (
@@ -477,6 +540,215 @@ export default function AvoraTokenPage() {
           </div>
         </form>
 
+      </div>
+
+      {/* SECTION: MY $AVR PROFITABILITY, UNLOCK SCHEDULE & WALLET REDEMPTION */}
+      <div id="redeem" className="max-w-5xl mx-auto p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/60 border border-emerald-500/30 text-white shadow-2xl space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold uppercase tracking-wider">
+              {userStatus?.earlyAccess?.isUnlocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+              <span>$AVR Unlock, Profitability &amp; Wallet Redemption</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-white">
+              How Investors Profit &amp; Redeem Avora Token ($AVR)
+            </h2>
+            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+              Your funded $AVR earns value from <strong className="text-emerald-300">ecosystem valuation growth</strong> (when Avora Bank raises the $AVR benchmark from $0.10 seed pricing as platform TVL &amp; mainnet milestones scale), <strong className="text-emerald-300">up to 50% FX/OTC fee discounts</strong>, and <strong className="text-emerald-300">card cashback</strong>. Once unlocked, redeem anytime directly into spendable USD, USDT, or USDC in your wallet.
+            </p>
+          </div>
+          {user && userStatus?.earlyAccess && (
+            <span
+              className={`px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider shrink-0 border ${
+                userStatus.earlyAccess.isUnlocked
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+              }`}
+            >
+              {userStatus.earlyAccess.tokensAllocated <= 0
+                ? 'No Funded Tokens Yet'
+                : userStatus.earlyAccess.isUnlocked
+                ? 'Unlocked • Ready to Redeem'
+                : `Locked • ${userStatus.earlyAccess.daysRemaining}d Remaining`}
+            </span>
+          )}
+        </div>
+
+        {user && userStatus?.earlyAccess ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Live Holding & Profit Metrics */}
+            <div className="lg:col-span-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold">Owned $AVR Balance</div>
+                  <div className="text-xl font-black font-mono text-white">
+                    {Number(userStatus.earlyAccess.tokensAllocated || 0).toLocaleString()} AVR
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-mono">
+                    Cost Basis: ${Number(userStatus.earlyAccess.paidAllocationUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
+                  <div className="text-[10px] text-slate-400 uppercase font-bold">Live Portfolio Value (@ ${livePriceUsd.toFixed(2)})</div>
+                  <div className="text-xl font-black font-mono text-emerald-400">
+                    ${Number(userStatus.earlyAccess.currentValueUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </div>
+                  <div className={`text-[11px] font-mono font-bold ${
+                    Number(userStatus.earlyAccess.unrealizedProfitUsd || 0) >= 0 ? 'text-emerald-300' : 'text-rose-400'
+                  }`}>
+                    Profit: {Number(userStatus.earlyAccess.unrealizedProfitUsd || 0) >= 0 ? '+' : ''}$
+                    {Number(userStatus.earlyAccess.unrealizedProfitUsd || 0).toFixed(2)} ({Number(userStatus.earlyAccess.unrealizedRoiPct || 0) >= 0 ? '+' : ''}
+                    {Number(userStatus.earlyAccess.unrealizedRoiPct || 0).toFixed(1)}% ROI)
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 font-bold flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Unlock &amp; Redemption Window</span>
+                  </span>
+                  <span className="font-mono font-bold text-white">
+                    {userStatus.earlyAccess.tokensAllocated <= 0
+                      ? `${userStatus.earlyAccess.lockinDays ?? 180} days after purchase`
+                      : userStatus.earlyAccess.isUnlocked
+                      ? 'Unlocked Now'
+                      : new Date(userStatus.earlyAccess.unlockAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  {userStatus.earlyAccess.tokensAllocated <= 0
+                    ? `Purchase $AVR above to lock in your entry price ($${livePriceUsd.toFixed(2)}/AVR). Holdings unlock after the ${userStatus.earlyAccess.lockinDays ?? 180}-day vesting period (or earlier if Treasury enables early unlock).`
+                    : userStatus.earlyAccess.isUnlocked
+                    ? 'Your vesting lock-in has cleared. You can redeem part or all of your $AVR balance directly to USD, USDT, or USDC in your wallet at any time.'
+                    : `Your allocation unlocks in ${userStatus.earlyAccess.daysRemaining} day(s) on ${new Date(userStatus.earlyAccess.unlockAt).toLocaleDateString()}. Once reached, use the form on the right to cash out to your spendable wallet.`}
+                </p>
+              </div>
+            </div>
+
+            {/* Redeem Form */}
+            <form onSubmit={handleRedeemTokens} className="lg:col-span-6 p-5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-4 text-xs">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-black text-white">Redeem $AVR to Spendable Wallet</h3>
+                {Number(userStatus.earlyAccess.tokensAllocated || 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setRedeemAmountTokens(String(Number(userStatus.earlyAccess.tokensAllocated)))}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 font-bold text-[10px] cursor-pointer"
+                  >
+                    Redeem Max ({Number(userStatus.earlyAccess.tokensAllocated).toLocaleString()} AVR)
+                  </button>
+                )}
+              </div>
+
+              {redeemMsg && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-bold flex items-start gap-2 ${
+                    redeemMsg.type === 'success'
+                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+                      : 'bg-rose-500/15 border border-rose-500/30 text-rose-300'
+                  }`}
+                >
+                  {redeemMsg.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  )}
+                  <div className="space-y-1">
+                    <span>{redeemMsg.text}</span>
+                    {lastRedeemReceipt && (
+                      <div className="text-[11px] font-mono opacity-90">
+                        Ref: {lastRedeemReceipt.redeemCode} • Realized P/L: {Number(lastRedeemReceipt.realizedProfitUsd) >= 0 ? '+' : ''}${lastRedeemReceipt.realizedProfitUsd} USD
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300">Tokens to Redeem ($AVR)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0.01"
+                    max={Number(userStatus.earlyAccess.tokensAllocated || 0) || undefined}
+                    placeholder="e.g. 5000"
+                    value={redeemAmountTokens}
+                    onChange={(e) => setRedeemAmountTokens(e.target.value)}
+                    disabled={!userStatus.earlyAccess.isUnlocked}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono font-bold outline-none focus:border-emerald-500 disabled:opacity-50"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300">Receive Wallet Currency</label>
+                  <select
+                    value={redeemCurrency}
+                    onChange={(e) => setRedeemCurrency(e.target.value as any)}
+                    disabled={!userStatus.earlyAccess.isUnlocked}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-white font-bold outline-none focus:border-emerald-500 disabled:opacity-50"
+                  >
+                    <option value="USD">USD (Spendable Wallet)</option>
+                    <option value="USDT">USDT (Spendable Crypto)</option>
+                    <option value="USDC">USDC (Spendable Crypto)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-400">Estimated Wallet Payout (@ ${livePriceUsd.toFixed(2)}/AVR):</span>
+                <span className="font-mono font-black text-emerald-400 text-sm">
+                  {((parseFloat(redeemAmountTokens || '0') || 0) * livePriceUsd).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}{' '}
+                  {redeemCurrency}
+                </span>
+              </div>
+
+              <button
+                type="submit"
+                disabled={
+                  redeemLoading ||
+                  !userStatus.earlyAccess.isUnlocked ||
+                  Number(userStatus.earlyAccess.tokensAllocated || 0) <= 0 ||
+                  !(parseFloat(redeemAmountTokens || '0') > 0)
+                }
+                className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-400 text-white font-black text-xs shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
+              >
+                <Unlock className="w-4 h-4" />
+                <span>
+                  {redeemLoading
+                    ? 'Settling Redemption to Wallet...'
+                    : userStatus.earlyAccess.tokensAllocated <= 0
+                    ? 'Buy $AVR Above First to Redeem'
+                    : !userStatus.earlyAccess.isUnlocked
+                    ? `Locked Until ${new Date(userStatus.earlyAccess.unlockAt).toLocaleDateString()} (${userStatus.earlyAccess.daysRemaining}d left)`
+                    : `Redeem ${Number(parseFloat(redeemAmountTokens || '0') || 0).toLocaleString()} $AVR to ${redeemCurrency} Wallet`}
+                </span>
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="p-5 rounded-2xl bg-slate-950/70 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+            <p className="text-slate-300">
+              Sign in to track your $AVR profit/ROI, exact unlock countdown date, and redeem unlocked tokens directly to USD, USDT, or USDC in your wallet.
+            </p>
+            <Link
+              href="/login"
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold shrink-0"
+            >
+              Sign In to View Holdings →
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* Tokenomics & Roadmap Section */}

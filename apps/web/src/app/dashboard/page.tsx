@@ -141,6 +141,17 @@ interface TokenStatusItem {
     lastPurchaseAt?: string | null;
     unpaidReservationUsd?: number;
     isPaidAllocation?: boolean;
+    currentTokenPriceUsd?: number;
+    avgEntryPriceUsd?: number;
+    currentValueUsd?: number;
+    unrealizedProfitUsd?: number;
+    unrealizedRoiPct?: number;
+    lockinDays?: number;
+    unlockAt?: string | null;
+    isUnlocked?: boolean;
+    daysRemaining?: number;
+    redemptionEnabled?: boolean;
+    unlockAllNow?: boolean;
     status: string;
     walletAddress?: string;
     notes?: string;
@@ -2672,15 +2683,21 @@ function DashboardContent() {
                           </h4>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                          tokenStatus?.earlyAccess?.isPaidAllocation
+                          tokenStatus?.earlyAccess?.isUnlocked
                             ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                            : tokenStatus?.earlyAccess?.isPaidAllocation
+                            ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
                             : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
                         }`}>
-                          {tokenStatus?.earlyAccess?.isPaidAllocation ? 'ALLOCATED (PAID)' : 'WHITELISTED (UNPAID)'}
+                          {tokenStatus?.earlyAccess?.isUnlocked
+                            ? 'UNLOCKED • REDEEMABLE'
+                            : tokenStatus?.earlyAccess?.isPaidAllocation
+                            ? `LOCKED (${tokenStatus?.earlyAccess?.daysRemaining || 0}d left)`
+                            : 'WHITELISTED (UNPAID)'}
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
                           <span className="text-slate-400 text-[11px]">Funded Amount Paid:</span>
                           <p className="font-bold text-slate-900 dark:text-white font-mono">
@@ -2688,31 +2705,57 @@ function DashboardContent() {
                           </p>
                         </div>
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
-                          <span className="text-slate-400 text-[11px]">$AVR Tokens Allocated:</span>
+                          <span className="text-slate-400 text-[11px]">$AVR Tokens Owned:</span>
                           <p className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                            {Number(tokenStatus?.earlyAccess?.tokensAllocated || 0).toLocaleString()} AVR (@ $0.10)
+                            {Number(tokenStatus?.earlyAccess?.tokensAllocated || 0).toLocaleString()} AVR (@ ${Number(tokenStatus?.earlyAccess?.currentTokenPriceUsd || 0.10).toFixed(2)})
                           </p>
                         </div>
                         <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
-                          <span className="text-slate-400 text-[11px]">Unpaid Whitelist Reservation:</span>
+                          <span className="text-slate-400 text-[11px]">Live Value &amp; Return:</span>
+                          <p className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                            ${Number(tokenStatus?.earlyAccess?.currentValueUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}{' '}
+                            <span className="text-[10px]">
+                              ({Number(tokenStatus?.earlyAccess?.unrealizedRoiPct || 0) >= 0 ? '+' : ''}
+                              {Number(tokenStatus?.earlyAccess?.unrealizedRoiPct || 0).toFixed(1)}%)
+                            </span>
+                          </p>
+                        </div>
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1">
+                          <span className="text-slate-400 text-[11px]">Unlock Date:</span>
                           <p className="font-bold text-amber-600 dark:text-amber-400 font-mono">
-                            ${Number(tokenStatus?.earlyAccess?.unpaidReservationUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} (~{Math.round(Number(tokenStatus?.earlyAccess?.unpaidReservationUsd || 0) / 0.10).toLocaleString()} AVR)
+                            {tokenStatus?.earlyAccess?.isUnlocked
+                              ? 'Unlocked Now'
+                              : tokenStatus?.earlyAccess?.unlockAt
+                              ? `${new Date(tokenStatus.earlyAccess.unlockAt).toLocaleDateString()} (${tokenStatus.earlyAccess.daysRemaining}d)`
+                              : `${tokenStatus?.earlyAccess?.lockinDays ?? 180} days`}
                           </p>
                         </div>
                       </div>
 
                       <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 text-purple-800 dark:text-purple-200 text-xs flex flex-wrap items-center justify-between gap-2">
                         <span>
-                          {tokenStatus?.earlyAccess?.isPaidAllocation
-                            ? 'Funded $AVR holdings are debited from your wallet and settled for the Q4 2027 Mainnet Token Generation Event (TGE).'
+                          {tokenStatus?.earlyAccess?.isUnlocked
+                            ? 'Your $AVR tokens are unlocked! Redeem anytime to USD, USDT, or USDC in your wallet at live valuation.'
+                            : tokenStatus?.earlyAccess?.isPaidAllocation
+                            ? `Funded $AVR holdings unlock on ${new Date(tokenStatus.earlyAccess.unlockAt).toLocaleDateString()} (${tokenStatus.earlyAccess.daysRemaining} days left) for wallet redemption, plus appreciation if $AVR price rises.`
                             : 'This whitelist reservation has not deducted funds from your wallet yet. Purchase $AVR from your wallet to lock your token allocation.'}
                         </span>
-                        <Link
-                          href="/token"
-                          className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0"
-                        >
-                          {tokenStatus?.earlyAccess?.isPaidAllocation ? 'Buy More $AVR →' : 'Pay from Wallet Now →'}
-                        </Link>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {tokenStatus?.earlyAccess?.isPaidAllocation && (
+                            <Link
+                              href="/token#redeem"
+                              className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs"
+                            >
+                              {tokenStatus?.earlyAccess?.isUnlocked ? 'Redeem to Wallet →' : 'View Unlock & Profit →'}
+                            </Link>
+                          )}
+                          <Link
+                            href="/token"
+                            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
+                          >
+                            {tokenStatus?.earlyAccess?.isPaidAllocation ? 'Buy More $AVR →' : 'Pay from Wallet Now →'}
+                          </Link>
+                        </div>
                       </div>
                     </div>
                   ) : (

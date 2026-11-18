@@ -74,28 +74,67 @@ export class TokenService {
   }
 
   /**
+   * Read dynamic Avora Token ($AVR) pricing, lock-in duration, and redemption toggles from CmsSetting
+   */
+  async getTokenPolicyConfig(): Promise<{
+    currentPriceUsd: Decimal;
+    lockinDays: number;
+    redemptionEnabled: boolean;
+    unlockAllNow: boolean;
+  }> {
+    const settings = await prisma.cmsSetting
+      .findMany({
+        where: {
+          key: {
+            in: ['avr_token_price_usd', 'avr_lockin_days', 'avr_redemption_enabled', 'avr_unlock_all_now'],
+          },
+        },
+      })
+      .catch(() => []);
+    const map: Record<string, string> = {};
+    settings.forEach((s) => {
+      map[s.key] = s.value;
+    });
+
+    const parsedPrice = parseFloat(map.avr_token_price_usd || '');
+    const currentPriceUsd =
+      Number.isFinite(parsedPrice) && parsedPrice > 0
+        ? new Decimal(parsedPrice.toFixed(6))
+        : new Decimal(TOKEN_SPEC.proposedEarlyAccessPriceUsd);
+
+    const parsedLockin = parseInt(map.avr_lockin_days || '180', 10);
+    const lockinDays = Number.isFinite(parsedLockin) && parsedLockin >= 0 ? parsedLockin : 180;
+
+    const redemptionEnabled = String(map.avr_redemption_enabled || 'true').toLowerCase() !== 'false';
+    const unlockAllNow = String(map.avr_unlock_all_now || 'false').toLowerCase() === 'true';
+
+    return { currentPriceUsd, lockinDays, redemptionEnabled, unlockAllNow };
+  }
+
+  /**
    * Resolve unit price for $AVR token (configurable via CMS setting or default $0.10 USD)
    */
   async getAvrUnitPriceUsd(): Promise<Decimal> {
-    const setting = await prisma.cmsSetting
-      .findUnique({ where: { key: 'avr_token_price_usd' } })
-      .catch(() => null);
-    const parsed = parseFloat(setting?.value || '');
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return new Decimal(parsed.toFixed(6));
-    }
-    return new Decimal(TOKEN_SPEC.proposedEarlyAccessPriceUsd);
+    const cfg = await this.getTokenPolicyConfig();
+    return cfg.currentPriceUsd;
   }
 
   /**
-   * Get public token specifications and roadmap
+   * Get public token specifications, live price, lock-in policy, and roadmap
    */
-  getTokenInfo() {
-    return TOKEN_SPEC;
+  async getTokenInfo() {
+    const cfg = await this.getTokenPolicyConfig();
+    return {
+      ...TOKEN_SPEC,
+      currentPriceUsd: Number(cfg.currentPriceUsd),
+      lockinDays: cfg.lockinDays,
+      redemptionEnabled: cfg.redemptionEnabled,
+      unlockAllNow: cfg.unlockAllNow,
+    };
   }
 
   /**
-   * Get authenticated user's token holdings, whitelist status, and spendable wallet balances
+   * Get authenticated user's token holdings, unlock schedule, profit/ROI, and spendable wallet balances
    */
   async getUserTokenStatus(userId: string) {
     await this.ensureTokenReady();
@@ -119,7 +158,10 @@ export class TokenService {
       });
     }
 
-    const wallet = await ledgerService.ensureWallet(userId);
+    const [wallet, policy] = await Promise.all([
+      ledgerService.ensureWallet(userId),
+      this.getTokenPolicyConfig(),
+    ]);
     const balMap: Record<string, number> = { USD: 0, USDT: 0, USDC: 0 };
     for (const b of wallet.balances || []) {
       const cur = (b.currency || '').toUpperCase();
@@ -142,9 +184,36 @@ export class TokenService {
     const requestedUsd = Number(access.requestedAllocationUsd || 0);
     const paidUsd = Number(access.paidAllocationUsd || 0);
     const tokensAllocated = Number(access.tokensAllocated || 0);
+    const currentPriceNum = Number(policy.currentPriceUsd);
+    const currentValueUsd = Number((tokensAllocated * currentPriceNum).toFixed(2));
+    const unrealizedProfitUsd = Number((currentValueUsd - paidUsd).toFixed(2));
+    const unrealizedRoiPct = paidUsd > 0 ? Number((((currentValueUsd - paidUsd) / paidUsd) * 100).toFixed(2)) : 0;
+    const avgEntryPriceUsd = tokensAllocated > 0 && paidUsd > 0 ? Number((paidUsd / tokensAllocated).toFixed(4)) : currentPriceNum;
+
+    const purchaseAnchor = access.lastPurchaseAt || access.updatedAt || now;
+    const unlockAt =
+      policy.unlockAllNow || policy.lockinDays <= 0
+        ? purchaseAnchor
+        : new Date(purchaseAnchor.getTime() + policy.lockinDays * 24 * 60 * 60 * 1000);
+
+    const isUnlocked =
+      policy.redemptionEnabled &&
+      tokensAllocated > 0 &&
+      (policy.unlockAllNow || policy.lockinDays <= 0 || now >= unlockAt);
+
+    const daysRemaining =
+      isUnlocked || tokensAllocated <= 0
+        ? 0
+        : Math.max(1, Math.ceil((unlockAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
 
     return {
-      spec: TOKEN_SPEC,
+      spec: {
+        ...TOKEN_SPEC,
+        currentPriceUsd: currentPriceNum,
+        lockinDays: policy.lockinDays,
+        redemptionEnabled: policy.redemptionEnabled,
+        unlockAllNow: policy.unlockAllNow,
+      },
       wallet: {
         walletAddress: access.walletAddress,
         testnetBalance: Number(access.testnetBalance),
@@ -165,6 +234,17 @@ export class TokenService {
         unpaidReservationUsd: Math.max(0, Number((requestedUsd - paidUsd).toFixed(2))),
         isPaidAllocation: paidUsd > 0 && tokensAllocated > 0,
         status: access.status,
+        currentTokenPriceUsd: currentPriceNum,
+        avgEntryPriceUsd,
+        currentValueUsd,
+        unrealizedProfitUsd,
+        unrealizedRoiPct,
+        lockinDays: policy.lockinDays,
+        unlockAt: unlockAt.toISOString(),
+        isUnlocked,
+        daysRemaining,
+        redemptionEnabled: policy.redemptionEnabled,
+        unlockAllNow: policy.unlockAllNow,
       },
     };
   }
@@ -456,6 +536,220 @@ export class TokenService {
       status: updated.status,
       requestedAllocationUsd: Number(updated.requestedAllocationUsd),
       paidAllocationUsd: Number(updated.paidAllocationUsd || 0),
+    };
+  }
+
+  /**
+   * Redeem unlocked Avora Token ($AVR) back to spendable wallet currency (USD, USDT, or USDC) at live price.
+   * Debits user's $AVR allocation proportionally with cost basis, credits spendable wallet balance atomically,
+   * records balanced double-entry ledger journal & transaction, and alerts user.
+   */
+  async redeemTokens(
+    userId: string,
+    input: {
+      tokensToRedeem: number | string;
+      payoutCurrency?: string;
+      notes?: string;
+    }
+  ) {
+    await this.ensureTokenReady();
+    if (!userId) {
+      throw new Error('Authentication required to redeem Avora Token ($AVR).');
+    }
+
+    const [user, policy] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, status: true },
+      }),
+      this.getTokenPolicyConfig(),
+    ]);
+    if (!user || user.status !== 'ACTIVE') {
+      throw new Error('Your account is not active.');
+    }
+    if (!policy.redemptionEnabled) {
+      throw new Error('Avora Token ($AVR) redemption is currently paused by Treasury Operations.');
+    }
+
+    const tokensDec = new Decimal(String(input.tokensToRedeem ?? '0'));
+    if (!tokensDec.isFinite() || tokensDec.lessThanOrEqualTo(0)) {
+      throw new Error('Enter a positive amount of $AVR tokens to redeem.');
+    }
+
+    const access = await prisma.tokenEarlyAccess.findUnique({ where: { userId } });
+    if (!access) {
+      throw new Error('No Avora Token ($AVR) holding record found for your account.');
+    }
+
+    const prevTokensDec = new Decimal(access.tokensAllocated?.toString() || '0');
+    const prevPaidDec = new Decimal(access.paidAllocationUsd?.toString() || '0');
+    if (prevTokensDec.lessThanOrEqualTo(0)) {
+      throw new Error('You do not currently hold any funded $AVR tokens to redeem.');
+    }
+    if (tokensDec.greaterThan(prevTokensDec)) {
+      throw new Error(
+        `Insufficient $AVR tokens. You hold ${prevTokensDec.toFixed(4)} AVR and requested ${tokensDec.toFixed(4)} AVR.`
+      );
+    }
+
+    const now = new Date();
+    const purchaseAnchor = access.lastPurchaseAt || access.updatedAt || now;
+    const unlockAt =
+      policy.unlockAllNow || policy.lockinDays <= 0
+        ? purchaseAnchor
+        : new Date(purchaseAnchor.getTime() + policy.lockinDays * 24 * 60 * 60 * 1000);
+
+    const isUnlocked = policy.unlockAllNow || policy.lockinDays <= 0 || now >= unlockAt;
+    if (!isUnlocked) {
+      const daysLeft = Math.max(1, Math.ceil((unlockAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
+      throw new Error(
+        `Your $AVR allocation is still in its ${policy.lockinDays}-day lock-in period and unlocks on ${unlockAt.toISOString().slice(0, 10)} (${daysLeft} day(s) remaining).`
+      );
+    }
+
+    const reqCur = (input.payoutCurrency || access.paidCurrency || 'USD').trim().toUpperCase();
+    if (!['USD', 'USDT', 'USDC'].includes(reqCur)) {
+      throw new Error('Payout currency must be USD, USDT, or USDC.');
+    }
+    const payoutCurrency = reqCur as 'USD' | 'USDT' | 'USDC';
+
+    const payoutAmountDec = new Decimal(tokensDec.times(policy.currentPriceUsd).toFixed(2));
+    if (payoutAmountDec.lessThanOrEqualTo(0)) {
+      throw new Error('Redemption payout value is too small. Please redeem a larger token amount.');
+    }
+
+    const redeemFraction = tokensDec.dividedBy(prevTokensDec);
+    const settledCostBasisDec = prevPaidDec.times(redeemFraction);
+    const realizedProfitDec = payoutAmountDec.minus(settledCostBasisDec);
+    const remainingTokensDec = Decimal.max(new Decimal(0), prevTokensDec.minus(tokensDec));
+    const remainingCostBasisDec =
+      remainingTokensDec.isZero()
+        ? new Decimal(0)
+        : Decimal.max(new Decimal(0), prevPaidDec.minus(settledCostBasisDec));
+
+    const redeemCode = `AVR-RDM-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
+    const idempotencyKey = `AVR-REDEEM-${redeemCode}`;
+    const wallet = await ledgerService.ensureWallet(userId);
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const lockedBal = await ledgerService.lockWalletBalance(tx, wallet.id, payoutCurrency);
+        const balBefore = new Decimal(lockedBal.availableBalance.toString());
+        const balAfter = balBefore.plus(payoutAmountDec);
+
+        await tx.walletBalance.update({
+          where: { id: lockedBal.id },
+          data: { availableBalance: balAfter.toFixed(8) },
+        });
+
+        await tx.tokenEarlyAccess.update({
+          where: { userId },
+          data: {
+            tokensAllocated: remainingTokensDec.toFixed(8),
+            paidAllocationUsd: remainingCostBasisDec.toFixed(2),
+            status: remainingTokensDec.isZero() ? 'REDEEMED' : 'ALLOCATED',
+            notes: input.notes?.trim()
+              ? `${access.notes ? `${access.notes}\n` : ''}[${now.toISOString()}] Redeemed ${tokensDec.toFixed(2)} AVR for ${payoutAmountDec.toFixed(2)} ${payoutCurrency}: ${input.notes.trim()}`
+              : access.notes,
+          },
+        });
+
+        await ledgerService.recordJournal(tx, {
+          idempotencyKey,
+          referenceType: JournalReferenceType.INVESTMENT_DISTRIBUTION,
+          referenceId: redeemCode,
+          notes: `Avora Token ($AVR) Redemption ${redeemCode}: Redeemed ${tokensDec.toFixed(2)} AVR @ $${policy.currentPriceUsd.toFixed(4)} = ${payoutAmountDec.toFixed(2)} ${payoutCurrency} (Net Gain: ${realizedProfitDec.greaterThanOrEqualTo(0) ? '+' : ''}$${realizedProfitDec.toFixed(2)})`,
+          createdBy: userId,
+          entries: [
+            {
+              accountId: `PLATFORM_TREASURY_TOKEN_${payoutCurrency}`,
+              direction: 'DEBIT',
+              amount: payoutAmountDec.toFixed(8),
+              currency: payoutCurrency,
+            },
+            {
+              accountId: `USER_AVAILABLE_${payoutCurrency}`,
+              userId,
+              direction: 'CREDIT',
+              amount: payoutAmountDec.toFixed(8),
+              currency: payoutCurrency,
+            },
+          ],
+        });
+
+        const txCode = `TX-${redeemCode}`;
+        await tx.transaction.create({
+          data: {
+            transactionCode: txCode,
+            userId,
+            type: TransactionType.INVESTMENT_DISTRIBUTION,
+            amount: payoutAmountDec.toFixed(8),
+            currency: payoutCurrency,
+            status: TransactionStatus.COMPLETED,
+            balanceBefore: balBefore.toFixed(8),
+            balanceAfter: balAfter.toFixed(8),
+            settlementReference: redeemCode,
+            createdBy: userId,
+            idempotencyKey,
+            notes: `Redeemed ${Number(tokensDec.toFixed(2)).toLocaleString()} $AVR @ $${policy.currentPriceUsd.toFixed(4)} USD → ${payoutAmountDec.toFixed(2)} ${payoutCurrency} (Realized P/L: ${realizedProfitDec.greaterThanOrEqualTo(0) ? '+' : ''}$${realizedProfitDec.toFixed(2)})`,
+          },
+        });
+
+        return {
+          redeemCode,
+          txCode,
+          tokensRedeemed: Number(tokensDec.toFixed(4)),
+          unitPriceUsd: policy.currentPriceUsd.toFixed(4),
+          payoutAmount: payoutAmountDec.toFixed(2),
+          payoutCurrency,
+          realizedProfitUsd: realizedProfitDec.toFixed(2),
+          balanceBefore: balBefore.toFixed(2),
+          balanceAfter: balAfter.toFixed(2),
+          remainingTokens: Number(remainingTokensDec.toFixed(4)),
+        };
+      },
+      { timeout: 30000, maxWait: 10000 }
+    );
+
+    await createP2PNotification({
+      userId,
+      category: 'TRANSACTION',
+      type: 'AVR_TOKEN_REDEEMED',
+      severity: 'SUCCESS',
+      title: `Redeemed ${result.tokensRedeemed.toLocaleString()} $AVR → +${result.payoutAmount} ${result.payoutCurrency}`,
+      message: `${result.payoutAmount} ${result.payoutCurrency} was credited to your spendable wallet (P/L: ${Number(result.realizedProfitUsd) >= 0 ? '+' : ''}$${result.realizedProfitUsd}). Remaining: ${result.remainingTokens.toLocaleString()} AVR.`,
+      referenceCode: result.redeemCode,
+      amount: result.payoutAmount,
+      currency: result.payoutCurrency,
+      status: 'COMPLETED',
+      actionUrl: '/dashboard',
+      actionLabel: 'View Wallet',
+    });
+
+    notificationService
+      .sendEmail({
+        to: user.email,
+        subject: `Avora Token ($AVR) Redemption Completed — ${result.redeemCode}`,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
+            <h2 style="color: #059669;">Avora Token ($AVR) Redeemed to Wallet</h2>
+            <p>You redeemed <strong>${result.tokensRedeemed.toLocaleString()} AVR</strong> at <strong>$${result.unitPriceUsd} USD/AVR</strong>.</p>
+            <ul>
+              <li><strong>Reference:</strong> ${result.redeemCode}</li>
+              <li><strong>Payout Credited:</strong> ${result.payoutAmount} ${result.payoutCurrency}</li>
+              <li><strong>Realized Return (P/L):</strong> ${Number(result.realizedProfitUsd) >= 0 ? '+' : ''}$${result.realizedProfitUsd} USD</li>
+              <li><strong>${result.payoutCurrency} Wallet Balance:</strong> ${result.balanceBefore} → ${result.balanceAfter}</li>
+              <li><strong>Remaining $AVR Allocation:</strong> ${result.remainingTokens.toLocaleString()} AVR</li>
+            </ul>
+          </div>
+        `,
+      })
+      .catch(() => {});
+
+    return {
+      success: true,
+      message: `Redeemed ${result.tokensRedeemed.toLocaleString()} AVR for ${result.payoutAmount} ${result.payoutCurrency} (${result.balanceBefore} → ${result.balanceAfter} ${result.payoutCurrency})!`,
+      data: result,
     };
   }
 }

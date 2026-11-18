@@ -5,8 +5,13 @@ export class TokenController {
   /**
    * GET /api/v1/token/info
    */
-  getInfo(req: Request, res: Response) {
-    res.json({ success: true, data: tokenService.getTokenInfo() });
+  async getInfo(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await tokenService.getTokenInfo();
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
   }
 
   /**
@@ -49,6 +54,25 @@ export class TokenController {
         notes,
       });
       res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/token/redeem
+   * Redeem unlocked Avora Token ($AVR) back to USD/USDT/USDC spendable wallet balance
+   */
+  async redeemTokens(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const { tokensToRedeem, payoutCurrency, notes } = req.body || {};
+      const result = await tokenService.redeemTokens(userId, {
+        tokensToRedeem,
+        payoutCurrency,
+        notes,
+      });
+      res.json(result);
     } catch (err) {
       next(err);
     }

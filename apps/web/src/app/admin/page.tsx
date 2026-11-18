@@ -159,6 +159,10 @@ export default function AdminPortalPage() {
     p2p_security_deposit_usd: '50',
     p2p_daily_limit_usd: '5000',
     virtual_card_issuance_fee: '10.00',
+    avr_token_price_usd: '0.10',
+    avr_lockin_days: '180',
+    avr_redemption_enabled: 'true',
+    avr_unlock_all_now: 'false',
   });
   const [configLoading, setConfigLoading] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -2994,6 +2998,118 @@ export default function AdminPortalPage() {
                         className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-blue-500"
                       />
                       <p className="text-[10px] text-slate-500">Used for HMAC-SHA256 payment signature verification</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Avora Token ($AVR) Price, Profitability, Unlock & Redemption Controls */}
+                <div className="lg:col-span-2 p-5 rounded-3xl bg-slate-900 border border-purple-500/30 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                    <div>
+                      <h4 className="font-extrabold text-sm text-purple-300 flex items-center gap-2">
+                        <Coins className="w-4 h-4 text-purple-400" />
+                        <span>Avora Token ($AVR) Price, Lock-In &amp; Redemption Controls</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-400">
+                        Control the live $AVR buy/redemption price (which drives holder ROI), vesting lock-in duration in days, and early-unlock redemptions back to wallet USD/USDT/USDC.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-purple-300 uppercase font-mono">
+                        Live $AVR Price ($ USD / Token)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-xs text-slate-400">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          value={platformConfig.avr_token_price_usd || '0.10'}
+                          onChange={(e) => setPlatformConfig({ ...platformConfig, avr_token_price_usd: e.target.value })}
+                          className="w-full pl-6 pr-3 py-2 rounded-xl bg-slate-950 border border-purple-500/40 text-white text-xs font-mono outline-none focus:border-purple-400"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-400">
+                        At ${parseFloat(platformConfig.avr_token_price_usd || '0.10').toFixed(2)}/AVR, $0.10 seed buyers show{' '}
+                        <strong className="text-emerald-400">
+                          {(((parseFloat(platformConfig.avr_token_price_usd || '0.10') / 0.10) - 1) * 100) >= 0 ? '+' : ''}
+                          {(((parseFloat(platformConfig.avr_token_price_usd || '0.10') / 0.10) - 1) * 100).toFixed(1)}% ROI
+                        </strong>
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-300 uppercase font-mono">
+                        Holding Lock-In (Days)
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={platformConfig.avr_lockin_days ?? '180'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, avr_lockin_days: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-purple-400"
+                      />
+                      <p className="text-[10px] text-slate-400">
+                        Default 180 days from purchase (set 0 for immediate unlock)
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-300 uppercase font-mono">
+                        Immediate Unlock Override
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPlatformConfig({
+                            ...platformConfig,
+                            avr_unlock_all_now: platformConfig.avr_unlock_all_now === 'true' ? 'false' : 'true',
+                          })
+                        }
+                        className={`w-full px-3 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                          platformConfig.avr_unlock_all_now === 'true'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {platformConfig.avr_unlock_all_now === 'true'
+                          ? 'Unlocked for All Holders Now'
+                          : 'Following Lock-In Days'}
+                      </button>
+                      <p className="text-[10px] text-slate-400">
+                        Override timer to let holders redeem anytime
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-300 uppercase font-mono">
+                        Wallet Redemptions Active
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPlatformConfig({
+                            ...platformConfig,
+                            avr_redemption_enabled: platformConfig.avr_redemption_enabled === 'false' ? 'true' : 'false',
+                          })
+                        }
+                        className={`w-full px-3 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                          platformConfig.avr_redemption_enabled === 'false'
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        }`}
+                      >
+                        {platformConfig.avr_redemption_enabled === 'false'
+                          ? 'Redemptions Paused'
+                          : 'Enabled (USD / USDT / USDC)'}
+                      </button>
+                      <p className="text-[10px] text-slate-400">
+                        Allow unlocked $AVR cashouts to wallet
+                      </p>
                     </div>
                   </div>
                 </div>
