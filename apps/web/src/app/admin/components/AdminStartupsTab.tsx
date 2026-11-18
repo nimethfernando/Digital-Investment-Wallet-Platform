@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   Building,
   Plus,
@@ -19,6 +20,9 @@ import {
   Check,
   AlertCircle,
   Sparkles,
+  Users,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 
@@ -38,6 +42,11 @@ export default function AdminStartupsTab({
   onFeedback,
 }: StartupsTabProps) {
   const [search, setSearch] = useState('');
+  const [selectedListingFilterId, setSelectedListingFilterId] = useState<string>('ALL');
+  const [commitmentSearch, setCommitmentSearch] = useState('');
+  const [commitmentStatusFilter, setCommitmentStatusFilter] = useState<'ALL' | 'CLEARED_FUNDS' | 'ACTIVE' | 'EXITED'>('ALL');
+  const [commitmentPage, setCommitmentPage] = useState(1);
+  const commitmentsSectionRef = useRef<HTMLDivElement | null>(null);
 
   // Create Startup Modal
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -321,11 +330,25 @@ export default function AdminStartupsTab({
             const raised = parseFloat(l.verifiedFundsRaised || '0');
             const target = parseFloat(l.fundingTarget || '1');
             const pct = Math.min(100, Math.round((raised / target) * 100));
+            const matchingCommitmentsCount = commitments.filter(
+              (c) => (c.listing?.id || c.listingId) === l.id
+            ).length;
+            const isSelected = selectedListingFilterId === l.id;
 
             return (
               <div
                 key={l.id}
-                className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4 hover:border-slate-700 transition-all shadow-lg"
+                onClick={() => {
+                  setSelectedListingFilterId(l.id);
+                  setCommitmentPage(1);
+                  commitmentsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+                className={`p-5 rounded-3xl bg-slate-900 border space-y-4 transition-all shadow-lg cursor-pointer ${
+                  isSelected
+                    ? 'border-purple-500 ring-2 ring-purple-500/30'
+                    : 'border-slate-800 hover:border-purple-500/50'
+                }`}
+                title="Click to inspect all customers who invested in this startup"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -381,7 +404,10 @@ export default function AdminStartupsTab({
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center justify-between pt-2 border-t border-slate-800 gap-2 flex-wrap">
+                <div
+                  className="flex items-center justify-between pt-2 border-t border-slate-800 gap-2 flex-wrap"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button
                     onClick={() => handleDeleteListing(l.id, l.companyName)}
                     className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"
@@ -391,6 +417,23 @@ export default function AdminStartupsTab({
                   </button>
 
                   <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedListingFilterId(isSelected ? 'ALL' : l.id);
+                        setCommitmentPage(1);
+                        commitmentsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer flex items-center gap-1 ${
+                        isSelected
+                          ? 'bg-purple-600 text-white border-purple-500'
+                          : 'bg-purple-500/15 hover:bg-purple-600 text-purple-300 hover:text-white border-purple-500/30'
+                      }`}
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      <span>Investors ({matchingCommitmentsCount})</span>
+                    </button>
+
                     <button
                       onClick={() => handleOpenValuationModal(l)}
                       className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-slate-950 text-xs font-bold transition-all border border-amber-500/30 cursor-pointer flex items-center gap-1"
@@ -414,82 +457,234 @@ export default function AdminStartupsTab({
         </div>
       )}
 
-      {/* Investor Commitments Ledger Table */}
-      <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-extrabold text-base text-white">Investor Commitments ({commitments.length})</h3>
-            <p className="text-xs text-slate-400">All customer startup allocations, mark-to-market valuation gains &amp; exit proceeds</p>
-          </div>
-        </div>
+      {/* Investor Commitments Ledger Table (Per-Startup Drill-Down, Search & Pagination) */}
+      {(() => {
+        const COMMITMENTS_PER_PAGE = 15;
+        const selectedStartupObj =
+          selectedListingFilterId !== 'ALL'
+            ? listings.find((l) => l.id === selectedListingFilterId) || null
+            : null;
+        const cQuery = commitmentSearch.trim().toLowerCase();
+        const filteredCommitments = commitments.filter((inv) => {
+          const lid = inv.listing?.id || inv.listingId;
+          if (selectedListingFilterId !== 'ALL' && lid !== selectedListingFilterId) return false;
+          if (commitmentStatusFilter !== 'ALL' && inv.status !== commitmentStatusFilter) return false;
+          if (!cQuery) return true;
+          const invName = `${inv.investor?.firstName || ''} ${inv.investor?.lastName || ''}`.trim().toLowerCase();
+          return (
+            invName.includes(cQuery) ||
+            String(inv.investor?.email || '').toLowerCase().includes(cQuery) ||
+            String(inv.investmentCode || '').toLowerCase().includes(cQuery) ||
+            String(inv.listing?.companyName || '').toLowerCase().includes(cQuery)
+          );
+        });
+        const totalCPages = Math.max(1, Math.ceil(filteredCommitments.length / COMMITMENTS_PER_PAGE));
+        const safeCPage = Math.min(commitmentPage, totalCPages);
+        const pageCommitments = filteredCommitments.slice(
+          (safeCPage - 1) * COMMITMENTS_PER_PAGE,
+          safeCPage * COMMITMENTS_PER_PAGE
+        );
 
-        {listingsLoading ? (
-          <div className="p-12 text-center text-slate-500">
-            <Loader2 className="w-6 h-6 animate-spin mx-auto text-purple-500" />
-          </div>
-        ) : commitments.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-xs">
-            No investor commitments recorded yet.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-slate-800 text-slate-400 uppercase font-bold text-[10px]">
-                <tr>
-                  <th className="pb-3">Code</th>
-                  <th className="pb-3">Startup</th>
-                  <th className="pb-3">Investor</th>
-                  <th className="pb-3">Net Capital</th>
-                  <th className="pb-3">Current Holding Value</th>
-                  <th className="pb-3">Valuation Gain</th>
-                  <th className="pb-3">Distributed Proceeds</th>
-                  <th className="pb-3 text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {commitments.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3 font-mono font-bold text-amber-400">{inv.investmentCode}</td>
-                    <td className="py-3 font-bold text-white">{inv.listing?.companyName}</td>
-                    <td className="py-3 text-slate-300">
-                      <div className="font-bold">{inv.investor?.firstName} {inv.investor?.lastName}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">{inv.investor?.email}</div>
-                    </td>
-                    <td className="py-3 font-mono font-bold text-slate-200">
-                      ${parseFloat(inv.netInvestedAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
-                    </td>
-                    <td className="py-3 font-mono font-black text-emerald-400">
-                      ${parseFloat(inv.currentValuation || inv.netInvestedAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
-                    </td>
-                    <td className="py-3 font-mono font-bold">
-                      <span className={`px-2 py-0.5 rounded text-[10px] ${
-                        parseFloat(inv.unrealizedReturnPct || '0') >= 0
-                          ? 'bg-emerald-500/20 text-emerald-400'
-                          : 'bg-rose-500/20 text-rose-400'
-                      }`}>
-                        {parseFloat(inv.unrealizedReturnPct || '0') >= 0 ? '+' : ''}
-                        {parseFloat(inv.unrealizedReturnPct || '0').toFixed(1)}%
+        return (
+          <div ref={commitmentsSectionRef} className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-extrabold text-base text-white">
+                    {selectedStartupObj
+                      ? `Investors in ${selectedStartupObj.companyName} (${filteredCommitments.length})`
+                      : `All Investor Commitments (${filteredCommitments.length} / ${commitments.length})`}
+                  </h3>
+                  {selectedStartupObj && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedListingFilterId('ALL');
+                        setCommitmentPage(1);
+                      }}
+                      className="px-2.5 py-0.5 rounded-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 text-[11px] font-bold border border-purple-500/40 cursor-pointer flex items-center gap-1"
+                    >
+                      <X className="w-3 h-3" /> Show All Startups
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400">
+                  Click any startup card above to inspect its exact investors, or click an investor name to open their Client View.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={selectedListingFilterId}
+                  onChange={(e) => {
+                    setSelectedListingFilterId(e.target.value);
+                    setCommitmentPage(1);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-semibold outline-none focus:border-purple-500"
+                >
+                  <option value="ALL">All Startups ({commitments.length})</option>
+                  {listings.map((l) => {
+                    const cnt = commitments.filter((c) => (c.listing?.id || c.listingId) === l.id).length;
+                    return (
+                      <option key={l.id} value={l.id}>
+                        {l.companyName} ({cnt})
+                      </option>
+                    );
+                  })}
+                </select>
+
+                <select
+                  value={commitmentStatusFilter}
+                  onChange={(e) => {
+                    setCommitmentStatusFilter(e.target.value as any);
+                    setCommitmentPage(1);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-semibold outline-none focus:border-purple-500"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="CLEARED_FUNDS">CLEARED_FUNDS</option>
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="EXITED">EXITED</option>
+                </select>
+
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={commitmentSearch}
+                    onChange={(e) => {
+                      setCommitmentSearch(e.target.value);
+                      setCommitmentPage(1);
+                    }}
+                    placeholder="Search investor, email or INV code..."
+                    className="pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 outline-none focus:border-purple-500 w-56"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {listingsLoading ? (
+              <div className="p-12 text-center text-slate-500">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-purple-500" />
+              </div>
+            ) : filteredCommitments.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 text-xs">
+                {selectedStartupObj
+                  ? `No investors have committed capital to ${selectedStartupObj.companyName} yet.`
+                  : 'No investor commitments match your filter.'}
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-slate-800 text-slate-400 uppercase font-bold text-[10px]">
+                      <tr>
+                        <th className="pb-3 pr-3">Code</th>
+                        <th className="pb-3 pr-3">Startup</th>
+                        <th className="pb-3 pr-3">Investor (Client View)</th>
+                        <th className="pb-3 pr-3">Net Capital</th>
+                        <th className="pb-3 pr-3">Current Holding Value</th>
+                        <th className="pb-3 pr-3">Valuation Gain</th>
+                        <th className="pb-3 pr-3">Distributed Proceeds</th>
+                        <th className="pb-3 text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {pageCommitments.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3 pr-3 font-mono font-bold text-amber-400">{inv.investmentCode}</td>
+                          <td className="py-3 pr-3 font-bold text-white">{inv.listing?.companyName}</td>
+                          <td className="py-3 pr-3 text-slate-300">
+                            {inv.investor?.id ? (
+                              <Link
+                                href={`/dashboard?inspectUser=${inv.investor.id}`}
+                                className="inline-flex items-center gap-1 font-bold text-white hover:text-emerald-400 transition-colors group"
+                                title="Open Client View for this investor"
+                              >
+                                <span className="group-hover:underline">
+                                  {inv.investor?.firstName} {inv.investor?.lastName}
+                                </span>
+                                <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-emerald-400" />
+                              </Link>
+                            ) : (
+                              <div className="font-bold">
+                                {inv.investor?.firstName} {inv.investor?.lastName}
+                              </div>
+                            )}
+                            <div className="text-[10px] text-slate-500 font-mono">{inv.investor?.email}</div>
+                          </td>
+                          <td className="py-3 pr-3 font-mono font-bold text-slate-200">
+                            ${parseFloat(inv.netInvestedAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                          </td>
+                          <td className="py-3 pr-3 font-mono font-black text-emerald-400">
+                            ${parseFloat(inv.currentValuation || inv.netInvestedAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                          </td>
+                          <td className="py-3 pr-3 font-mono font-bold">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] ${
+                                parseFloat(inv.unrealizedReturnPct || '0') >= 0
+                                  ? 'bg-emerald-500/20 text-emerald-400'
+                                  : 'bg-rose-500/20 text-rose-400'
+                              }`}
+                            >
+                              {parseFloat(inv.unrealizedReturnPct || '0') >= 0 ? '+' : ''}
+                              {parseFloat(inv.unrealizedReturnPct || '0').toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="py-3 pr-3 font-mono font-bold text-white">
+                            ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
+                          </td>
+                          <td className="py-3 text-right">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                inv.status === 'EXITED'
+                                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              }`}
+                            >
+                              {inv.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {totalCPages > 1 && (
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
+                    <span>
+                      Showing {(safeCPage - 1) * COMMITMENTS_PER_PAGE + 1}–
+                      {Math.min(safeCPage * COMMITMENTS_PER_PAGE, filteredCommitments.length)} of {filteredCommitments.length} investors
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={safeCPage <= 1}
+                        onClick={() => setCommitmentPage((p) => Math.max(1, p - 1))}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                      </button>
+                      <span className="font-mono text-white">
+                        {safeCPage} / {totalCPages}
                       </span>
-                    </td>
-                    <td className="py-3 font-mono font-bold text-white">
-                      ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
-                    </td>
-                    <td className="py-3 text-right">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                        inv.status === 'EXITED'
-                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                          : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                      }`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <button
+                        type="button"
+                        disabled={safeCPage >= totalCPages}
+                        onClick={() => setCommitmentPage((p) => Math.min(totalCPages, p + 1))}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                      >
+                        Next <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {/* UPDATE VALUATION, INVESTED RANGE & MARK-TO-MARKET MODAL */}
       {valuationModalOpen && selectedListing && (() => {

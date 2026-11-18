@@ -1768,6 +1768,127 @@ export class AdminController {
   }
 
   /**
+   * List all Avora Token ($AVR) buyers, whitelist registrants, and live holding/unlock metrics
+   */
+  async getTokenHolders(req: Request, res: Response, next: NextFunction) {
+    try {
+      const policy = await tokenService.getTokenPolicyConfig();
+      const livePriceUsd = Number(policy.currentPriceUsd.toString());
+      const now = new Date();
+
+      const records = await prisma.tokenEarlyAccess.findMany({
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              displayName: true,
+              country: true,
+              status: true,
+              kycStatus: true,
+            },
+          },
+        },
+        orderBy: [{ paidAllocationUsd: 'desc' }, { createdAt: 'desc' }],
+      });
+
+      let paidHoldersCount = 0;
+      let whitelistOnlyCount = 0;
+      let unlockedHoldersCount = 0;
+      let totalTokensAllocated = 0;
+      let totalPaidUsd = 0;
+      let currentLiabilityUsd = 0;
+
+      const holders = records.map((r) => {
+        const tokensAllocated = Number(r.tokensAllocated || 0);
+        const paidAllocationUsd = Number(r.paidAllocationUsd || 0);
+        const requestedAllocationUsd = Number(r.requestedAllocationUsd || 0);
+        const avgEntryPriceUsd = tokensAllocated > 0 && paidAllocationUsd > 0 ? paidAllocationUsd / tokensAllocated : livePriceUsd;
+        const currentValueUsd = tokensAllocated * livePriceUsd;
+        const unrealizedProfitUsd = currentValueUsd - paidAllocationUsd;
+        const unrealizedRoiPct = paidAllocationUsd > 0 ? (unrealizedProfitUsd / paidAllocationUsd) * 100 : 0;
+
+        const basisDate = r.lastPurchaseAt || r.createdAt;
+        const unlockAt =
+          tokensAllocated > 0
+            ? policy.unlockAllNow || policy.lockinDays <= 0
+              ? now
+              : new Date(new Date(basisDate).getTime() + policy.lockinDays * 24 * 60 * 60 * 1000)
+            : null;
+        const isUnlocked =
+          tokensAllocated > 0 &&
+          (policy.unlockAllNow || policy.lockinDays <= 0 || (unlockAt ? now >= unlockAt : false));
+        const daysRemaining =
+          tokensAllocated > 0 && unlockAt && !isUnlocked
+            ? Math.max(0, Math.ceil((unlockAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+            : 0;
+
+        if (tokensAllocated > 0 || paidAllocationUsd > 0) {
+          paidHoldersCount += 1;
+          if (isUnlocked) unlockedHoldersCount += 1;
+        } else {
+          whitelistOnlyCount += 1;
+        }
+
+        totalTokensAllocated += tokensAllocated;
+        totalPaidUsd += paidAllocationUsd;
+        currentLiabilityUsd += currentValueUsd;
+
+        return {
+          id: r.id,
+          userId: r.userId,
+          accountNumber: generateAvoraAccountNumber(r.userId),
+          user: r.user,
+          tokensAllocated,
+          paidAllocationUsd,
+          requestedAllocationUsd,
+          paidCurrency: r.paidCurrency || 'USD',
+          lastPurchaseAt: r.lastPurchaseAt,
+          status: r.status,
+          walletAddress: r.walletAddress,
+          avgEntryPriceUsd,
+          currentValueUsd,
+          unrealizedProfitUsd,
+          unrealizedRoiPct,
+          lockinDays: policy.lockinDays,
+          unlockAt,
+          isUnlocked,
+          daysRemaining,
+          createdAt: r.createdAt,
+        };
+      });
+
+      res.json({
+        success: true,
+        data: {
+          policy: {
+            priceUsd: livePriceUsd,
+            lockinDays: policy.lockinDays,
+            redemptionEnabled: policy.redemptionEnabled,
+            unlockAllNow: policy.unlockAllNow,
+          },
+          summary: {
+            totalRecords: holders.length,
+            paidHoldersCount,
+            whitelistOnlyCount,
+            unlockedHoldersCount,
+            lockedHoldersCount: Math.max(0, paidHoldersCount - unlockedHoldersCount),
+            totalTokensAllocated,
+            totalPaidUsd,
+            currentLiabilityUsd,
+            totalUnrealizedProfitUsd: currentLiabilityUsd - totalPaidUsd,
+          },
+          holders,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Update user role, KYC status, or freeze withdrawals
    */
   async updateUser(req: Request, res: Response, next: NextFunction) {
@@ -3812,10 +3933,62 @@ export class AdminController {
         prisma.globalTransfer.count(),
       ]);
 
-      const [totalTickets, totalOtcDesks, totalOtcTrades] = await Promise.all([
+      const [totalTickets, totalOtcDesks, totalOtcTrades, onlineOtcDesks] = await Promise.all([
         prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
         prisma.otcDesk.count(),
         prisma.otcTrade.count(),
+        prisma.otcDesk.count({ where: { isOnline: true } }),
+      ]);
+
+      const [otcCompletedVolAgg, otcActiveCount, p2pStatsRows, tokenPolicy] = await Promise.all([
+        prisma.otcTrade.aggregate({
+          where: { status: 'COMPLETED' },
+          _sum: { cryptoAmount: true },
+          _count: true,
+        }),
+        prisma.otcTrade.count({ where: { status: { in: ['IN_PROGRESS', 'DISPUTED'] } } }),
+        prisma.p2POffer.count({ where: { status: P2POfferStatus.OPEN } }),
+        tokenService.getTokenPolicyConfig(),
+      ]);
+
+      const [p2pCompletedOrdersAgg, p2pActiveOrdersCount, p2pDisputedCount, p2pMerchantsCount] = await Promise.all([
+        prisma.p2POrder.aggregate({
+          where: { status: P2POrderStatus.COMPLETED },
+          _sum: { cryptoAmount: true },
+          _count: true,
+        }),
+        prisma.p2POrder.count({
+          where: {
+            status: {
+              in: [
+                P2POrderStatus.PENDING,
+                P2POrderStatus.ACCEPTED,
+                P2POrderStatus.PENDING_PAYMENT,
+                P2POrderStatus.PAYMENT_SENT,
+                P2POrderStatus.SELLER_CONFIRMING,
+              ],
+            },
+          },
+        }),
+        prisma.p2POrder.count({ where: { status: P2POrderStatus.DISPUTED } }),
+        prisma.user.count({ where: { isP2pMerchant: true } }),
+      ]);
+
+      const [ventureStatsRows, fdYieldsPaidAgg, fdDistinctUsers, tokenRecords] = await Promise.all([
+        prisma.investmentCommitment.findMany({
+          select: { investorUserId: true, netInvestedAmount: true },
+        }),
+        prisma.packageReturn.aggregate({
+          where: { status: 'CREDITED' },
+          _sum: { returnAmount: true },
+        }),
+        prisma.investmentPackage.findMany({
+          select: { userId: true },
+          distinct: ['userId'],
+        }),
+        prisma.tokenEarlyAccess.findMany({
+          select: { tokensAllocated: true, paidAllocationUsd: true },
+        }),
       ]);
 
       const commandCenter = await this.buildAdminCommandCenterData();
@@ -3824,6 +3997,78 @@ export class AdminController {
       ).catch(() => null);
 
       const activeCapital = activePackages.reduce((acc, p) => acc + parseFloat(p.amount.toString()), 0);
+      const revMod = platformRevenueSummary?.moduleBreakdown;
+
+      const uniqueVentureInvestors = new Set(ventureStatsRows.map((c) => c.investorUserId)).size;
+      const totalVentureCommittedUsd = ventureStatsRows.reduce(
+        (s, c) => s + Number(c.netInvestedAmount || 0),
+        0
+      );
+
+      let tokenPaidHolders = 0;
+      let tokenWhitelistOnly = 0;
+      let totalTokensAllocated = 0;
+      let totalTokenPaidUsd = 0;
+      for (const tr of tokenRecords) {
+        const tok = Number(tr.tokensAllocated || 0);
+        const usd = Number(tr.paidAllocationUsd || 0);
+        if (tok > 0 || usd > 0) tokenPaidHolders += 1;
+        else tokenWhitelistOnly += 1;
+        totalTokensAllocated += tok;
+        totalTokenPaidUsd += usd;
+      }
+
+      const sectionMetrics = {
+        otc: {
+          totalDesks: totalOtcDesks,
+          onlineDesks: onlineOtcDesks,
+          totalTrades: totalOtcTrades,
+          completedTrades: typeof otcCompletedVolAgg._count === 'number' ? otcCompletedVolAgg._count : 0,
+          activeEscrows: otcActiveCount,
+          completedVolumeUsdt: Number(otcCompletedVolAgg._sum?.cryptoAmount || 0).toFixed(2),
+          bankCommissionUsdt: revMod?.otcPlatformFeeUsdt || '0.00',
+          brokerCommissionUsdt: revMod?.otcBrokerCommissionUsdt || '0.00',
+          swapSpreadUsd: revMod?.swapSpreadFeeTotalUsd || '0.00',
+        },
+        p2p: {
+          verifiedMerchants: p2pMerchantsCount,
+          activeOffers: p2pStatsRows,
+          completedOrders: typeof p2pCompletedOrdersAgg._count === 'number' ? p2pCompletedOrdersAgg._count : 0,
+          activeEscrowOrders: p2pActiveOrdersCount,
+          disputedOrders: p2pDisputedCount,
+          completedVolumeUsdt: Number(p2pCompletedOrdersAgg._sum?.cryptoAmount || 0).toFixed(2),
+          feesUsdEq: revMod?.p2pFeeUsdEq || '0.00',
+          promoFeesUsd: revMod?.p2pPromotionFeeTotal || '0.00',
+        },
+        packages: {
+          totalPackages,
+          activePackages: activePackages.length,
+          uniqueInvestorsCount: fdDistinctUsers.length,
+          activeCapitalUsd: activeCapital.toFixed(2),
+          totalYieldsPaidUsd: Number(fdYieldsPaidAgg._sum?.returnAmount || 0).toFixed(2),
+          yieldDueCount: commandCenter?.yieldDueCount ?? 0,
+          maturedUnsettledCount: commandCenter?.maturedUnsettledCount ?? 0,
+        },
+        venture: {
+          publishedCampaigns: totalStartups,
+          totalCommitments: ventureStatsRows.length,
+          uniqueInvestorsCount: uniqueVentureInvestors,
+          totalNetInvestedUsd: totalVentureCommittedUsd.toFixed(2),
+          allocationFeeUsd: revMod?.ventureAllocationFeeUsd || '0.00',
+          profitShareFeeUsd: revMod?.ventureProfitShareFeeUsd || '0.00',
+        },
+        token: {
+          livePriceUsd: Number(tokenPolicy.currentPriceUsd.toString()),
+          lockinDays: tokenPolicy.lockinDays,
+          redemptionEnabled: tokenPolicy.redemptionEnabled,
+          unlockAllNow: tokenPolicy.unlockAllNow,
+          paidHoldersCount: tokenPaidHolders,
+          whitelistOnlyCount: tokenWhitelistOnly,
+          totalTokensAllocated,
+          totalPaidUsd: totalTokenPaidUsd.toFixed(2),
+          currentLiabilityUsd: (totalTokensAllocated * Number(tokenPolicy.currentPriceUsd.toString())).toFixed(2),
+        },
+      };
 
       res.json({
         success: true,
@@ -3842,6 +4087,7 @@ export class AdminController {
           totalOtcTrades,
           commandCenter,
           platformRevenueSummary,
+          sectionMetrics,
         },
       });
     } catch (err) {

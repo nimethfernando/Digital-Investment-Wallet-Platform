@@ -36,8 +36,11 @@ interface OverviewProps {
     totalStartups: number;
     totalTransfers: number;
     totalTickets: number;
+    totalOtcDesks?: number;
+    totalOtcTrades?: number;
     commandCenter?: any;
     platformRevenueSummary?: any;
+    sectionMetrics?: any;
   } | null;
   commandCenter?: any | null;
   ledgerReconciliation: any | null;
@@ -91,6 +94,7 @@ export default function AdminOverviewTab({
   const revData = platformRevenueProp || analytics?.platformRevenueSummary || null;
   const revBreakdown = revData?.moduleBreakdown || null;
   const revVault = revData?.vaultSummary || null;
+  const sec = analytics?.sectionMetrics || null;
 
   return (
     <div className="space-y-6">
@@ -333,42 +337,293 @@ export default function AdminOverviewTab({
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-[11px]">
-            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
-              <div className="text-slate-400">Venture Equity</div>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('investments')}
+              className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-purple-500/50 text-left transition-colors cursor-pointer"
+            >
+              <div className="text-slate-400">Venture Crowdfunding →</div>
               <div className="font-mono font-black text-white">
                 ${(Number(revBreakdown?.ventureAllocationFeeUsd || 0) + Number(revBreakdown?.ventureProfitShareFeeUsd || 0)).toFixed(2)}
               </div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
-              <div className="text-slate-400">P2P Fees + Promos</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('p2p')}
+              className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-amber-500/50 text-left transition-colors cursor-pointer"
+            >
+              <div className="text-slate-400">P2P Marketplace →</div>
               <div className="font-mono font-black text-emerald-400">
                 ${(Number(revBreakdown?.p2pFeeUsdEq || 0) + Number(revBreakdown?.p2pPromotionFeeTotal || 0)).toFixed(2)}
               </div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
-              <div className="text-slate-400">OTC + Swaps</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('otc')}
+              className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-emerald-500/50 text-left transition-colors cursor-pointer"
+            >
+              <div className="text-slate-400">OTC Exchange Desk →</div>
               <div className="font-mono font-black text-white">
                 ${(Number(revBreakdown?.otcPlatformFeeUsdt || 0) + Number(revBreakdown?.swapSpreadFeeTotalUsd || 0)).toFixed(2)}
               </div>
               <div className="text-[10px] font-mono text-emerald-400 mt-0.5">
                 OTC Bank: ${Number(revBreakdown?.otcPlatformFeeUsdt || 0).toFixed(2)} • Brokers: ${Number(revBreakdown?.otcBrokerCommissionUsdt || 0).toFixed(2)}
               </div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
-              <div className="text-slate-400">GMT + Razorpay</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('remittance')}
+              className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-teal-500/50 text-left transition-colors cursor-pointer"
+            >
+              <div className="text-slate-400">GMT + Razorpay →</div>
               <div className="font-mono font-black text-white">
                 ${(Number(revBreakdown?.gmtTransferFeeUsd || 0) + Number(revBreakdown?.razorpayMarginTotal || 0)).toFixed(2)}
               </div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
-              <div className="text-slate-400">Cards + Withdrawals</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('withdrawals')}
+              className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-rose-500/50 text-left transition-colors cursor-pointer"
+            >
+              <div className="text-slate-400">Cards + Withdrawals →</div>
               <div className="font-mono font-black text-white">
                 ${(Number(revBreakdown?.cardIssuanceFeeTotal || 0) + Number(revBreakdown?.withdrawalFeeTotal || 0)).toFixed(2)}
               </div>
-            </div>
+            </button>
           </div>
         </div>
       )}
+
+      {/* SECTION-WISE CLICKABLE OPERATIONS & INVESTOR DRILL-DOWN HUB */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+              <Landmark className="w-4 h-4 text-emerald-400" />
+              <span>Section-Wise Platform Operations &amp; Investor Lists</span>
+            </h3>
+            <p className="text-xs text-slate-400">
+              Click any product section below to inspect its exact balances, active orders, and per-customer investor breakdown.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          {/* 1. OTC Exchange Desk */}
+          <button
+            type="button"
+            onClick={() => onNavigateTab('otc')}
+            className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-emerald-500/60 text-left transition-all cursor-pointer space-y-2.5 group flex flex-col justify-between"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400 font-mono">
+                  1. OTC Exchange Desk
+                </span>
+                <Zap className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="text-xl font-black text-white font-mono">
+                {sec?.otc?.onlineDesks ?? 0} / {sec?.otc?.totalDesks ?? analytics?.totalOtcDesks ?? 0}{' '}
+                <span className="text-xs text-slate-400 font-semibold">Online Desks</span>
+              </div>
+              <div className="space-y-1 text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>Settled Volume:</span>
+                  <strong className="font-mono text-white">${formatMoney(sec?.otc?.completedVolumeUsdt || 0)} USDT</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Trades / Escrows:</span>
+                  <strong className="font-mono text-slate-200">
+                    {sec?.otc?.completedTrades ?? 0} done · {sec?.otc?.activeEscrows ?? 0} live
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Bank / Broker Fees:</span>
+                  <strong className="font-mono text-emerald-400">
+                    ${Number(sec?.otc?.bankCommissionUsdt || revBreakdown?.otcPlatformFeeUsdt || 0).toFixed(2)} / ${Number(sec?.otc?.brokerCommissionUsdt || revBreakdown?.otcBrokerCommissionUsdt || 0).toFixed(2)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+            <div className="pt-2 border-t border-slate-800/80 text-[11px] font-bold text-emerald-400 group-hover:underline flex items-center justify-between">
+              <span>Open OTC Desks &amp; Trades</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </div>
+          </button>
+
+          {/* 2. P2P Marketplace */}
+          <button
+            type="button"
+            onClick={() => onNavigateTab('p2p')}
+            className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/60 text-left transition-all cursor-pointer space-y-2.5 group flex flex-col justify-between"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black uppercase tracking-wider text-amber-400 font-mono">
+                  2. P2P Marketplace
+                </span>
+                <TrendingUp className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="text-xl font-black text-white font-mono">
+                {sec?.p2p?.completedOrders ?? 0}{' '}
+                <span className="text-xs text-slate-400 font-semibold">Settled Orders</span>
+              </div>
+              <div className="space-y-1 text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>P2P Volume:</span>
+                  <strong className="font-mono text-white">${formatMoney(sec?.p2p?.completedVolumeUsdt || 0)}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Merchants / Offers:</span>
+                  <strong className="font-mono text-slate-200">
+                    {sec?.p2p?.verifiedMerchants ?? 0} merch · {sec?.p2p?.activeOffers ?? 0} ads
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Escrow / Disputes:</span>
+                  <strong className="font-mono text-amber-300">
+                    {sec?.p2p?.activeEscrowOrders ?? 0} live · {sec?.p2p?.disputedOrders ?? 0} disputes
+                  </strong>
+                </div>
+              </div>
+            </div>
+            <div className="pt-2 border-t border-slate-800/80 text-[11px] font-bold text-amber-400 group-hover:underline flex items-center justify-between">
+              <span>Open P2P Escrow &amp; Traders</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </div>
+          </button>
+
+          {/* 3. Investment Packages */}
+          <button
+            type="button"
+            onClick={() => onNavigateTab('packages')}
+            className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-sky-500/60 text-left transition-all cursor-pointer space-y-2.5 group flex flex-col justify-between"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black uppercase tracking-wider text-sky-400 font-mono">
+                  3. Investment Packages
+                </span>
+                <Package className="w-4 h-4 text-sky-400" />
+              </div>
+              <div className="text-xl font-black text-white font-mono">
+                ${formatMoney(sec?.packages?.activeCapitalUsd || analytics?.activeCapital || 0)}
+              </div>
+              <div className="space-y-1 text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>Investors / FDs:</span>
+                  <strong className="font-mono text-white">
+                    {sec?.packages?.uniqueInvestorsCount ?? 0} users · {sec?.packages?.activePackages ?? analytics?.activePackagesCount ?? 0} active
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Yields Paid:</span>
+                  <strong className="font-mono text-emerald-400">
+                    ${formatMoney(sec?.packages?.totalYieldsPaidUsd || 0)}
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Due / Matured:</span>
+                  <strong className="font-mono text-amber-300">
+                    {sec?.packages?.yieldDueCount ?? yieldDueCount} due · {sec?.packages?.maturedUnsettledCount ?? maturedUnsettledCount} matured
+                  </strong>
+                </div>
+              </div>
+            </div>
+            <div className="pt-2 border-t border-slate-800/80 text-[11px] font-bold text-sky-400 group-hover:underline flex items-center justify-between">
+              <span>See All Package Investors</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </div>
+          </button>
+
+          {/* 4. Venture Crowdfunding */}
+          <button
+            type="button"
+            onClick={() => onNavigateTab('investments')}
+            className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-purple-500/60 text-left transition-all cursor-pointer space-y-2.5 group flex flex-col justify-between"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black uppercase tracking-wider text-purple-400 font-mono">
+                  4. Venture Crowdfunding
+                </span>
+                <Building className="w-4 h-4 text-purple-400" />
+              </div>
+              <div className="text-xl font-black text-white font-mono">
+                ${formatMoney(sec?.venture?.totalNetInvestedUsd || 0)}
+              </div>
+              <div className="space-y-1 text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>Startups / Commitments:</span>
+                  <strong className="font-mono text-white">
+                    {sec?.venture?.publishedCampaigns ?? analytics?.totalStartups ?? 0} deals · {sec?.venture?.totalCommitments ?? 0} inv.
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Unique Investors:</span>
+                  <strong className="font-mono text-purple-300">
+                    {sec?.venture?.uniqueInvestorsCount ?? 0} users
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Protocol Fees:</span>
+                  <strong className="font-mono text-emerald-400">
+                    ${(Number(sec?.venture?.allocationFeeUsd || revBreakdown?.ventureAllocationFeeUsd || 0) + Number(sec?.venture?.profitShareFeeUsd || revBreakdown?.ventureProfitShareFeeUsd || 0)).toFixed(2)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+            <div className="pt-2 border-t border-slate-800/80 text-[11px] font-bold text-purple-400 group-hover:underline flex items-center justify-between">
+              <span>Click Startup → See Investors</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </div>
+          </button>
+
+          {/* 5. Avora Token ($AVR) */}
+          <button
+            type="button"
+            onClick={() => onNavigateTab('token')}
+            className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/60 text-left transition-all cursor-pointer space-y-2.5 group flex flex-col justify-between"
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black uppercase tracking-wider text-indigo-400 font-mono">
+                  5. Avora Token ($AVR)
+                </span>
+                <Coins className="w-4 h-4 text-indigo-400" />
+              </div>
+              <div className="text-xl font-black text-white font-mono">
+                {Number(sec?.token?.totalTokensAllocated || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}{' '}
+                <span className="text-xs text-indigo-300 font-bold">AVR</span>
+              </div>
+              <div className="space-y-1 text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>Buyers / Whitelist:</span>
+                  <strong className="font-mono text-white">
+                    {sec?.token?.paidHoldersCount ?? 0} buyers · {sec?.token?.whitelistOnlyCount ?? 0} wait
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Live Rate / Lock-In:</span>
+                  <strong className="font-mono text-emerald-400">
+                    ${Number(sec?.token?.livePriceUsd ?? 0.1).toFixed(2)} · {sec?.token?.unlockAllNow ? 'Unlocked' : `${sec?.token?.lockinDays ?? 180}d`}
+                  </strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Paid / Redemption Value:</span>
+                  <strong className="font-mono text-slate-200">
+                    ${formatMoney(sec?.token?.totalPaidUsd || 0)} / ${formatMoney(sec?.token?.currentLiabilityUsd || 0)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+            <div className="pt-2 border-t border-slate-800/80 text-[11px] font-bold text-indigo-400 group-hover:underline flex items-center justify-between">
+              <span>See All $AVR Buyers</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </div>
+          </button>
+        </div>
+      </div>
 
       {/* Primary KPI Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">

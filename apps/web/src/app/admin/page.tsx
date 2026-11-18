@@ -10,6 +10,7 @@ import AdminOverviewTab from './components/AdminOverviewTab';
 import AdminUsersTab from './components/AdminUsersTab';
 import AdminRemittanceTab from './components/AdminRemittanceTab';
 import AdminStartupsTab from './components/AdminStartupsTab';
+import AdminTokenTab from './components/AdminTokenTab';
 import AdminP2PTab from './components/AdminP2PTab';
 import AdminOtcTab from './components/AdminOtcTab';
 import AdminKycTab from './components/AdminKycTab';
@@ -68,7 +69,7 @@ export default function AdminPortalPage() {
   const { user, token, isAdmin, isLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'alerts' | 'users' | 'packages' | 'remittance' | 'investments' | 'p2p' | 'otc' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
+    'overview' | 'alerts' | 'users' | 'packages' | 'remittance' | 'investments' | 'token' | 'p2p' | 'otc' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
   >('overview');
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -219,6 +220,10 @@ export default function AdminPortalPage() {
   const [exitNotes, setExitNotes] = useState('');
   const [distributingExit, setDistributingExit] = useState(false);
 
+  // Avora Token ($AVR) Buyers & Holders State
+  const [tokenHoldersData, setTokenHoldersData] = useState<any | null>(null);
+  const [tokenHoldersLoading, setTokenHoldersLoading] = useState(false);
+
   // KYC State
   const [kycDocs, setKycDocs] = useState<any[]>([]);
   const [kycLoading, setKycLoading] = useState(false);
@@ -339,7 +344,7 @@ export default function AdminPortalPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const tabParam = new URLSearchParams(window.location.search).get('tab');
-    const validTabs = ['overview', 'alerts', 'users', 'packages', 'remittance', 'investments', 'p2p', 'otc', 'deposits', 'withdrawals', 'kyc', 'treasury', 'addresses', 'config', 'system', 'audit', 'disputes', 'content'];
+    const validTabs = ['overview', 'alerts', 'users', 'packages', 'remittance', 'investments', 'token', 'p2p', 'otc', 'deposits', 'withdrawals', 'kyc', 'treasury', 'addresses', 'config', 'system', 'audit', 'disputes', 'content'];
     if (tabParam && validTabs.includes(tabParam)) {
       setActiveTab(tabParam as any);
     }
@@ -535,6 +540,16 @@ export default function AdminPortalPage() {
         console.error('Failed to load investments:', e);
       } finally {
         setInvestmentsLoading(false);
+      }
+    } else if (activeTab === 'token') {
+      setTokenHoldersLoading(true);
+      try {
+        const res = await api.get('/admin/tokens');
+        if (res.data?.success) setTokenHoldersData(res.data.data || null);
+      } catch (e) {
+        console.error('Failed to load $AVR holders:', e);
+      } finally {
+        setTokenHoldersLoading(false);
       }
     } else if (activeTab === 'kyc') {
       setKycLoading(true);
@@ -1787,6 +1802,7 @@ export default function AdminPortalPage() {
             { id: 'packages', label: `Packages & Yields (${tabBadgeCounts.packages})${(commandCenterSummary?.yieldDueCount ?? 0) > 0 ? ` • 🔔 ${commandCenterSummary.yieldDueCount} Due` : ''}`, icon: Package },
             { id: 'remittance', label: `Remittance Orders (${tabBadgeCounts.remittance})`, icon: Globe },
             { id: 'investments', label: `Startup Portfolios (${tabBadgeCounts.investments})`, icon: Building },
+            { id: 'token', label: `Avora Token ($AVR) (${overviewAnalytics?.sectionMetrics?.token?.paidHoldersCount ?? 0})`, icon: Coins },
             { id: 'p2p', label: `P2P Escrow (${tabBadgeCounts.p2p})`, icon: TrendingUp },
             { id: 'otc', label: `OTC Desks & Trades (${tabBadgeCounts.otc})`, icon: Building2 },
             { id: 'deposits', label: `Deposits (${tabBadgeCounts.deposits})`, icon: Coins },
@@ -4508,6 +4524,16 @@ export default function AdminPortalPage() {
             listingsLoading={investmentsLoading}
             onRefresh={loadData}
             onFeedback={setFeedback}
+          />
+        )}
+
+        {/* TAB 1.6: AVORA TOKEN ($AVR) BUYERS & HOLDERS */}
+        {activeTab === 'token' && (
+          <AdminTokenTab
+            data={tokenHoldersData}
+            loading={tokenHoldersLoading}
+            onRefresh={loadData}
+            onNavigateTab={(tab) => setActiveTab(tab as any)}
           />
         )}
 
