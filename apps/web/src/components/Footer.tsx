@@ -233,8 +233,11 @@ export const Footer: React.FC = () => {
           <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 leading-relaxed flex items-start gap-3">
             <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
             <div>
-              <span className="font-bold">Important Risk Disclosure & Lock-in Notice: </span>
-              Digital investment packages carry market risk. Target performance yields (1% monthly return) are calculated on invested principal and credited into your Avora internal ledger account. All investment packages are subject to a mandatory 6-month lock-in period with withdrawal windows opening on the 1st of each calendar month (15-day settlement). Digital settlements are executed via verified SEPA/SWIFT wire or USDT wallet transfer.
+              <span className="font-bold">Important Risk Disclosure, Lock-in Notice &amp; Off-Platform Transaction Ban: </span>
+              Digital investment packages carry market risk. Target performance yields (1% monthly return) are calculated on invested principal and credited into your Avora internal ledger account. All investment packages are subject to a mandatory 6-month lock-in period with withdrawal windows opening on the 1st of each calendar month (15-day settlement). Digital settlements are executed via verified SEPA/SWIFT wire or USDT wallet transfer.{' '}
+              <span className="font-bold text-rose-700 dark:text-rose-300">
+                Strict Zero-Tolerance Policy: Never conduct or arrange any P2P, OTC, fiat, or crypto transaction outside the Avora Bank system. Violating profiles will be permanently blocked, and Avora Bank assumes no responsibility or liability for any off-platform fund loss or recovery.
+              </span>
             </div>
           </div>
 

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { api, extractErrorMessage, resolveMediaUrl } from '../../lib/api';
+import { OutsideSystemDisclaimer } from '../../components/OutsideSystemDisclaimer';
 import {
   Users,
   FileText,
@@ -2112,6 +2113,9 @@ function P2PPageContent() {
           )}
 
           {/* Chat Stream */}
+          <div className="px-5 pt-4 bg-slate-950/80">
+            <OutsideSystemDisclaimer compact />
+          </div>
           <div ref={chatMessagesContainerRef} className="flex-1 p-5 space-y-4 overflow-y-auto max-h-[420px] bg-slate-950/80">
             {chatMessages.length === 0 ? (
               <div className="text-center py-12 text-slate-500 text-xs">
@@ -2501,6 +2505,7 @@ function P2PPageContent() {
       {/* -------------------------------------------------------------------- */}
       {bottomNav === 'p2p' && p2pTopTab === 'marketplace' && (
         <div className="space-y-6">
+          <OutsideSystemDisclaimer />
           {/* P2P Compliance Onboarding Gate Banner OR Merchant Prompt */}
           {user && merchantStatus && !merchantStatus.isP2pTradingApproved ? (
             <div className="p-4 rounded-3xl bg-gradient-to-r from-amber-500/15 via-rose-500/5 to-transparent border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

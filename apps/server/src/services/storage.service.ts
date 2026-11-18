@@ -82,20 +82,15 @@ export const ensureUploadedAssetTable = async (): Promise<void> => {
   return uploadedAssetTableReady;
 };
 
-/**
- * Persist uploaded file bytes into MySQL so files survive ephemeral container restarts (e.g. Render redeploys).
- */
-export const persistUploadedAsset = async (params: {
+export const persistUploadedBuffer = async (params: {
   urlPath: string;
-  filePath: string;
+  buffer: Buffer;
   mimeType: string;
   originalName?: string;
-  sizeBytes?: number;
 }): Promise<void> => {
   try {
     await ensureUploadedAssetTable();
-    const buf = await fs.promises.readFile(params.filePath);
-    const contentBase64 = buf.toString('base64');
+    const contentBase64 = params.buffer.toString('base64');
     await prisma.$executeRawUnsafe(
       `INSERT INTO \`diw_uploaded_assets\` (\`urlPath\`, \`mimeType\`, \`originalName\`, \`contentBase64\`, \`sizeBytes\`, \`createdAt\`)
        VALUES (?, ?, ?, ?, ?, NOW(3))
@@ -108,8 +103,31 @@ export const persistUploadedAsset = async (params: {
       params.mimeType || 'application/octet-stream',
       params.originalName || null,
       contentBase64,
-      params.sizeBytes || buf.length
+      params.buffer.length
     );
+  } catch (err) {
+    console.warn('[Storage] Failed to persist buffer to database fallback:', err);
+  }
+};
+
+/**
+ * Persist uploaded file bytes into MySQL so files survive ephemeral container restarts (e.g. Render redeploys).
+ */
+export const persistUploadedAsset = async (params: {
+  urlPath: string;
+  filePath: string;
+  mimeType: string;
+  originalName?: string;
+  sizeBytes?: number;
+}): Promise<void> => {
+  try {
+    const buf = await fs.promises.readFile(params.filePath);
+    await persistUploadedBuffer({
+      urlPath: params.urlPath,
+      buffer: buf,
+      mimeType: params.mimeType,
+      originalName: params.originalName,
+    });
   } catch (err) {
     console.warn('[Storage] Failed to persist upload to database fallback:', err);
   }

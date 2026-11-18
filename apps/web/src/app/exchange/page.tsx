@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { api, extractErrorMessage } from '../../lib/api';
+import { OutsideSystemDisclaimer } from '../../components/OutsideSystemDisclaimer';
 import {
   ArrowRightLeft,
   Building2,
@@ -1585,6 +1586,9 @@ export default function ExchangeDeskPage() {
         </div>
       )}
 
+      {/* Mandatory Off-Platform Security & Account-Block Warning */}
+      <OutsideSystemDisclaimer />
+
       {/* ========================================================================= */}
       {/* SECTION 1: GLOBAL OTC DESK DISCOVERY */}
       {/* ========================================================================= */}
@@ -2445,6 +2449,8 @@ export default function ExchangeDeskPage() {
             {/* Scrollable Content Body */}
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-6 py-5 space-y-4">
               {/* Desk Location, Landmark & Google Maps Card */}
+              <OutsideSystemDisclaimer compact />
+
               <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs space-y-1.5">
                 <div className="flex items-start gap-1.5 text-slate-700 dark:text-slate-300">
                   <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
@@ -3038,6 +3044,8 @@ export default function ExchangeDeskPage() {
             </div>
 
             <div className="p-5 space-y-4 overflow-y-auto overscroll-contain flex-1 min-h-0">
+              <OutsideSystemDisclaimer compact />
+
               {(activeInquiry?.desk?.isOnline === false || inquiryDesk?.isOnline === false) && (
                 <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300">
                   <strong>Desk is currently marked Offline.</strong> You can still send your question — it will appear in the operator&apos;s Notification Bell and OTC Portal so they can reply as soon as they are available.

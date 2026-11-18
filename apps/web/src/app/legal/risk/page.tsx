@@ -57,6 +57,21 @@ export default function RiskDisclosurePage() {
             Withdrawal requests are accepted exclusively on the 1st day of each month. Submitted requests are subjected to a standard 15-day compliance verification, anti-fraud review, and bank settlement cycle before external disbursement via wire or Tbilisi counter pickup.
           </p>
         </section>
+
+        <section className="space-y-2 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-900 dark:text-rose-200">
+          <h2 className="text-lg font-bold text-rose-700 dark:text-rose-300">5. Strict Prohibition of Outside-System Transactions &amp; Zero Recovery Liability</h2>
+          <p>
+            All OTC desk quotes, P2P trades, escrow settlements, and payments must occur exclusively inside the official Avora Bank platform and recorded escrow rooms.{' '}
+            <strong>
+              Any user, trader, or operator who initiates, requests, encourages, or completes any transaction outside the Avora Bank system will have their profile permanently suspended and blocked.
+            </strong>{' '}
+            Avora Bank has no control or verification over private transfers or off-platform deals and is{' '}
+            <strong>
+              strictly not responsible for any financial loss, fraud, or recovery of funds
+            </strong>{' '}
+            resulting from transactions conducted outside the system.
+          </p>
+        </section>
       </div>
     </div>
   );
