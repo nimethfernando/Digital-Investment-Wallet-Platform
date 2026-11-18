@@ -2,6 +2,7 @@ import { P2POrderStatus, P2POfferStatus, TransactionStatus, TransactionType, Jou
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
+import { notificationService } from '../adapters/notification/notification.provider';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -130,6 +131,19 @@ export function formatCryptoAmount(amount: number | string | Decimal, cryptoCurr
   return fracPart.length < 2 ? `${intPart}.${fracPart.padEnd(2, '0')}` : trimmed;
 }
 
+const EMAIL_ALERT_P2P_TYPES = new Set([
+  'P2P_NEW_ORDER',
+  'P2P_NEW_MESSAGE',
+  'P2P_ORDER_ACCEPTED',
+  'P2P_ORDER_DECLINED',
+  'P2P_ORDER_CANCELLED',
+  'P2P_ORDER_EXPIRED',
+  'P2P_PAYMENT_SENT',
+  'P2P_ESCROW_RELEASED',
+  'P2P_DISPUTE_OPENED',
+  'P2P_DISPUTE_RESOLVED',
+]);
+
 export async function createP2PNotification(params: {
   userId: string;
   type: string;
@@ -143,6 +157,7 @@ export async function createP2PNotification(params: {
   actionUrl?: string;
   actionLabel?: string;
   category?: string;
+  skipEmail?: boolean;
 }) {
   if (!params.userId || params.userId === 'SYSTEM') return;
   try {
@@ -164,6 +179,37 @@ export async function createP2PNotification(params: {
     });
   } catch (err) {
     console.warn('[P2P Notification] failed to persist notification:', err);
+  }
+
+  if (!params.skipEmail && EMAIL_ALERT_P2P_TYPES.has(params.type)) {
+    prisma.user
+      .findUnique({
+        where: { id: params.userId },
+        select: { email: true, firstName: true },
+      })
+      .then((recipient) => {
+        if (!recipient?.email) return;
+        const safeName = recipient.firstName || 'Trader';
+        return notificationService.sendEmail({
+          to: recipient.email,
+          subject: `Avora Bank P2P Alert: ${params.title}`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; color: #1e293b; max-width: 600px;">
+              <h2 style="color: #059669; margin-bottom: 8px;">${params.title}</h2>
+              <p>Hello ${safeName},</p>
+              <p style="font-size: 14px; line-height: 1.5;">${params.message}</p>
+              ${params.referenceCode ? `<p style="font-size: 13px; color: #475569;"><strong>Reference:</strong> ${params.referenceCode}</p>` : ''}
+              <p style="font-size: 13px; color: #475569;">
+                Log in to your <strong>Avora Bank P2P Portal</strong> to view details and respond inside the protected escrow room.
+              </p>
+              <p style="font-size: 11px; color: #94a3b8; margin-top: 16px;">
+                Security Reminder: Always complete P2P chats and payments inside the official Avora Bank escrow system.
+              </p>
+            </div>
+          `,
+        });
+      })
+      .catch(() => {});
   }
 }
 

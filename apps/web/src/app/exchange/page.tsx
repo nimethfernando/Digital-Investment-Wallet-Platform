@@ -1396,6 +1396,23 @@ export default function ExchangeDeskPage() {
             <div className="flex flex-wrap items-center gap-2.5 shrink-0">
               <button
                 type="button"
+                onClick={() => updateAvailability(!myDesk.isOnline)}
+                className={`px-4 py-2.5 rounded-2xl font-bold text-xs border shadow-md flex items-center gap-2 cursor-pointer transition-all ${
+                  myDesk.isOnline
+                    ? 'bg-slate-900 hover:bg-slate-800 text-emerald-300 border-emerald-500/40'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500'
+                }`}
+                title="Switch your OTC Desk & P2P status between Online and Offline"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    myDesk.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'
+                  }`}
+                />
+                <span>{myDesk.isOnline ? 'Desk: Online (Mark Offline)' : 'Desk: Offline (Go Online)'}</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => openManageDeskModal(myDesk)}
                 className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md flex items-center gap-2 cursor-pointer"
               >
@@ -1672,20 +1689,40 @@ export default function ExchangeDeskPage() {
                 >
                   <div className="space-y-3">
                     {/* Status Badges */}
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span
                           className={`w-2.5 h-2.5 rounded-full ${
                             desk.isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
                           }`}
                         />
-                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                        <span
+                          className={`text-xs font-bold uppercase tracking-wider ${
+                            desk.isOnline ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+                          }`}
+                        >
                           {desk.isOnline ? 'Online Now' : 'Offline'}
                         </span>
                       </div>
-                      <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                        {desk.deskCode}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {myDesk && desk.id === myDesk.id && (
+                          <button
+                            type="button"
+                            onClick={() => updateAvailability(!desk.isOnline)}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-black cursor-pointer border transition-colors ${
+                              desk.isOnline
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-slate-800 hover:text-slate-200'
+                                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-emerald-600 hover:text-white'
+                            }`}
+                            title="Toggle your desk Online / Offline across OTC & P2P"
+                          >
+                            {desk.isOnline ? 'Go Offline' : 'Go Online'}
+                          </button>
+                        )}
+                        <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                          {desk.deskCode}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Desk Title & Location */}

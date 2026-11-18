@@ -1727,6 +1727,37 @@ export class OtcService {
       )
     );
 
+    // Email all trade participants (OTC operator & customer) on incoming chat message
+    if (recipientIds.length > 0) {
+      const recipients = await prisma.user
+        .findMany({
+          where: { id: { in: recipientIds } },
+          select: { id: true, email: true, firstName: true },
+        })
+        .catch(() => []);
+
+      for (const r of recipients) {
+        if (!r?.email) continue;
+        notificationService
+          .sendEmail({
+            to: r.email,
+            subject: `New OTC Chat Message (${trade.tradeCode})`,
+            html: `
+              <div style="font-family: sans-serif; padding: 20px; color: #1e293b; max-width: 600px;">
+                <h2 style="color: #059669;">New OTC Escrow Message — ${trade.tradeCode}</h2>
+                <p>Hello ${r.firstName || 'Trader'},</p>
+                <p><strong>${senderName}</strong> sent a new message in OTC trade <strong>${trade.tradeCode}</strong>:</p>
+                <blockquote style="background: #f1f5f9; padding: 12px 16px; border-left: 4px solid #059669; margin: 12px 0;">
+                  ${cleanMsg}
+                </blockquote>
+                <p>Visit your <strong>OTC Exchange</strong> portal (<code>/exchange</code>) or click your Notification Bell to reply live.</p>
+              </div>
+            `,
+          })
+          .catch(() => {});
+      }
+    }
+
     // If customer messaged an official @avorabank.com house desk (e.g. Colombo Central OTC Desk), also alert Admin
     if (senderId === trade.customerId) {
       const opUser = await prisma.user
@@ -3014,6 +3045,38 @@ export class OtcService {
           .catch(() => {})
       )
     );
+
+    // Email operator / customer on follow-up OTC inquiry messages (excluding duplicate house admin mail)
+    const directEmailIds = [senderRole === 'CUSTOMER' ? inq.operatorId : inq.customerId].filter(Boolean);
+    if (directEmailIds.length > 0) {
+      const emailTargets = await prisma.user
+        .findMany({
+          where: { id: { in: directEmailIds } },
+          select: { id: true, email: true, firstName: true },
+        })
+        .catch(() => []);
+
+      for (const r of emailTargets) {
+        if (!r?.email) continue;
+        notificationService
+          .sendEmail({
+            to: r.email,
+            subject: `${senderRole === 'CUSTOMER' ? 'New OTC Inquiry Message' : 'OTC Desk Replied'} (${inq.inquiryCode}) — ${inq.desk?.deskName || 'OTC Desk'}`,
+            html: `
+              <div style="font-family: sans-serif; padding: 20px; color: #1e293b; max-width: 600px;">
+                <h2 style="color: #0284c7;">${senderRole === 'CUSTOMER' ? 'New Question on Your OTC Desk' : 'OTC Desk Replied to Your Inquiry'}</h2>
+                <p>Hello ${r.firstName || 'Trader'},</p>
+                <p><strong>${senderName}</strong> posted a message on inquiry <strong>${inq.inquiryCode}</strong> (${inq.desk?.deskName || 'OTC Desk'}):</p>
+                <blockquote style="background: #f1f5f9; padding: 12px 16px; border-left: 4px solid #0284c7; margin: 12px 0;">
+                  ${cleanMsg}
+                </blockquote>
+                <p>Open the <strong>OTC Exchange</strong> portal (<code>/exchange</code>) or click your Notification Bell to continue chatting.</p>
+              </div>
+            `,
+          })
+          .catch(() => {});
+      }
+    }
 
     if (senderRole === 'CUSTOMER' && isHouseDesk) {
       notificationService

@@ -2984,7 +2984,10 @@ export class P2PService {
   async sendOrderMessage(orderId: string, senderId: string, messageText: string, attachmentUrl?: string) {
     const [order, sender] = await Promise.all([
       prisma.p2POrder.findUnique({ where: { id: orderId } }),
-      prisma.user.findUnique({ where: { id: senderId }, select: { p2pBlocked: true, status: true } }),
+      prisma.user.findUnique({
+        where: { id: senderId },
+        select: { p2pBlocked: true, status: true, firstName: true, lastName: true, displayName: true, email: true },
+      }),
     ]);
     if (!order) throw new Error('Order not found');
     if (order.buyerId !== senderId && order.sellerId !== senderId) {
@@ -2994,14 +2997,32 @@ export class P2PService {
       throw new Error('Your P2P trading/messaging access is restricted.');
     }
 
+    const cleanMessage = messageText?.trim() || (attachmentUrl ? '[Uploaded Attachment]' : '');
     const msg = await prisma.p2PMessage.create({
       data: {
         orderId,
         senderId,
-        message: messageText?.trim() || (attachmentUrl ? '[Uploaded Attachment]' : ''),
+        message: cleanMessage,
         attachmentUrl: attachmentUrl || null,
       },
     });
+
+    const recipientId = order.buyerId === senderId ? order.sellerId : order.buyerId;
+    const senderLabel = sender?.displayName
+      ? `@${sender.displayName}`
+      : `${sender?.firstName || ''} ${sender?.lastName || ''}`.trim() || sender?.email?.split('@')[0] || 'Counterparty';
+
+    createP2PNotification({
+      userId: recipientId,
+      type: 'P2P_NEW_MESSAGE',
+      severity: 'INFO',
+      title: `New P2P Message on #${order.orderCode}`,
+      message: `${senderLabel}: "${cleanMessage.slice(0, 140)}"`,
+      referenceCode: order.orderCode,
+      status: order.status,
+      actionUrl: '/p2p?tab=orders',
+      actionLabel: 'Open Trade Chat',
+    }).catch(() => {});
 
     const d = new Date(msg.createdAt);
     return {
