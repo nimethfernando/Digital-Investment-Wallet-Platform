@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
@@ -318,6 +318,28 @@ export default function ExchangeDeskPage() {
   const [ratesLoading, setRatesLoading] = useState<boolean>(false);
   const [ratesSource, setRatesSource] = useState<string>('Live Market Feed');
 
+  const clearDeepLinkQueryParam = useCallback((paramName: 'inquiryId' | 'tradeId') => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has(paramName)) {
+      url.searchParams.delete(paramName);
+      const nextSearch = url.searchParams.toString();
+      window.history.replaceState(null, '', `${url.pathname}${nextSearch ? `?${nextSearch}` : ''}`);
+    }
+  }, []);
+
+  const closeInquiryModal = useCallback(() => {
+    setInquiryModalOpen(false);
+    deepLinkInquiryHandledRef.current = null;
+    clearDeepLinkQueryParam('inquiryId');
+  }, [clearDeepLinkQueryParam]);
+
+  const closeChatModal = useCallback(() => {
+    setChatModalOpen(false);
+    deepLinkTradeHandledRef.current = null;
+    clearDeepLinkQueryParam('tradeId');
+  }, [clearDeepLinkQueryParam]);
+
   // Lock background page scroll cleanly while modal is open & allow Escape dismissal
   useEffect(() => {
     const anyModalOpen = applyModalOpen || chatModalOpen || manageDeskModalOpen || inquiryModalOpen;
@@ -331,9 +353,9 @@ export default function ExchangeDeskPage() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (applyModalOpen) setApplyModalOpen(false);
-        if (chatModalOpen) setChatModalOpen(false);
+        if (chatModalOpen) closeChatModal();
         if (manageDeskModalOpen) setManageDeskModalOpen(false);
-        if (inquiryModalOpen) setInquiryModalOpen(false);
+        if (inquiryModalOpen) closeInquiryModal();
       }
     };
     if (anyModalOpen) {
@@ -344,7 +366,7 @@ export default function ExchangeDeskPage() {
       document.body.style.overflow = prevOverflow || '';
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [applyModalOpen, chatModalOpen, manageDeskModalOpen, inquiryModalOpen]);
+  }, [applyModalOpen, chatModalOpen, manageDeskModalOpen, inquiryModalOpen, closeChatModal, closeInquiryModal]);
 
   // Computed live Google Maps search query and embed URL for OTC application form
   const resolvedLocationQuery = useMemo(() => {
@@ -630,39 +652,41 @@ export default function ExchangeDeskPage() {
     return () => window.removeEventListener('avora-availability-updated', onAvail);
   }, [user]);
 
-  // Deep-link ?tradeId=... or ?inquiryId=... support when navigating from live notifications
-  useEffect(() => {
-    if (!user || typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    const targetTradeId = params.get('tradeId');
-    if (targetTradeId && deepLinkTradeHandledRef.current !== targetTradeId) {
-      const matched = myTrades.find((t) => t.id === targetTradeId);
-      if (matched) {
-        deepLinkTradeHandledRef.current = targetTradeId;
-        handleOpenExistingTrade(matched);
-      } else {
-        api
-          .get(`/otc/trades/${targetTradeId}`)
-          .then((res) => {
-            if (res.data?.success && res.data?.data) {
-              deepLinkTradeHandledRef.current = targetTradeId;
-              handleOpenExistingTrade(res.data.data);
-            }
-          })
-          .catch(() => {});
+  const openDeepLinkTargets = useCallback(
+    (searchStr?: string, forceReopen = false) => {
+      if (!user || typeof window === 'undefined') return;
+      const params = new URLSearchParams(
+        typeof searchStr === 'string' ? searchStr : window.location.search
+      );
+      const targetTradeId = params.get('tradeId');
+      if (targetTradeId && (forceReopen || deepLinkTradeHandledRef.current !== targetTradeId)) {
+        const matched = myTrades.find((t) => t.id === targetTradeId);
+        if (matched) {
+          deepLinkTradeHandledRef.current = targetTradeId;
+          handleOpenExistingTrade(matched);
+        } else {
+          api
+            .get(`/otc/trades/${targetTradeId}`)
+            .then((res) => {
+              if (res.data?.success && res.data?.data) {
+                deepLinkTradeHandledRef.current = targetTradeId;
+                handleOpenExistingTrade(res.data.data);
+              }
+            })
+            .catch(() => {});
+        }
       }
-    }
 
-    const targetInquiryId = params.get('inquiryId');
-    if (targetInquiryId && deepLinkInquiryHandledRef.current !== targetInquiryId) {
-      const matchedInq = otcInquiries.find((q) => q.id === targetInquiryId);
-      if (matchedInq) {
-        deepLinkInquiryHandledRef.current = targetInquiryId;
-        setActiveInquiry(matchedInq);
-        setInquiryDesk(matchedInq.desk || null);
-        setInquiryError(null);
-        setInquiryModalOpen(true);
-      } else {
+      const targetInquiryId = params.get('inquiryId');
+      if (targetInquiryId && (forceReopen || deepLinkInquiryHandledRef.current !== targetInquiryId)) {
+        const matchedInq = otcInquiries.find((q) => q.id === targetInquiryId);
+        if (matchedInq) {
+          deepLinkInquiryHandledRef.current = targetInquiryId;
+          setActiveInquiry(matchedInq);
+          setInquiryDesk(matchedInq.desk || null);
+          setInquiryError(null);
+          setInquiryModalOpen(true);
+        }
         api
           .get(`/otc/inquiries/${targetInquiryId}`)
           .then((res) => {
@@ -676,8 +700,29 @@ export default function ExchangeDeskPage() {
           })
           .catch(() => {});
       }
-    }
-  }, [user, myTrades, otcInquiries]);
+    },
+    [user, myTrades, otcInquiries]
+  );
+
+  // Deep-link ?tradeId=... or ?inquiryId=... support when navigating from live notifications
+  useEffect(() => {
+    openDeepLinkTargets();
+  }, [openDeepLinkTargets]);
+
+  // Also allow re-opening the same notification target immediately when already on /exchange
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onNotificationNavigate = (ev: Event) => {
+      const actionUrl = (ev as CustomEvent<{ actionUrl?: string }>).detail?.actionUrl || '';
+      if (!actionUrl.startsWith('/exchange')) return;
+      const qIdx = actionUrl.indexOf('?');
+      if (qIdx >= 0) {
+        openDeepLinkTargets(actionUrl.slice(qIdx + 1), true);
+      }
+    };
+    window.addEventListener('avora-notification-navigate', onNotificationNavigate);
+    return () => window.removeEventListener('avora-notification-navigate', onNotificationNavigate);
+  }, [openDeepLinkTargets]);
 
   // Live 3-second polling for open Inquiry chat modal
   useEffect(() => {
@@ -2365,7 +2410,7 @@ export default function ExchangeDeskPage() {
       {/* ========================================================================= */}
       {chatModalOpen && activeDeskForQuote && (
         <div
-          onClick={() => setChatModalOpen(false)}
+          onClick={closeChatModal}
           className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-slate-950/75 backdrop-blur-sm p-3 sm:p-6 flex items-start sm:items-center justify-center animate-in fade-in"
         >
           <div
@@ -2389,7 +2434,7 @@ export default function ExchangeDeskPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setChatModalOpen(false)}
+                onClick={closeChatModal}
                 aria-label="Close trade popup"
                 className="p-2 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0 cursor-pointer"
               >
@@ -2967,7 +3012,7 @@ export default function ExchangeDeskPage() {
       {inquiryModalOpen && (inquiryDesk || activeInquiry) && (
         <div
           className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setInquiryModalOpen(false)}
+          onClick={closeInquiryModal}
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -2985,7 +3030,7 @@ export default function ExchangeDeskPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setInquiryModalOpen(false)}
+                onClick={closeInquiryModal}
                 className="p-2 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 <X className="w-4 h-4" />

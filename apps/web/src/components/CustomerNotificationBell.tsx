@@ -248,7 +248,13 @@ export const CustomerNotificationBell: React.FC = () => {
     }
     setPopoverOpen(false);
     setLiveToast(null);
-    router.push(item.actionUrl || '/dashboard?tab=notifications');
+    const targetUrl = item.actionUrl || '/dashboard?tab=notifications';
+    window.dispatchEvent(
+      new CustomEvent('avora-notification-navigate', {
+        detail: { actionUrl: targetUrl },
+      })
+    );
+    router.push(targetUrl);
   };
 
   if (!user || !token) return null;
