@@ -4952,6 +4952,607 @@ export class AdminController {
       next(err);
     }
   }
+
+  /**
+   * Admin: Unified Transaction ID & Reference Search / Investigation
+   * Searches Ledger Transactions, Deposits, Withdrawals, FD Packages,
+   * Startup Commitments, P2P Orders, OTC Trades, Remittances & Audit Logs.
+   */
+  async lookupTransaction(req: Request, res: Response, next: NextFunction) {
+    try {
+      const q = String(req.query.q || '').trim();
+      if (q.length < 2) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter at least 2 characters of a Transaction ID, Reference, or Order Code.',
+        });
+      }
+
+      const userSelect = {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        displayName: true,
+        country: true,
+        kycStatus: true,
+        status: true,
+      };
+
+      const [
+        ledgerTxs,
+        deposits,
+        withdrawals,
+        packages,
+        commitments,
+        p2pOrders,
+        otcTrades,
+        remittances,
+      ] = await Promise.all([
+        prisma.transaction.findMany({
+          where: {
+            OR: [
+              { transactionCode: { contains: q } },
+              { settlementReference: { contains: q } },
+              { id: q },
+            ],
+          },
+          include: {
+            user: { select: userSelect },
+            package: {
+              select: {
+                id: true,
+                packageCode: true,
+                amount: true,
+                currency: true,
+                status: true,
+                lockInStart: true,
+                lockInEnd: true,
+                depositMethod: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 25,
+        }),
+        prisma.depositRequest.findMany({
+          where: {
+            OR: [
+              { depositCode: { contains: q } },
+              { txHashOrRef: { contains: q } },
+              { id: q },
+            ],
+          },
+          include: { user: { select: userSelect } },
+          orderBy: { createdAt: 'desc' },
+          take: 25,
+        }),
+        prisma.withdrawalRequest.findMany({
+          where: {
+            OR: [
+              { requestCode: { contains: q } },
+              { settlementReference: { contains: q } },
+              { id: q },
+            ],
+          },
+          include: {
+            user: { select: userSelect },
+            package: { select: { id: true, packageCode: true, status: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 25,
+        }),
+        prisma.investmentPackage.findMany({
+          where: {
+            OR: [{ packageCode: { contains: q } }, { id: q }],
+          },
+          include: {
+            user: { select: userSelect },
+            returns: { orderBy: { periodIndex: 'asc' } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 15,
+        }),
+        prisma.investmentCommitment.findMany({
+          where: {
+            OR: [
+              { investmentCode: { contains: q } },
+              { settlementReference: { contains: q } },
+              { id: q },
+            ],
+          },
+          include: {
+            investor: { select: userSelect },
+            listing: {
+              select: {
+                id: true,
+                slug: true,
+                companyName: true,
+                industry: true,
+                stage: true,
+                country: true,
+                lockInMonths: true,
+                maturityDate: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 15,
+        }),
+        prisma.p2POrder.findMany({
+          where: {
+            OR: [
+              { orderCode: { contains: q } },
+              { paymentReference: { contains: q } },
+              { id: q },
+            ],
+          },
+          include: {
+            buyer: { select: userSelect },
+            seller: { select: userSelect },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 15,
+        }),
+        prisma.otcTrade.findMany({
+          where: {
+            OR: [{ tradeCode: { contains: q } }, { id: q }],
+          },
+          include: {
+            customer: { select: userSelect },
+            operator: { select: userSelect },
+            desk: { select: { id: true, deskCode: true, deskName: true, city: true, country: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 15,
+        }),
+        prisma.globalTransfer.findMany({
+          where: {
+            OR: [{ transferCode: { contains: q } }, { id: q }],
+          },
+          include: { user: { select: userSelect } },
+          orderBy: { createdAt: 'desc' },
+          take: 15,
+        }),
+      ]);
+
+      // Cross-link INV-* references found inside matched Ledger Transactions
+      const linkedInvCodes = Array.from(
+        new Set(
+          ledgerTxs
+            .map((t) => t.settlementReference)
+            .filter((r): r is string => Boolean(r && /^INV-/i.test(r)))
+        )
+      );
+      const linkedCommitments =
+        linkedInvCodes.length > 0
+          ? await prisma.investmentCommitment.findMany({
+              where: { investmentCode: { in: linkedInvCodes } },
+              include: {
+                listing: { select: { id: true, companyName: true, industry: true, stage: true, maturityDate: true } },
+              },
+            })
+          : [];
+      const invByCode = new Map(linkedCommitments.map((c) => [c.investmentCode, c]));
+
+      // Cross-check if ledgerTxs have sibling entries with same settlementReference
+      const allRefs = Array.from(
+        new Set([
+          q,
+          ...ledgerTxs.map((t) => t.transactionCode),
+          ...ledgerTxs.map((t) => t.settlementReference).filter((x): x is string => Boolean(x)),
+          ...deposits.map((d) => d.depositCode),
+          ...withdrawals.map((w) => w.requestCode),
+          ...packages.map((p) => p.packageCode),
+          ...commitments.map((c) => c.investmentCode),
+          ...p2pOrders.map((o) => o.orderCode),
+          ...otcTrades.map((t) => t.tradeCode),
+          ...remittances.map((r) => r.transferCode),
+        ])
+      );
+      const allEntityIds = Array.from(
+        new Set([
+          ...ledgerTxs.map((t) => t.id),
+          ...deposits.map((d) => d.id),
+          ...withdrawals.map((w) => w.id),
+          ...packages.map((p) => p.id),
+          ...commitments.map((c) => c.id),
+          ...p2pOrders.map((o) => o.id),
+          ...otcTrades.map((t) => t.id),
+          ...remittances.map((r) => r.id),
+        ])
+      );
+
+      const relatedAuditLogs = await prisma.adminAuditLog.findMany({
+        where: {
+          OR: [
+            ...(allEntityIds.length > 0 ? [{ entityId: { in: allEntityIds } }] : []),
+            ...allRefs.slice(0, 8).map((ref) => ({ details: { contains: ref } })),
+          ],
+        },
+        include: {
+          user: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      });
+
+      const formatUser = (u: any) =>
+        u
+          ? {
+              id: u.id,
+              name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email,
+              email: u.email,
+              phone: u.phone || null,
+              accountNumber: generateAvoraAccountNumber(u.id),
+              country: u.country || null,
+              kycStatus: u.kycStatus,
+              status: u.status,
+            }
+          : null;
+
+      const results: any[] = [];
+
+      for (const tx of ledgerTxs) {
+        const linkedInv = tx.settlementReference ? invByCode.get(tx.settlementReference) : undefined;
+        const isCompleted = tx.status === 'COMPLETED';
+        const isPending = tx.status === 'PENDING';
+        results.push({
+          recordKind: 'LEDGER_TRANSACTION',
+          recordLabel: 'Double-Entry Ledger Transaction',
+          id: tx.id,
+          primaryCode: tx.transactionCode,
+          secondaryRef: tx.settlementReference || tx.package?.packageCode || null,
+          title: `${tx.type.replace(/_/g, ' ')}${linkedInv?.listing?.companyName ? ` — ${linkedInv.listing.companyName}` : tx.package ? ` — ${tx.package.packageCode}` : ''}`,
+          currentStatus: tx.status,
+          paymentStatus: isCompleted
+            ? 'Payment & Double-Entry Ledger Completed'
+            : isPending
+            ? 'Ledger Entry Pending Final Settlement'
+            : `Transaction ${tx.status}`,
+          pendingReason: isPending
+            ? 'Double-entry posting is awaiting upstream confirmation or clearing.'
+            : isCompleted
+            ? 'No hold — funds movement was posted to user wallet balances.'
+            : `Marked as ${tx.status}.`,
+          adminActionRequired: isPending,
+          adminActionSummary: isPending
+            ? 'Verify underlying deposit/withdrawal/escrow record before manual intervention.'
+            : 'No Admin action required — transaction already completed and reconciled in ledger.',
+          targetTab: linkedInv
+            ? 'investments'
+            : tx.package
+            ? 'packages'
+            : tx.type.includes('DEPOSIT')
+            ? 'deposits'
+            : tx.type.includes('WITHDRAWAL')
+            ? 'withdrawals'
+            : 'users',
+          amount: Number(tx.amount),
+          currency: tx.currency,
+          balanceBefore: Number(tx.balanceBefore),
+          balanceAfter: Number(tx.balanceAfter),
+          notes: tx.notes || null,
+          createdAt: tx.createdAt,
+          user: formatUser(tx.user),
+          linkedContext: linkedInv
+            ? {
+                type: 'STARTUP_INVESTMENT',
+                investmentCode: linkedInv.investmentCode,
+                companyName: linkedInv.listing?.companyName,
+                netInvestedAmount: Number(linkedInv.netInvestedAmount),
+                allocationFeeAmount: Number(linkedInv.allocationFeeAmount),
+                currentValuation: linkedInv.currentValuation ? Number(linkedInv.currentValuation) : Number(linkedInv.netInvestedAmount),
+                status: linkedInv.status,
+              }
+            : tx.package
+            ? {
+                type: 'FD_PACKAGE',
+                packageCode: tx.package.packageCode,
+                amount: Number(tx.package.amount),
+                status: tx.package.status,
+                lockInStart: tx.package.lockInStart,
+                lockInEnd: tx.package.lockInEnd,
+              }
+            : null,
+          timeline: [
+            { label: 'Created & Posted By', detail: tx.createdBy || 'SYSTEM', at: tx.createdAt },
+            ...(linkedInv
+              ? [{ label: 'Linked Startup Commitment', detail: `${linkedInv.investmentCode} • ${linkedInv.listing?.companyName || ''} (${linkedInv.status})`, at: linkedInv.createdAt }]
+              : []),
+          ],
+        });
+      }
+
+      for (const dep of deposits) {
+        const hasProof = Boolean(dep.proofUrl || (dep.txHashOrRef && dep.txHashOrRef.trim() && dep.txHashOrRef.trim().toLowerCase() !== 'none'));
+        const isPending = dep.status === 'PENDING';
+        results.push({
+          recordKind: 'DEPOSIT',
+          recordLabel: 'Customer Deposit Request',
+          id: dep.id,
+          primaryCode: dep.depositCode,
+          secondaryRef: dep.txHashOrRef || null,
+          title: `${Number(dep.amount).toLocaleString()} ${dep.currency} Deposit via ${dep.depositMethod}`,
+          currentStatus: dep.status,
+          paymentStatus:
+            dep.status === 'APPROVED'
+              ? 'Payment Verified & Wallet Credited'
+              : dep.status === 'REJECTED'
+              ? 'Deposit Rejected (No Credit)'
+              : hasProof
+              ? `Payment Proof / Ref Submitted (${dep.txHashOrRef || 'Screenshot Attached'}) — Awaiting Admin Verification`
+              : 'No Gateway Capture / Payment Proof Submitted Yet',
+          pendingReason: isPending
+            ? hasProof
+              ? 'Waiting for Admin to inspect the submitted bank wire/crypto hash/Razorpay proof and click Approve.'
+              : 'User initiated a deposit request without uploading a transaction reference or proof (possible checkout drop-off or unpaid wire).'
+            : dep.status === 'APPROVED'
+            ? 'None — deposit approved and credited.'
+            : `Rejected${dep.reviewedBy ? ` by ${dep.reviewedBy}` : ''}.`,
+          adminActionRequired: isPending,
+          adminActionSummary: isPending
+            ? 'Action Required: Open Deposits tab, verify the gateway/bank reference & proof, and Approve or Reject.'
+            : `No Admin action pending — already ${dep.status}.`,
+          targetTab: 'deposits',
+          amount: Number(dep.amount),
+          currency: dep.currency,
+          notes: dep.adminNotes || null,
+          proofUrl: dep.proofUrl || null,
+          createdAt: dep.createdAt,
+          user: formatUser(dep.user),
+          timeline: [
+            { label: 'Deposit Requested', detail: `Method: ${dep.depositMethod}${dep.txHashOrRef ? ` • Ref: ${dep.txHashOrRef}` : ''}`, at: dep.createdAt },
+            ...(dep.reviewedAt
+              ? [{ label: `Deposit ${dep.status}`, detail: `Reviewed by ${dep.reviewedBy || 'Admin'}`, at: dep.reviewedAt }]
+              : []),
+          ],
+        });
+      }
+
+      for (const w of withdrawals) {
+        const isPending = ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w.status);
+        results.push({
+          recordKind: 'WITHDRAWAL',
+          recordLabel: 'Withdrawal Settlement Request',
+          id: w.id,
+          primaryCode: w.requestCode,
+          secondaryRef: w.settlementReference || w.package?.packageCode || null,
+          title: `${Number(w.amount).toLocaleString()} ${w.currency} Withdrawal (${w.payoutMethod.replace(/_/g, ' ')})`,
+          currentStatus: w.status,
+          paymentStatus:
+            w.status === 'SETTLED'
+              ? `Payout Settled (Ref: ${w.settlementReference || 'Recorded'})`
+              : w.status === 'REJECTED'
+              ? 'Rejected & Balance Refunded to User Wallet'
+              : 'Funds Reserved in Pending Settlement Queue (Awaiting Admin Payout Execution)',
+          pendingReason: isPending
+            ? `Withdrawal is in ${w.status} stage within the 15-day settlement queue awaiting Admin bank/crypto transfer & settlement reference entry.`
+            : w.status === 'SETTLED'
+            ? 'None — payout completed.'
+            : 'Rejected and refunded to user wallet.',
+          adminActionRequired: isPending,
+          adminActionSummary: isPending
+            ? 'Action Required: Open Settlement Queue (Withdrawals tab), execute payout, and click Settle & Record Payout (or Reject).'
+            : `No Admin action pending — ${w.status}.`,
+          targetTab: 'withdrawals',
+          amount: Number(w.amount),
+          currency: w.currency,
+          notes: w.adminNotes || null,
+          createdAt: w.createdAt,
+          user: formatUser(w.user),
+          timeline: [
+            { label: 'Withdrawal Requested', detail: `Type: ${w.withdrawalType} • Queue Window: ${new Date(w.requestWindowDate).toLocaleDateString()}`, at: w.createdAt },
+            ...(w.settledAt
+              ? [{ label: 'Payout Settled', detail: `Settlement Ref: ${w.settlementReference || 'N/A'}`, at: w.settledAt }]
+              : []),
+          ],
+        });
+      }
+
+      for (const pkg of packages) {
+        const isPending = pkg.status === 'PENDING_PAYMENT';
+        results.push({
+          recordKind: 'FD_PACKAGE',
+          recordLabel: 'Fixed Deposit Package',
+          id: pkg.id,
+          primaryCode: pkg.packageCode,
+          secondaryRef: pkg.depositMethod || null,
+          title: `${Number(pkg.amount).toLocaleString()} ${pkg.currency} Fixed Deposit (${pkg.lockInMonths}m Lock)`,
+          currentStatus: pkg.status,
+          paymentStatus: isPending
+            ? 'Awaiting Admin Payment Confirmation & FD Activation'
+            : 'Funded & Active / Matured Contract',
+          pendingReason: isPending
+            ? 'Package purchase awaiting Admin verification of funding.'
+            : pkg.status === 'ACTIVE'
+            ? `Active ${pkg.lockInMonths}-month lock-in; monthly yields Paid: ${pkg.returns?.length || 0}/${pkg.lockInMonths}.`
+            : `Contract status is ${pkg.status}.`,
+          adminActionRequired: isPending || pkg.status === 'MATURED',
+          adminActionSummary: isPending
+            ? 'Action Required: Verify payment and Approve & Activate in Packages & Yields tab.'
+            : 'Manage monthly yield credits or full settlement in Packages & Yields tab.',
+          targetTab: 'packages',
+          amount: Number(pkg.amount),
+          currency: pkg.currency,
+          notes: pkg.adminNotes || null,
+          createdAt: pkg.createdAt,
+          user: formatUser(pkg.user),
+          timeline: [
+            { label: 'Package Created', detail: `${Number(pkg.amount).toLocaleString()} ${pkg.currency} • ${pkg.lockInMonths} Months`, at: pkg.createdAt },
+            ...(pkg.lockInStart ? [{ label: 'Lock-In Activated', detail: `Ends ${pkg.lockInEnd ? new Date(pkg.lockInEnd).toLocaleDateString() : '6m'}`, at: pkg.lockInStart }] : []),
+          ],
+        });
+      }
+
+      for (const inv of commitments) {
+        results.push({
+          recordKind: 'STARTUP_INVESTMENT',
+          recordLabel: 'Startup Crowdfunding Commitment',
+          id: inv.id,
+          primaryCode: inv.investmentCode,
+          secondaryRef: inv.settlementReference || inv.listing?.companyName || null,
+          title: `${inv.listing?.companyName || 'Startup Round'} (${inv.instrument})`,
+          currentStatus: inv.status,
+          paymentStatus: `Paid From Available USD Wallet ($${Number(inv.netInvestedAmount).toFixed(2)} Net + $${Number(inv.allocationFeeAmount).toFixed(2)} Fee = $${Number(inv.grossAmount).toFixed(2)} Gross)`,
+          pendingReason:
+            inv.status === 'EXITED'
+              ? `Exited & distributed $${Number(inv.realizedProceeds).toFixed(2)} USD back to investor.`
+              : `Active nominee holding in ${inv.listing?.companyName || 'round'} (Realized proceeds so far: $${Number(inv.realizedProceeds).toFixed(2)}).`,
+          adminActionRequired: false,
+          adminActionSummary: 'No pending collection action — valuation updates or exit distributions can be executed in Startup Portfolios.',
+          targetTab: 'investments',
+          amount: Number(inv.netInvestedAmount),
+          currency: 'USD',
+          notes: inv.notes || null,
+          createdAt: inv.createdAt,
+          user: formatUser(inv.investor),
+          timeline: [
+            { label: 'Commitment Allocated', detail: `${inv.listing?.companyName || ''} • $${Number(inv.netInvestedAmount).toFixed(2)} net`, at: inv.createdAt },
+            ...(inv.maturedAt ? [{ label: 'Exited / Distributed', detail: `Proceeds: $${Number(inv.realizedProceeds).toFixed(2)}`, at: inv.maturedAt }] : []),
+          ],
+        });
+      }
+
+      for (const o of p2pOrders) {
+        const needsRuling = ['DISPUTED', 'FROZEN'].includes(o.status) || o.isFrozen;
+        const inProgress = ['PENDING', 'ACCEPTED', 'PENDING_PAYMENT', 'PAYMENT_SENT', 'SELLER_CONFIRMING'].includes(o.status);
+        results.push({
+          recordKind: 'P2P_ORDER',
+          recordLabel: 'P2P Marketplace Escrow Order',
+          id: o.id,
+          primaryCode: o.orderCode,
+          secondaryRef: o.paymentReference || null,
+          title: `${Number(o.cryptoAmount).toFixed(2)} ${o.cryptoCurrency} ↔ ${Number(o.fiatAmount).toLocaleString()} ${o.fiatCurrency}`,
+          currentStatus: o.status,
+          paymentStatus:
+            o.status === 'COMPLETED'
+              ? 'Fiat Confirmed & Escrow Crypto Released'
+              : o.paidAt
+              ? `Buyer Marked Paid (${o.selectedPaymentMethod || 'Rail'}) — Awaiting Seller Release / Ruling`
+              : 'Awaiting Counterparty Acceptance / Fiat Payment',
+          pendingReason: needsRuling
+            ? `Order is ${o.status}${o.disputeReason ? `: ${o.disputeReason}` : ' — requires Admin Dispute Resolution.'}`
+            : inProgress
+            ? 'Live escrow order awaiting buyer payment or seller confirmation.'
+            : `Order finalized as ${o.status}.`,
+          adminActionRequired: needsRuling,
+          adminActionSummary: needsRuling
+            ? 'Action Required: Review payment proof & chat in P2P Escrow tab and issue a dispute ruling.'
+            : 'No Admin action needed unless escalated to dispute.',
+          targetTab: 'p2p',
+          amount: Number(o.cryptoAmount),
+          currency: o.cryptoCurrency,
+          createdAt: o.createdAt,
+          user: formatUser(o.buyer),
+          counterparty: formatUser(o.seller),
+          timeline: [
+            { label: 'Order Opened', detail: `Buyer: ${o.buyer?.email} • Seller: ${o.seller?.email}`, at: o.createdAt },
+            ...(o.acceptedAt ? [{ label: 'Accepted by Counterparty', detail: o.status, at: o.acceptedAt }] : []),
+            ...(o.paidAt ? [{ label: 'Buyer Marked Payment Sent', detail: o.paymentReference || 'Proof uploaded', at: o.paidAt }] : []),
+            ...(o.completedAt ? [{ label: 'Escrow Released / Closed', detail: o.status, at: o.completedAt }] : []),
+          ],
+        });
+      }
+
+      for (const t of otcTrades) {
+        const needsRuling = t.status === 'DISPUTED';
+        results.push({
+          recordKind: 'OTC_TRADE',
+          recordLabel: 'OTC Desk Escrow Trade',
+          id: t.id,
+          primaryCode: t.tradeCode,
+          secondaryRef: t.desk?.deskCode || null,
+          title: `${t.tradeType} • ${Number(t.cryptoAmount).toFixed(2)} USDT @ ${t.desk?.deskName || 'OTC Desk'}`,
+          currentStatus: t.status,
+          paymentStatus:
+            t.status === 'COMPLETED'
+              ? 'OTC Trade Settled & Commissions Posted'
+              : t.escrowLocked
+              ? 'USDT Locked in OTC Desk Escrow'
+              : `Trade ${t.status}`,
+          pendingReason: needsRuling
+            ? `Disputed OTC trade${t.disputeReason ? `: ${t.disputeReason}` : ''}.`
+            : t.status === 'IN_PROGRESS'
+            ? 'In-person/desk settlement in progress with OTC operator.'
+            : `Trade finalized (${t.status}).`,
+          adminActionRequired: needsRuling,
+          adminActionSummary: needsRuling
+            ? 'Action Required: Resolve OTC Escrow Dispute in OTC Desks & Trades tab.'
+            : 'Managed between Customer and Desk Operator unless disputed.',
+          targetTab: 'otc',
+          amount: Number(t.cryptoAmount),
+          currency: 'USDT',
+          createdAt: t.createdAt,
+          user: formatUser(t.customer),
+          counterparty: formatUser(t.operator),
+          timeline: [
+            { label: 'OTC Trade Initiated', detail: `${t.desk?.deskName || ''} (${t.desk?.city || ''})`, at: t.createdAt },
+            ...(t.completedAt ? [{ label: 'Trade Settled', detail: t.status, at: t.completedAt }] : []),
+          ],
+        });
+      }
+
+      for (const r of remittances) {
+        const isPending = ['SUBMITTED', 'COMPLIANCE_SCREENED', 'PROCESSING'].includes(r.status);
+        results.push({
+          recordKind: 'REMITTANCE',
+          recordLabel: 'Global Remittance Transfer',
+          id: r.id,
+          primaryCode: r.transferCode,
+          secondaryRef: r.recipientBankName || null,
+          title: `${Number(r.sendingAmount).toLocaleString()} ${r.sendingCurrency} → ${Number(r.recipientAmount).toLocaleString()} ${r.recipientCurrency} (${r.destinationCountry})`,
+          currentStatus: r.status,
+          paymentStatus:
+            r.status === 'COMPLETED'
+              ? 'Sender Debited & Remittance Wire Completed'
+              : isPending
+              ? 'Sender Balance Debited — Awaiting Bank/Corridor Dispatch by Admin'
+              : `Remittance ${r.status}`,
+          pendingReason: isPending
+            ? `Transfer is ${r.status} awaiting Admin corridor processing and completion.`
+            : r.status === 'REJECTED'
+            ? `Rejected: ${r.rejectionReason || 'Compliance / bank detail issue'}.`
+            : 'Completed.',
+          adminActionRequired: isPending,
+          adminActionSummary: isPending
+            ? 'Action Required: Process / Update Remittance Transfer status in Remittance Transfers tab.'
+            : 'No Admin action pending.',
+          targetTab: 'remittance',
+          amount: Number(r.totalPaidAmount),
+          currency: r.sendingCurrency,
+          notes: r.complianceNotes || r.rejectionReason || null,
+          createdAt: r.createdAt,
+          user: formatUser(r.user),
+          timeline: [
+            { label: 'Transfer Submitted', detail: `Recipient: ${r.recipientName} • ${r.recipientBankName}`, at: r.createdAt },
+            ...(r.completedAt ? [{ label: 'Wire Completed', detail: r.status, at: r.completedAt }] : []),
+          ],
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          query: q,
+          totalMatches: results.length,
+          results,
+          auditLogs: relatedAuditLogs.map((l) => ({
+            id: l.id,
+            action: l.action,
+            entity: l.entity,
+            entityId: l.entityId,
+            details: l.details,
+            adminEmail: l.user?.email || 'SYSTEM',
+            createdAt: l.createdAt,
+          })),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const adminController = new AdminController();

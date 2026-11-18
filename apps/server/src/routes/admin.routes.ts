@@ -143,7 +143,8 @@ router.get('/otc/trades', (req, res, next) => adminController.getOtcTrades(req, 
 router.post('/otc/trades/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resolveOtcTrade(req, res, next));
 router.get('/otc/inquiries', (req, res, next) => adminController.getOtcInquiries(req, res, next));
 
-// Institutional Audit Logs
+// Institutional Audit Logs & Unified Transaction Lookup
+router.get('/transactions/lookup', (req, res, next) => adminController.lookupTransaction(req, res, next));
 router.get('/audit-logs', requireRole([Role.ADMIN]), (req, res, next) => adminController.getAdminAuditLogs(req, res, next));
 
 // System Controls & Announcement Broadcast

@@ -291,6 +291,38 @@ export default function AdminPortalPage() {
   const [trc20Qr, setTrc20Qr] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  // Unified Transaction ID Search / Inspector State
+  const [txLookupQuery, setTxLookupQuery] = useState('');
+  const [txLookupOpen, setTxLookupOpen] = useState(false);
+  const [txLookupLoading, setTxLookupLoading] = useState(false);
+  const [txLookupError, setTxLookupError] = useState<string | null>(null);
+  const [txLookupData, setTxLookupData] = useState<any | null>(null);
+
+  const handleTransactionLookup = async (e?: React.FormEvent, overrideQuery?: string) => {
+    if (e) e.preventDefault();
+    const q = (overrideQuery ?? txLookupQuery).trim();
+    if (q.length < 2) {
+      setTxLookupError('Enter at least 2 characters of a Transaction ID or Reference.');
+      setTxLookupOpen(true);
+      return;
+    }
+    setTxLookupOpen(true);
+    setTxLookupLoading(true);
+    setTxLookupError(null);
+    try {
+      const res = await api.get(`/admin/transactions/lookup?q=${encodeURIComponent(q)}`);
+      if (res.data?.success) {
+        setTxLookupData(res.data.data);
+      } else {
+        setTxLookupError(res.data?.message || 'Failed to inspect transaction.');
+      }
+    } catch (err: any) {
+      setTxLookupError(err.response?.data?.message || 'Transaction lookup failed.');
+    } finally {
+      setTxLookupLoading(false);
+    }
+  };
+
   // Generate QR preview data URLs
   useEffect(() => {
     if (addresses.usdt_bep20_address) {
@@ -1642,6 +1674,25 @@ export default function AdminPortalPage() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
+            {/* Global Transaction ID Inspector Search */}
+            <form onSubmit={(e) => handleTransactionLookup(e)} className="relative flex items-center">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
+              <input
+                type="text"
+                value={txLookupQuery}
+                onChange={(e) => setTxLookupQuery(e.target.value)}
+                placeholder="Search TX / DEP / WTH / INV ID..."
+                className="w-48 sm:w-64 pl-8 pr-16 py-1.5 rounded-xl bg-slate-950 border border-slate-700 hover:border-slate-600 focus:border-emerald-500 text-xs font-mono text-white placeholder-slate-500 outline-none transition-colors"
+                title="Search any Ledger Transaction ID, Deposit, Withdrawal, Package, Venture, P2P, OTC or Remittance reference"
+              />
+              <button
+                type="submit"
+                className="absolute right-1 px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-emerald-600 text-[10px] font-bold text-slate-200 hover:text-white transition-colors cursor-pointer"
+              >
+                Lookup
+              </button>
+            </form>
+
             <button
               onClick={() => { setActionTargetUser(null); setOnboardModalOpen(true); }}
               className="text-xs font-black bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-xl transition-all shadow-md shadow-rose-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
@@ -6452,6 +6503,302 @@ export default function AdminPortalPage() {
         preselectedUser={actionTargetUser}
         usersList={users}
       />
+
+      {/* UNIFIED TRANSACTION ID INVESTIGATION MODAL */}
+      {txLookupOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-4xl rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="p-5 sm:p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                  <Search className="w-4 h-4 text-emerald-400" />
+                  <span>Transaction ID &amp; Status Investigator</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Trace exact payment status, pending reasons, balance impact, user account, and required Admin actions.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTxLookupOpen(false)}
+                className="self-end sm:self-auto p-2 rounded-xl bg-slate-900 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Search Input */}
+            <form
+              onSubmit={(e) => handleTransactionLookup(e)}
+              className="px-5 sm:px-6 py-3.5 bg-slate-900/70 border-b border-slate-800 flex flex-wrap items-center gap-2"
+            >
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={txLookupQuery}
+                  onChange={(e) => setTxLookupQuery(e.target.value)}
+                  placeholder="Enter TX-INV-..., DEP-..., WTH-..., PKG-..., P2P-..., TRD-..., GMT-... or gateway hash"
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-700 focus:border-emerald-500 text-xs font-mono text-white placeholder-slate-500 outline-none"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={txLookupLoading}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {txLookupLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                <span>Inspect Transaction</span>
+              </button>
+            </form>
+
+            <div className="p-5 sm:p-6 overflow-y-auto space-y-5 text-xs">
+              {txLookupLoading ? (
+                <div className="py-12 text-center text-slate-400 space-y-2">
+                  <Loader2 className="w-7 h-7 animate-spin mx-auto text-emerald-500" />
+                  <p>Searching core ledger, deposits, withdrawals, escrow orders &amp; audit trail...</p>
+                </div>
+              ) : txLookupError ? (
+                <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/40 text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{txLookupError}</span>
+                </div>
+              ) : !txLookupData || !Array.isArray(txLookupData.results) || txLookupData.results.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 space-y-2">
+                  <FileText className="w-9 h-9 mx-auto text-slate-600" />
+                  <p className="text-sm font-bold text-slate-300">
+                    No matching transaction records found for &ldquo;{txLookupData?.query || txLookupQuery}&rdquo;.
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Try the exact Transaction ID (e.g. TX-INV-148890), Deposit/Withdrawal code (DEP-... / WTH-...), settlement hash, or partial code.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="text-[11px] text-slate-400">
+                    Found <strong className="text-white font-mono">{txLookupData.totalMatches}</strong> matching record(s) for{' '}
+                    <span className="font-mono text-emerald-400">{txLookupData.query}</span>
+                  </div>
+
+                  {txLookupData.results.map((item: any) => (
+                    <div
+                      key={`${item.recordKind}-${item.id}`}
+                      className={`p-5 rounded-2xl border space-y-4 ${
+                        item.adminActionRequired
+                          ? 'bg-amber-950/15 border-amber-500/40'
+                          : 'bg-slate-900/90 border-slate-800'
+                      }`}
+                    >
+                      {/* Top Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-slate-800 pb-3">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-bold uppercase text-slate-300">
+                              {item.recordLabel}
+                            </span>
+                            <span className="font-mono text-sm font-black text-amber-400">{item.primaryCode}</span>
+                            {item.secondaryRef && (
+                              <button
+                                type="button"
+                                onClick={() => handleTransactionLookup(undefined, item.secondaryRef)}
+                                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-emerald-300 border border-slate-700 cursor-pointer"
+                                title="Click to also lookup this linked reference"
+                              >
+                                Ref: {item.secondaryRef} ↗
+                              </button>
+                            )}
+                          </div>
+                          <h4 className="text-sm sm:text-base font-extrabold text-white">{item.title}</h4>
+                          <p className="text-[11px] text-slate-400 font-mono">
+                            Created: {new Date(item.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+
+                        <div className="text-left sm:text-right shrink-0 space-y-1">
+                          <span
+                            className={`inline-block px-3 py-1 rounded-full text-[11px] font-black uppercase ${
+                              ['COMPLETED', 'APPROVED', 'SETTLED', 'ACTIVE', 'EXITED'].includes(item.currentStatus)
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : ['REJECTED', 'CANCELLED', 'DISPUTED', 'FROZEN'].includes(item.currentStatus)
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            }`}
+                          >
+                            Status: {item.currentStatus}
+                          </span>
+                          <div className="font-mono text-sm font-black text-white">
+                            {item.currency === 'USD' ? '$' : ''}
+                            {Number(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}{' '}
+                            {item.currency}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Diagnostic Grid: Payment Status, Pending Reason, Admin Action */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Payment / Settlement Status</span>
+                          <span className="font-bold text-white leading-snug block">{item.paymentStatus}</span>
+                          {item.balanceBefore !== undefined && item.balanceAfter !== undefined && (
+                            <span className="text-[11px] font-mono text-emerald-400 block pt-1">
+                              Balance: {Number(item.balanceBefore).toFixed(2)} → {Number(item.balanceAfter).toFixed(2)} {item.currency}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Pending Reason / Diagnostic</span>
+                          <span className="text-slate-200 leading-snug block">{item.pendingReason}</span>
+                        </div>
+
+                        <div
+                          className={`p-3.5 rounded-xl border space-y-1 ${
+                            item.adminActionRequired
+                              ? 'bg-amber-500/10 border-amber-500/40'
+                              : 'bg-emerald-500/10 border-emerald-500/30'
+                          }`}
+                        >
+                          <span
+                            className={`text-[10px] font-bold uppercase block ${
+                              item.adminActionRequired ? 'text-amber-300' : 'text-emerald-300'
+                            }`}
+                          >
+                            {item.adminActionRequired ? 'Pending Admin Action' : 'Admin Action Status'}
+                          </span>
+                          <span className="font-semibold text-white leading-snug block">{item.adminActionSummary}</span>
+                        </div>
+                      </div>
+
+                      {/* Linked Context (if Startup Investment or FD Package attached to TX) */}
+                      {item.linkedContext && (
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] flex flex-wrap items-center justify-between gap-2">
+                          {item.linkedContext.type === 'STARTUP_INVESTMENT' ? (
+                            <>
+                              <div>
+                                <span className="text-slate-400 uppercase font-bold text-[10px] block">Linked Venture Destination</span>
+                                <strong className="text-white">{item.linkedContext.companyName}</strong> ({item.linkedContext.investmentCode}) •{' '}
+                                Net Invested: <span className="font-mono text-emerald-400">${item.linkedContext.netInvestedAmount.toFixed(2)}</span> •{' '}
+                                Entry Fee: <span className="font-mono text-amber-400">${item.linkedContext.allocationFeeAmount.toFixed(2)}</span>
+                              </div>
+                              <span className="font-mono font-bold text-slate-300">
+                                Current Value: ${item.linkedContext.currentValuation.toFixed(2)} ({item.linkedContext.status})
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <div>
+                                <span className="text-slate-400 uppercase font-bold text-[10px] block">Linked Fixed Deposit Package</span>
+                                <strong className="text-white">{item.linkedContext.packageCode}</strong> • Amount:{' '}
+                                <span className="font-mono text-emerald-400">${item.linkedContext.amount.toLocaleString()}</span>
+                              </div>
+                              <span className="font-mono font-bold text-slate-300">Status: {item.linkedContext.status}</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {item.notes && (
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[11px] text-slate-300 whitespace-pre-wrap">
+                          Notes: {item.notes}
+                        </div>
+                      )}
+
+                      {/* User Account & Timeline Row */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                        {item.user && (
+                          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                                {item.counterparty ? 'Primary User / Customer' : 'Account Holder'}
+                              </span>
+                              <div className="font-bold text-white truncate">{item.user.name}</div>
+                              <div className="text-[11px] font-mono text-slate-400 truncate">
+                                {item.user.accountNumber} • {item.user.email}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                Status: {item.user.status} • KYC: {item.user.kycStatus}
+                                {item.user.phone ? ` • ${item.user.phone}` : ''}
+                              </div>
+                            </div>
+                            <Link
+                              href={`/dashboard?inspectUser=${item.user.id}`}
+                              onClick={() => setTxLookupOpen(false)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shrink-0 inline-flex items-center gap-1"
+                            >
+                              <span>Client View</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </Link>
+                          </div>
+                        )}
+
+                        {Array.isArray(item.timeline) && item.timeline.length > 0 && (
+                          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                            <span className="text-[10px] font-bold uppercase text-slate-400 block">Status &amp; Event History</span>
+                            {item.timeline.map((ev: any, idx: number) => (
+                              <div key={idx} className="flex items-start justify-between gap-2 text-[11px]">
+                                <div>
+                                  <strong className="text-slate-200">{ev.label}:</strong>{' '}
+                                  <span className="text-slate-400">{ev.detail}</span>
+                                </div>
+                                <span className="font-mono text-[10px] text-slate-500 whitespace-nowrap">
+                                  {new Date(ev.at).toLocaleString()}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Navigation CTA */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
+                        <div className="text-[10px] font-mono text-slate-500">UUID: {item.id}</div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (item.recordKind === 'DEPOSIT' && item.currentStatus === 'PENDING') {
+                              setDepStatusFilter('PENDING');
+                            }
+                            setActiveTab(item.targetTab || 'overview');
+                            setTxLookupOpen(false);
+                          }}
+                          className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-600 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                        >
+                          <span>Open in {String(item.targetTab || 'overview').toUpperCase()} Desk</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Related Admin Audit Log History */}
+                  {Array.isArray(txLookupData.auditLogs) && txLookupData.auditLogs.length > 0 && (
+                    <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                      <h5 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Related Administrative Audit Logs ({txLookupData.auditLogs.length})
+                      </h5>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {txLookupData.auditLogs.map((log: any) => (
+                          <div key={log.id} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px]">
+                            <div>
+                              <span className="px-1.5 py-0.5 rounded bg-slate-800 font-mono text-[10px] font-bold text-amber-300 mr-2">
+                                {log.action}
+                              </span>
+                              <span className="text-slate-300">{log.details}</span>
+                            </div>
+                            <span className="font-mono text-[10px] text-slate-500 whitespace-nowrap">
+                              {log.adminEmail} • {new Date(log.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
