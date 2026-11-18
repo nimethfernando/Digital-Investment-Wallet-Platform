@@ -1286,16 +1286,21 @@ class OtcService {
                 operator: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true } },
                 messages: { orderBy: { createdAt: 'asc' } },
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy: { updatedAt: 'desc' },
             take: 30,
         });
         const rank = (s) => (s === 'DISPUTED' ? 0 : s === 'IN_PROGRESS' ? 1 : 2);
+        const lastActivityMs = (t) => {
+            const msgs = Array.isArray(t.messages) ? t.messages : [];
+            const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+            return Math.max(lastMsg ? new Date(lastMsg.createdAt).getTime() : 0, new Date(t.updatedAt || t.createdAt).getTime());
+        };
         const sorted = [...trades].sort((a, b) => {
             const ra = rank(a.status);
             const rb = rank(b.status);
             if (ra !== rb)
                 return ra - rb;
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+            return lastActivityMs(b) - lastActivityMs(a);
         });
         return sorted.map((t) => ({
             ...t,
@@ -1333,6 +1338,12 @@ class OtcService {
                 message: cleanMsg,
             },
         });
+        await prisma_1.prisma.otcTrade
+            .update({
+            where: { id: tradeId },
+            data: { updatedAt: new Date() },
+        })
+            .catch(() => { });
         // Notify counterparty / participants in real-time Notification Bell
         const recipientIds = [];
         if (sender?.role === 'ADMIN') {

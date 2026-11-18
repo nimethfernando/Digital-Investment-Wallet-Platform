@@ -22,7 +22,7 @@ import {
 
 export interface CustomerNotificationItem {
   id: string;
-  category: 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT';
+  category: 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT' | 'OTC';
   type: string;
   severity: 'SUCCESS' | 'INFO' | 'WARNING' | 'CRITICAL';
   title: string;
@@ -45,6 +45,7 @@ export interface CustomerNotificationSummary {
   depositWithdrawalCount: number;
   transactionCount: number;
   accountCount: number;
+  otcCount?: number;
 }
 
 function formatRelativeTime(iso: string): string {
@@ -91,6 +92,12 @@ export function getNotificationVisuals(item: CustomerNotificationItem) {
         badgeClass: 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30',
         label: 'Account & KYC',
       };
+    case 'OTC':
+      return {
+        Icon: MessageSquare,
+        badgeClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+        label: 'OTC Desk',
+      };
     case 'TRANSACTION':
     default:
       return {
@@ -118,7 +125,7 @@ export const CustomerNotificationBell: React.FC = () => {
   });
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState<'ALL' | 'UNREAD' | 'SUPPORT' | 'FD_PACKAGE' | 'DEP_WTH' | 'TRANSACTION'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'UNREAD' | 'OTC' | 'SUPPORT' | 'FD_PACKAGE' | 'DEP_WTH' | 'TRANSACTION'>('ALL');
   const [liveToast, setLiveToast] = useState<CustomerNotificationItem | null>(null);
 
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -248,6 +255,7 @@ export const CustomerNotificationBell: React.FC = () => {
 
   const filteredList = notifications.filter((item) => {
     if (filter === 'UNREAD') return !item.isRead;
+    if (filter === 'OTC') return item.category === 'OTC';
     if (filter === 'SUPPORT') return item.category === 'SUPPORT';
     if (filter === 'FD_PACKAGE') return item.category === 'FD_PACKAGE';
     if (filter === 'DEP_WTH') return item.category === 'DEPOSIT' || item.category === 'WITHDRAWAL';
@@ -323,6 +331,7 @@ export const CustomerNotificationBell: React.FC = () => {
               {[
                 { key: 'ALL', label: 'All' },
                 { key: 'UNREAD', label: `Unread (${summary.unreadCount})` },
+                { key: 'OTC', label: 'OTC Desk' },
                 { key: 'SUPPORT', label: 'Tickets' },
                 { key: 'FD_PACKAGE', label: 'FDs & Yields' },
                 { key: 'DEP_WTH', label: 'Dep / Wth' },

@@ -242,8 +242,9 @@ function DashboardContent() {
     depositWithdrawalCount: 0,
     transactionCount: 0,
     accountCount: 0,
+    otcCount: 0,
   });
-  const [notifCategoryFilter, setNotifCategoryFilter] = useState<'ALL' | 'UNREAD' | 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT'>('ALL');
+  const [notifCategoryFilter, setNotifCategoryFilter] = useState<'ALL' | 'UNREAD' | 'OTC' | 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT'>('ALL');
   const [notifSearch, setNotifSearch] = useState('');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [packages, setPackages] = useState<PackageItem[]>([]);
@@ -3477,6 +3478,7 @@ function DashboardContent() {
                   {[
                     { key: 'ALL', label: `All (${notifSummary.totalCount})` },
                     { key: 'UNREAD', label: `Unread (${notifSummary.unreadCount})` },
+                    { key: 'OTC', label: `OTC Desk (${notifSummary.otcCount ?? 0})` },
                     { key: 'SUPPORT', label: `Tickets (${notifSummary.supportCount})` },
                     { key: 'FD_PACKAGE', label: `FD & Yields (${notifSummary.fdCount})` },
                     { key: 'DEPOSIT', label: 'Deposits' },

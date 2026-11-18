@@ -1266,6 +1266,26 @@ async function runHttpProductionE2E() {
       if (op1Notifs.length < 2) {
         throw new Error(`Expected OTC_TRADE_STARTED and OTC_NEW_MESSAGE notifications for operator, got ${op1Notifs.length}`);
       }
+      // Also create a direct OtcMessage row without UserNotification (legacy trade simulation)
+      await prisma.otcMessage.create({
+        data: {
+          tradeId: trId,
+          senderId: otcOp2.id,
+          senderName: 'Legacy Client (@legacy)',
+          message: 'Legacy pre-fix OTC message visibility check',
+        },
+      });
+      const op1BellRes = await apiCall('GET', '/api/v1/wallet/notifications', op1Token);
+      const bellNotifs: any[] = op1BellRes.json?.notifications || [];
+      const bellSummary = op1BellRes.json?.summary || {};
+      if (
+        op1BellRes.status !== 200 ||
+        !bellSummary.otcCount ||
+        !bellNotifs.some((n) => n.category === 'OTC' && n.message.includes('Hello desk operator')) ||
+        !bellNotifs.some((n) => n.category === 'OTC' && n.message.includes('Legacy pre-fix OTC message visibility check'))
+      ) {
+        throw new Error(`Expected /wallet/notifications to include both new & synthesized OTC messages with otcCount, got summary=${JSON.stringify(bellSummary)} items=${JSON.stringify(bellNotifs.filter((n) => n.category === 'OTC'))}`);
+      }
       await apiCall('POST', `/api/v1/otc/trades/${trId}/cancel`, op2Token, { reason: 'E2E cleanup' });
     });
 

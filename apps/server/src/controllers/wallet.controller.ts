@@ -12,7 +12,7 @@ Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 export interface CustomerNotificationItem {
   id: string;
-  category: 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT';
+  category: 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT' | 'OTC';
   type: string;
   severity: 'SUCCESS' | 'INFO' | 'WARNING' | 'CRITICAL';
   title: string;
@@ -510,6 +510,7 @@ export class WalletController {
           depositWithdrawalCount: 0,
           transactionCount: 0,
           accountCount: 0,
+          otcCount: 0,
         },
         notifications: [] as CustomerNotificationItem[],
       };
@@ -528,6 +529,7 @@ export class WalletController {
       transactions,
       globalTransfers,
       p2pOrders,
+      otcTrades,
       persistedNotifications,
       notifSetting,
     ] = await Promise.all([
@@ -600,6 +602,22 @@ export class WalletController {
         orderBy: { updatedAt: 'desc' },
         take: 20,
       }),
+      prisma.otcTrade
+        .findMany({
+          where: { OR: [{ customerId: userId }, { operatorId: userId }] },
+          include: {
+            desk: { select: { deskName: true, deskCode: true } },
+            customer: { select: { id: true, firstName: true, lastName: true, displayName: true } },
+            operator: { select: { id: true, firstName: true, lastName: true, displayName: true } },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 6,
+            },
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 25,
+        })
+        .catch(() => []),
       prisma.userNotification
         .findMany({
           where: { userId },
@@ -1102,6 +1120,73 @@ export class WalletController {
       });
     }
 
+    // 5b. OTC ESCROW TRADES & INCOMING OTC CHAT MESSAGES
+    // Ensures both newly triggered and previously created OTC trades/messages appear immediately.
+    for (const tr of otcTrades as any[]) {
+      const isOperator = tr.operatorId === userId;
+      const counterpartyName = isOperator
+        ? `${tr.customer?.firstName || ''} ${tr.customer?.lastName || ''}`.trim() ||
+          (tr.customer?.displayName ? `@${tr.customer.displayName}` : 'Client')
+        : tr.desk?.deskName || 'OTC Desk';
+
+      const hasStartedNotif = persistedNotifications.some(
+        (n) => n.type === 'OTC_TRADE_STARTED' && n.referenceCode === tr.tradeCode
+      );
+      if (!(tr.status === 'IN_PROGRESS' && hasStartedNotif)) {
+        rawItems.push({
+          id: `otc-trade-${tr.id}-${tr.status}`,
+          category: 'OTC',
+          type: 'OTC_TRADE',
+          severity:
+            tr.status === 'COMPLETED'
+              ? 'SUCCESS'
+              : tr.status === 'DISPUTED' || tr.status === 'CANCELLED'
+              ? 'CRITICAL'
+              : 'INFO',
+          title: `OTC Escrow [${tr.tradeCode}] — ${String(tr.status).replace(/_/g, ' ')}`,
+          message: `${tr.desk?.deskName || 'OTC Desk'} (${isOperator ? 'Customer' : 'Operator'}: ${counterpartyName}) • ${Number(
+            tr.cryptoAmount
+          ).toFixed(2)} USDT ↔ ${fmtAmountDisplay(tr.fiatAmount, tr.fiatCurrency)}.`,
+          referenceCode: tr.tradeCode,
+          amount: Number(tr.cryptoAmount).toFixed(2),
+          currency: 'USDT',
+          status: tr.status,
+          actionUrl: `/exchange?tradeId=${tr.id}`,
+          actionLabel: 'Open OTC Chat',
+          createdAt: (tr.completedAt || tr.disputedAt || tr.updatedAt || tr.createdAt).toISOString(),
+        });
+      }
+
+      for (const msg of tr.messages || []) {
+        if (msg.senderId === userId) continue;
+        const msgText = String(msg.message || '');
+        const snippet = msgText.length > 140 ? `${msgText.slice(0, 140)}...` : msgText;
+        const alreadyPersisted = persistedNotifications.some(
+          (n) =>
+            n.type === 'OTC_NEW_MESSAGE' &&
+            n.referenceCode === tr.tradeCode &&
+            n.message.includes(msgText.slice(0, 80))
+        );
+        if (alreadyPersisted) continue;
+
+        rawItems.push({
+          id: `otc-msg-${msg.id}`,
+          category: 'OTC',
+          type: 'OTC_NEW_MESSAGE',
+          severity: 'INFO',
+          title: `New OTC Message on ${tr.tradeCode} (${tr.desk?.deskName || 'OTC Desk'})`,
+          message: `${msg.senderName}: "${snippet}"`,
+          referenceCode: tr.tradeCode,
+          amount: Number(tr.cryptoAmount).toFixed(2),
+          currency: 'USDT',
+          status: tr.status,
+          actionUrl: `/exchange?tradeId=${tr.id}`,
+          actionLabel: 'Open OTC Chat',
+          createdAt: new Date(msg.createdAt).toISOString(),
+        });
+      }
+    }
+
     for (const ord of p2pOrders) {
       const sideLabel = ord.buyerId === userId ? 'Buy' : 'Sell';
       const fiatCur = ord.fiatCurrency || ord.offer?.fiatCurrency || 'USD';
@@ -1190,6 +1275,7 @@ export class WalletController {
       ).length,
       transactionCount: notifications.filter((n) => n.category === 'TRANSACTION').length,
       accountCount: notifications.filter((n) => n.category === 'ACCOUNT').length,
+      otcCount: notifications.filter((n) => n.category === 'OTC').length,
     };
 
     return { summary, notifications };
