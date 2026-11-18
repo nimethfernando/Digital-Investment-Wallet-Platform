@@ -1148,11 +1148,16 @@ export class AdminController {
     try {
       const adminUserId = (req as any).user.id;
       const listingId = req.params.id as string;
-      const { valuation, stage, growthNotes } = req.body;
-
-      if (!valuation || isNaN(parseFloat(valuation))) {
-        return res.status(400).json({ success: false, message: 'Valid valuation number is required' });
-      }
+      const {
+        valuation,
+        stage,
+        growthNotes,
+        verifiedFundsRaised,
+        fundingTarget,
+        minInvestment,
+        investorCount,
+        status,
+      } = req.body;
 
       const listing = await prisma.startupListing.findUnique({
         where: { id: listingId },
@@ -1164,38 +1169,84 @@ export class AdminController {
       }
 
       const oldValuation = new Decimal(listing.valuation.toString());
-      const newValuation = new Decimal(valuation);
+      const parsedVal = valuation !== undefined && valuation !== '' ? parseFloat(String(valuation)) : parseFloat(oldValuation.toString());
+      if (!Number.isFinite(parsedVal) || parsedVal <= 0) {
+        return res.status(400).json({ success: false, message: 'Valid post-money valuation (> 0) is required' });
+      }
+
+      const newValuation = new Decimal(parsedVal);
+      const valuationChanged = !newValuation.equals(oldValuation);
       const valuationMultiplier = newValuation.dividedBy(oldValuation);
       const gainPct = valuationMultiplier.minus(1).times(100);
+
+      const updateData: any = {
+        valuation: newValuation,
+        stage: stage || listing.stage,
+        financialHighlights: growthNotes
+          ? `${listing.financialHighlights || ''}\n[${new Date().toISOString()}] ${growthNotes}`
+          : listing.financialHighlights,
+      };
+
+      if (verifiedFundsRaised !== undefined && verifiedFundsRaised !== '') {
+        const raisedNum = parseFloat(String(verifiedFundsRaised));
+        if (!Number.isFinite(raisedNum) || raisedNum < 0) {
+          return res.status(400).json({ success: false, message: 'Invested / raised funds cannot be negative' });
+        }
+        updateData.verifiedFundsRaised = new Decimal(raisedNum);
+      }
+
+      if (fundingTarget !== undefined && fundingTarget !== '') {
+        const targetNum = parseFloat(String(fundingTarget));
+        if (!Number.isFinite(targetNum) || targetNum <= 0) {
+          return res.status(400).json({ success: false, message: 'Funding target must be greater than zero' });
+        }
+        updateData.fundingTarget = new Decimal(targetNum);
+      }
+
+      if (minInvestment !== undefined && minInvestment !== '') {
+        const minNum = parseFloat(String(minInvestment));
+        if (!Number.isFinite(minNum) || minNum <= 0) {
+          return res.status(400).json({ success: false, message: 'Minimum investment check must be greater than zero' });
+        }
+        updateData.minInvestment = new Decimal(minNum);
+      }
+
+      if (investorCount !== undefined && investorCount !== '') {
+        const invNum = Math.floor(Number(investorCount));
+        if (!Number.isFinite(invNum) || invNum < 0) {
+          return res.status(400).json({ success: false, message: 'Investor count cannot be negative' });
+        }
+        updateData.investorCount = invNum;
+      }
+
+      if (status && ['DRAFT', 'PUBLISHED', 'CLOSED', 'SUSPENDED'].includes(String(status).toUpperCase())) {
+        updateData.status = String(status).toUpperCase();
+      }
 
       // Update Listing
       const updatedListing = await prisma.startupListing.update({
         where: { id: listingId },
-        data: {
-          valuation: newValuation,
-          stage: stage || listing.stage,
-          financialHighlights: growthNotes 
-            ? `${listing.financialHighlights || ''}\n[${new Date().toISOString()}] ${growthNotes}`
-            : listing.financialHighlights,
-        },
+        data: updateData,
       });
 
-      // Update all investor commitments for this startup
-      for (const commitment of listing.investments) {
-        const netInvested = new Decimal(commitment.netInvestedAmount.toString());
-        const updatedHoldingValue = netInvested.times(valuationMultiplier);
-        const commitmentGainPct = updatedHoldingValue.minus(netInvested).dividedBy(netInvested).times(100);
+      // Recalculate investor commitment mark-to-market holdings only when valuation changed
+      if (valuationChanged) {
+        for (const commitment of listing.investments) {
+          const netInvested = new Decimal(commitment.netInvestedAmount.toString());
+          const updatedHoldingValue = netInvested.times(valuationMultiplier);
+          const commitmentGainPct = updatedHoldingValue.minus(netInvested).dividedBy(netInvested).times(100);
 
-        await prisma.investmentCommitment.update({
-          where: { id: commitment.id },
-          data: {
-            currentValuation: updatedHoldingValue,
-            unrealizedReturnPct: commitmentGainPct,
-            notes: growthNotes 
-              ? `${commitment.notes || ''}\n[${new Date().toISOString()}] Valuation updated to $${newValuation.toLocaleString()} (+${gainPct.toFixed(1)}%)`
-              : commitment.notes,
-          },
-        });
+          await prisma.investmentCommitment.update({
+            where: { id: commitment.id },
+            data: {
+              currentValuation: updatedHoldingValue,
+              unrealizedReturnPct: commitmentGainPct,
+              notes: growthNotes
+                ? `${commitment.notes || ''}\n[${new Date().toISOString()}] Valuation updated to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(1)}%)`
+                : commitment.notes,
+            },
+          });
+        }
       }
 
       // Audit Log
@@ -1205,13 +1256,15 @@ export class AdminController {
           action: 'UPDATE_STARTUP_VALUATION',
           entity: 'StartupListing',
           entityId: listingId,
-          details: `Updated ${listing.companyName} valuation from $${oldValuation.toLocaleString()} to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(2)}%). Updated ${listing.investments.length} investor positions.`,
+          details: `Updated ${listing.companyName}: Valuation $${newValuation.toLocaleString()}, Raised $${Number(updatedListing.verifiedFundsRaised).toLocaleString()}, Target $${Number(updatedListing.fundingTarget).toLocaleString()}, Min Check $${Number(updatedListing.minInvestment).toLocaleString()}, Investors ${updatedListing.investorCount}.`,
         },
       });
 
       res.json({
         success: true,
-        message: `Successfully updated ${listing.companyName} valuation to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(1)}%). Recalculated ${listing.investments.length} investor holdings.`,
+        message: valuationChanged
+          ? `Updated ${listing.companyName} range & valuation to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(1)}%).`
+          : `Updated ${listing.companyName} investment range & raised figures successfully.`,
         data: {
           listing: updatedListing,
           gainPct: gainPct.toFixed(2),
@@ -2233,11 +2286,28 @@ export class AdminController {
     try {
       const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
       const id = String(req.params.id);
-      const { status, valuation, dueDiligenceStatus, dueDiligenceSummary, pitchOverview, tagline } = req.body;
+      const {
+        status,
+        valuation,
+        fundingTarget,
+        verifiedFundsRaised,
+        minInvestment,
+        investorCount,
+        stage,
+        dueDiligenceStatus,
+        dueDiligenceSummary,
+        pitchOverview,
+        tagline,
+      } = req.body;
 
       const updateData: any = {};
       if (status) updateData.status = status;
-      if (valuation) updateData.valuation = new Decimal(valuation.toString());
+      if (stage) updateData.stage = stage;
+      if (valuation !== undefined && valuation !== '') updateData.valuation = new Decimal(valuation.toString());
+      if (fundingTarget !== undefined && fundingTarget !== '') updateData.fundingTarget = new Decimal(fundingTarget.toString());
+      if (verifiedFundsRaised !== undefined && verifiedFundsRaised !== '') updateData.verifiedFundsRaised = new Decimal(verifiedFundsRaised.toString());
+      if (minInvestment !== undefined && minInvestment !== '') updateData.minInvestment = new Decimal(minInvestment.toString());
+      if (investorCount !== undefined && investorCount !== '') updateData.investorCount = Math.max(0, Math.floor(Number(investorCount)));
       if (dueDiligenceStatus) updateData.dueDiligenceStatus = dueDiligenceStatus;
       if (dueDiligenceSummary !== undefined) updateData.dueDiligenceSummary = dueDiligenceSummary;
       if (pitchOverview) updateData.pitchOverview = pitchOverview;

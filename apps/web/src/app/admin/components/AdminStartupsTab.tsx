@@ -59,10 +59,15 @@ export default function AdminStartupsTab({
     coverImageUrl: 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&auto=format&fit=crop&q=80',
   });
 
-  // Valuation / Mark-to-Market Modal
+  // Valuation, Funding Range & Mark-to-Market Modal
   const [valuationModalOpen, setValuationModalOpen] = useState(false);
   const [newValuation, setNewValuation] = useState('');
+  const [newFundsRaised, setNewFundsRaised] = useState('');
+  const [newFundingTarget, setNewFundingTarget] = useState('');
+  const [newMinInvestment, setNewMinInvestment] = useState('');
+  const [newInvestorCount, setNewInvestorCount] = useState('');
   const [newStage, setNewStage] = useState('SEED');
+  const [newListingStatus, setNewListingStatus] = useState('PUBLISHED');
   const [growthNotes, setGrowthNotes] = useState('');
   const [savingValuation, setSavingValuation] = useState(false);
 
@@ -103,7 +108,12 @@ export default function AdminStartupsTab({
   const handleOpenValuationModal = (listing: any) => {
     setSelectedListing(listing);
     setNewValuation(String(listing.valuation || ''));
+    setNewFundsRaised(String(listing.verifiedFundsRaised ?? '0'));
+    setNewFundingTarget(String(listing.fundingTarget || ''));
+    setNewMinInvestment(String(listing.minInvestment ?? '250'));
+    setNewInvestorCount(String(listing.investorCount ?? '0'));
     setNewStage(listing.stage || 'SEED');
+    setNewListingStatus(listing.status || 'PUBLISHED');
     setGrowthNotes('');
     setValuationModalOpen(true);
   };
@@ -114,23 +124,46 @@ export default function AdminStartupsTab({
       onFeedback({ text: 'Valid post-money valuation is required', type: 'error' });
       return;
     }
+    const raisedNum = parseFloat(newFundsRaised || '0');
+    const targetNum = parseFloat(newFundingTarget || '0');
+    const minNum = parseFloat(newMinInvestment || '0');
+    const investorsNum = parseInt(newInvestorCount || '0', 10);
+
+    if (!Number.isFinite(raisedNum) || raisedNum < 0) {
+      onFeedback({ text: 'Invested / raised funds cannot be negative', type: 'error' });
+      return;
+    }
+    if (!Number.isFinite(targetNum) || targetNum <= 0) {
+      onFeedback({ text: 'Funding target must be greater than zero', type: 'error' });
+      return;
+    }
+    if (!Number.isFinite(minNum) || minNum <= 0) {
+      onFeedback({ text: 'Minimum investment check must be greater than zero', type: 'error' });
+      return;
+    }
+
     setSavingValuation(true);
     try {
       const res = await api.patch(
         `/admin/investments/listings/${selectedListing.id}/valuation`,
         {
           valuation: parseFloat(newValuation),
+          verifiedFundsRaised: raisedNum,
+          fundingTarget: targetNum,
+          minInvestment: minNum,
+          investorCount: Number.isFinite(investorsNum) && investorsNum >= 0 ? investorsNum : 0,
           stage: newStage,
+          status: newListingStatus,
           growthNotes,
         }
       );
       if (res.data?.success) {
-        onFeedback({ text: res.data.message || 'Valuation updated successfully!', type: 'success' });
+        onFeedback({ text: res.data.message || 'Investment range & valuation updated!', type: 'success' });
         setValuationModalOpen(false);
         onRefresh();
       }
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to update valuation', type: 'error' });
+      onFeedback({ text: err.response?.data?.message || 'Failed to update valuation & funding range', type: 'error' });
     } finally {
       setSavingValuation(false);
     }
@@ -363,7 +396,7 @@ export default function AdminStartupsTab({
                       className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-slate-950 text-xs font-bold transition-all border border-amber-500/30 cursor-pointer flex items-center gap-1"
                     >
                       <TrendingUp className="w-3.5 h-3.5" />
-                      <span>Update Valuation</span>
+                      <span>Edit Range &amp; Valuation</span>
                     </button>
 
                     <button
@@ -458,12 +491,16 @@ export default function AdminStartupsTab({
         )}
       </div>
 
-      {/* UPDATE VALUATION / MARK-TO-MARKET MODAL */}
-      {valuationModalOpen && selectedListing && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      {/* UPDATE VALUATION, INVESTED RANGE & MARK-TO-MARKET MODAL */}
+      {valuationModalOpen && selectedListing && (() => {
+        const previewRaised = Math.max(0, parseFloat(newFundsRaised || '0') || 0);
+        const previewTarget = Math.max(1, parseFloat(newFundingTarget || '1') || 1);
+        const previewPct = Math.min(100, Math.round((previewRaised / previewTarget) * 100));
+        return (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <form
             onSubmit={handleSaveValuation}
-            className="bg-slate-950 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95"
+            className="bg-slate-950 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95 my-auto"
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
@@ -471,7 +508,7 @@ export default function AdminStartupsTab({
                   <TrendingUp className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-extrabold text-white">Update Company Valuation</h3>
+                  <h3 className="text-base font-extrabold text-white">Edit Invested Range &amp; Valuation</h3>
                   <p className="text-xs text-slate-400">{selectedListing.companyName}</p>
                 </div>
               </div>
@@ -480,24 +517,114 @@ export default function AdminStartupsTab({
               </button>
             </div>
 
-            <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl text-xs space-y-1">
-              <div className="text-slate-400">
-                Current Valuation:{' '}
-                <span className="font-mono text-emerald-400 font-bold">
-                  ${parseFloat(selectedListing.valuation || '0').toLocaleString('en-US')} USD
-                </span>
+            <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Live Campaign Progress Preview:</span>
+                <span className="font-mono font-bold text-purple-300">{previewPct}% Funded</span>
               </div>
-              {newValuation && parseFloat(newValuation) > 0 && parseFloat(selectedListing.valuation || '0') > 0 && (
-                <div className="text-amber-300 font-semibold text-[11px]">
-                  Mark-to-Market Shift:{' '}
-                  {(((parseFloat(newValuation) / parseFloat(selectedListing.valuation)) - 1) * 100).toFixed(1)}% across all investor holdings
-                </div>
-              )}
+              <div className="flex items-center justify-between font-mono text-xs">
+                <span className="text-white font-bold">${previewRaised.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                <span className="text-slate-400">/ ${previewTarget.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-slate-950 overflow-hidden">
+                <div className="h-full bg-purple-500 transition-all rounded-full" style={{ width: `${previewPct}%` }} />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                <span>
+                  Current Valuation:{' '}
+                  <strong className="font-mono text-emerald-400">
+                    ${parseFloat(selectedListing.valuation || '0').toLocaleString('en-US')}
+                  </strong>
+                </span>
+                {newValuation && parseFloat(newValuation) > 0 && parseFloat(selectedListing.valuation || '0') > 0 && (
+                  <span className="text-amber-300 font-semibold">
+                    Shift:{' '}
+                    {(((parseFloat(newValuation) / parseFloat(selectedListing.valuation)) - 1) * 100).toFixed(1)}%
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="space-y-4 text-xs">
+              {/* Editable Invested Money & Target Range */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                      Invested / Raised ($ USD)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewFundsRaised('0');
+                        setNewInvestorCount('0');
+                      }}
+                      className="text-[10px] font-bold text-rose-400 hover:underline cursor-pointer"
+                    >
+                      Reset to $0
+                    </button>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={newFundsRaised}
+                    onChange={(e) => setNewFundsRaised(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                    Funding Target ($ USD)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    required
+                    value={newFundingTarget}
+                    onChange={(e) => setNewFundingTarget(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                    Min Investor Check ($ USD)
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="1"
+                    required
+                    value={newMinInvestment}
+                    onChange={(e) => setNewMinInvestment(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                    Displayed Investors Count
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    required
+                    value={newInvestorCount}
+                    onChange={(e) => setNewInvestorCount(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-sm outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">New Post-Money Valuation ($ USD)</label>
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Post-Money Valuation ($ USD)</label>
                 <input
                   type="number"
                   step="0.01"
@@ -508,26 +635,41 @@ export default function AdminStartupsTab({
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Updated Round Stage</label>
-                <select
-                  value={newStage}
-                  onChange={(e) => setNewStage(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-amber-500"
-                >
-                  <option value="PRE_SEED">PRE-SEED</option>
-                  <option value="SEED">SEED</option>
-                  <option value="SERIES_A">SERIES A</option>
-                  <option value="SERIES_B">SERIES B</option>
-                  <option value="GROWTH">GROWTH</option>
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Updated Round Stage</label>
+                  <select
+                    value={newStage}
+                    onChange={(e) => setNewStage(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-amber-500"
+                  >
+                    <option value="PRE_SEED">PRE-SEED</option>
+                    <option value="SEED">SEED</option>
+                    <option value="SERIES_A">SERIES A</option>
+                    <option value="SERIES_B">SERIES B</option>
+                    <option value="GROWTH">GROWTH</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Campaign Visibility</label>
+                  <select
+                    value={newListingStatus}
+                    onChange={(e) => setNewListingStatus(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-amber-500"
+                  >
+                    <option value="PUBLISHED">PUBLISHED</option>
+                    <option value="DRAFT">DRAFT</option>
+                    <option value="CLOSED">CLOSED</option>
+                  </select>
+                </div>
               </div>
 
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Audit / Growth Notes</label>
                 <input
                   type="text"
-                  placeholder="e.g. Series A up-round led by institutional syndicate"
+                  placeholder="e.g. Adjusted initial target & seed raised range for launch"
                   value={growthNotes}
                   onChange={(e) => setGrowthNotes(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-amber-500"
@@ -549,12 +691,13 @@ export default function AdminStartupsTab({
                 className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
               >
                 {savingValuation && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Save Valuation</span>
+                <span>Save Changes</span>
               </button>
             </div>
           </form>
         </div>
-      )}
+        );
+      })()}
 
       {/* CREATE STARTUP LISTING MODAL */}
       {createModalOpen && (
