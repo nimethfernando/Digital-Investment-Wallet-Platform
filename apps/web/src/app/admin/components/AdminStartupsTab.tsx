@@ -50,6 +50,7 @@ export default function AdminStartupsTab({
   const [commitmentSearch, setCommitmentSearch] = useState('');
   const [commitmentStatusFilter, setCommitmentStatusFilter] = useState<'ALL' | 'CLEARED_FUNDS' | 'ACTIVE' | 'EXITED'>('ALL');
   const [commitmentPage, setCommitmentPage] = useState(1);
+  const [selectedCommitment, setSelectedCommitment] = useState<any | null>(null);
   const commitmentsSectionRef = useRef<HTMLDivElement | null>(null);
 
   // Create Startup Modal
@@ -748,25 +749,32 @@ export default function AdminStartupsTab({
                         <th className="pb-3 pr-3">Current Holding Value</th>
                         <th className="pb-3 pr-3">Valuation Gain</th>
                         <th className="pb-3 pr-3">Distributed Proceeds</th>
-                        <th className="pb-3 text-right">Status</th>
+                        <th className="pb-3 pr-3 text-right">Status</th>
+                        <th className="pb-3 text-right">Audit</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
                       {pageCommitments.map((inv) => (
-                        <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3 pr-3 font-mono font-bold text-amber-400">{inv.investmentCode}</td>
+                        <tr
+                          key={inv.id}
+                          onClick={() => setSelectedCommitment(inv)}
+                          className="hover:bg-slate-800/60 transition-colors cursor-pointer group"
+                          title="Click to inspect full allocation, settlement, lock-in & documents"
+                        >
+                          <td className="py-3 pr-3 font-mono font-bold text-amber-400 group-hover:underline">{inv.investmentCode}</td>
                           <td className="py-3 pr-3 font-bold text-white">{inv.listing?.companyName}</td>
                           <td className="py-3 pr-3 text-slate-300">
                             {inv.investor?.id ? (
                               <Link
                                 href={`/dashboard?inspectUser=${inv.investor.id}`}
-                                className="inline-flex items-center gap-1 font-bold text-white hover:text-emerald-400 transition-colors group"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 font-bold text-white hover:text-emerald-400 transition-colors"
                                 title="Open Client View for this investor"
                               >
-                                <span className="group-hover:underline">
+                                <span className="hover:underline">
                                   {inv.investor?.firstName} {inv.investor?.lastName}
                                 </span>
-                                <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-emerald-400" />
+                                <ExternalLink className="w-3 h-3 text-slate-500 hover:text-emerald-400" />
                               </Link>
                             ) : (
                               <div className="font-bold">
@@ -796,7 +804,7 @@ export default function AdminStartupsTab({
                           <td className="py-3 pr-3 font-mono font-bold text-white">
                             ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
                           </td>
-                          <td className="py-3 text-right">
+                          <td className="py-3 pr-3 text-right">
                             <span
                               className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                                 inv.status === 'EXITED'
@@ -806,6 +814,18 @@ export default function AdminStartupsTab({
                             >
                               {inv.status}
                             </span>
+                          </td>
+                          <td className="py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCommitment(inv);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-amber-500/20 border border-slate-700 hover:border-amber-500/40 text-[10px] font-bold text-slate-200 hover:text-amber-300 cursor-pointer"
+                            >
+                              Details →
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -1797,6 +1817,229 @@ export default function AdminStartupsTab({
           </form>
         </div>
       )}
+
+      {/* Investor Commitment Complete Audit Detail Modal */}
+      {selectedCommitment && (() => {
+        const inv = selectedCommitment;
+        const netInvested = parseFloat(inv.netInvestedAmount || '0');
+        const grossCommitted = parseFloat(inv.grossAmount || '0');
+        const feeAmt = parseFloat(inv.allocationFeeAmount || '0');
+        const curVal = parseFloat(inv.currentValuation || inv.netInvestedAmount || '0');
+        const plUsd = curVal - netInvested;
+        const plPct = netInvested > 0 ? (plUsd / netInvested) * 100 : 0;
+        const lockMonths = Number(inv.listing?.lockInMonths ?? 12);
+        const computedLockEnd =
+          inv.lockInEnd ||
+          inv.listing?.maturityDate ||
+          new Date(new Date(inv.createdAt).setMonth(new Date(inv.createdAt).getMonth() + lockMonths));
+        const docs = Array.isArray(inv.listing?.supportingDocuments) ? inv.listing.supportingDocuments : [];
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm">
+            <div className="w-full max-w-2xl rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+              <div className="p-5 sm:p-6 border-b border-slate-800 flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  {inv.listing?.logoUrl ? (
+                    <img
+                      src={resolveMediaUrl(inv.listing.logoUrl)}
+                      alt={inv.listing.companyName}
+                      className="w-12 h-12 rounded-2xl object-cover border border-slate-700 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                      <Building className="w-6 h-6 text-amber-400" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-amber-400">{inv.investmentCode}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                        inv.status === 'EXITED'
+                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                          : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      }`}>
+                        {inv.status}
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-black text-white truncate">{inv.listing?.companyName || 'Venture Round'}</h3>
+                    <p className="text-xs text-slate-400">
+                      {inv.listing?.industry} • {inv.listing?.stage} • {inv.instrument}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCommitment(null)}
+                  className="p-2 rounded-xl bg-slate-900 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 sm:p-6 overflow-y-auto space-y-5 text-xs">
+                {/* 4 Top Audit KPIs */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Net Invested</span>
+                    <span className="text-base font-black font-mono text-white mt-1 block">
+                      ${netInvested.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Gross ${grossCommitted.toFixed(2)} − ${feeAmt.toFixed(2)} fee
+                    </span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Current Value</span>
+                    <span className="text-base font-black font-mono text-white mt-1 block">
+                      ${curVal.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    </span>
+                    <span className="text-[10px] text-slate-500">Mark-to-market holding</span>
+                  </div>
+                  <div className={`p-3.5 rounded-2xl border ${
+                    plUsd >= 0 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'
+                  }`}>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Profit / Loss</span>
+                    <span className={`text-base font-black font-mono mt-1 block ${plUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {plUsd >= 0 ? '+' : '-'}${Math.abs(plUsd).toFixed(2)} USD
+                    </span>
+                    <span className={`text-[10px] font-bold ${plUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {plPct >= 0 ? '+' : ''}{plPct.toFixed(2)}% unrealized
+                    </span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Settled / Returned</span>
+                    <span className="text-base font-black font-mono text-emerald-400 mt-1 block">
+                      ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
+                    </span>
+                    <span className="text-[10px] text-slate-500">Total cash distributed</span>
+                  </div>
+                </div>
+
+                {/* Investor & Destination Audit Grid */}
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Investor / Client</span>
+                    <div className="font-bold text-white mt-0.5">
+                      {inv.investor?.firstName} {inv.investor?.lastName}
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-mono">{inv.investor?.email}</div>
+                    {inv.investor?.phone && <div className="text-[11px] text-slate-500 font-mono">{inv.investor.phone}</div>}
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Venture / Crowdfunding Destination</span>
+                    <div className="font-bold text-white mt-0.5">{inv.listing?.companyName}</div>
+                    <div className="text-[11px] text-slate-400">
+                      {inv.listing?.country || 'International'}
+                      {inv.listing?.providerName ? ` • Provider: ${inv.listing.providerName}` : ''}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Investment Date</span>
+                    <span className="font-mono font-bold text-slate-200">{new Date(inv.createdAt).toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Lock-In Period &amp; Expected Maturity</span>
+                    <span className="font-mono font-bold text-amber-400">
+                      {lockMonths} Months Lock-In • Ends {new Date(computedLockEnd).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Settlement & Payout Ledger Breakdown */}
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                    Settlement &amp; Distribution Reconciliation
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 font-mono text-[11px]">
+                    <div>
+                      <span className="text-slate-500 font-sans block">Gross Debited From Wallet:</span>
+                      <span className="font-bold text-white">${grossCommitted.toFixed(2)} USD</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-sans block">Entry Fee ({Number(inv.allocationFeePct || 5)}%):</span>
+                      <span className="font-bold text-amber-400">${feeAmt.toFixed(2)} USD</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-sans block">Return of Capital:</span>
+                      <span className="font-bold text-white">${parseFloat(inv.returnOfCapital || '0').toFixed(2)} USD</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-sans block">Eligible Realized Profit:</span>
+                      <span className="font-bold text-emerald-400">${parseFloat(inv.eligibleNetProfit || '0').toFixed(2)} USD</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-sans block">Profit-Share Fee ({Number(inv.profitShareFeePct || 5)}%):</span>
+                      <span className="font-bold text-slate-300">${parseFloat(inv.profitShareFeeAmount || '0').toFixed(2)} USD</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-sans block">Net Profit Credited:</span>
+                      <span className="font-bold text-emerald-400">${parseFloat(inv.netDistributedProfit || '0').toFixed(2)} USD</span>
+                    </div>
+                  </div>
+                  {inv.settlementReference && (
+                    <div className="text-[11px] font-mono text-slate-400 pt-1 border-t border-slate-800">
+                      Settlement Ref: <strong className="text-white">{inv.settlementReference}</strong>
+                    </div>
+                  )}
+                </div>
+
+                {/* Terms, Documents & Notes */}
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                  <span className="text-[10px] font-bold uppercase text-amber-300 block">
+                    Round Terms, Documents &amp; Audit Notes
+                  </span>
+                  <p className="text-slate-300 leading-relaxed">
+                    {inv.listing?.termsAndNotes || 'Standard nominee crowdfunding terms apply.'}
+                  </p>
+                  {inv.notes && (
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 font-mono text-[11px] text-slate-300 whitespace-pre-wrap">
+                      {inv.notes}
+                    </div>
+                  )}
+                  {docs.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {docs.map((doc: any, idx: number) => (
+                        <a
+                          key={idx}
+                          href={resolveMediaUrl(doc.url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-amber-500/40 text-xs font-bold text-amber-300 hover:underline"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>{doc.title}</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 sm:p-5 border-t border-slate-800 flex items-center justify-between gap-3">
+                {inv.investor?.id ? (
+                  <Link
+                    href={`/dashboard?inspectUser=${inv.investor.id}`}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1.5"
+                  >
+                    <span>Inspect Investor Client View</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </Link>
+                ) : (
+                  <div />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedCommitment(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

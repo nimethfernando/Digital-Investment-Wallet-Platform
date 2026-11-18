@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.autoContentService = exports.AutoContentService = void 0;
 const crypto_1 = __importDefault(require("crypto"));
 const prisma_1 = require("../lib/prisma");
+const storage_service_1 = require("./storage.service");
 const KNOWN_ENTITIES = {
     apple: { symbol: 'AAPL', companyName: 'Apple Inc.', exchange: 'NASDAQGS' },
     aapl: { symbol: 'AAPL', companyName: 'Apple Inc.', exchange: 'NASDAQGS' },
@@ -632,10 +633,71 @@ class AutoContentService {
      * Generate Institutional Equity/Asset Research Report + Visual Specs grounded in real market metrics & news
      */
     async generateEditorialPackage(opts) {
-        const { topic, quote, news, categoryOverride, includeMeme = true } = opts;
+        const { topic, quote, news, categoryOverride, includeMeme = true, priorTitles = [], editionNumber = 1, visualVariant, } = opts;
         const aiCfg = await this.getAiConfig();
         const t = quote.technicals;
         const f = quote.fundamentals;
+        const EDITORIAL_ANGLES = [
+            {
+                name: 'Valuation, Multiples & Market Positioning',
+                instruction: 'Lead with valuation ratios, market cap scale, earnings efficiency, and institutional accumulation levels.',
+                titleSuffix: 'Valuation Multiples & Institutional Positioning Update',
+                headlineTag: 'VALUATION BRIEF',
+            },
+            {
+                name: 'Technical Momentum, Moving Averages & Breakout Structure',
+                instruction: 'Lead with RSI-14 momentum, SMA-20 vs SMA-50 trend alignment, intraday volatility bands, and breakout triggers.',
+                titleSuffix: 'Technical Momentum & Moving-Average Setup',
+                headlineTag: 'TECHNICALS & FLOW',
+            },
+            {
+                name: 'Breaking Catalysts & Institutional News Sentiment',
+                instruction: 'Lead with breaking media wires, headline sentiment divergence, and near-term fundamental catalysts.',
+                titleSuffix: 'Catalyst Wire & Sentiment Shift Dispatch',
+                headlineTag: 'CATALYST DISPATCH',
+            },
+            {
+                name: '52-Week Range Architecture & Liquidity Depth',
+                instruction: 'Lead with 52-week percentile positioning, session liquidity vs 20-day average volume, and support/resistance shelves.',
+                titleSuffix: '52-Week Range & Liquidity Depth Note',
+                headlineTag: 'RANGE & LIQUIDITY',
+            },
+            {
+                name: 'Institutional Bull vs. Bear Risk Matrix',
+                instruction: 'Lead with a balanced asymmetric risk-reward thesis contrasting upside triggers against macro and sector headwinds.',
+                titleSuffix: 'Asymmetric Bull/Bear Risk Assessment',
+                headlineTag: 'RISK MATRIX',
+            },
+            {
+                name: 'Strategic Outlook & Cross-Asset Capital Flows',
+                instruction: 'Lead with 3-month return trajectory, consensus targets, and medium-term portfolio allocation context.',
+                titleSuffix: '3-Month Trajectory & Allocation Outlook',
+                headlineTag: 'STRATEGIC OUTLOOK',
+            },
+        ];
+        const BANNER_VARIANTS = [
+            'emerald-grid',
+            'cobalt-terminal',
+            'amber-bullion',
+            'violet-quant',
+            'cyan-horizon',
+            'crimson-brief',
+        ];
+        const CHART_STYLES = ['area', 'bars', 'dots'];
+        const angleIndex = (Math.max(1, editionNumber) - 1) % EDITORIAL_ANGLES.length;
+        const angle = EDITORIAL_ANGLES[angleIndex];
+        const chosenVariant = visualVariant && BANNER_VARIANTS.includes(visualVariant)
+            ? visualVariant
+            : BANNER_VARIANTS[(Math.max(1, editionNumber) - 1) % BANNER_VARIANTS.length];
+        const chosenChartStyle = CHART_STYLES[(Math.max(1, editionNumber) - 1) % CHART_STYLES.length];
+        const editionLabel = `DISPATCH #${editionNumber} • ${angle.headlineTag}`;
+        // Rotate news starting offset across editions so repeated runs highlight fresh wire stories first
+        const rotatedNews = news.length > 1
+            ? [
+                ...news.slice((editionNumber - 1) % news.length),
+                ...news.slice(0, (editionNumber - 1) % news.length),
+            ]
+            : news;
         const dayRangeStr = t.dayLow !== null && t.dayHigh !== null
             ? `$${t.dayLow.toFixed(2)} – $${t.dayHigh.toFixed(2)}`
             : quote.priceFormatted;
@@ -662,31 +724,38 @@ class AutoContentService {
         ]
             .filter(Boolean)
             .join('\n');
-        const newsContext = news
+        const newsContext = rotatedNews
             .slice(0, 8)
             .map((n, i) => `${i + 1}. [${n.sourceName} | ${n.sentiment}] "${n.headline}" — ${n.summary.slice(0, 220)}`)
             .join('\n');
+        const avoidanceBlock = priorTitles.length > 0
+            ? `\n\nPREVIOUSLY PUBLISHED ANNOUNCEMENTS ON THIS TOPIC (YOU MUST NOT REPEAT OR CLOSELY PARAPHRASE THESE TITLES, ANGLES, OR PHRASING):\n${priorTitles
+                .map((pt, idx) => `- (${idx + 1}) ${pt}`)
+                .join('\n')}`
+            : '';
         const systemPrompt = `You are a Managing Director of Equity & Digital Asset Research at Avora Bank.
-Write an authoritative, data-dense institutional research note grounded 100% in the real quantitative metrics and verified news headlines provided. Cite exact figures (price, 52-week range, RSI-14, SMA-20/50, volume, market cap, P/E, and specific news sources).
+Write a COMPLETELY FRESH, UNIQUE announcement & institutional research note (Edition #${editionNumber}, Date: ${new Date().toISOString().slice(0, 10)}) grounded 100% in the real quantitative metrics and verified news headlines provided.
+MANDATORY EDITORIAL LENS FOR THIS EDITION: "${angle.name}" — ${angle.instruction}
+Do not reuse boilerplate phrasing, identical section names, or repeated headlines from prior dispatches.
 Return ONLY valid JSON matching this schema:
 {
-  "title": "Institutional research headline citing ticker and key catalyst/trend (max 95 chars)",
-  "summary": "2-sentence quantitative executive summary with exact live price, 52W positioning, and top news driver",
+  "title": "Distinct, fresh announcement headline citing ${quote.symbol} and ${angle.name} (max 95 chars, unique vs prior titles)",
+  "summary": "2-sentence unique executive announcement with exact live price, angle insight, and fresh wire context",
   "category": "Equities & Markets | Digital Assets | Macro & Commodities",
   "tags": ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"],
-  "keyTakeaways": ["4-5 data-rich bullet takeaways citing exact numbers and news sources"],
+  "keyTakeaways": ["4-5 original data-rich bullet takeaways tailored to this edition's angle"],
   "contentParagraphs": [
-    "## 1. Executive Market Snapshot & Valuation\\nDetailed paragraph analyzing live price, intraday range, 52-week range positioning, volume vs 20D average, and valuation metrics.",
-    "## 2. Breaking News & Catalyst Breakdown\\nDetailed synthesis of the actual news stories provided, naming sources (e.g. Reuters, Seeking Alpha, Benzinga, Yahoo Finance) and explaining their fundamental impact.",
-    "## 3. Technical Structure & Momentum Analysis\\nQuantitative breakdown of RSI-14, 20-day and 50-day moving averages, 3-month return trajectory, and key support/resistance zones.",
-    "## 4. Institutional Bull vs. Bear Thesis & Risk Matrix\\nBalanced institutional outlook weighing upside catalysts against macro, valuation, or execution risks."
+    "## 1. Fresh Angle Heading\\nDetailed original paragraph focused on the selected editorial lens with real numbers.",
+    "## 2. Wire & Catalyst Synthesis\\nDetailed synthesis of the provided news stories, naming sources and fresh takeaways.",
+    "## 3. Quantitative & Technical Deep Dive\\nQuantitative breakdown of RSI-14, SMA-20/50, volume, and support/resistance zones.",
+    "## 4. Strategic Desk Outlook & Risk Notes\\nBalanced institutional outlook and specific upside/downside risk triggers."
   ],
   "todayHighlights": [{"text": "Crisp 1-2 sentence factual highlight with real numbers/events", "source": "Exact source name"}],
   "bullPoints": ["3 concrete data-backed bullish drivers (max 65 chars each)"],
   "bearPoints": ["3 concrete data-backed risk/bearish factors (max 65 chars each)"],
   "deskTakeaway": "Sharp 1-line institutional trading desk verdict (max 75 chars)"
 }`;
-        const userPrompt = `REAL-TIME QUANTITATIVE DATA:\n${metricsSummary}\n\nVERIFIED BREAKING NEWS WIRES:\n${newsContext || 'No breaking wire stories in the last 24h.'}`;
+        const userPrompt = `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nTOPIC: ${topic}\n\nREAL-TIME QUANTITATIVE DATA:\n${metricsSummary}\n\nVERIFIED BREAKING NEWS WIRES:\n${newsContext || 'No breaking wire stories in the last 24h.'}${avoidanceBlock}`;
         let aiParsed = null;
         if (aiCfg.openaiApiKey) {
             try {
@@ -698,7 +767,8 @@ Return ONLY valid JSON matching this schema:
                     },
                     body: JSON.stringify({
                         model: 'gpt-4o-mini',
-                        temperature: 0.35,
+                        temperature: 0.78,
+                        top_p: 0.92,
                         response_format: { type: 'json_object' },
                         messages: [
                             { role: 'system', content: systemPrompt },
@@ -725,7 +795,7 @@ Return ONLY valid JSON matching this schema:
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
-                        generationConfig: { responseMimeType: 'application/json', temperature: 0.35 },
+                        generationConfig: { responseMimeType: 'application/json', temperature: 0.78, topP: 0.92 },
                     }),
                     signal: AbortSignal.timeout(22000),
                 });
@@ -745,40 +815,99 @@ Return ONLY valid JSON matching this schema:
         const priceNum = quote.price ?? 100;
         const supportNum = t.sma20 && t.sma20 < priceNum ? t.sma20 : t.dayLow ?? priceNum * 0.965;
         const resistNum = t.fiftyTwoWeekHigh && t.fiftyTwoWeekHigh >= priceNum ? t.fiftyTwoWeekHigh : (t.dayHigh ?? priceNum * 1.035);
-        const bullCount = news.filter((n) => n.sentiment === 'BULLISH').length;
-        const bearCount = news.filter((n) => n.sentiment === 'BEARISH').length;
+        const bullCount = rotatedNews.filter((n) => n.sentiment === 'BULLISH').length;
+        const bearCount = rotatedNews.filter((n) => n.sentiment === 'BEARISH').length;
         const rawSentScore = Math.min(92, Math.max(18, Math.round(50 +
             (quote.changePct ?? 0) * 4 +
             ((t.rsi14 ?? 50) - 50) * 0.5 +
             (bullCount - bearCount) * 5)));
         const sentimentLabel = rawSentScore >= 62 ? 'BULLISH ACCUMULATION' : rawSentScore <= 40 ? 'CAUTIOUS / DEFENSIVE' : 'NEUTRAL CONSOLIDATION';
-        const topNews1 = news[0];
-        const topNews2 = news[1];
-        const topNews3 = news[2];
-        const dataDrivenParagraphs = [
-            `## 1. Executive Market Snapshot & Valuation\n${quote.companyName} (${quote.symbol}), listed on ${quote.exchange}, is currently trading at ${quote.priceFormatted} (${quote.changeFormatted} in the latest session${quote.prevClose ? ` versus a prior close of $${quote.prevClose.toFixed(2)}` : ''}). Intraday price action has ranged between ${dayRangeStr}, while on a 52-week basis the asset has traded across ${w52Str}. Session volume stands at ${volStr}${f.marketCap ? `, valuing ${quote.symbol} at an implied market capitalization of ${f.marketCap}` : ''}${f.peRatio ? ` with a trailing P/E multiple of ${f.peRatio}` : ''}${f.eps ? ` and diluted EPS of ${f.eps}` : ''}.`,
-            `## 2. Breaking News & Institutional Wire Analysis\n${topNews1
-                ? `Real-time wire monitoring across ${news.length} verified financial feeds highlights active fundamental catalysts for ${quote.symbol}. Leading coverage from ${topNews1.sourceName} reports: "${topNews1.headline}" (${topNews1.summary.slice(0, 220)}).${topNews2
-                    ? ` Concurrently, ${topNews2.sourceName} notes: "${topNews2.headline}",`
-                    : ''}${topNews3
-                    ? ` while ${topNews3.sourceName} adds perspective with "${topNews3.headline}".`
-                    : ''} Across the ${news.length} tracked articles, ${bullCount} register bullish sentiment, ${bearCount} carry bearish risk flags, and ${news.length - bullCount - bearCount} remain neutral.`
-                : `Market wire feeds for ${quote.companyName} (${quote.symbol}) currently reflect steady institutional positioning with no disruptive headline shocks in the immediate session window.`}`,
-            `## 3. Quantitative & Technical Structure (RSI, Moving Averages & Range)\nFrom a quantitative trend perspective, ${quote.symbol} has delivered a 3-month trajectory of ${t.return3mPct !== null ? `${t.return3mPct >= 0 ? '+' : ''}${t.return3mPct}%` : quote.changeFormatted}. The 14-day Relative Strength Index (RSI-14) reads ${rsiStr}. Compared against key trend benchmarks (${smaStr}), ${quote.symbol} is trading ${t.sma20 && quote.price ? (quote.price >= t.sma20 ? `${(((quote.price - t.sma20) / t.sma20) * 100).toFixed(2)}% above its 20-day moving average` : `${(((t.sma20 - quote.price) / t.sma20) * 100).toFixed(2)}% below its 20-day moving average`) : 'near its medium-term equilibrium'}, with immediate technical support near $${supportNum.toFixed(2)} and overhead resistance at $${resistNum.toFixed(2)}.`,
-            `## 4. Institutional Bull vs. Bear Thesis & Risk Matrix\n${f.analystConsensus
-                ? `Wall Street consensus tracked via Finnhub currently stands at ${f.analystConsensus}${f.analystTarget ? ` with a mean target price of ${f.analystTarget}` : ''}. `
-                : ''}Upside conviction rests on sustained momentum above the $${supportNum.toFixed(2)} support shelf, earnings execution, and institutional inflows when volume expands toward or above the 20-day average (${formatCompactNumber(t.avgVolume20d)}). Key downside risks include resistance rejection near $${resistNum.toFixed(2)}, broader macro rate volatility, and sector multiple compression.`,
+        const topNews1 = rotatedNews[0];
+        const topNews2 = rotatedNews[1];
+        const topNews3 = rotatedNews[2];
+        const dateStamp = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const vsSmaText = t.sma20 && quote.price
+            ? quote.price >= t.sma20
+                ? `${(((quote.price - t.sma20) / t.sma20) * 100).toFixed(2)}% above its 20-day moving average`
+                : `${(((t.sma20 - quote.price) / t.sma20) * 100).toFixed(2)}% below its 20-day moving average`
+            : 'tracking near medium-term equilibrium';
+        const fallbackParagraphSets = [
+            [
+                `## 1. Valuation Snapshot & Capitalization Scale (${dateStamp})\n${quote.companyName} (${quote.symbol}) trades on ${quote.exchange} at ${quote.priceFormatted} (${quote.changeFormatted} session move${quote.prevClose ? ` from $${quote.prevClose.toFixed(2)} prior close` : ''}).${f.marketCap ? ` Implied equity value stands near ${f.marketCap}` : ''}${f.peRatio ? ` with a trailing P/E multiple of ${f.peRatio}` : ''}${f.eps ? ` on ${f.eps} diluted EPS` : ''}. Intraday turnover spans ${dayRangeStr} on ${volStr} volume.`,
+                `## 2. Primary Catalyst & Media Wire Signals\n${topNews1 ? `Attention on ${quote.symbol} centers around ${topNews1.sourceName}'s report: "${topNews1.headline}" — ${topNews1.summary.slice(0, 210)}.${topNews2 ? ` ${topNews2.sourceName} separately flags: "${topNews2.headline}".` : ''}` : `Institutional coverage on ${quote.symbol} remains focused on core earnings cadence and capital discipline.`}`,
+                `## 3. Trend Moving Averages & RSI Context\nWith 14-day RSI at ${rsiStr}, ${quote.symbol} sits ${vsSmaText} (${smaStr}). Immediate structural demand rests near $${supportNum.toFixed(2)}, while upper supply caps near $${resistNum.toFixed(2)}.`,
+                `## 4. Portfolio Risk & Positioning Matrix\n${f.analystConsensus ? `Analyst tracking stands at ${f.analystConsensus}${f.analystTarget ? ` (mean target ${f.analystTarget})` : ''}. ` : ''}Sustained closes above $${resistNum.toFixed(2)} expand upside breadth, whereas breaks under $${supportNum.toFixed(2)} warrant tighter exposure control.`,
+            ],
+            [
+                `## 1. Momentum Architecture & Intraday Action\nTechnical desk monitoring on ${quote.companyName} (${quote.symbol}) records spot pricing at ${quote.priceFormatted} (${quote.changeFormatted}), carving a session corridor of ${dayRangeStr}. Over the trailing quarter, price performance registers ${t.return3mPct !== null ? `${t.return3mPct >= 0 ? '+' : ''}${t.return3mPct}%` : quote.changeFormatted}.`,
+                `## 2. Oscillator Readings & Trend Alignment\nMomentum stands at RSI-14 = ${rsiStr}, with ${quote.symbol} currently ${vsSmaText}. Benchmark trend lines indicate ${smaStr}, placing tactical defense at $${supportNum.toFixed(2)} and breakout confirmation above $${resistNum.toFixed(2)}.`,
+                `## 3. Volume Participation & News Tape\nSession liquidity reached ${volStr}. Wire monitoring tracks ${rotatedNews.length} stories (${bullCount} bullish vs ${bearCount} bearish), led by ${topNews1 ? `${topNews1.sourceName}: "${topNews1.headline}"` : 'steady institutional commentary'}.`,
+                `## 4. Execution Takeaways for Trading Desks\nMomentum desks monitor whether volume exceeds the 20-day baseline (${formatCompactNumber(t.avgVolume20d)}) on strength toward $${resistNum.toFixed(2)}, while respecting macro rate sensitivity across ${quote.exchange}.`,
+            ],
+            [
+                `## 1. Headline Catalyst Dispatch: ${quote.symbol} (${dateStamp})\n${topNews1 ? `Fresh wire coverage from ${topNews1.sourceName} highlights "${topNews1.headline}" as ${quote.companyName} (${quote.symbol}) prints ${quote.priceFormatted} (${quote.changeFormatted}).` : `${quote.companyName} (${quote.symbol}) holds ${quote.priceFormatted} (${quote.changeFormatted}) on ${quote.exchange}.`}${topNews2 ? ` Follow-on reporting by ${topNews2.sourceName} adds focus on "${topNews2.headline}".` : ''}`,
+                `## 2. Sentiment Balance Across Institutional Feeds\nAcross ${rotatedNews.length} verified financial feeds monitored in this dispatch, ${bullCount} register constructive catalysts, ${bearCount} flag downside risks, and ${Math.max(0, rotatedNews.length - bullCount - bearCount)} remain neutral — producing a composite score of ${rawSentScore}/100 (${sentimentLabel}).`,
+                `## 3. Market Depth & 52-Week Standing\nTrading at ${t.fiftyTwoWeekPct ?? 50}% of its 52-week band (${w52Str}), ${quote.symbol} exhibits intraday amplitude between ${dayRangeStr} alongside ${volStr} volume.`,
+                `## 4. Catalyst Watchlist & Key Levels\nKey inflection levels track support at $${supportNum.toFixed(2)} and resistance near $${resistNum.toFixed(2)}, alongside upcoming fundamental updates${f.analystTarget ? ` toward street consensus ${f.analystTarget}` : ''}.`,
+            ],
+            [
+                `## 1. 52-Week Range Architecture & Liquidity Map\nPositioned at the ${t.fiftyTwoWeekPct ?? 50}th percentile of its 52-week range (${w52Str}), ${quote.companyName} (${quote.symbol}) quotes at ${quote.priceFormatted} (${quote.changeFormatted}) during active ${quote.exchange} trading.`,
+                `## 2. Depth & Volume Concentration Analysis\nLiquidity conditions show ${volStr} traded in the current window, supporting tight execution spreads across institutional order books${f.marketCap ? ` backed by ${f.marketCap} capitalization` : ''}.`,
+                `## 3. News Catalysts & Macro Framing\n${topNews1 ? `${topNews1.sourceName} notes "${topNews1.headline}". ` : ''}${topNews3 ? `Meanwhile, ${topNews3.sourceName} examines "${topNews3.headline}".` : `Trend references hold at ${smaStr}.`}`,
+                `## 4. Technical Cushion & Overhead Supply\nBuyers defend the $${supportNum.toFixed(2)} shelf (${vsSmaText}), while overhead supply clusters toward $${resistNum.toFixed(2)} with RSI-14 reading ${rsiStr}.`,
+            ],
+            [
+                `## 1. Asymmetric Bull vs. Bear Review — ${quote.symbol}\nAt ${quote.priceFormatted} (${quote.changeFormatted}), ${quote.companyName} presents a clear bifurcation between trend continuation catalysts and valuation/macro risk controls across ${dayRangeStr}.`,
+                `## 2. Upside Thesis Drivers\nPositive trajectory (${t.return3mPct !== null ? `${t.return3mPct >= 0 ? '+' : ''}${t.return3mPct}% 3M` : quote.changeFormatted}) and ${smaStr} alignment anchor institutional bids.${topNews1 ? ` Supportive coverage via ${topNews1.sourceName} ("${topNews1.headline.slice(0, 140)}") reinforces market engagement.` : ''}`,
+                `## 3. Risk Factors & Downside Scenarios\nKey vulnerabilities include potential supply rejection near $${resistNum.toFixed(2)}, broader rate-expectation shifts, and headline volatility${topNews2 ? ` underscored by ${topNews2.sourceName} ("${topNews2.headline.slice(0, 110)}")` : ''}.`,
+                `## 4. Desk Risk Parameters\nTraders weigh ${rsiStr} momentum against structural support at $${supportNum.toFixed(2)} and street consensus${f.analystConsensus ? ` (${f.analystConsensus})` : ''} before expanding position sizing.`,
+            ],
+            [
+                `## 1. Three-Month Trajectory & Strategic Outlook\nOver the past 90 trading days, ${quote.companyName} (${quote.symbol}) has registered ${t.return3mPct !== null ? `${t.return3mPct >= 0 ? '+' : ''}${t.return3mPct}%` : quote.changeFormatted}, settling most recently at ${quote.priceFormatted} on ${quote.exchange}.`,
+                `## 2. Multi-Feed Institutional Briefing\n${topNews1 ? `Lead wire insights from ${topNews1.sourceName} highlight "${topNews1.headline}". ` : ''}${topNews2 ? `Additional context from ${topNews2.sourceName} covers "${topNews2.headline}".` : ''}`,
+                `## 3. Quantitative Health Check\nTechnicals show RSI(14) = ${rsiStr}, ${smaStr}, and volume at ${volStr}, situating ${quote.symbol} at ${t.fiftyTwoWeekPct ?? 50}% of its 52-week band.`,
+                `## 4. Medium-Term Levels & Summary Verdict\nConstructive structure persists above $${supportNum.toFixed(2)} with upside checkpoint at $${resistNum.toFixed(2)}${f.analystTarget ? ` and mean street target near ${f.analystTarget}` : ''}.`,
+            ],
         ];
-        const title = aiParsed?.title ||
-            `${quote.companyName} (${quote.symbol}) at ${quote.priceFormatted} (${quote.changeFormatted}): Quantitative Valuation, Technicals & Live Wire Analysis`;
-        const summary = aiParsed?.summary ||
-            `${quote.companyName} (${quote.symbol}) trades at ${quote.priceFormatted} (${quote.changeFormatted}) on ${quote.exchange}, positioned at ${t.fiftyTwoWeekPct ?? 50}% of its 52-week range (${dayRangeStr} intraday) with RSI-14 at ${t.rsi14 ?? 'N/A'} and ${news.length} live wire updates.`;
+        const fallbackTitles = [
+            `${quote.companyName} (${quote.symbol}) at ${quote.priceFormatted}: ${angle.titleSuffix}`,
+            `${quote.symbol} Technical Briefing (${dateStamp}): ${quote.priceFormatted} (${quote.changeFormatted}) & Trend Structure`,
+            topNews1
+                ? `${quote.symbol} Catalyst Watch: ${topNews1.headline.slice(0, 58)}`
+                : `${quote.companyName} (${quote.symbol}) Institutional News & Wire Brief (#${editionNumber})`,
+            `${quote.symbol} at ${t.fiftyTwoWeekPct ?? 50}% of 52-Week Range — Liquidity & Depth Report`,
+            `${quote.companyName} (${quote.symbol}) Bull vs. Bear Risk Matrix at ${quote.priceFormatted}`,
+            `${quote.symbol} 3-Month Allocation Outlook (${dateStamp}): ${quote.changeFormatted} Move & Key Levels`,
+        ];
+        const fallbackSummaries = [
+            `Valuation-focused edition (#${editionNumber}) for ${quote.companyName} (${quote.symbol}) at ${quote.priceFormatted} (${quote.changeFormatted}), examining ${f.marketCap ? `${f.marketCap} market scale` : 'capitalization'}, ${f.peRatio || 'multiples'}, and wire catalysts.`,
+            `Technical momentum note (#${editionNumber}) tracking ${quote.symbol} at ${quote.priceFormatted} with RSI-14 at ${t.rsi14 ?? 'N/A'}, ${vsSmaText}, and session range ${dayRangeStr}.`,
+            `Catalyst briefing (#${editionNumber}) aggregating ${rotatedNews.length} financial wires on ${quote.symbol} (${bullCount} bullish / ${bearCount} bearish) led by ${topNews1?.sourceName || 'Market Wires'} at ${quote.priceFormatted}.`,
+            `Range & liquidity structure review (#${editionNumber}) placing ${quote.symbol} at the ${t.fiftyTwoWeekPct ?? 50}th percentile of its 52W corridor (${w52Str}) on ${formatCompactNumber(t.volume)} volume.`,
+            `Risk-reward matrix (#${editionNumber}) evaluating ${quote.companyName} support at $${supportNum.toFixed(2)} vs $${resistNum.toFixed(2)} resistance at spot ${quote.priceFormatted} (${sentimentLabel}).`,
+            `Strategic multi-month update (#${editionNumber}) on ${quote.symbol} covering ${t.return3mPct !== null ? `${t.return3mPct >= 0 ? '+' : ''}${t.return3mPct}%` : quote.changeFormatted} quarterly performance and ${f.dataSource} signals.`,
+        ];
+        const dataDrivenParagraphs = fallbackParagraphSets[angleIndex] || fallbackParagraphSets[0];
+        let title = String(aiParsed?.title || '').trim() || fallbackTitles[angleIndex] || fallbackTitles[0];
+        // Guard against exact title duplication even if LLM repeats a prior headline
+        if (priorTitles.some((pt) => pt.trim().toLowerCase() === title.trim().toLowerCase())) {
+            title = `${title.slice(0, 74)} — Edition #${editionNumber} (${dateStamp})`;
+        }
+        const summary = String(aiParsed?.summary || '').trim() || fallbackSummaries[angleIndex] || fallbackSummaries[0];
         const category = categoryOverride ||
             aiParsed?.category ||
             (quote.isCrypto ? 'Digital Assets' : 'Equities & Markets');
+        const fallbackTagSets = [
+            [quote.symbol, 'Valuation & Multiples', quote.companyName.split(' ')[0], 'Institutional Research', quote.exchange],
+            [quote.symbol, 'Technical Momentum', 'RSI & Moving Averages', 'Breakout Setup', quote.exchange],
+            [quote.symbol, 'Catalyst Dispatch', 'Breaking Wire News', 'Market Sentiment', quote.exchange],
+            [quote.symbol, '52-Week Range', 'Liquidity Depth', 'Order Flow', quote.exchange],
+            [quote.symbol, 'Bull vs Bear Matrix', 'Risk Assessment', 'Key Levels', quote.exchange],
+            [quote.symbol, '3-Month Outlook', 'Capital Allocation', 'Macro Flows', quote.exchange],
+        ];
         const tags = Array.isArray(aiParsed?.tags) && aiParsed.tags.length > 0
             ? aiParsed.tags.slice(0, 6)
-            : [quote.symbol, quote.exchange, 'Quantitative Research', 'Technical Analysis', 'Live News'];
+            : fallbackTagSets[angleIndex] || fallbackTagSets[0];
         const keyTakeaways = Array.isArray(aiParsed?.keyTakeaways) && aiParsed.keyTakeaways.length > 0
             ? aiParsed.keyTakeaways.slice(0, 5)
             : [
@@ -804,8 +933,8 @@ Return ONLY valid JSON matching this schema:
                 url: n.sourceUrl,
             }));
         const banner = {
-            kicker: `AVORA INSTITUTIONAL RESEARCH • ${quote.exchange}`,
-            headline: `${quote.companyName} (${quote.symbol})`,
+            kicker: `AVORA ANNOUNCEMENTS • ${angle.headlineTag} • ${quote.exchange}`,
+            headline: title.slice(0, 62),
             subtitle: `52W: $${t.fiftyTwoWeekLow?.toFixed(2) ?? '—'} – $${t.fiftyTwoWeekHigh?.toFixed(2) ?? '—'} • Vol: ${formatCompactNumber(t.volume)} • RSI(14): ${t.rsi14 ?? '—'}`,
             ticker: quote.symbol,
             exchange: quote.exchange,
@@ -823,6 +952,9 @@ Return ONLY valid JSON matching this schema:
             marketCapText: f.marketCap || 'Live Tracking',
             peText: f.peRatio || 'N/A',
             dataSource: f.dataSource,
+            variant: chosenVariant,
+            editionLabel,
+            chartStyle: chosenChartStyle,
             technicals: t,
             fundamentals: f,
         };
@@ -846,9 +978,10 @@ Return ONLY valid JSON matching this schema:
                     : `Sensitivity to macro rate expectations & sector rotation`,
                 topNews2 ? `Headline watch (${topNews2.sourceName}): ${topNews2.headline.slice(0, 48)}...` : `Intraday volatility across ${dayRangeStr} band`,
             ];
+        const memeTemplates = ['sentiment-matrix', 'stonks', 'volatility', 'two-buttons', 'drake'];
         const meme = {
-            template: 'sentiment-matrix',
-            topText: String(aiParsed?.deskTakeaway || `${quote.symbol} QUANTITATIVE SENTIMENT & BULL/BEAR MATRIX`),
+            template: memeTemplates[(Math.max(1, editionNumber) - 1) % memeTemplates.length] || 'sentiment-matrix',
+            topText: String(aiParsed?.deskTakeaway || `${quote.symbol} • ${angle.headlineTag} — ${sentimentLabel}`),
             bottomText: `Support: $${supportNum.toFixed(2)}  •  SMA-20: $${t.sma20?.toFixed(2) ?? 'N/A'}  •  Resistance: $${resistNum.toFixed(2)}`,
             ticker: quote.symbol,
             companyName: quote.companyName,
@@ -876,6 +1009,61 @@ Return ONLY valid JSON matching this schema:
         };
     }
     /**
+     * Generate a unique bespoke editorial cover artwork via OpenAI Images (when OpenAI key is set)
+     * and persist it in MySQL so it survives server restarts/redeploys.
+     */
+    async generateUniqueAiCoverImage(params) {
+        if (!params.openaiApiKey)
+            return null;
+        try {
+            const styleMotifs = [
+                'futuristic institutional trading floor architecture with emerald glass light rays',
+                'abstract 3D brushed titanium and gold financial sculpture on deep obsidian velvet',
+                'minimalist cobalt blue isometric global liquidity network and geometric wave forms',
+                'sleek ultra-modern private bank vault atrium with warm amber and slate reflections',
+                'abstract high-frequency market telemetry ribbons in teal and violet neon on dark matte steel',
+                'editorial financial magazine cover photography style, dark marble desk with subtle holographic chart reflections',
+            ];
+            const motif = styleMotifs[(params.editionNumber - 1) % styleMotifs.length];
+            const prompt = `Create a clean, ultra-sharp editorial hero image for an official financial announcement about ${params.companyName} (${params.ticker}). Visual direction: ${motif}. Theme focus: ${params.title}. Strictly NO text, NO letters, NO numbers, NO watermarks, widescreen cinematic dark fintech aesthetic.`;
+            const res = await fetch('https://api.openai.com/v1/images/generations', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${params.openaiApiKey}`,
+                },
+                body: JSON.stringify({
+                    model: 'dall-e-3',
+                    prompt,
+                    n: 1,
+                    size: '1792x1024',
+                    quality: 'standard',
+                    response_format: 'b64_json',
+                }),
+                signal: AbortSignal.timeout(22000),
+            });
+            if (!res.ok)
+                return null;
+            const json = await res.json();
+            const b64 = json?.data?.[0]?.b64_json;
+            if (!b64)
+                return null;
+            const buffer = Buffer.from(b64, 'base64');
+            const urlPath = `/uploads/ai-covers/${params.slug}.png`;
+            await (0, storage_service_1.persistUploadedBuffer)({
+                urlPath,
+                buffer,
+                mimeType: 'image/png',
+                originalName: `${params.slug}.png`,
+            });
+            return urlPath;
+        }
+        catch (err) {
+            console.warn('[AutoContent] Bespoke AI cover fallback to themed SVG banner:', err);
+            return null;
+        }
+    }
+    /**
      * End-to-End 1-Click Automated Post & Publisher
      */
     async publishAutomatedPost(params) {
@@ -885,24 +1073,74 @@ Return ONLY valid JSON matching this schema:
         await this.ensureSchema();
         const aiCfg = await this.getAiConfig();
         const quote = await this.resolveTopicAndQuote(topic);
+        // Inspect prior posts on the same ticker/topic so every announcement gets a fresh angle, title, and picture
+        const priorPosts = await prisma_1.prisma.blogPost
+            .findMany({
+            where: {
+                OR: [{ ticker: quote.symbol }, { topicQuery: topic }],
+            },
+            orderBy: { publishedAt: 'desc' },
+            take: 12,
+            select: { title: true, bannerData: true },
+        })
+            .catch(() => []);
+        const priorCount = priorPosts.length;
+        const priorTitles = priorPosts.map((p) => p.title).filter(Boolean);
+        let lastVariant = '';
+        try {
+            if (priorPosts[0]?.bannerData) {
+                const parsed = JSON.parse(priorPosts[0].bannerData);
+                lastVariant = String(parsed?.variant || '');
+            }
+        }
+        catch { }
+        const variantPool = [
+            'emerald-grid',
+            'cobalt-terminal',
+            'amber-bullion',
+            'violet-quant',
+            'cyan-horizon',
+            'crimson-brief',
+        ];
+        let nextVariant = variantPool[priorCount % variantPool.length];
+        if (nextVariant === lastVariant) {
+            nextVariant = variantPool[(priorCount + 1) % variantPool.length];
+        }
         const news = await this.fetchReliableNews(quote, topic, aiCfg.finnhubApiKey);
+        const editionNumber = priorCount + 1;
         const pkg = await this.generateEditorialPackage({
             topic,
             quote,
             news,
             categoryOverride: params.categoryOverride,
             includeMeme: params.includeMeme !== false,
+            priorTitles,
+            editionNumber,
+            visualVariant: nextVariant,
         });
         const slug = slugify(`${quote.symbol}-${pkg.title.slice(0, 48)}`);
         const bannerSvgUrl = `/api/v1/cms/media/banner/${slug}.svg`;
         const memeUrl = pkg.meme ? `/api/v1/cms/media/meme/${slug}.svg` : null;
+        // Try bespoke AI cover image when OpenAI key is configured; cleanly fall back to themed unique SVG banner
+        const customAiCoverUrl = aiCfg.openaiApiKey
+            ? await this.generateUniqueAiCoverImage({
+                openaiApiKey: aiCfg.openaiApiKey,
+                slug,
+                companyName: quote.companyName,
+                ticker: quote.symbol,
+                title: pkg.title,
+                editionNumber,
+                variant: nextVariant,
+            })
+            : null;
+        const coverImage = customAiCoverUrl || bannerSvgUrl;
         const post = await prisma_1.prisma.blogPost.create({
             data: {
                 slug,
                 title: pkg.title.slice(0, 250),
                 summary: pkg.summary,
                 content: pkg.content,
-                coverImage: bannerSvgUrl,
+                coverImage,
                 category: pkg.category,
                 tags: pkg.tags.join(', '),
                 keyTakeaways: JSON.stringify(pkg.keyTakeaways),
@@ -989,12 +1227,54 @@ Return ONLY valid JSON matching this schema:
             orderBy: { publishedAt: 'desc' },
             take: 15,
         });
+        // Determine deterministic distinct edition index among sibling posts on the same ticker/topic
+        // so auto-sync NEVER overwrites multiple posts into clones.
+        const siblingPosts = await prisma_1.prisma.blogPost
+            .findMany({
+            where: {
+                OR: [
+                    ...(post.ticker ? [{ ticker: post.ticker }] : []),
+                    ...(post.topicQuery ? [{ topicQuery: post.topicQuery }] : []),
+                ],
+            },
+            orderBy: { publishedAt: 'asc' },
+            select: { id: true, title: true },
+        })
+            .catch(() => []);
+        const siblingIdx = Math.max(0, siblingPosts.findIndex((s) => s.id === post.id));
+        const editionNumber = siblingIdx + 1;
+        const siblingPriorTitles = siblingPosts.filter((s) => s.id !== post.id).map((s) => s.title);
+        const variantPool = [
+            'emerald-grid',
+            'cobalt-terminal',
+            'amber-bullion',
+            'violet-quant',
+            'cyan-horizon',
+            'crimson-brief',
+        ];
+        let existingVariant = variantPool[siblingIdx % variantPool.length];
+        try {
+            if (post.bannerData) {
+                const parsedBanner = JSON.parse(post.bannerData);
+                if (parsedBanner?.variant && variantPool.includes(parsedBanner.variant)) {
+                    existingVariant = parsedBanner.variant;
+                }
+            }
+        }
+        catch { }
+        // If two sibling posts still had the default same variant, ensure distinct per-index palette
+        if (siblingIdx > 0 && existingVariant === variantPool[0]) {
+            existingVariant = variantPool[siblingIdx % variantPool.length];
+        }
         const pkg = await this.generateEditorialPackage({
             topic: post.topicQuery || post.ticker || post.title,
             quote,
             news: latestNews.length > 0 ? latestNews : news,
             categoryOverride: post.category,
             includeMeme: Boolean(post.memeUrl),
+            priorTitles: siblingPriorTitles,
+            editionNumber,
+            visualVariant: existingVariant,
         });
         const updatedPost = await prisma_1.prisma.blogPost.update({
             where: { id: post.id },
@@ -1004,6 +1284,7 @@ Return ONLY valid JSON matching this schema:
                         title: pkg.title.slice(0, 250),
                         summary: pkg.summary,
                         content: pkg.content,
+                        tags: pkg.tags.join(', '),
                         keyTakeaways: JSON.stringify(pkg.keyTakeaways),
                     }
                     : {}),
@@ -1066,34 +1347,116 @@ Return ONLY valid JSON matching this schema:
                 spec = { ...spec, ...JSON.parse(bannerJson) };
         }
         catch { }
+        const PALETTES = {
+            'emerald-grid': {
+                bg1: '#050811',
+                bg2: '#0A1124',
+                bg3: '#071923',
+                panel: '#0F172A',
+                grid: '#1E293B',
+                badgeBg: '#10B981',
+                badgeText: '#34D399',
+                subAccent: '#38BDF8',
+            },
+            'cobalt-terminal': {
+                bg1: '#04091A',
+                bg2: '#0B1838',
+                bg3: '#111D4A',
+                panel: '#0B142C',
+                grid: '#1E3A8A',
+                badgeBg: '#3B82F6',
+                badgeText: '#93C5FD',
+                subAccent: '#34D399',
+            },
+            'amber-bullion': {
+                bg1: '#120C04',
+                bg2: '#1C140A',
+                bg3: '#24180B',
+                panel: '#171109',
+                grid: '#451A03',
+                badgeBg: '#F59E0B',
+                badgeText: '#FCD34D',
+                subAccent: '#34D399',
+            },
+            'violet-quant': {
+                bg1: '#0B0617',
+                bg2: '#170E2E',
+                bg3: '#101936',
+                panel: '#120C24',
+                grid: '#312E81',
+                badgeBg: '#8B5CF6',
+                badgeText: '#C4B5FD',
+                subAccent: '#2DD4BF',
+            },
+            'cyan-horizon': {
+                bg1: '#031217',
+                bg2: '#07222C',
+                bg3: '#0B172A',
+                panel: '#071B24',
+                grid: '#164E63',
+                badgeBg: '#06B6D4',
+                badgeText: '#67E8F9',
+                subAccent: '#A7F3D0',
+            },
+            'crimson-brief': {
+                bg1: '#14050B',
+                bg2: '#1E0A16',
+                bg3: '#0F172A',
+                panel: '#160B14',
+                grid: '#4C0519',
+                badgeBg: '#EC4899',
+                badgeText: '#F9A8D4',
+                subAccent: '#38BDF8',
+            },
+        };
+        const paletteKey = spec.variant && PALETTES[spec.variant] ? spec.variant : 'emerald-grid';
+        const pal = PALETTES[paletteKey];
         const accent = spec.isPositive ? '#10B981' : '#F43F5E';
         // Build SVG sparkline inside Right Terminal Chart Box (x: 645..1115, y: 245..455)
         const pts = spec.sparkline.length >= 2 ? spec.sparkline : [10, 12, 11, 14, 15];
         const min = Math.min(...pts);
         const max = Math.max(...pts);
         const span = max - min || 1;
-        const coords = pts.map((v, i) => {
+        const coordPairs = pts.map((v, i) => {
             const x = 650 + (i / (pts.length - 1)) * 460;
             const y = 445 - ((v - min) / span) * 190;
-            return `${x.toFixed(1)},${y.toFixed(1)}`;
+            return { x, y };
         });
+        const coords = coordPairs.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`);
         const linePath = `M ${coords.join(' L ')}`;
         const areaPath = `${linePath} L 1110,465 L 650,465 Z`;
+        const barsMarkup = coordPairs
+            .map((c, idx) => {
+            const barW = Math.max(6, Math.floor(420 / coordPairs.length) - 4);
+            const h = Math.max(12, 462 - c.y);
+            const barOpacity = idx === coordPairs.length - 1 ? 0.9 : 0.42;
+            return `<rect x="${(c.x - barW / 2).toFixed(1)}" y="${c.y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="3" fill="${accent}" fill-opacity="${barOpacity}"/>`;
+        })
+            .join('\n  ');
+        const dotsMarkup = coordPairs
+            .filter((_, idx) => idx % 2 === 0 || idx === coordPairs.length - 1)
+            .map((c, idx, arr) => `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="${idx === arr.length - 1 ? 6 : 3.5}" fill="${idx === arr.length - 1 ? '#FFFFFF' : pal.badgeText}" stroke="${accent}" stroke-width="2"/>`)
+            .join('\n  ');
+        const chartVisual = spec.chartStyle === 'bars'
+            ? `${barsMarkup}\n  <path d="${linePath}" fill="none" stroke="#FFFFFF" stroke-opacity="0.7" stroke-width="2" stroke-dasharray="4 4"/>`
+            : spec.chartStyle === 'dots'
+                ? `<path d="${areaPath}" fill="url(#areaGrad)" fill-opacity="0.5"/>\n  <path d="${linePath}" fill="none" stroke="${pal.badgeText}" stroke-width="3.5" stroke-linecap="round"/>\n  ${dotsMarkup}`
+                : `<path d="${areaPath}" fill="url(#areaGrad)"/>\n  <path d="${linePath}" fill="none" stroke="${accent}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>`;
         // Strictly wrap headline to 21 chars so it NEVER crosses x=585
         const headlineLines = wrapText(spec.headline, 21, 2);
         return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#050811"/>
-      <stop offset="55%" stop-color="#0A1124"/>
-      <stop offset="100%" stop-color="#071923"/>
+      <stop offset="0%" stop-color="${pal.bg1}"/>
+      <stop offset="55%" stop-color="${pal.bg2}"/>
+      <stop offset="100%" stop-color="${pal.bg3}"/>
     </linearGradient>
     <radialGradient id="orb" cx="80%" cy="35%" r="45%">
-      <stop offset="0%" stop-color="${accent}" stop-opacity="0.22"/>
-      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
+      <stop offset="0%" stop-color="${pal.badgeBg}" stop-opacity="0.26"/>
+      <stop offset="100%" stop-color="${pal.badgeBg}" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="${accent}" stop-opacity="0.35"/>
+      <stop offset="0%" stop-color="${accent}" stop-opacity="0.38"/>
       <stop offset="100%" stop-color="${accent}" stop-opacity="0.0"/>
     </linearGradient>
     <clipPath id="leftClip">
@@ -1105,7 +1468,7 @@ Return ONLY valid JSON matching this schema:
   <rect width="1200" height="630" fill="url(#orb)"/>
 
   <!-- Terminal Grid -->
-  <g stroke="#1E293B" stroke-width="1" stroke-opacity="0.4">
+  <g stroke="${pal.grid}" stroke-width="1" stroke-opacity="0.45">
     <line x1="0" y1="126" x2="1200" y2="126"/>
     <line x1="0" y1="252" x2="1200" y2="252"/>
     <line x1="0" y1="378" x2="1200" y2="378"/>
@@ -1115,16 +1478,16 @@ Return ONLY valid JSON matching this schema:
 
   <!-- LEFT COLUMN (Strictly Clipped so text never overlaps right chart) -->
   <g clip-path="url(#leftClip)">
-    <rect x="56" y="56" width="360" height="32" rx="16" fill="#10B981" fill-opacity="0.14" stroke="#10B981" stroke-opacity="0.4"/>
-    <circle cx="76" cy="72" r="4.5" fill="#10B981"/>
-    <text x="90" y="77" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11" font-weight="800" letter-spacing="1.2" fill="#34D399">${escapeXml(spec.kicker.slice(0, 38))}</text>
+    <rect x="56" y="56" width="490" height="32" rx="16" fill="${pal.badgeBg}" fill-opacity="0.16" stroke="${pal.badgeBg}" stroke-opacity="0.45"/>
+    <circle cx="76" cy="72" r="4.5" fill="${pal.badgeBg}"/>
+    <text x="90" y="77" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11" font-weight="800" letter-spacing="1.1" fill="${pal.badgeText}">${escapeXml((spec.editionLabel || spec.kicker).slice(0, 44))}</text>
 
-    <g font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="40" font-weight="900" fill="#FFFFFF">
-      ${headlineLines.map((line, i) => `<text x="56" y="${148 + i * 48}">${escapeXml(line)}</text>`).join('\n      ')}
+    <g font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="38" font-weight="900" fill="#FFFFFF">
+      ${headlineLines.map((line, i) => `<text x="56" y="${144 + i * 46}">${escapeXml(line)}</text>`).join('\n      ')}
     </g>
 
     <!-- Quantitative Data KPIs Box on Left -->
-    <rect x="56" y="232" width="516" height="240" rx="20" fill="#0F172A" fill-opacity="0.85" stroke="#1E293B" stroke-width="1.5"/>
+    <rect x="56" y="232" width="516" height="240" rx="20" fill="${pal.panel}" fill-opacity="0.88" stroke="${pal.grid}" stroke-width="1.5"/>
 
     <text x="80" y="268" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#64748B">INTRADAY RANGE</text>
     <text x="80" y="290" font-family="monospace" font-size="15" font-weight="800" fill="#F8FAFC">${escapeXml(spec.dayRangeText.slice(0, 26))}</text>
@@ -1132,15 +1495,15 @@ Return ONLY valid JSON matching this schema:
     <text x="320" y="268" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#64748B">SESSION VOLUME</text>
     <text x="320" y="290" font-family="monospace" font-size="15" font-weight="800" fill="#F8FAFC">${escapeXml(spec.volumeText.slice(0, 24))}</text>
 
-    <line x1="80" y1="310" x2="548" y2="310" stroke="#1E293B" stroke-width="1"/>
+    <line x1="80" y1="310" x2="548" y2="310" stroke="${pal.grid}" stroke-width="1"/>
 
     <text x="80" y="338" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#64748B">52-WEEK BAND</text>
-    <text x="80" y="360" font-family="monospace" font-size="14" font-weight="800" fill="#38BDF8">${escapeXml(spec.fiftyTwoWeekText.slice(0, 30))}</text>
+    <text x="80" y="360" font-family="monospace" font-size="14" font-weight="800" fill="${pal.subAccent}">${escapeXml(spec.fiftyTwoWeekText.slice(0, 30))}</text>
 
     <text x="320" y="338" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#64748B">RSI (14D) MOMENTUM</text>
-    <text x="320" y="360" font-family="monospace" font-size="14" font-weight="800" fill="#34D399">${escapeXml(spec.rsiText.slice(0, 24))}</text>
+    <text x="320" y="360" font-family="monospace" font-size="14" font-weight="800" fill="${pal.badgeText}">${escapeXml(spec.rsiText.slice(0, 24))}</text>
 
-    <line x1="80" y1="380" x2="548" y2="380" stroke="#1E293B" stroke-width="1"/>
+    <line x1="80" y1="380" x2="548" y2="380" stroke="${pal.grid}" stroke-width="1"/>
 
     <text x="80" y="408" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#64748B">MOVING AVERAGES</text>
     <text x="80" y="430" font-family="monospace" font-size="13" font-weight="700" fill="#CBD5E1">${escapeXml(spec.smaText.slice(0, 42))}</text>
@@ -1148,16 +1511,16 @@ Return ONLY valid JSON matching this schema:
     <text x="80" y="456" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#64748B">DATA FEED: ${escapeXml(spec.dataSource.toUpperCase())}</text>
 
     <!-- Brand Footer -->
-    <rect x="56" y="516" width="38" height="38" rx="10" fill="#4F46E5"/>
+    <rect x="56" y="516" width="38" height="38" rx="10" fill="${pal.badgeBg}"/>
     <text x="75" y="542" text-anchor="middle" font-family="system-ui, sans-serif" font-size="21" font-weight="900" fill="#FFFFFF">A</text>
-    <text x="108" y="534" font-family="system-ui, sans-serif" font-size="17" font-weight="800" fill="#F8FAFC">Avora Bank Institutional Research</text>
-    <text x="108" y="553" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#64748B">QUANTITATIVE EQUITY &amp; MACRO DESK • ${escapeXml(slug.slice(0, 26))}</text>
+    <text x="108" y="534" font-family="system-ui, sans-serif" font-size="17" font-weight="800" fill="#F8FAFC">Avora Bank Announcements</text>
+    <text x="108" y="553" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#64748B">DESK DISPATCH • ${escapeXml(slug.slice(0, 28))}</text>
   </g>
 
   <!-- RIGHT COLUMN: 3-MONTH PRICE CURVE & QUOTE TERMINAL -->
-  <rect x="620" y="56" width="524" height="500" rx="26" fill="#0F172A" fill-opacity="0.9" stroke="#1E293B" stroke-width="2"/>
+  <rect x="620" y="56" width="524" height="500" rx="26" fill="${pal.panel}" fill-opacity="0.92" stroke="${pal.grid}" stroke-width="2"/>
 
-  <rect x="650" y="84" width="130" height="36" rx="10" fill="#1E293B"/>
+  <rect x="650" y="84" width="130" height="36" rx="10" fill="${pal.badgeBg}" fill-opacity="0.22" stroke="${pal.badgeBg}" stroke-opacity="0.4"/>
   <text x="715" y="107" text-anchor="middle" font-family="monospace" font-size="16" font-weight="900" fill="#FFFFFF">${escapeXml(spec.ticker)}</text>
   <text x="650" y="144" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#64748B">3-MONTH DAILY CLOSE TRAJECTORY (${escapeXml(spec.exchange)})</text>
 
@@ -1165,15 +1528,14 @@ Return ONLY valid JSON matching this schema:
   <rect x="1004" y="122" width="110" height="30" rx="8" fill="${accent}" fill-opacity="0.18"/>
   <text x="1059" y="142" text-anchor="middle" font-family="monospace" font-size="15" font-weight="900" fill="${accent}">${escapeXml(spec.changeText)} (1D)</text>
 
-  <line x1="650" y1="172" x2="1114" y2="172" stroke="#1E293B" stroke-width="1"/>
+  <line x1="650" y1="172" x2="1114" y2="172" stroke="${pal.grid}" stroke-width="1"/>
 
-  <!-- Price High/Low Labels -->
+  <!-- Price High/Low Labels & Chart -->
   <text x="1114" y="232" text-anchor="end" font-family="monospace" font-size="11" fill="#64748B">3M High: $${max.toFixed(2)}</text>
-  <path d="${areaPath}" fill="url(#areaGrad)"/>
-  <path d="${linePath}" fill="none" stroke="${accent}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  ${chartVisual}
   <text x="1114" y="488" text-anchor="end" font-family="monospace" font-size="11" fill="#64748B">3M Low: $${min.toFixed(2)}</text>
 
-  <text x="650" y="528" font-family="monospace" font-size="11" font-weight="700" fill="#94A3B8">LIVE TERMINAL SNAPSHOT • AUTO-UPDATING</text>
+  <text x="650" y="528" font-family="monospace" font-size="11" font-weight="700" fill="#94A3B8">LIVE TERMINAL SNAPSHOT • UNIQUE EDITION</text>
 </svg>`;
     }
     /**

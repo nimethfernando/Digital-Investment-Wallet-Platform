@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const storage_service_1 = require("../services/storage.service");
 const auth_1 = require("../middleware/auth");
+const client_1 = require("@prisma/client");
 const cms_service_1 = require("../services/cms.service");
 const router = (0, express_1.Router)();
 router.post('/branding', auth_1.authenticateToken, auth_1.requireAdmin, storage_service_1.upload.single('logo'), async (req, res, next) => {
@@ -11,6 +12,13 @@ router.post('/branding', auth_1.authenticateToken, auth_1.requireAdmin, storage_
             return res.status(400).json({ success: false, message: 'No file uploaded' });
         const assetType = req.body.type || 'logo_light';
         const url = (0, storage_service_1.getUploadPath)('branding', req.file.filename);
+        await (0, storage_service_1.persistUploadedAsset)({
+            urlPath: url,
+            filePath: req.file.path,
+            mimeType: req.file.mimetype,
+            originalName: req.file.originalname,
+            sizeBytes: req.file.size,
+        });
         const keyMap = {
             logo_light: 'logo_light_url',
             logo_dark: 'logo_dark_url',
@@ -34,6 +42,13 @@ router.post('/brochure', auth_1.authenticateToken, auth_1.requireAdmin, storage_
         if (!req.file)
             return res.status(400).json({ success: false, message: 'No PDF brochure uploaded' });
         const url = (0, storage_service_1.getUploadPath)('brochures', req.file.filename);
+        await (0, storage_service_1.persistUploadedAsset)({
+            urlPath: url,
+            filePath: req.file.path,
+            mimeType: req.file.mimetype,
+            originalName: req.file.originalname,
+            sizeBytes: req.file.size,
+        });
         await cms_service_1.cmsService.updateSetting('brochure_pdf_url', url, 'BRANDING');
         await cms_service_1.cmsService.updateSetting('brochure_enabled', 'true', 'BRANDING');
         res.json({
@@ -52,10 +67,42 @@ router.post('/document', auth_1.authenticateToken, storage_service_1.upload.sing
             return res.status(400).json({ success: false, message: 'No document uploaded' });
         const folder = req.file.fieldname === 'proof' ? 'receipts' : 'documents';
         const url = (0, storage_service_1.getUploadPath)(folder, req.file.filename);
+        await (0, storage_service_1.persistUploadedAsset)({
+            urlPath: url,
+            filePath: req.file.path,
+            mimeType: req.file.mimetype,
+            originalName: req.file.originalname,
+            sizeBytes: req.file.size,
+        });
         res.json({
             success: true,
             message: 'File uploaded successfully',
             url,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post('/venture-asset', auth_1.authenticateToken, (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), storage_service_1.upload.single('file'), async (req, res, next) => {
+    try {
+        if (!req.file)
+            return res.status(400).json({ success: false, message: 'No asset file uploaded' });
+        const url = (0, storage_service_1.getUploadPath)('documents', req.file.filename);
+        await (0, storage_service_1.persistUploadedAsset)({
+            urlPath: url,
+            filePath: req.file.path,
+            mimeType: req.file.mimetype,
+            originalName: req.file.originalname,
+            sizeBytes: req.file.size,
+        });
+        res.json({
+            success: true,
+            message: 'Venture project asset uploaded successfully',
+            url,
+            originalName: req.file.originalname,
+            mimeType: req.file.mimetype,
+            sizeBytes: req.file.size,
         });
     }
     catch (err) {

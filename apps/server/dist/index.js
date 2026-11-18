@@ -15,6 +15,7 @@ const routes_1 = __importDefault(require("./routes"));
 const error_1 = require("./middleware/error");
 const returns_job_1 = require("./services/returns.job");
 const p2p_service_1 = require("./services/p2p.service");
+const storage_service_1 = require("./services/storage.service");
 const app = (0, express_1.default)();
 app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -69,20 +70,32 @@ try {
 catch (err) {
     console.warn('[Server] Note on uploads directory creation:', err);
 }
-app.use('/uploads', (req, res, next) => {
-    const filePath = path_1.default.join(uploadsDirectory, req.path);
-    if (!fs_1.default.existsSync(filePath)) {
-        if (req.path.match(/\.(png|jpg|jpeg|svg|webp)$/i)) {
-            res.setHeader('Content-Type', 'image/svg+xml');
-            return res.send(`
-        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200" fill="#f1f5f9">
-          <rect width="300" height="200" fill="#e2e8f0"/>
-          <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#64748b">Avora Bank Asset Placeholder</text>
-        </svg>
-      `);
+app.use('/uploads', async (req, res, next) => {
+    try {
+        const safeRelPath = path_1.default.posix.normalize(req.path || '/');
+        if (safeRelPath.includes('..')) {
+            return res.status(400).json({ success: false, message: 'Invalid upload path' });
         }
+        const filePath = path_1.default.join(uploadsDirectory, safeRelPath);
+        if (fs_1.default.existsSync(filePath)) {
+            return next();
+        }
+        const urlPath = `/uploads${safeRelPath.startsWith('/') ? safeRelPath : `/${safeRelPath}`}`;
+        const persisted = await (0, storage_service_1.getPersistedUploadedAsset)(urlPath);
+        if (persisted) {
+            fs_1.default.promises
+                .mkdir(path_1.default.dirname(filePath), { recursive: true })
+                .then(() => fs_1.default.promises.writeFile(filePath, persisted.buffer))
+                .catch(() => { });
+            res.setHeader('Content-Type', persisted.mimeType);
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.send(persisted.buffer);
+        }
+        return res.status(404).json({ success: false, message: 'Uploaded document file not found' });
     }
-    next();
+    catch (err) {
+        return next(err);
+    }
 }, express_1.default.static(uploadsDirectory));
 // Robust Health & Diagnostic Endpoint (runs without requiring DB access)
 app.get(['/health', '/api/health', '/api/v1/health'], (req, res) => {

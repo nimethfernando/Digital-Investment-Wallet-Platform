@@ -110,6 +110,10 @@ interface PackageItem {
 interface StartupInvestmentItem {
   id: string;
   investmentCode: string;
+  companyName?: string;
+  slug?: string;
+  industry?: string;
+  country?: string;
   grossAmount: string;
   allocationFeePct?: number | string | null;
   allocationFeeAmount: string;
@@ -121,8 +125,12 @@ interface StartupInvestmentItem {
   unrealizedReturnPct?: string | number | null;
   status: string;
   createdAt: string;
-  realizedProceeds?: string;
-  netDistributedProfit?: string;
+  realizedProceeds?: string | number;
+  returnOfCapital?: string | number;
+  eligibleNetProfit?: string | number;
+  profitShareFeeAmount?: string | number;
+  netDistributedProfit?: string | number;
+  settlementReference?: string | null;
   profitLossUsd?: number;
   lockInMonths?: number;
   lockInEnd?: string | null;
@@ -138,10 +146,13 @@ interface StartupInvestmentItem {
     industry: string;
     country: string;
     stage: string;
+    valuation?: number;
     lockInMonths?: number;
+    startDate?: string | null;
     maturityDate?: string | null;
     expectedReturnPct?: number;
     performancePct?: number;
+    providerName?: string | null;
     termsAndNotes?: string | null;
     supportingDocuments?: { title: string; url: string; uploadedAt?: string }[];
   };
@@ -283,6 +294,9 @@ function DashboardContent() {
   const [startupSummary, setStartupSummary] = useState<any>(null);
   const [tokenStatus, setTokenStatus] = useState<TokenStatusItem | null>(null);
   const [portfolioSubTab, setPortfolioSubTab] = useState<'ALL' | 'FD' | 'STARTUP' | 'TOKEN'>('ALL');
+  const [selectedStartupDetail, setSelectedStartupDetail] = useState<StartupInvestmentItem | null>(null);
+  const [selectedFdDetail, setSelectedFdDetail] = useState<PackageItem | null>(null);
+  const [showTokenDetailModal, setShowTokenDetailModal] = useState(false);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -1853,46 +1867,70 @@ function DashboardContent() {
               </div>
 
               {/* Card 2: Active Packages */}
-              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPortfolioSubTab('FD');
+                  setActiveTab('packages');
+                }}
+                className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-500/50 hover:shadow-md transition-all shadow-sm space-y-2 text-left cursor-pointer group"
+              >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span>Locked Principal</span>
-                  <Lock className="w-4 h-4 text-blue-500" />
+                  <Lock className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black tracking-tight">
                   ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Packages: <span className="font-semibold text-slate-700 dark:text-slate-300">{packages.filter((p) => p.status === 'ACTIVE').length} Active (6-mo lock)</span>
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>
+                    Packages: <span className="font-semibold text-slate-700 dark:text-slate-300">{packages.filter((p) => p.status === 'ACTIVE').length} Active (6-mo lock)</span>
+                  </span>
+                  <span className="text-blue-500 font-bold opacity-80 group-hover:opacity-100">View →</span>
                 </div>
-              </div>
+              </button>
 
               {/* Card 3: Accumulated Yields */}
-              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab('transactions')}
+                className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 hover:shadow-md transition-all shadow-sm space-y-2 text-left cursor-pointer group"
+              >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span>Monthly Yields Paid</span>
-                  <TrendingUp className="w-4 h-4 text-emerald-500" />
+                  <TrendingUp className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">
                   +${parseFloat(returnsPaid).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Rate: <span className="font-semibold text-slate-700 dark:text-slate-300">1.0% Monthly Return</span>
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>
+                    Rate: <span className="font-semibold text-slate-700 dark:text-slate-300">1.0% Monthly Return</span>
+                  </span>
+                  <span className="text-emerald-500 font-bold opacity-80 group-hover:opacity-100">Ledger →</span>
                 </div>
-              </div>
+              </button>
 
-              {/* Card 4: Pending Settlements */}
-              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+              {/* Card 4: Pending Withdrawals / Settlement Queue */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('withdrawals')}
+                className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-amber-500/50 hover:shadow-md transition-all shadow-sm space-y-2 text-left cursor-pointer group"
+              >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                  <span>Settlement Queue</span>
-                  <Clock className="w-4 h-4 text-amber-500" />
+                  <span>Withdrawal Settlement Queue</span>
+                  <Clock className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
                 </div>
                 <div className="text-2xl sm:text-3xl font-black tracking-tight text-amber-600 dark:text-amber-400">
                   ${parseFloat(pendingWth).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Queue: <span className="font-semibold text-slate-700 dark:text-slate-300">15-day settlement window</span>
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>
+                    Pending Payouts: <span className="font-semibold text-slate-700 dark:text-slate-300">15-day settlement window</span>
+                  </span>
+                  <span className="text-amber-500 font-bold opacity-80 group-hover:opacity-100">Inspect →</span>
                 </div>
-              </div>
+              </button>
 
             </div>
 
@@ -1906,12 +1944,15 @@ function DashboardContent() {
                   </div>
                   <h3 className="text-lg font-black text-slate-900 dark:text-white">Active Investments & Tenure Overview</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Live capital deployment across Fixed Deposits, Venture Crowdfunding & Avora Tokens
+                    Live capital deployment across Fixed Deposits, Venture Crowdfunding & Avora Tokens — click any block for full details
                   </p>
                 </div>
 
                 <button
-                  onClick={() => setActiveTab('packages')}
+                  onClick={() => {
+                    setPortfolioSubTab('ALL');
+                    setActiveTab('packages');
+                  }}
                   className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 transition-all self-start sm:self-auto cursor-pointer"
                 >
                   <span>Full Portfolio & Tenures</span>
@@ -1919,11 +1960,18 @@ function DashboardContent() {
                 </button>
               </div>
 
-              {/* Asset Allocation Breakdown Mini-Bar */}
+              {/* Asset Allocation Breakdown Mini-Bar (All 3 Clickable) */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPortfolioSubTab('FD');
+                    setActiveTab('packages');
+                  }}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:border-emerald-500/60 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 hover:shadow-md transition-all space-y-1.5 text-left cursor-pointer group"
+                >
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
                       <Package className="w-3.5 h-3.5 text-emerald-500" /> Fixed Deposits (1% Mo)
                     </span>
                     <span className="font-mono text-[11px] font-bold text-emerald-600">{packages.filter((p) => p.status === 'ACTIVE').length} Active</span>
@@ -1931,33 +1979,57 @@ function DashboardContent() {
                   <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
                     ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                   </div>
-                  <p className="text-[11px] text-slate-400">
-                    {packages.some((p) => p.status === 'ACTIVE')
-                      ? `Next maturity: ${packages.find((p) => p.status === 'ACTIVE')?.lockInEnd ? new Date(packages.find((p) => p.status === 'ACTIVE')!.lockInEnd!).toLocaleDateString() : 'Active lock'}`
-                      : packages.length > 0
-                      ? `${packages.length} pending activation`
-                      : 'Zero locked capital deployed'}
-                  </p>
-                </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span className="truncate">
+                      {packages.some((p) => p.status === 'ACTIVE')
+                        ? `Next maturity: ${packages.find((p) => p.status === 'ACTIVE')?.lockInEnd ? new Date(packages.find((p) => p.status === 'ACTIVE')!.lockInEnd!).toLocaleDateString() : 'Active lock'}`
+                        : packages.length > 0
+                        ? `${packages.length} pending activation`
+                        : 'Zero locked capital deployed'}
+                    </span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400 shrink-0 ml-2 group-hover:translate-x-0.5 transition-transform">
+                      Details →
+                    </span>
+                  </div>
+                </button>
 
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPortfolioSubTab('STARTUP');
+                    setActiveTab('packages');
+                  }}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:border-amber-500/60 hover:bg-amber-50/40 dark:hover:bg-amber-950/20 hover:shadow-md transition-all space-y-1.5 text-left cursor-pointer group"
+                >
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
                       <Building className="w-3.5 h-3.5 text-amber-500" /> Startup Venture Equity
                     </span>
-                    <span className="font-mono text-[11px] font-bold text-amber-600">{startupInvestments.length} Companies</span>
+                    <span className="font-mono text-[11px] font-bold text-amber-600">{startupInvestments.length} {startupInvestments.length === 1 ? 'Commitment' : 'Commitments'}</span>
                   </div>
                   <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
                     ${parseFloat(startupSummary?.totalNetInvested || startupInvestments.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0).toFixed(2)).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                   </div>
-                  <p className="text-[11px] text-slate-400">
-                    {startupInvestments.length > 0 ? `${startupSummary?.feeRules?.profitShareFeePct || '5.0%'} Profit-Share model active` : 'Zero venture commitments'}
-                  </p>
-                </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 gap-2">
+                    <span className="truncate">
+                      {startupInvestments.length > 0
+                        ? Array.from(new Set(startupInvestments.map((c) => c.listing?.companyName || c.companyName).filter(Boolean))).join(', ') ||
+                          `${startupSummary?.feeRules?.profitShareFeePct || '5.0%'} Profit-Share active`
+                        : 'Zero venture commitments'}
+                    </span>
+                    <span className="font-bold text-amber-600 dark:text-amber-400 shrink-0 group-hover:translate-x-0.5 transition-transform">
+                      Details →
+                    </span>
+                  </div>
+                </button>
 
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => setShowTokenDetailModal(true)}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:border-purple-500/60 hover:bg-purple-50/40 dark:hover:bg-purple-950/20 hover:shadow-md transition-all space-y-1.5 text-left cursor-pointer group"
+                >
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
                       <Coins className="w-3.5 h-3.5 text-purple-500" /> Avora Token ($AVR)
                     </span>
                     <span
@@ -1977,22 +2049,21 @@ function DashboardContent() {
                     </span>
                   </div>
                   <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
-                    ${parseFloat(String(tokenStatus?.earlyAccess?.paidAllocationUsd || '0')).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    ${parseFloat(String(tokenStatus?.earlyAccess?.currentValueUsd ?? tokenStatus?.earlyAccess?.paidAllocationUsd ?? '0')).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                   </div>
-                  <p className="text-[11px] text-slate-400">
-                    {tokenStatus?.earlyAccess?.isPaidAllocation ? (
-                      `${Number(tokenStatus.earlyAccess.tokensAllocated || 0).toLocaleString()} AVR owned @ $0.10`
-                    ) : tokenStatus?.earlyAccess?.registeredInterest ? (
-                      <Link href="/token" className="text-amber-600 dark:text-amber-400 hover:underline font-semibold">
-                        Unpaid reservation: ${parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd || '0')).toLocaleString()} (~{Math.round(parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd || '0')) / 0.10).toLocaleString()} AVR) — Fund now →
-                      </Link>
-                    ) : (
-                      <Link href="/token" className="hover:underline">
-                        Buy $AVR or join Q4 2027 Whitelist →
-                      </Link>
-                    )}
-                  </p>
-                </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 gap-2">
+                    <span className="truncate">
+                      {tokenStatus?.earlyAccess?.isPaidAllocation
+                        ? `${Number(tokenStatus.earlyAccess.tokensAllocated || 0).toLocaleString()} AVR @ $${Number(tokenStatus.earlyAccess.currentTokenPriceUsd || 0.10).toFixed(2)}`
+                        : tokenStatus?.earlyAccess?.registeredInterest
+                        ? `Unpaid reservation: $${parseFloat(String(tokenStatus.earlyAccess.requestedAllocationUsd || '0')).toLocaleString()}`
+                        : 'Buy $AVR or join Q4 2027 Whitelist'}
+                    </span>
+                    <span className="font-bold text-purple-600 dark:text-purple-400 shrink-0 group-hover:translate-x-0.5 transition-transform">
+                      Details →
+                    </span>
+                  </div>
+                </button>
               </div>
 
               {/* Active Holdings Preview Cards */}
@@ -2024,14 +2095,21 @@ function DashboardContent() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Active Allocations & Tenure Countdown</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                    Active Allocations &amp; Tenure Countdown (Click Any Card to Inspect)
+                  </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* FD Cards with Tenure Countdown */}
                     {packages.slice(0, 2).map((pkg) => (
-                      <div key={pkg.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                      <button
+                        type="button"
+                        key={pkg.id}
+                        onClick={() => setSelectedFdDetail(pkg)}
+                        className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/60 hover:shadow-md transition-all space-y-3 text-left cursor-pointer group"
+                      >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-emerald-600">{pkg.packageCode}</span>
+                            <span className="font-mono text-xs font-bold text-emerald-600 group-hover:underline">{pkg.packageCode}</span>
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
                               {pkg.status}
                             </span>
@@ -2059,37 +2137,88 @@ function DashboardContent() {
                           </div>
                           <div className="flex justify-between text-[10px] text-slate-400">
                             <span>Started: {pkg.lockInStart ? new Date(pkg.lockInStart).toLocaleDateString() : 'Recent'}</span>
-                            <span>Maturity: {pkg.lockInEnd ? new Date(pkg.lockInEnd).toLocaleDateString() : '6 Months'}</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              Maturity: {pkg.lockInEnd ? new Date(pkg.lockInEnd).toLocaleDateString() : '6 Months'} • Inspect →
+                            </span>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
 
                     {/* Startup Commitments Preview */}
-                    {startupInvestments.slice(0, 2).map((inv) => (
-                      <div key={inv.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <span className="font-bold text-xs text-slate-900 dark:text-white block">
-                              {inv.listing?.companyName || 'Venture Startup'}
-                            </span>
-                            <span className="text-[10px] text-slate-400">
-                              {inv.listing?.industry} • {inv.instrument}
-                            </span>
+                    {startupInvestments.slice(0, 4).map((inv) => {
+                      const companyLabel = inv.listing?.companyName || inv.companyName || inv.investmentCode;
+                      const netAmt = parseFloat(String(inv.netInvestedAmount || '0'));
+                      const curVal = parseFloat(String(inv.currentValuation || inv.netInvestedAmount || '0'));
+                      const pl = curVal - netAmt;
+                      const plPct = netAmt > 0 ? (pl / netAmt) * 100 : 0;
+                      const matDate = inv.expectedMaturityDate || inv.lockInEnd || inv.listing?.maturityDate;
+                      return (
+                        <button
+                          type="button"
+                          key={inv.id}
+                          onClick={() => setSelectedStartupDetail(inv)}
+                          className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-amber-500/60 hover:shadow-md transition-all space-y-2.5 text-left cursor-pointer group"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              {inv.listing?.logoUrl ? (
+                                <img
+                                  src={resolveMediaUrl(inv.listing.logoUrl)}
+                                  alt={companyLabel}
+                                  className="w-8 h-8 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                                />
+                              ) : (
+                                <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                                  <Building className="w-4 h-4 text-amber-500" />
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <span className="font-bold text-xs text-slate-900 dark:text-white block truncate group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                                  {companyLabel}
+                                </span>
+                                <span className="text-[10px] text-slate-400 block truncate">
+                                  {inv.listing?.industry || inv.industry || 'Venture Round'} • {inv.instrument}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="font-mono text-xs font-black text-amber-600 dark:text-amber-400 block">
+                                ${netAmt.toLocaleString()} USD Net
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                ${parseFloat(String(inv.grossAmount || '0')).toLocaleString()} gross (5% fee: ${parseFloat(String(inv.allocationFeeAmount || '0')).toFixed(0)})
+                              </span>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <span className="font-mono text-xs font-black text-amber-600 dark:text-amber-400 block">
-                              ${parseFloat(inv.grossAmount).toLocaleString()} USD
-                            </span>
-                            <span className="text-[10px] text-slate-400">5% Fee: ${parseFloat(inv.allocationFeeAmount).toFixed(2)}</span>
+
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/70 dark:border-slate-800 text-[10px]">
+                            <div>
+                              <span className="text-slate-400 block">Current Value</span>
+                              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                ${curVal.toLocaleString(undefined, { maximumFractionDigits: 2 })} ({pl >= 0 ? '+' : ''}{plPct.toFixed(1)}%)
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">Lock-In / Exit</span>
+                              <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                                {inv.status === 'EXITED'
+                                  ? 'Exited'
+                                  : matDate
+                                  ? new Date(matDate).toLocaleDateString()
+                                  : `${inv.lockInMonths ?? 12}m Lock`}
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-slate-400 block">{inv.investmentCode}</span>
+                              <span className="text-amber-600 dark:text-amber-400 font-bold group-hover:underline">
+                                Full Details →
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-200 dark:border-slate-850 text-slate-500">
-                          <span className="font-mono text-[10px]">{inv.investmentCode}</span>
-                          <span className="text-emerald-600 font-bold">5% Realized Profit-Share</span>
-                        </div>
-                      </div>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2531,6 +2660,14 @@ function DashboardContent() {
                             </div>
                           </div>
                         )}
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFdDetail(pkg)}
+                          className="w-full py-2 rounded-xl bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-950/60 border border-slate-200 dark:border-slate-700 hover:border-emerald-500/40 text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all cursor-pointer"
+                        >
+                          Inspect Full Contract &amp; Payouts →
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -2587,7 +2724,7 @@ function DashboardContent() {
                   const totalValuation = startupInvestments.reduce((sum, inv) => sum + parseFloat(String(inv.currentValuation || inv.netInvestedAmount || '0')), 0);
                   const totalGain = totalValuation - totalCapital;
                   const totalGainPct = totalCapital > 0 ? (totalGain / totalCapital) * 100 : 0;
-                  const totalProceeds = startupInvestments.reduce((sum, inv) => sum + parseFloat(inv.realizedProceeds || '0'), 0);
+                  const totalProceeds = startupInvestments.reduce((sum, inv) => sum + parseFloat(String(inv.realizedProceeds || '0')), 0);
 
                   return (
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -2768,9 +2905,17 @@ function DashboardContent() {
                           <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
                             <span>Status: <strong className="text-slate-600 dark:text-slate-300">{inv.status}</strong></span>
                             <span className="font-mono text-emerald-600 font-bold">
-                              Distributed: ${parseFloat(inv.realizedProceeds || '0').toFixed(2)} USD
+                              Distributed: ${parseFloat(String(inv.realizedProceeds || '0')).toFixed(2)} USD
                             </span>
                           </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedStartupDetail(inv)}
+                            className="w-full py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800/80 text-xs font-bold text-amber-700 dark:text-amber-300 transition-all cursor-pointer"
+                          >
+                            Inspect Full Allocation, Settlement &amp; Documents →
+                          </button>
                         </div>
                       );
                     })}
@@ -5162,6 +5307,385 @@ function DashboardContent() {
           onCloseModal={() => setInquiryChatOpen(false)}
           onTicketCreated={fetchDashboardData}
         />
+      )}
+
+      {/* Startup Venture Allocation Detail Modal */}
+      {selectedStartupDetail && (() => {
+        const inv = selectedStartupDetail;
+        const companyLabel = inv.listing?.companyName || inv.companyName || inv.investmentCode;
+        const netInvested = parseFloat(String(inv.netInvestedAmount || '0'));
+        const grossCommitted = parseFloat(String(inv.grossAmount || '0'));
+        const entryFee = parseFloat(String(inv.allocationFeeAmount || '0'));
+        const curVal = parseFloat(String(inv.currentValuation ?? inv.netInvestedAmount ?? '0'));
+        const plUsd = curVal - netInvested;
+        const plPct = netInvested > 0 ? (plUsd / netInvested) * 100 : 0;
+        const realizedProceeds = parseFloat(String(inv.realizedProceeds || '0'));
+        const returnOfCapital = parseFloat(String(inv.returnOfCapital || '0'));
+        const eligibleNetProfit = parseFloat(String(inv.eligibleNetProfit || '0'));
+        const profitShareFee = parseFloat(String(inv.profitShareFeeAmount || '0'));
+        const netDistributedProfit = parseFloat(String(inv.netDistributedProfit || '0'));
+        const lockMonths = inv.lockInMonths ?? inv.listing?.lockInMonths ?? 12;
+        const matDate = inv.expectedMaturityDate || inv.lockInEnd || inv.listing?.maturityDate;
+        const docs = Array.isArray(inv.listing?.supportingDocuments) ? inv.listing.supportingDocuments : [];
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm">
+            <div className="w-full max-w-2xl rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+              <div className="p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  {inv.listing?.logoUrl ? (
+                    <img
+                      src={resolveMediaUrl(inv.listing.logoUrl)}
+                      alt={companyLabel}
+                      className="w-12 h-12 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                      <Building className="w-6 h-6 text-amber-500" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">{inv.investmentCode}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                        inv.status === 'EXITED'
+                          ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                          : inv.isLockInEnded
+                          ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                          : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                      }`}>
+                        {inv.status}
+                      </span>
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white truncate">{companyLabel}</h3>
+                    <p className="text-xs text-slate-500">
+                      {inv.listing?.industry || inv.industry || 'Venture Round'} • {inv.listing?.stage || 'Private Offering'} • {inv.instrument}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedStartupDetail(null)}
+                  className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 sm:p-6 overflow-y-auto space-y-5 text-xs">
+                {/* Key Financial Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Net Principal Invested</span>
+                    <span className="text-base font-black font-mono text-slate-900 dark:text-white mt-1 block">
+                      ${netInvested.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Gross ${grossCommitted.toLocaleString()} − ${entryFee.toFixed(2)} fee
+                    </span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Current Holding Value</span>
+                    <span className="text-base font-black font-mono text-slate-900 dark:text-white mt-1 block">
+                      ${curVal.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    </span>
+                    <span className="text-[10px] text-slate-400">Mark-to-market equity</span>
+                  </div>
+                  <div className={`p-3.5 rounded-2xl border ${
+                    plUsd >= 0
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900'
+                      : 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900'
+                  }`}>
+                    <span className="text-[10px] font-bold uppercase text-slate-500 block">Profit / Loss</span>
+                    <span className={`text-base font-black font-mono mt-1 block ${plUsd >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      {plUsd >= 0 ? '+' : '-'}${Math.abs(plUsd).toFixed(2)} USD
+                    </span>
+                    <span className={`text-[10px] font-bold ${plUsd >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                      {plPct >= 0 ? '+' : ''}{plPct.toFixed(2)}% unrealized
+                    </span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Realized Settlements</span>
+                    <span className="text-base font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1 block">
+                      ${realizedProceeds.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    </span>
+                    <span className="text-[10px] text-slate-400">Paid to USD Wallet</span>
+                  </div>
+                </div>
+
+                {/* Full Audit & Traceability Grid */}
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Investor / Account Holder</span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      {viewedUser?.firstName} {viewedUser?.lastName} ({userAccountNumber})
+                    </span>
+                    <span className="block text-[11px] text-slate-500 font-mono">{viewedUser?.email}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Venture Destination &amp; Country</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{companyLabel}</span>
+                    <span className="block text-[11px] text-slate-500">
+                      {inv.listing?.country || inv.country || 'International'}
+                      {inv.listing?.providerName ? ` • Custody/Provider: ${inv.listing.providerName}` : ''}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Investment Date</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                      {new Date(inv.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Lock-In Period &amp; Expected Exit</span>
+                    <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                      {lockMonths} Months ({inv.status === 'EXITED' ? 'Exited' : inv.isLockInEnded ? 'Lock-In Ended' : `${inv.daysRemaining ?? 0} days left`})
+                    </span>
+                    <span className="block text-[11px] text-slate-500 font-mono">
+                      Maturity / Exit Target: {matDate ? new Date(matDate).toLocaleDateString() : 'Per Round Schedule'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Settlement & Fee Accounting */}
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[10px]">
+                    Settlement &amp; Distribution Breakdown
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono text-[11px]">
+                    <div className="flex justify-between sm:block">
+                      <span className="text-slate-400 font-sans block">Gross Committed:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">${grossCommitted.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between sm:block">
+                      <span className="text-slate-400 font-sans block">Entry Fee ({Number(inv.allocationFeePct ?? 5)}%):</span>
+                      <span className="font-bold text-amber-600">-${entryFee.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between sm:block">
+                      <span className="text-slate-400 font-sans block">Capital Returned:</span>
+                      <span className="font-bold text-slate-900 dark:text-white">${returnOfCapital.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between sm:block">
+                      <span className="text-slate-400 font-sans block">Eligible Gross Gain:</span>
+                      <span className="font-bold text-emerald-600">${eligibleNetProfit.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between sm:block">
+                      <span className="text-slate-400 font-sans block">Profit-Share ({Number(inv.profitShareFeePct ?? 5)}%):</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">${profitShareFee.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between sm:block">
+                      <span className="text-slate-400 font-sans block">Net Profit Credited:</span>
+                      <span className="font-bold text-emerald-600">${netDistributedProfit.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  {inv.settlementReference && (
+                    <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-200 dark:border-slate-800 font-mono">
+                      Settlement Ref: <strong className="text-slate-700 dark:text-slate-200">{inv.settlementReference}</strong>
+                    </div>
+                  )}
+                </div>
+
+                {/* Documents & Notes */}
+                <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 space-y-2.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 block">
+                    Terms, Supporting Documents &amp; Audit Notes
+                  </span>
+                  <p className="text-amber-900 dark:text-amber-200 leading-relaxed">
+                    {inv.listing?.termsAndNotes ||
+                      `Principal is held under nominee protection for ${lockMonths} months. Principal returns 100% fee-free; profit-share fee applies only on realized net profits upon distribution.`}
+                  </p>
+                  {inv.notes && (
+                    <div className="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-200 dark:border-amber-800 text-[11px] font-mono text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                      {inv.notes}
+                    </div>
+                  )}
+                  {docs.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {docs.map((doc, idx) => (
+                        <a
+                          key={idx}
+                          href={resolveMediaUrl(doc.url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-xs font-bold text-slate-900 dark:text-amber-200 hover:underline"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-amber-500" />
+                          <span>{doc.title}</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-amber-700/80 dark:text-amber-300/70">No additional PDF attachments uploaded for this round.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
+                <Link
+                  href="/investments"
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
+                >
+                  <span>Open Startup Directory</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setSelectedStartupDetail(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Fixed Deposit Detail Modal */}
+      {selectedFdDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div>
+                <span className="font-mono text-xs font-bold text-emerald-600">{selectedFdDetail.packageCode}</span>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Fixed Deposit Contract Details</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedFdDetail(null)}
+                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Principal Amount</span>
+                <span className="text-base font-black font-mono text-slate-900 dark:text-white">
+                  ${parseFloat(selectedFdDetail.amount).toLocaleString()} {selectedFdDetail.currency || 'USD'}
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900">
+                <span className="text-[10px] text-emerald-700 dark:text-emerald-400 uppercase font-bold block">Yield Credited</span>
+                <span className="text-base font-black font-mono text-emerald-600 dark:text-emerald-400">
+                  +${parseFloat(selectedFdDetail.totalEarned || selectedFdDetail.totalReturnsPaid || '0').toFixed(2)} USD
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Start / Purchase Date</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                  {selectedFdDetail.lockInStart || selectedFdDetail.purchaseDate
+                    ? new Date(selectedFdDetail.lockInStart || selectedFdDetail.purchaseDate!).toLocaleDateString()
+                    : 'N/A'}
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Maturity Date</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                  {selectedFdDetail.lockInEnd ? new Date(selectedFdDetail.lockInEnd).toLocaleDateString() : '6-Month Lock'}
+                </span>
+              </div>
+            </div>
+            {selectedFdDetail.returns && selectedFdDetail.returns.length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 max-h-44 overflow-y-auto text-xs">
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">Monthly Payout Schedule</span>
+                {selectedFdDetail.returns.map((r, i) => (
+                  <div key={i} className="flex justify-between font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                    <span>Period #{r.periodIndex} • {new Date(r.paidAt).toLocaleDateString()}</span>
+                    <span className="font-bold text-emerald-600">+${parseFloat(r.returnAmount).toFixed(2)} USD ({r.status})</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-between pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFdDetail(null);
+                  setPortfolioSubTab('FD');
+                  setActiveTab('packages');
+                }}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+              >
+                View All Fixed Deposits →
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedFdDetail(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Avora Token ($AVR) Position Modal */}
+      {showTokenDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div>
+                <span className="font-mono text-xs font-bold text-purple-600 dark:text-purple-400">$AVR TOKEN ALLOCATION</span>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">Avora Token Position &amp; Unlock Schedule</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTokenDetailModal(false)}
+                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Tokens Owned</span>
+                <span className="text-base font-black font-mono text-purple-600 dark:text-purple-400">
+                  {Number(tokenStatus?.earlyAccess?.tokensAllocated || 0).toLocaleString()} $AVR
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Current Valuation</span>
+                <span className="text-base font-black font-mono text-slate-900 dark:text-white">
+                  ${parseFloat(String(tokenStatus?.earlyAccess?.currentValueUsd ?? tokenStatus?.earlyAccess?.paidAllocationUsd ?? '0')).toFixed(2)} USD
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Paid Allocation</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                  ${parseFloat(String(tokenStatus?.earlyAccess?.paidAllocationUsd || '0')).toFixed(2)} USD
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Lock-In / Unlock</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                  {tokenStatus?.earlyAccess?.isUnlocked
+                    ? 'Unlocked & Redeemable'
+                    : tokenStatus?.earlyAccess?.unlockAt
+                    ? `Unlocks ${new Date(tokenStatus.earlyAccess.unlockAt).toLocaleDateString()}`
+                    : `${tokenStatus?.earlyAccess?.lockinDays ?? 90} days lock`}
+                </span>
+              </div>
+            </div>
+            <div className="flex justify-between pt-2">
+              <Link
+                href="/token"
+                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold inline-flex items-center gap-1.5"
+              >
+                <span>Open Avora Token Desk &amp; Redeem →</span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => setShowTokenDetailModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

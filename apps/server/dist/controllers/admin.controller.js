@@ -52,6 +52,9 @@ const p2p_helpers_1 = require("../services/p2p.helpers");
 const gmt_service_1 = require("../services/gmt.service");
 const otc_service_1 = require("../services/otc.service");
 const rate_service_1 = require("../services/rate.service");
+const investments_service_1 = require("../services/investments.service");
+const token_service_1 = require("../services/token.service");
+const wallet_controller_1 = require("./wallet.controller");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class AdminController {
     /**
@@ -913,6 +916,7 @@ class AdminController {
      */
     async getInvestments(req, res, next) {
         try {
+            await investments_service_1.investmentsService.ensureVentureSchema();
             const [commitments, listings] = await Promise.all([
                 prisma_1.prisma.investmentCommitment.findMany({
                     include: {
@@ -930,9 +934,21 @@ class AdminController {
                                 id: true,
                                 slug: true,
                                 companyName: true,
+                                logoUrl: true,
                                 industry: true,
                                 stage: true,
                                 country: true,
+                                valuation: true,
+                                fundingTarget: true,
+                                expectedReturnPct: true,
+                                lockInMonths: true,
+                                startDate: true,
+                                deadline: true,
+                                maturityDate: true,
+                                performancePct: true,
+                                providerName: true,
+                                termsAndNotes: true,
+                                supportingDocuments: true,
                             },
                         },
                     },
@@ -942,7 +958,48 @@ class AdminController {
                     orderBy: { createdAt: 'desc' },
                 }),
             ]);
-            res.json({ success: true, data: { commitments, listings } });
+            const formattedListings = listings.map((l) => {
+                const listingCommitments = commitments.filter((c) => c.listingId === l.id);
+                const actualCollectedFromUsersUsd = listingCommitments.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+                const actualDistributedToUsersUsd = listingCommitments.reduce((s, c) => s + Number(c.realizedProceeds || 0), 0);
+                const provInvested = Number(l.providerInvestedAmount || 0);
+                const provReceived = Number(l.providerActualReceivedAmount || 0);
+                const providerProfitLossUsd = provReceived - provInvested;
+                let parsedDocs = [];
+                try {
+                    parsedDocs = l.supportingDocuments ? JSON.parse(l.supportingDocuments) : [];
+                }
+                catch {
+                    parsedDocs = [];
+                }
+                return {
+                    ...l,
+                    supportingDocuments: Array.isArray(parsedDocs) ? parsedDocs : [],
+                    actualCollectedFromUsersUsd: Number(actualCollectedFromUsersUsd.toFixed(2)),
+                    actualDistributedToUsersUsd: Number(actualDistributedToUsersUsd.toFixed(2)),
+                    actualCommitmentsCount: listingCommitments.length,
+                    providerProfitLossUsd: Number(providerProfitLossUsd.toFixed(2)),
+                };
+            });
+            const formattedCommitments = commitments.map((c) => {
+                let docs = [];
+                try {
+                    docs = c.listing?.supportingDocuments ? JSON.parse(c.listing.supportingDocuments) : [];
+                }
+                catch {
+                    docs = [];
+                }
+                return {
+                    ...c,
+                    listing: c.listing
+                        ? {
+                            ...c.listing,
+                            supportingDocuments: Array.isArray(docs) ? docs : [],
+                        }
+                        : null,
+                };
+            });
+            res.json({ success: true, data: { commitments: formattedCommitments, listings: formattedListings } });
         }
         catch (err) {
             next(err);
@@ -1072,12 +1129,10 @@ class AdminController {
      */
     async updateStartupValuation(req, res, next) {
         try {
+            await investments_service_1.investmentsService.ensureVentureSchema();
             const adminUserId = req.user.id;
             const listingId = req.params.id;
-            const { valuation, stage, growthNotes } = req.body;
-            if (!valuation || isNaN(parseFloat(valuation))) {
-                return res.status(400).json({ success: false, message: 'Valid valuation number is required' });
-            }
+            const { companyName, tagline, pitchOverview, logoUrl, valuation, stage, instrument, growthNotes, verifiedFundsRaised, fundingTarget, minInvestment, investorCount, status, startDate, deadline, lockInMonths, maturityDate, expectedReturnPct, performancePct, termsAndNotes, dueDiligenceSummary, supportingDocuments, providerName, providerInvestedAmount, providerTransferredAt, providerExpectedReturnAmount, providerExpectedReturnDate, providerActualReceivedAmount, providerReceivedAt, providerNotes, } = req.body;
             const listing = await prisma_1.prisma.startupListing.findUnique({
                 where: { id: listingId },
                 include: { investments: true },
@@ -1086,35 +1141,184 @@ class AdminController {
                 return res.status(404).json({ success: false, message: 'Startup listing not found' });
             }
             const oldValuation = new decimal_js_1.default(listing.valuation.toString());
-            const newValuation = new decimal_js_1.default(valuation);
+            const parsedVal = valuation !== undefined && valuation !== '' ? parseFloat(String(valuation)) : parseFloat(oldValuation.toString());
+            if (!Number.isFinite(parsedVal) || parsedVal <= 0) {
+                return res.status(400).json({ success: false, message: 'Valid post-money valuation (> 0) is required' });
+            }
+            const newValuation = new decimal_js_1.default(parsedVal);
+            const valuationChanged = !newValuation.equals(oldValuation);
             const valuationMultiplier = newValuation.dividedBy(oldValuation);
             const gainPct = valuationMultiplier.minus(1).times(100);
+            const hasPerfOverride = performancePct !== undefined && performancePct !== '' && Number.isFinite(Number(performancePct));
+            const parsedPerfPct = hasPerfOverride ? new decimal_js_1.default(Number(performancePct).toFixed(2)) : null;
+            const prevPerfPct = new decimal_js_1.default(listing.performancePct?.toString() || '0');
+            const perfChanged = parsedPerfPct !== null && !parsedPerfPct.equals(prevPerfPct);
+            const updateData = {
+                valuation: newValuation,
+                stage: stage || listing.stage,
+                financialHighlights: growthNotes
+                    ? `${listing.financialHighlights || ''}\n[${new Date().toISOString()}] ${growthNotes}`
+                    : listing.financialHighlights,
+            };
+            if (companyName)
+                updateData.companyName = String(companyName).trim();
+            if (tagline)
+                updateData.tagline = String(tagline).trim();
+            if (pitchOverview)
+                updateData.pitchOverview = String(pitchOverview).trim();
+            if (logoUrl !== undefined)
+                updateData.logoUrl = logoUrl || listing.logoUrl;
+            if (instrument)
+                updateData.instrument = String(instrument).toUpperCase();
+            if (dueDiligenceSummary !== undefined)
+                updateData.dueDiligenceSummary = dueDiligenceSummary || null;
+            if (termsAndNotes !== undefined)
+                updateData.termsAndNotes = termsAndNotes || null;
+            if (supportingDocuments !== undefined) {
+                updateData.supportingDocuments =
+                    typeof supportingDocuments === 'string'
+                        ? supportingDocuments
+                        : JSON.stringify(Array.isArray(supportingDocuments) ? supportingDocuments : []);
+            }
+            if (startDate !== undefined)
+                updateData.startDate = startDate ? new Date(startDate) : null;
+            if (deadline !== undefined && deadline !== '')
+                updateData.deadline = new Date(deadline);
+            if (maturityDate !== undefined)
+                updateData.maturityDate = maturityDate ? new Date(maturityDate) : null;
+            if (lockInMonths !== undefined && lockInMonths !== '') {
+                const lockM = Math.max(0, Math.floor(Number(lockInMonths)));
+                if (Number.isFinite(lockM))
+                    updateData.lockInMonths = lockM;
+            }
+            if (expectedReturnPct !== undefined && expectedReturnPct !== '') {
+                const expRet = Number(expectedReturnPct);
+                if (Number.isFinite(expRet))
+                    updateData.expectedReturnPct = new decimal_js_1.default(expRet.toFixed(2));
+            }
+            if (parsedPerfPct !== null) {
+                updateData.performancePct = parsedPerfPct;
+            }
+            else if (valuationChanged) {
+                const compoundedPerf = new decimal_js_1.default(1)
+                    .plus(prevPerfPct.div(100))
+                    .times(valuationMultiplier)
+                    .minus(1)
+                    .times(100);
+                updateData.performancePct = new decimal_js_1.default(compoundedPerf.toFixed(2));
+            }
+            if (providerName !== undefined)
+                updateData.providerName = providerName || null;
+            if (providerInvestedAmount !== undefined && providerInvestedAmount !== '') {
+                const v = Number(providerInvestedAmount);
+                if (Number.isFinite(v) && v >= 0)
+                    updateData.providerInvestedAmount = new decimal_js_1.default(v.toFixed(2));
+            }
+            if (providerTransferredAt !== undefined) {
+                updateData.providerTransferredAt = providerTransferredAt ? new Date(providerTransferredAt) : null;
+            }
+            if (providerExpectedReturnAmount !== undefined && providerExpectedReturnAmount !== '') {
+                const v = Number(providerExpectedReturnAmount);
+                if (Number.isFinite(v) && v >= 0)
+                    updateData.providerExpectedReturnAmount = new decimal_js_1.default(v.toFixed(2));
+            }
+            if (providerExpectedReturnDate !== undefined) {
+                updateData.providerExpectedReturnDate = providerExpectedReturnDate ? new Date(providerExpectedReturnDate) : null;
+            }
+            if (providerActualReceivedAmount !== undefined && providerActualReceivedAmount !== '') {
+                const v = Number(providerActualReceivedAmount);
+                if (Number.isFinite(v) && v >= 0)
+                    updateData.providerActualReceivedAmount = new decimal_js_1.default(v.toFixed(2));
+            }
+            if (providerReceivedAt !== undefined) {
+                updateData.providerReceivedAt = providerReceivedAt ? new Date(providerReceivedAt) : null;
+            }
+            if (providerNotes !== undefined)
+                updateData.providerNotes = providerNotes || null;
+            if (verifiedFundsRaised !== undefined && verifiedFundsRaised !== '') {
+                const raisedNum = parseFloat(String(verifiedFundsRaised));
+                if (!Number.isFinite(raisedNum) || raisedNum < 0) {
+                    return res.status(400).json({ success: false, message: 'Invested / raised funds cannot be negative' });
+                }
+                updateData.verifiedFundsRaised = new decimal_js_1.default(raisedNum);
+            }
+            if (fundingTarget !== undefined && fundingTarget !== '') {
+                const targetNum = parseFloat(String(fundingTarget));
+                if (!Number.isFinite(targetNum) || targetNum <= 0) {
+                    return res.status(400).json({ success: false, message: 'Funding target must be greater than zero' });
+                }
+                updateData.fundingTarget = new decimal_js_1.default(targetNum);
+            }
+            if (minInvestment !== undefined && minInvestment !== '') {
+                const minNum = parseFloat(String(minInvestment));
+                if (!Number.isFinite(minNum) || minNum <= 0) {
+                    return res.status(400).json({ success: false, message: 'Minimum investment check must be greater than zero' });
+                }
+                updateData.minInvestment = new decimal_js_1.default(minNum);
+            }
+            if (investorCount !== undefined && investorCount !== '') {
+                const invNum = Math.floor(Number(investorCount));
+                if (!Number.isFinite(invNum) || invNum < 0) {
+                    return res.status(400).json({ success: false, message: 'Investor count cannot be negative' });
+                }
+                updateData.investorCount = invNum;
+            }
+            if (status && ['DRAFT', 'PUBLISHED', 'CLOSED', 'SUSPENDED'].includes(String(status).toUpperCase())) {
+                updateData.status = String(status).toUpperCase();
+            }
             // Update Listing
             const updatedListing = await prisma_1.prisma.startupListing.update({
                 where: { id: listingId },
-                data: {
-                    valuation: newValuation,
-                    stage: stage || listing.stage,
-                    financialHighlights: growthNotes
-                        ? `${listing.financialHighlights || ''}\n[${new Date().toISOString()}] ${growthNotes}`
-                        : listing.financialHighlights,
-                },
+                data: updateData,
             });
-            // Update all investor commitments for this startup
-            for (const commitment of listing.investments) {
-                const netInvested = new decimal_js_1.default(commitment.netInvestedAmount.toString());
-                const updatedHoldingValue = netInvested.times(valuationMultiplier);
-                const commitmentGainPct = updatedHoldingValue.minus(netInvested).dividedBy(netInvested).times(100);
-                await prisma_1.prisma.investmentCommitment.update({
-                    where: { id: commitment.id },
-                    data: {
-                        currentValuation: updatedHoldingValue,
-                        unrealizedReturnPct: commitmentGainPct,
-                        notes: growthNotes
-                            ? `${commitment.notes || ''}\n[${new Date().toISOString()}] Valuation updated to $${newValuation.toLocaleString()} (+${gainPct.toFixed(1)}%)`
-                            : commitment.notes,
-                    },
-                });
+            const lockChanged = (maturityDate !== undefined && String(maturityDate) !== String(listing.maturityDate || '')) ||
+                (lockInMonths !== undefined && lockInMonths !== '' && Number(lockInMonths) !== Number(listing.lockInMonths));
+            // Recalculate investor commitment values automatically when performancePct, valuation, or lock-in changes
+            if (perfChanged || valuationChanged || lockChanged) {
+                for (const commitment of listing.investments) {
+                    const netInvested = new decimal_js_1.default(commitment.netInvestedAmount.toString());
+                    const prevHold = commitment.currentValuation ? new decimal_js_1.default(commitment.currentValuation.toString()) : netInvested;
+                    let updatedHoldingValue = prevHold;
+                    let commitmentGainPct = new decimal_js_1.default(commitment.unrealizedReturnPct?.toString() || '0');
+                    if (perfChanged && parsedPerfPct !== null) {
+                        updatedHoldingValue = new decimal_js_1.default(netInvested.times(new decimal_js_1.default(1).plus(parsedPerfPct.div(100))).toFixed(2));
+                        commitmentGainPct = parsedPerfPct;
+                    }
+                    else if (valuationChanged) {
+                        const safeBaseHold = Number(commitment.unrealizedReturnPct || 0) === 0 &&
+                            prevHold.equals(oldValuation) &&
+                            netInvested.lessThan(oldValuation)
+                            ? netInvested
+                            : prevHold;
+                        updatedHoldingValue = new decimal_js_1.default(safeBaseHold.times(valuationMultiplier).toFixed(2));
+                        commitmentGainPct = netInvested.greaterThan(0)
+                            ? new decimal_js_1.default(updatedHoldingValue.minus(netInvested).dividedBy(netInvested).times(100).toFixed(2))
+                            : new decimal_js_1.default(0);
+                    }
+                    let updatedLockInEnd = commitment.lockInEnd;
+                    if (lockChanged) {
+                        if (updatedListing.maturityDate) {
+                            updatedLockInEnd = updatedListing.maturityDate;
+                        }
+                        else {
+                            const lm = Math.max(0, Number(updatedListing.lockInMonths ?? 12));
+                            const d = new Date(commitment.createdAt);
+                            d.setMonth(d.getMonth() + lm);
+                            updatedLockInEnd = d;
+                        }
+                    }
+                    await prisma_1.prisma.investmentCommitment.update({
+                        where: { id: commitment.id },
+                        data: {
+                            currentValuation: updatedHoldingValue,
+                            unrealizedReturnPct: commitmentGainPct,
+                            lockInEnd: updatedLockInEnd,
+                            notes: growthNotes
+                                ? `${commitment.notes || ''}\n[${new Date().toISOString()}] Performance updated (${commitmentGainPct.greaterThanOrEqualTo(0) ? '+' : ''}${commitmentGainPct.toFixed(2)}%, Holding: $${updatedHoldingValue.toFixed(2)}): ${growthNotes}`
+                                : commitment.notes,
+                        },
+                    });
+                }
             }
             // Audit Log
             await prisma_1.prisma.adminAuditLog.create({
@@ -1123,15 +1327,15 @@ class AdminController {
                     action: 'UPDATE_STARTUP_VALUATION',
                     entity: 'StartupListing',
                     entityId: listingId,
-                    details: `Updated ${listing.companyName} valuation from $${oldValuation.toLocaleString()} to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(2)}%). Updated ${listing.investments.length} investor positions.`,
+                    details: `Updated ${listing.companyName}: Valuation $${newValuation.toLocaleString()}, Performance ${Number(updatedListing.performancePct).toFixed(2)}%, Lock-In ${updatedListing.lockInMonths}mo, Raised $${Number(updatedListing.verifiedFundsRaised).toLocaleString()}, Provider Invested $${Number(updatedListing.providerInvestedAmount).toLocaleString()}, Provider Received $${Number(updatedListing.providerActualReceivedAmount).toLocaleString()}.`,
                 },
             });
             res.json({
                 success: true,
-                message: `Successfully updated ${listing.companyName} valuation to $${newValuation.toLocaleString()} (${gainPct.greaterThanOrEqualTo(0) ? '+' : ''}${gainPct.toFixed(1)}%). Recalculated ${listing.investments.length} investor holdings.`,
+                message: `Updated ${updatedListing.companyName} (${Number(updatedListing.performancePct) >= 0 ? '+' : ''}${Number(updatedListing.performancePct).toFixed(2)}% performance, Valuation $${newValuation.toLocaleString()}).`,
                 data: {
                     listing: updatedListing,
-                    gainPct: gainPct.toFixed(2),
+                    gainPct: Number(updatedListing.performancePct).toFixed(2),
                 },
             });
         }
@@ -1490,6 +1694,285 @@ class AdminController {
         }
     }
     /**
+     * Read-only Client Portal preview payload for Admin/Staff support inspection
+     */
+    async getUserClientView(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : undefined;
+            const id = String(req.params.id);
+            const user = await prisma_1.prisma.user.findUnique({
+                where: { id },
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    displayName: true,
+                    phone: true,
+                    country: true,
+                    role: true,
+                    status: true,
+                    kycStatus: true,
+                    twoFactorEnabled: true,
+                    emailVerified: true,
+                    isP2pMerchant: true,
+                    p2pBlocked: true,
+                    withdrawalLockedUntil: true,
+                    isAvailable: true,
+                    lastLoginAt: true,
+                    createdAt: true,
+                },
+            });
+            if (!user) {
+                return res.status(404).json({ success: false, message: 'User not found' });
+            }
+            const [wallet, packages, transactions, withdrawals, tickets, deposits, investments, tokenStatus, notifications,] = await Promise.all([
+                ledger_service_1.ledgerService.getUserWalletSummary(id).catch(() => null),
+                package_service_1.packageService.getUserPackages(id).catch(() => []),
+                prisma_1.prisma.transaction
+                    .findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 100 })
+                    .catch(() => []),
+                withdrawal_service_1.withdrawalService.getUserWithdrawals(id).catch(() => []),
+                prisma_1.prisma.supportTicket
+                    .findMany({
+                    where: { userId: id },
+                    include: { replies: { orderBy: { createdAt: 'asc' } } },
+                    orderBy: { createdAt: 'desc' },
+                })
+                    .catch(() => []),
+                deposit_service_1.depositService.getUserDeposits(id).catch(() => []),
+                investments_service_1.investmentsService.getInvestorDashboard(id).catch(() => ({ commitments: [], summary: null })),
+                token_service_1.tokenService.getUserTokenStatus(id).catch(() => null),
+                wallet_controller_1.walletController.buildCustomerNotifications(id).catch(() => ({ notifications: [], summary: null })),
+            ]);
+            if (adminUserId) {
+                await prisma_1.prisma.adminAuditLog
+                    .create({
+                    data: {
+                        userId: adminUserId,
+                        action: 'ADMIN_CLIENT_VIEW_INSPECT',
+                        entity: 'User',
+                        entityId: id,
+                        details: `Admin opened read-only Client Portal View for ${user.firstName || ''} ${user.lastName || ''} (${user.email}).`,
+                    },
+                })
+                    .catch(() => { });
+            }
+            res.json({
+                success: true,
+                data: {
+                    user: {
+                        ...user,
+                        accountNumber: (0, p2p_service_1.generateAvoraAccountNumber)(user.id),
+                    },
+                    wallet,
+                    packages,
+                    transactions,
+                    withdrawals,
+                    tickets,
+                    deposits,
+                    investments,
+                    tokenStatus,
+                    notifications,
+                },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * List all Avora Token ($AVR) buyers, whitelist registrants, and live holding/unlock metrics
+     */
+    async getTokenHolders(req, res, next) {
+        try {
+            const policy = await token_service_1.tokenService.getTokenPolicyConfig();
+            const livePriceUsd = Number(policy.currentPriceUsd.toString());
+            const now = new Date();
+            const records = await prisma_1.prisma.tokenEarlyAccess.findMany({
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true,
+                            displayName: true,
+                            country: true,
+                            status: true,
+                            kycStatus: true,
+                        },
+                    },
+                },
+                orderBy: [{ paidAllocationUsd: 'desc' }, { createdAt: 'desc' }],
+            });
+            let paidHoldersCount = 0;
+            let whitelistOnlyCount = 0;
+            let unlockedHoldersCount = 0;
+            let totalTokensAllocated = 0;
+            let totalPaidUsd = 0;
+            let currentLiabilityUsd = 0;
+            const holders = records.map((r) => {
+                const tokensAllocated = Number(r.tokensAllocated || 0);
+                const paidAllocationUsd = Number(r.paidAllocationUsd || 0);
+                const requestedAllocationUsd = Number(r.requestedAllocationUsd || 0);
+                const avgEntryPriceUsd = tokensAllocated > 0 && paidAllocationUsd > 0 ? paidAllocationUsd / tokensAllocated : livePriceUsd;
+                const currentValueUsd = tokensAllocated * livePriceUsd;
+                const unrealizedProfitUsd = currentValueUsd - paidAllocationUsd;
+                const unrealizedRoiPct = paidAllocationUsd > 0 ? (unrealizedProfitUsd / paidAllocationUsd) * 100 : 0;
+                const basisDate = r.lastPurchaseAt || r.createdAt;
+                const unlockAt = tokensAllocated > 0
+                    ? policy.unlockAllNow || policy.lockinDays <= 0
+                        ? now
+                        : new Date(new Date(basisDate).getTime() + policy.lockinDays * 24 * 60 * 60 * 1000)
+                    : null;
+                const isUnlocked = tokensAllocated > 0 &&
+                    (policy.unlockAllNow || policy.lockinDays <= 0 || (unlockAt ? now >= unlockAt : false));
+                const daysRemaining = tokensAllocated > 0 && unlockAt && !isUnlocked
+                    ? Math.max(0, Math.ceil((unlockAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+                    : 0;
+                if (tokensAllocated > 0 || paidAllocationUsd > 0) {
+                    paidHoldersCount += 1;
+                    if (isUnlocked)
+                        unlockedHoldersCount += 1;
+                }
+                else {
+                    whitelistOnlyCount += 1;
+                }
+                totalTokensAllocated += tokensAllocated;
+                totalPaidUsd += paidAllocationUsd;
+                currentLiabilityUsd += currentValueUsd;
+                return {
+                    id: r.id,
+                    userId: r.userId,
+                    accountNumber: (0, p2p_service_1.generateAvoraAccountNumber)(r.userId),
+                    user: r.user,
+                    tokensAllocated,
+                    paidAllocationUsd,
+                    requestedAllocationUsd,
+                    paidCurrency: r.paidCurrency || 'USD',
+                    lastPurchaseAt: r.lastPurchaseAt,
+                    status: r.status,
+                    walletAddress: r.walletAddress,
+                    avgEntryPriceUsd,
+                    currentValueUsd,
+                    unrealizedProfitUsd,
+                    unrealizedRoiPct,
+                    lockinDays: policy.lockinDays,
+                    unlockAt,
+                    isUnlocked,
+                    daysRemaining,
+                    createdAt: r.createdAt,
+                };
+            });
+            res.json({
+                success: true,
+                data: {
+                    policy: {
+                        priceUsd: livePriceUsd,
+                        lockinDays: policy.lockinDays,
+                        redemptionEnabled: policy.redemptionEnabled,
+                        unlockAllNow: policy.unlockAllNow,
+                    },
+                    summary: {
+                        totalRecords: holders.length,
+                        paidHoldersCount,
+                        whitelistOnlyCount,
+                        unlockedHoldersCount,
+                        lockedHoldersCount: Math.max(0, paidHoldersCount - unlockedHoldersCount),
+                        totalTokensAllocated,
+                        totalPaidUsd,
+                        currentLiabilityUsd,
+                        totalUnrealizedProfitUsd: currentLiabilityUsd - totalPaidUsd,
+                    },
+                    holders,
+                },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * List all Newsletter Subscribers (cross-referenced with registered client accounts)
+     */
+    async getNewsletterSubscribers(req, res, next) {
+        try {
+            const rows = await prisma_1.prisma.inquiry.findMany({
+                where: {
+                    subject: { startsWith: 'NEWSLETTER:' },
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+            const emails = Array.from(new Set(rows.map((r) => r.email.toLowerCase().trim()).filter(Boolean)));
+            const matchedUsers = emails.length > 0
+                ? await prisma_1.prisma.user.findMany({
+                    where: { email: { in: emails } },
+                    select: {
+                        id: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                        displayName: true,
+                        kycStatus: true,
+                        status: true,
+                    },
+                })
+                : [];
+            const userByEmail = new Map(matchedUsers.map((u) => [u.email.toLowerCase().trim(), u]));
+            let registeredCount = 0;
+            const subscribers = rows.map((r) => {
+                const cleanEmail = r.email.toLowerCase().trim();
+                const u = userByEmail.get(cleanEmail) || null;
+                if (u)
+                    registeredCount += 1;
+                return {
+                    id: r.id,
+                    email: cleanEmail,
+                    name: r.name,
+                    subject: r.subject,
+                    status: r.status,
+                    subscribedAt: r.createdAt,
+                    registeredUser: u
+                        ? {
+                            ...u,
+                            accountNumber: (0, p2p_service_1.generateAvoraAccountNumber)(u.id),
+                        }
+                        : null,
+                };
+            });
+            res.json({
+                success: true,
+                data: {
+                    total: subscribers.length,
+                    registeredUsersCount: registeredCount,
+                    guestCount: subscribers.length - registeredCount,
+                    subscribers,
+                },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Remove a Newsletter Subscriber record
+     */
+    async deleteNewsletterSubscriber(req, res, next) {
+        try {
+            const id = String(req.params.id);
+            const existing = await prisma_1.prisma.inquiry.findUnique({ where: { id } });
+            if (!existing || !String(existing.subject || '').startsWith('NEWSLETTER:')) {
+                return res.status(404).json({ success: false, message: 'Newsletter subscriber not found' });
+            }
+            await prisma_1.prisma.inquiry.delete({ where: { id } });
+            res.json({ success: true, message: `Removed ${existing.email} from newsletter subscribers.` });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * Update user role, KYC status, or freeze withdrawals
      */
     async updateUser(req, res, next) {
@@ -1593,7 +2076,7 @@ class AdminController {
         try {
             const settings = await prisma_1.prisma.cmsSetting.findMany({
                 where: {
-                    group: { in: ['INVESTMENT', 'COMMISSION', 'WITHDRAWAL', 'REMITTANCE', 'OTC', 'P2P', 'CARDS'] },
+                    group: { in: ['INVESTMENT', 'COMMISSION', 'WITHDRAWAL', 'REMITTANCE', 'OTC', 'P2P', 'CARDS', 'TOKEN'] },
                 },
             });
             const configMap = {};
@@ -1617,6 +2100,8 @@ class AdminController {
                 razorpay_webhook_secret: configMap['razorpay_webhook_secret'] || process.env.RAZORPAY_WEBHOOK_SECRET || '',
                 remittance_fee_percent: configMap['remittance_fee_percent'] || '3.0',
                 remittance_margin_percent: configMap['remittance_margin_percent'] || '2.0',
+                show_remittance_spread_controls: configMap['show_remittance_spread_controls'] || 'false',
+                show_about_leadership_section: configMap['show_about_leadership_section'] || 'false',
                 remittance_corridors_count: configMap['remittance_corridors_count'] || '7',
                 remittance_countries_count: configMap['remittance_countries_count'] || '110+',
                 remittance_delivery_days: configMap['remittance_delivery_days'] || '2',
@@ -1633,6 +2118,10 @@ class AdminController {
                 p2p_security_deposit_usd: configMap['p2p_security_deposit_usd'] || '50',
                 p2p_daily_limit_usd: configMap['p2p_daily_limit_usd'] || '5000',
                 virtual_card_issuance_fee: configMap['virtual_card_issuance_fee'] || '10.00',
+                avr_token_price_usd: configMap['avr_token_price_usd'] || '0.10',
+                avr_lockin_days: configMap['avr_lockin_days'] || '180',
+                avr_redemption_enabled: configMap['avr_redemption_enabled'] || 'true',
+                avr_unlock_all_now: configMap['avr_unlock_all_now'] || 'false',
                 admin_exchange_rate_overrides: configMap['admin_exchange_rate_overrides'] || '{}',
             };
             res.json({
@@ -1672,6 +2161,8 @@ class AdminController {
                 'razorpay_webhook_secret',
                 'remittance_fee_percent',
                 'remittance_margin_percent',
+                'show_remittance_spread_controls',
+                'show_about_leadership_section',
                 'remittance_corridors_count',
                 'remittance_countries_count',
                 'remittance_delivery_days',
@@ -1686,6 +2177,10 @@ class AdminController {
                 'p2p_security_deposit_usd',
                 'p2p_daily_limit_usd',
                 'virtual_card_issuance_fee',
+                'avr_token_price_usd',
+                'avr_lockin_days',
+                'avr_redemption_enabled',
+                'avr_unlock_all_now',
                 'admin_exchange_rate_overrides',
             ]);
             const updatedKeys = [];
@@ -1698,12 +2193,14 @@ class AdminController {
                         group = 'INVESTMENT';
                     if (key.startsWith('withdrawal_'))
                         group = 'WITHDRAWAL';
-                    if (key.startsWith('remittance_'))
+                    if (key.startsWith('remittance_') || key === 'show_remittance_spread_controls')
                         group = 'REMITTANCE';
                     if (key.startsWith('otc_'))
                         group = 'OTC';
                     if (key.startsWith('p2p_'))
                         group = 'P2P';
+                    if (key.startsWith('avr_'))
+                        group = 'TOKEN';
                     await prisma_1.prisma.cmsSetting.upsert({
                         where: { key },
                         update: { value: String(value), group },
@@ -1993,12 +2490,20 @@ class AdminController {
      */
     async createStartupListing(req, res, next) {
         try {
+            await investments_service_1.investmentsService.ensureVentureSchema();
             const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
-            const { companyName, tagline, country = 'United States', countryCode = 'US', city = 'San Francisco', industry = 'Fintech', stage = 'SEED', instrument = 'SAFE', valuation, fundingTarget, minInvestment = 250, pitchOverview, deadline, logoUrl, coverImageUrl, pitchDeckUrl, } = req.body;
+            const { companyName, tagline, country = 'United States', countryCode = 'US', city = 'San Francisco', industry = 'Fintech', stage = 'SEED', instrument = 'SAFE', valuation, fundingTarget, verifiedFundsRaised = 0, investorCount = 0, minInvestment = 250, pitchOverview, startDate, deadline, lockInMonths = 12, maturityDate, expectedReturnPct = 0, performancePct = 0, termsAndNotes, dueDiligenceSummary, supportingDocuments, logoUrl, coverImageUrl, pitchDeckUrl, providerName, providerInvestedAmount = 0, providerTransferredAt, providerExpectedReturnAmount = 0, providerExpectedReturnDate, providerNotes, } = req.body;
             if (!companyName || !tagline || !valuation || !fundingTarget || !pitchOverview) {
                 return res.status(400).json({ success: false, message: 'Required fields: companyName, tagline, valuation, fundingTarget, pitchOverview' });
             }
             const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).substring(2, 6);
+            const lockM = Math.max(0, Math.floor(Number(lockInMonths) || 12));
+            const startDt = startDate ? new Date(startDate) : new Date();
+            const matDt = maturityDate
+                ? new Date(maturityDate)
+                : lockM > 0
+                    ? new Date(new Date(startDt).setMonth(startDt.getMonth() + lockM))
+                    : null;
             const listing = await prisma_1.prisma.startupListing.create({
                 data: {
                     slug,
@@ -2012,12 +2517,32 @@ class AdminController {
                     instrument,
                     valuation: new decimal_js_1.default(valuation.toString()),
                     fundingTarget: new decimal_js_1.default(fundingTarget.toString()),
+                    verifiedFundsRaised: new decimal_js_1.default((verifiedFundsRaised || 0).toString()),
+                    investorCount: Math.max(0, Math.floor(Number(investorCount) || 0)),
                     minInvestment: new decimal_js_1.default(minInvestment.toString()),
                     pitchOverview,
+                    startDate: startDt,
                     deadline: deadline ? new Date(deadline) : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+                    lockInMonths: lockM,
+                    maturityDate: matDt,
+                    expectedReturnPct: new decimal_js_1.default((expectedReturnPct || 0).toString()),
+                    performancePct: new decimal_js_1.default((performancePct || 0).toString()),
+                    termsAndNotes: termsAndNotes || null,
+                    dueDiligenceSummary: dueDiligenceSummary || null,
+                    supportingDocuments: supportingDocuments
+                        ? typeof supportingDocuments === 'string'
+                            ? supportingDocuments
+                            : JSON.stringify(supportingDocuments)
+                        : null,
                     logoUrl: logoUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80',
                     coverImageUrl: coverImageUrl || 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&auto=format&fit=crop&q=80',
                     pitchDeckUrl,
+                    providerName: providerName || null,
+                    providerInvestedAmount: new decimal_js_1.default((providerInvestedAmount || 0).toString()),
+                    providerTransferredAt: providerTransferredAt ? new Date(providerTransferredAt) : null,
+                    providerExpectedReturnAmount: new decimal_js_1.default((providerExpectedReturnAmount || 0).toString()),
+                    providerExpectedReturnDate: providerExpectedReturnDate ? new Date(providerExpectedReturnDate) : null,
+                    providerNotes: providerNotes || null,
                     status: 'PUBLISHED',
                     dueDiligenceStatus: 'VERIFIED',
                 },
@@ -2046,14 +2571,25 @@ class AdminController {
      */
     async updateStartupListing(req, res, next) {
         try {
+            await investments_service_1.investmentsService.ensureVentureSchema();
             const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
             const id = String(req.params.id);
-            const { status, valuation, dueDiligenceStatus, dueDiligenceSummary, pitchOverview, tagline } = req.body;
+            const { status, valuation, fundingTarget, verifiedFundsRaised, minInvestment, investorCount, stage, dueDiligenceStatus, dueDiligenceSummary, pitchOverview, tagline, logoUrl, lockInMonths, maturityDate, startDate, deadline, expectedReturnPct, performancePct, termsAndNotes, supportingDocuments, } = req.body;
             const updateData = {};
             if (status)
                 updateData.status = status;
-            if (valuation)
+            if (stage)
+                updateData.stage = stage;
+            if (valuation !== undefined && valuation !== '')
                 updateData.valuation = new decimal_js_1.default(valuation.toString());
+            if (fundingTarget !== undefined && fundingTarget !== '')
+                updateData.fundingTarget = new decimal_js_1.default(fundingTarget.toString());
+            if (verifiedFundsRaised !== undefined && verifiedFundsRaised !== '')
+                updateData.verifiedFundsRaised = new decimal_js_1.default(verifiedFundsRaised.toString());
+            if (minInvestment !== undefined && minInvestment !== '')
+                updateData.minInvestment = new decimal_js_1.default(minInvestment.toString());
+            if (investorCount !== undefined && investorCount !== '')
+                updateData.investorCount = Math.max(0, Math.floor(Number(investorCount)));
             if (dueDiligenceStatus)
                 updateData.dueDiligenceStatus = dueDiligenceStatus;
             if (dueDiligenceSummary !== undefined)
@@ -2062,6 +2598,26 @@ class AdminController {
                 updateData.pitchOverview = pitchOverview;
             if (tagline)
                 updateData.tagline = tagline;
+            if (logoUrl !== undefined)
+                updateData.logoUrl = logoUrl;
+            if (lockInMonths !== undefined && lockInMonths !== '')
+                updateData.lockInMonths = Math.max(0, Math.floor(Number(lockInMonths)));
+            if (maturityDate !== undefined)
+                updateData.maturityDate = maturityDate ? new Date(maturityDate) : null;
+            if (startDate !== undefined)
+                updateData.startDate = startDate ? new Date(startDate) : null;
+            if (deadline !== undefined && deadline !== '')
+                updateData.deadline = new Date(deadline);
+            if (expectedReturnPct !== undefined && expectedReturnPct !== '')
+                updateData.expectedReturnPct = new decimal_js_1.default(expectedReturnPct.toString());
+            if (performancePct !== undefined && performancePct !== '')
+                updateData.performancePct = new decimal_js_1.default(performancePct.toString());
+            if (termsAndNotes !== undefined)
+                updateData.termsAndNotes = termsAndNotes;
+            if (supportingDocuments !== undefined) {
+                updateData.supportingDocuments =
+                    typeof supportingDocuments === 'string' ? supportingDocuments : JSON.stringify(supportingDocuments);
+            }
             const updated = await prisma_1.prisma.startupListing.update({
                 where: { id },
                 data: updateData,
@@ -3366,14 +3922,134 @@ class AdminController {
                 prisma_1.prisma.startupListing.count({ where: { status: 'PUBLISHED' } }),
                 prisma_1.prisma.globalTransfer.count(),
             ]);
-            const [totalTickets, totalOtcDesks, totalOtcTrades] = await Promise.all([
+            const [totalTickets, totalOtcDesks, totalOtcTrades, onlineOtcDesks] = await Promise.all([
                 prisma_1.prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
                 prisma_1.prisma.otcDesk.count(),
                 prisma_1.prisma.otcTrade.count(),
+                prisma_1.prisma.otcDesk.count({ where: { isOnline: true } }),
+            ]);
+            const [otcCompletedVolAgg, otcActiveCount, p2pStatsRows, tokenPolicy] = await Promise.all([
+                prisma_1.prisma.otcTrade.aggregate({
+                    where: { status: 'COMPLETED' },
+                    _sum: { cryptoAmount: true },
+                    _count: true,
+                }),
+                prisma_1.prisma.otcTrade.count({ where: { status: { in: ['IN_PROGRESS', 'DISPUTED'] } } }),
+                prisma_1.prisma.p2POffer.count({ where: { status: client_1.P2POfferStatus.OPEN } }),
+                token_service_1.tokenService.getTokenPolicyConfig(),
+            ]);
+            const [p2pCompletedOrdersAgg, p2pActiveOrdersCount, p2pDisputedCount, p2pMerchantsCount] = await Promise.all([
+                prisma_1.prisma.p2POrder.aggregate({
+                    where: { status: client_1.P2POrderStatus.COMPLETED },
+                    _sum: { cryptoAmount: true },
+                    _count: true,
+                }),
+                prisma_1.prisma.p2POrder.count({
+                    where: {
+                        status: {
+                            in: [
+                                client_1.P2POrderStatus.PENDING,
+                                client_1.P2POrderStatus.ACCEPTED,
+                                client_1.P2POrderStatus.PENDING_PAYMENT,
+                                client_1.P2POrderStatus.PAYMENT_SENT,
+                                client_1.P2POrderStatus.SELLER_CONFIRMING,
+                            ],
+                        },
+                    },
+                }),
+                prisma_1.prisma.p2POrder.count({ where: { status: client_1.P2POrderStatus.DISPUTED } }),
+                prisma_1.prisma.user.count({ where: { isP2pMerchant: true } }),
+            ]);
+            const [ventureStatsRows, fdYieldsPaidAgg, fdDistinctUsers, tokenRecords] = await Promise.all([
+                prisma_1.prisma.investmentCommitment.findMany({
+                    select: { investorUserId: true, netInvestedAmount: true },
+                }),
+                prisma_1.prisma.packageReturn.aggregate({
+                    where: { status: 'CREDITED' },
+                    _sum: { returnAmount: true },
+                }),
+                prisma_1.prisma.investmentPackage.findMany({
+                    select: { userId: true },
+                    distinct: ['userId'],
+                }),
+                prisma_1.prisma.tokenEarlyAccess.findMany({
+                    select: { tokensAllocated: true, paidAllocationUsd: true },
+                }),
             ]);
             const commandCenter = await this.buildAdminCommandCenterData();
             const platformRevenueSummary = await this.buildPlatformRevenueData(req.user?.id ? String(req.user.id) : undefined).catch(() => null);
             const activeCapital = activePackages.reduce((acc, p) => acc + parseFloat(p.amount.toString()), 0);
+            const revMod = platformRevenueSummary?.moduleBreakdown;
+            const uniqueVentureInvestors = new Set(ventureStatsRows.map((c) => c.investorUserId)).size;
+            const totalVentureCommittedUsd = ventureStatsRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+            let tokenPaidHolders = 0;
+            let tokenWhitelistOnly = 0;
+            let totalTokensAllocated = 0;
+            let totalTokenPaidUsd = 0;
+            for (const tr of tokenRecords) {
+                const tok = Number(tr.tokensAllocated || 0);
+                const usd = Number(tr.paidAllocationUsd || 0);
+                if (tok > 0 || usd > 0)
+                    tokenPaidHolders += 1;
+                else
+                    tokenWhitelistOnly += 1;
+                totalTokensAllocated += tok;
+                totalTokenPaidUsd += usd;
+            }
+            const sectionMetrics = {
+                otc: {
+                    totalDesks: totalOtcDesks,
+                    onlineDesks: onlineOtcDesks,
+                    totalTrades: totalOtcTrades,
+                    completedTrades: typeof otcCompletedVolAgg._count === 'number' ? otcCompletedVolAgg._count : 0,
+                    activeEscrows: otcActiveCount,
+                    completedVolumeUsdt: Number(otcCompletedVolAgg._sum?.cryptoAmount || 0).toFixed(2),
+                    bankCommissionUsdt: revMod?.otcPlatformFeeUsdt || '0.00',
+                    brokerCommissionUsdt: revMod?.otcBrokerCommissionUsdt || '0.00',
+                    swapSpreadUsd: revMod?.swapSpreadFeeTotalUsd || '0.00',
+                },
+                p2p: {
+                    verifiedMerchants: p2pMerchantsCount,
+                    activeOffers: p2pStatsRows,
+                    completedOrders: typeof p2pCompletedOrdersAgg._count === 'number' ? p2pCompletedOrdersAgg._count : 0,
+                    activeEscrowOrders: p2pActiveOrdersCount,
+                    disputedOrders: p2pDisputedCount,
+                    completedVolumeUsdt: Number(p2pCompletedOrdersAgg._sum?.cryptoAmount || 0).toFixed(2),
+                    feesUsdEq: revMod?.p2pFeeUsdEq || '0.00',
+                    promoFeesUsd: revMod?.p2pPromotionFeeTotal || '0.00',
+                },
+                packages: {
+                    totalPackages,
+                    activePackages: activePackages.length,
+                    uniqueInvestorsCount: fdDistinctUsers.length,
+                    activeCapitalUsd: activeCapital.toFixed(2),
+                    totalYieldsPaidUsd: Number(fdYieldsPaidAgg._sum?.returnAmount || 0).toFixed(2),
+                    yieldDueCount: commandCenter?.yieldDueCount ?? 0,
+                    maturedUnsettledCount: commandCenter?.maturedUnsettledCount ?? 0,
+                },
+                venture: {
+                    publishedCampaigns: totalStartups,
+                    totalCommitments: ventureStatsRows.length,
+                    uniqueInvestorsCount: uniqueVentureInvestors,
+                    totalNetInvestedUsd: totalVentureCommittedUsd.toFixed(2),
+                    allocationFeeUsd: revMod?.ventureAllocationFeeUsd || '0.00',
+                    profitShareFeeUsd: revMod?.ventureProfitShareFeeUsd || '0.00',
+                },
+                token: {
+                    livePriceUsd: Number(tokenPolicy.currentPriceUsd.toString()),
+                    lockinDays: tokenPolicy.lockinDays,
+                    redemptionEnabled: tokenPolicy.redemptionEnabled,
+                    unlockAllNow: tokenPolicy.unlockAllNow,
+                    paidHoldersCount: tokenPaidHolders,
+                    whitelistOnlyCount: tokenWhitelistOnly,
+                    totalTokensAllocated,
+                    totalPaidUsd: totalTokenPaidUsd.toFixed(2),
+                    currentLiabilityUsd: (totalTokensAllocated * Number(tokenPolicy.currentPriceUsd.toString())).toFixed(2),
+                },
+            };
+            const newsletterSubscribersCount = await prisma_1.prisma.inquiry
+                .count({ where: { subject: { startsWith: 'NEWSLETTER:' } } })
+                .catch(() => 0);
             res.json({
                 success: true,
                 data: {
@@ -3389,8 +4065,10 @@ class AdminController {
                     totalTickets,
                     totalOtcDesks,
                     totalOtcTrades,
+                    newsletterSubscribersCount,
                     commandCenter,
                     platformRevenueSummary,
+                    sectionMetrics,
                 },
             });
         }

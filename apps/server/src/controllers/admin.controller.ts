@@ -998,9 +998,17 @@ export class AdminController {
                 industry: true,
                 stage: true,
                 country: true,
+                valuation: true,
+                fundingTarget: true,
+                expectedReturnPct: true,
                 lockInMonths: true,
+                startDate: true,
+                deadline: true,
                 maturityDate: true,
                 performancePct: true,
+                providerName: true,
+                termsAndNotes: true,
+                supportingDocuments: true,
               },
             },
           },
@@ -1042,7 +1050,25 @@ export class AdminController {
         };
       });
 
-      res.json({ success: true, data: { commitments, listings: formattedListings } });
+      const formattedCommitments = commitments.map((c) => {
+        let docs: any[] = [];
+        try {
+          docs = c.listing?.supportingDocuments ? JSON.parse(c.listing.supportingDocuments) : [];
+        } catch {
+          docs = [];
+        }
+        return {
+          ...c,
+          listing: c.listing
+            ? {
+                ...c.listing,
+                supportingDocuments: Array.isArray(docs) ? docs : [],
+              }
+            : null,
+        };
+      });
+
+      res.json({ success: true, data: { commitments: formattedCommitments, listings: formattedListings } });
     } catch (err) {
       next(err);
     }

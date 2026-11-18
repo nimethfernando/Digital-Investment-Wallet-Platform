@@ -10,6 +10,10 @@ router.use((0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]));
 // User Management operations
 router.get('/users', (req, res, next) => admin_controller_1.adminController.getUsers(req, res, next));
 router.post('/users/create', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.createUser(req, res, next));
+router.get('/users/:id/client-view', (req, res, next) => admin_controller_1.adminController.getUserClientView(req, res, next));
+router.get('/tokens', (req, res, next) => admin_controller_1.adminController.getTokenHolders(req, res, next));
+router.get('/newsletter/subscribers', (req, res, next) => admin_controller_1.adminController.getNewsletterSubscribers(req, res, next));
+router.delete('/newsletter/subscribers/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.deleteNewsletterSubscriber(req, res, next));
 router.get('/users/:id', (req, res, next) => admin_controller_1.adminController.getUserDetails(req, res, next));
 router.patch('/users/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateUser(req, res, next));
 router.post('/users/:id/adjust-balance', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.adjustUserBalance(req, res, next));
