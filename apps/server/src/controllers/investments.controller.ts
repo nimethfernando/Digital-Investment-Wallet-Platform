@@ -58,12 +58,13 @@ export class InvestmentsController {
   async invest(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).user?.id || (req as any).user?.userId;
-      const { listingId, grossAmount, instrument, notes } = req.body;
+      const { listingId, grossAmount, instrument, notes, riskAcknowledged } = req.body;
       const commitment = await investmentsService.investInCampaign(userId, {
         listingId,
         grossAmount: parseFloat(grossAmount),
         instrument,
         notes,
+        riskAcknowledged: riskAcknowledged === true || riskAcknowledged === 'true',
       });
       res.status(201).json({
         success: true,

@@ -23,6 +23,9 @@ export class InvestmentsService {
         ['diw_startup_listings', 'performancePct', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `performancePct` DECIMAL(8,2) NOT NULL DEFAULT 0.00'],
         ['diw_startup_listings', 'termsAndNotes', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `termsAndNotes` TEXT NULL'],
         ['diw_startup_listings', 'supportingDocuments', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `supportingDocuments` TEXT NULL'],
+        ['diw_startup_listings', 'registrationDetails', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `registrationDetails` TEXT NULL'],
+        ['diw_startup_listings', 'officialLinks', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `officialLinks` TEXT NULL'],
+        ['diw_startup_listings', 'riskFactors', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `riskFactors` TEXT NULL'],
         ['diw_startup_listings', 'providerName', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerName` VARCHAR(150) NULL'],
         ['diw_startup_listings', 'providerInvestedAmount', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerInvestedAmount` DECIMAL(20,2) NOT NULL DEFAULT 0.00'],
         ['diw_startup_listings', 'providerTransferredAt', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerTransferredAt` DATETIME(3) NULL'],
@@ -260,6 +263,7 @@ export class InvestmentsService {
     const raised = new Decimal(c.verifiedFundsRaised?.toString() || '0');
     const progressPct = Math.min(100, Math.round(raised.dividedBy(target).times(100).toNumber()));
     const docs = this.safeParseJson(c.supportingDocuments, []);
+    const links = this.safeParseJson(c.officialLinks, {});
 
     const {
       providerName: _pn,
@@ -288,6 +292,9 @@ export class InvestmentsService {
       maturityDate: c.maturityDate || null,
       termsAndNotes: c.termsAndNotes || null,
       supportingDocuments: Array.isArray(docs) ? docs : [],
+      registrationDetails: c.registrationDetails || null,
+      officialLinks: links && typeof links === 'object' ? links : {},
+      riskFactors: c.riskFactors || null,
       progressPct,
       useOfFunds: this.safeParseJson(c.useOfFunds, null),
       milestones: this.safeParseJson(c.milestones, []),
@@ -373,8 +380,13 @@ export class InvestmentsService {
       grossAmount: number;
       instrument?: string;
       notes?: string;
+      riskAcknowledged?: boolean;
     }
   ) {
+    if (data.riskAcknowledged !== true) {
+      throw new Error('You must read and acknowledge the Risk Disclosure before investing.');
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, firstName: true, lastName: true, email: true, status: true },

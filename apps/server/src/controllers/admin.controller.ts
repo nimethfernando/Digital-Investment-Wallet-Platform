@@ -1040,9 +1040,17 @@ export class AdminController {
           parsedDocs = [];
         }
 
+        let parsedLinks: any = {};
+        try {
+          parsedLinks = l.officialLinks ? JSON.parse(l.officialLinks) : {};
+        } catch {
+          parsedLinks = {};
+        }
+
         return {
           ...l,
           supportingDocuments: Array.isArray(parsedDocs) ? parsedDocs : [],
+          officialLinks: parsedLinks && typeof parsedLinks === 'object' ? parsedLinks : {},
           actualCollectedFromUsersUsd: Number(actualCollectedFromUsersUsd.toFixed(2)),
           actualDistributedToUsersUsd: Number(actualDistributedToUsersUsd.toFixed(2)),
           actualCommitmentsCount: listingCommitments.length,
@@ -1238,6 +1246,13 @@ export class AdminController {
         termsAndNotes,
         dueDiligenceSummary,
         supportingDocuments,
+        registrationDetails,
+        officialLinks,
+        riskFactors,
+        problemSolution,
+        businessModel,
+        marketOpportunity,
+        pitchDeckUrl,
         providerName,
         providerInvestedAmount,
         providerTransferredAt,
@@ -1288,6 +1303,19 @@ export class AdminController {
       if (instrument) updateData.instrument = String(instrument).toUpperCase();
       if (dueDiligenceSummary !== undefined) updateData.dueDiligenceSummary = dueDiligenceSummary || null;
       if (termsAndNotes !== undefined) updateData.termsAndNotes = termsAndNotes || null;
+      if (registrationDetails !== undefined) updateData.registrationDetails = registrationDetails || null;
+      if (riskFactors !== undefined) updateData.riskFactors = riskFactors || null;
+      if (problemSolution !== undefined) updateData.problemSolution = problemSolution || null;
+      if (businessModel !== undefined) updateData.businessModel = businessModel || null;
+      if (marketOpportunity !== undefined) updateData.marketOpportunity = marketOpportunity || null;
+      if (pitchDeckUrl !== undefined) updateData.pitchDeckUrl = pitchDeckUrl || null;
+
+      if (officialLinks !== undefined) {
+        updateData.officialLinks =
+          typeof officialLinks === 'string'
+            ? officialLinks
+            : JSON.stringify(officialLinks && typeof officialLinks === 'object' ? officialLinks : {});
+      }
 
       if (supportingDocuments !== undefined) {
         updateData.supportingDocuments =
@@ -2745,6 +2773,12 @@ export class AdminController {
         termsAndNotes,
         dueDiligenceSummary,
         supportingDocuments,
+        registrationDetails,
+        officialLinks,
+        riskFactors,
+        problemSolution,
+        businessModel,
+        marketOpportunity,
         logoUrl,
         coverImageUrl,
         pitchDeckUrl,
@@ -2794,6 +2828,16 @@ export class AdminController {
           performancePct: new Decimal((performancePct || 0).toString()),
           termsAndNotes: termsAndNotes || null,
           dueDiligenceSummary: dueDiligenceSummary || null,
+          registrationDetails: registrationDetails || null,
+          officialLinks: officialLinks
+            ? typeof officialLinks === 'string'
+              ? officialLinks
+              : JSON.stringify(officialLinks)
+            : null,
+          riskFactors: riskFactors || null,
+          problemSolution: problemSolution || null,
+          businessModel: businessModel || null,
+          marketOpportunity: marketOpportunity || null,
           supportingDocuments: supportingDocuments
             ? typeof supportingDocuments === 'string'
               ? supportingDocuments
@@ -2862,6 +2906,13 @@ export class AdminController {
         performancePct,
         termsAndNotes,
         supportingDocuments,
+        registrationDetails,
+        officialLinks,
+        riskFactors,
+        problemSolution,
+        businessModel,
+        marketOpportunity,
+        pitchDeckUrl,
       } = req.body;
 
       const updateData: any = {};
@@ -2884,6 +2935,16 @@ export class AdminController {
       if (expectedReturnPct !== undefined && expectedReturnPct !== '') updateData.expectedReturnPct = new Decimal(expectedReturnPct.toString());
       if (performancePct !== undefined && performancePct !== '') updateData.performancePct = new Decimal(performancePct.toString());
       if (termsAndNotes !== undefined) updateData.termsAndNotes = termsAndNotes;
+      if (registrationDetails !== undefined) updateData.registrationDetails = registrationDetails;
+      if (riskFactors !== undefined) updateData.riskFactors = riskFactors;
+      if (problemSolution !== undefined) updateData.problemSolution = problemSolution;
+      if (businessModel !== undefined) updateData.businessModel = businessModel;
+      if (marketOpportunity !== undefined) updateData.marketOpportunity = marketOpportunity;
+      if (pitchDeckUrl !== undefined) updateData.pitchDeckUrl = pitchDeckUrl;
+      if (officialLinks !== undefined) {
+        updateData.officialLinks =
+          typeof officialLinks === 'string' ? officialLinks : JSON.stringify(officialLinks);
+      }
       if (supportingDocuments !== undefined) {
         updateData.supportingDocuments =
           typeof supportingDocuments === 'string' ? supportingDocuments : JSON.stringify(supportingDocuments);

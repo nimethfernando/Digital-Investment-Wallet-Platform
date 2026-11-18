@@ -1050,6 +1050,9 @@ model StartupListing {
   performancePct      Decimal                @default(0.00) @db.Decimal(8, 2)
   termsAndNotes       String?                @db.Text
   supportingDocuments String?                @db.Text
+  registrationDetails String?                @db.Text
+  officialLinks       String?                @db.Text
+  riskFactors         String?                @db.Text
   providerName        String?                @db.VarChar(150)
   providerInvestedAmount Decimal             @default(0.00) @db.Decimal(20, 2)
   providerTransferredAt DateTime?

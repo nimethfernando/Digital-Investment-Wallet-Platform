@@ -78,10 +78,31 @@ export default function AdminStartupsTab({
     deadline: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
     maturityDate: new Date(new Date().setMonth(new Date().getMonth() + 12)).toISOString().slice(0, 10),
     termsAndNotes: '',
+    registrationDetails: '',
+    riskFactors: '',
     pitchOverview: '',
     logoUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80',
     coverImageUrl: 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&auto=format&fit=crop&q=80',
   });
+  const [newStartupLinks, setNewStartupLinks] = useState<{
+    websiteUrl: string;
+    linkedinUrl: string;
+    twitterUrl: string;
+    githubUrl: string;
+    registryVerifyUrl: string;
+    pitchDeckUrl: string;
+    extraLinks: { label: string; url: string }[];
+  }>({
+    websiteUrl: '',
+    linkedinUrl: '',
+    twitterUrl: '',
+    githubUrl: '',
+    registryVerifyUrl: '',
+    pitchDeckUrl: '',
+    extraLinks: [],
+  });
+  const [newExtraLabel, setNewExtraLabel] = useState('');
+  const [newExtraUrl, setNewExtraUrl] = useState('');
   const [newStartupDocs, setNewStartupDocs] = useState<{ title: string; url: string; uploadedAt: string }[]>([]);
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const [docTitleInput, setDocTitleInput] = useState('');
@@ -109,6 +130,27 @@ export default function AdminStartupsTab({
   const [newListingStatus, setNewListingStatus] = useState('PUBLISHED');
   const [newTermsAndNotes, setNewTermsAndNotes] = useState('');
   const [newDueDiligenceSummary, setNewDueDiligenceSummary] = useState('');
+  const [newRegistrationDetails, setNewRegistrationDetails] = useState('');
+  const [newRiskFactors, setNewRiskFactors] = useState('');
+  const [editLinks, setEditLinks] = useState<{
+    websiteUrl: string;
+    linkedinUrl: string;
+    twitterUrl: string;
+    githubUrl: string;
+    registryVerifyUrl: string;
+    pitchDeckUrl: string;
+    extraLinks: { label: string; url: string }[];
+  }>({
+    websiteUrl: '',
+    linkedinUrl: '',
+    twitterUrl: '',
+    githubUrl: '',
+    registryVerifyUrl: '',
+    pitchDeckUrl: '',
+    extraLinks: [],
+  });
+  const [editExtraLabel, setEditExtraLabel] = useState('');
+  const [editExtraUrl, setEditExtraUrl] = useState('');
   const [editDocs, setEditDocs] = useState<{ title: string; url: string; uploadedAt: string }[]>([]);
   const [editDocTitle, setEditDocTitle] = useState('');
   const [growthNotes, setGrowthNotes] = useState('');
@@ -164,12 +206,23 @@ export default function AdminStartupsTab({
     try {
       const res = await api.post('/admin/investments/listings', {
         ...newStartup,
+        pitchDeckUrl: newStartupLinks.pitchDeckUrl || undefined,
+        officialLinks: newStartupLinks,
         supportingDocuments: newStartupDocs,
       });
       if (res.data?.success) {
         onFeedback({ text: res.data.message || 'Crowdfunding round created successfully!', type: 'success' });
         setCreateModalOpen(false);
         setNewStartupDocs([]);
+        setNewStartupLinks({
+          websiteUrl: '',
+          linkedinUrl: '',
+          twitterUrl: '',
+          githubUrl: '',
+          registryVerifyUrl: '',
+          pitchDeckUrl: '',
+          extraLinks: [],
+        });
         onRefresh();
       }
     } catch (err: any) {
@@ -211,6 +264,21 @@ export default function AdminStartupsTab({
     setNewListingStatus(listing.status || 'PUBLISHED');
     setNewTermsAndNotes(listing.termsAndNotes || '');
     setNewDueDiligenceSummary(listing.dueDiligenceSummary || '');
+    setNewRegistrationDetails(listing.registrationDetails || '');
+    setNewRiskFactors(listing.riskFactors || '');
+    const rawLinks =
+      listing.officialLinks && typeof listing.officialLinks === 'object' ? listing.officialLinks : {};
+    setEditLinks({
+      websiteUrl: rawLinks.websiteUrl || '',
+      linkedinUrl: rawLinks.linkedinUrl || '',
+      twitterUrl: rawLinks.twitterUrl || '',
+      githubUrl: rawLinks.githubUrl || '',
+      registryVerifyUrl: rawLinks.registryVerifyUrl || '',
+      pitchDeckUrl: rawLinks.pitchDeckUrl || listing.pitchDeckUrl || '',
+      extraLinks: Array.isArray(rawLinks.extraLinks) ? rawLinks.extraLinks : [],
+    });
+    setEditExtraLabel('');
+    setEditExtraUrl('');
     setEditDocs(Array.isArray(listing.supportingDocuments) ? listing.supportingDocuments : []);
     setEditDocTitle('');
     setGrowthNotes('');
@@ -274,6 +342,10 @@ export default function AdminStartupsTab({
           status: newListingStatus,
           termsAndNotes: newTermsAndNotes,
           dueDiligenceSummary: newDueDiligenceSummary,
+          registrationDetails: newRegistrationDetails,
+          riskFactors: newRiskFactors,
+          pitchDeckUrl: editLinks.pitchDeckUrl || null,
+          officialLinks: editLinks,
           supportingDocuments: editDocs,
           growthNotes,
           providerName: provName,
@@ -887,7 +959,7 @@ export default function AdminStartupsTab({
             <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-xs font-bold">
               {[
                 { id: 'ROUND', label: 'Round, Value & Lock-In' },
-                { id: 'DOCS', label: `Terms & Docs (${editDocs.length})` },
+                { id: 'DOCS', label: `Docs, Links & Risks (${editDocs.length})` },
                 { id: 'PROVIDER', label: 'Provider Fund Tracking' },
               ].map((t) => (
                 <button
@@ -1210,6 +1282,140 @@ export default function AdminStartupsTab({
                     onChange={(e) => setNewDueDiligenceSummary(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
                   />
+                </div>
+
+                {/* Risk Disclosure Editor */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-rose-400 uppercase font-mono">
+                    Mandatory Risk Disclosure Statement (Users Must Acknowledge Before Investing)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="State key capital-at-risk warnings, lock-in illiquidity terms, regulatory or market risks specific to this offering..."
+                    value={newRiskFactors}
+                    onChange={(e) => setNewRiskFactors(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-rose-500/40 rounded-xl text-white outline-none focus:border-rose-400"
+                  />
+                </div>
+
+                {/* Registration & Corporate Identity Details */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-emerald-400 uppercase font-mono">
+                    Company Registration &amp; Legal Verification Details
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. Delaware C-Corp Reg #88-4920112 • SEC Form C / DIFC Licence #CL-4419 • HQ Registered Address..."
+                    value={newRegistrationDetails}
+                    onChange={(e) => setNewRegistrationDetails(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                {/* Official Website, Social Profiles & Registry Verification Links */}
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                  <div>
+                    <div className="font-bold text-white">Official Links, Website, Social Media &amp; Registry</div>
+                    <p className="text-[10px] text-slate-400">
+                      Shown in the Company Dossier popup so investors can independently research and verify this company.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <input
+                      type="url"
+                      placeholder="Official Website URL (https://...)"
+                      value={editLinks.websiteUrl}
+                      onChange={(e) => setEditLinks((p) => ({ ...p, websiteUrl: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="url"
+                      placeholder="LinkedIn Company Page (https://linkedin.com/company/...)"
+                      value={editLinks.linkedinUrl}
+                      onChange={(e) => setEditLinks((p) => ({ ...p, linkedinUrl: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="url"
+                      placeholder="X / Twitter Profile (https://x.com/...)"
+                      value={editLinks.twitterUrl}
+                      onChange={(e) => setEditLinks((p) => ({ ...p, twitterUrl: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="url"
+                      placeholder="Corporate Registry / SEC / Regulatory Filing Link"
+                      value={editLinks.registryVerifyUrl}
+                      onChange={(e) => setEditLinks((p) => ({ ...p, registryVerifyUrl: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="url"
+                      placeholder="GitHub / Product Demo URL"
+                      value={editLinks.githubUrl}
+                      onChange={(e) => setEditLinks((p) => ({ ...p, githubUrl: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="url"
+                      placeholder="Pitch Deck / Data Room External URL"
+                      value={editLinks.pitchDeckUrl}
+                      onChange={(e) => setEditLinks((p) => ({ ...p, pitchDeckUrl: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                    <input
+                      type="text"
+                      placeholder="Custom Link Label (e.g. Audited Report)"
+                      value={editExtraLabel}
+                      onChange={(e) => setEditExtraLabel(e.target.value)}
+                      className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="url"
+                      placeholder="https://..."
+                      value={editExtraUrl}
+                      onChange={(e) => setEditExtraUrl(e.target.value)}
+                      className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!editExtraLabel.trim() || !editExtraUrl.trim()) return;
+                        setEditLinks((p) => ({
+                          ...p,
+                          extraLinks: [...p.extraLinks, { label: editExtraLabel.trim(), url: editExtraUrl.trim() }],
+                        }));
+                        setEditExtraLabel('');
+                        setEditExtraUrl('');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold cursor-pointer"
+                    >
+                      + Add Link
+                    </button>
+                  </div>
+                  {editLinks.extraLinks.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {editLinks.extraLinks.map((lnk, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-emerald-300">
+                          <span>{lnk.label}</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditLinks((p) => ({
+                                ...p,
+                                extraLinks: p.extraLinks.filter((_, i) => i !== idx),
+                              }))
+                            }
+                            className="text-rose-400 hover:text-rose-300 font-bold cursor-pointer"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
@@ -1637,6 +1843,119 @@ export default function AdminStartupsTab({
                   onChange={(e) => setNewStartup({ ...newStartup, termsAndNotes: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none resize-none"
                 />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-rose-400 uppercase font-mono">
+                  Mandatory Risk Disclosure Statement
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Capital at risk, strict lock-in period illiquidity, market & regulatory risks investors must accept..."
+                  value={newStartup.riskFactors}
+                  onChange={(e) => setNewStartup({ ...newStartup, riskFactors: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-900 border border-rose-500/40 rounded-xl text-white outline-none resize-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-emerald-400 uppercase font-mono">
+                  Company Registration &amp; Legal Verification Details
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Legal entity name, Company/EIN/Registry No., Jurisdiction, Registered office..."
+                  value={newStartup.registrationDetails}
+                  onChange={(e) => setNewStartup({ ...newStartup, registrationDetails: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none resize-none"
+                />
+              </div>
+
+              {/* Official Website, Socials & Registry Links */}
+              <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                <div className="font-bold text-white">Official Links, Social Media &amp; Verification (Optional)</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="url"
+                    placeholder="Official Website (https://...)"
+                    value={newStartupLinks.websiteUrl}
+                    onChange={(e) => setNewStartupLinks((p) => ({ ...p, websiteUrl: e.target.value }))}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <input
+                    type="url"
+                    placeholder="LinkedIn URL (https://linkedin.com/...)"
+                    value={newStartupLinks.linkedinUrl}
+                    onChange={(e) => setNewStartupLinks((p) => ({ ...p, linkedinUrl: e.target.value }))}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <input
+                    type="url"
+                    placeholder="X / Twitter URL (https://x.com/...)"
+                    value={newStartupLinks.twitterUrl}
+                    onChange={(e) => setNewStartupLinks((p) => ({ ...p, twitterUrl: e.target.value }))}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <input
+                    type="url"
+                    placeholder="Registry / SEC Verification Link"
+                    value={newStartupLinks.registryVerifyUrl}
+                    onChange={(e) => setNewStartupLinks((p) => ({ ...p, registryVerifyUrl: e.target.value }))}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    placeholder="Additional link label"
+                    value={newExtraLabel}
+                    onChange={(e) => setNewExtraLabel(e.target.value)}
+                    className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <input
+                    type="url"
+                    placeholder="https://..."
+                    value={newExtraUrl}
+                    onChange={(e) => setNewExtraUrl(e.target.value)}
+                    className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!newExtraLabel.trim() || !newExtraUrl.trim()) return;
+                      setNewStartupLinks((p) => ({
+                        ...p,
+                        extraLinks: [...p.extraLinks, { label: newExtraLabel.trim(), url: newExtraUrl.trim() }],
+                      }));
+                      setNewExtraLabel('');
+                      setNewExtraUrl('');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold cursor-pointer"
+                  >
+                    + Add Link
+                  </button>
+                </div>
+                {newStartupLinks.extraLinks.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {newStartupLinks.extraLinks.map((lnk, idx) => (
+                      <span key={idx} className="text-[11px] px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-emerald-300">
+                        {lnk.label}{' '}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNewStartupLinks((p) => ({
+                              ...p,
+                              extraLinks: p.extraLinks.filter((_, i) => i !== idx),
+                            }))
+                          }
+                          className="text-rose-400 ml-1 cursor-pointer"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Supporting Document Upload */}

@@ -37,6 +37,7 @@ export default function AvoraTokenPage() {
   const [allocAmount, setAllocAmount] = useState<number>(1000);
   const [payCurrency, setPayCurrency] = useState<'USD' | 'USDT' | 'USDC'>('USD');
   const [allocNotes, setAllocNotes] = useState<string>('');
+  const [tokenRiskAccepted, setTokenRiskAccepted] = useState<boolean>(false);
   const [allocLoading, setAllocLoading] = useState<boolean>(false);
   const [allocMsg, setAllocMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [lastReceipt, setLastReceipt] = useState<any | null>(null);
@@ -98,6 +99,10 @@ export default function AvoraTokenPage() {
     e.preventDefault();
     if (!user) {
       alert('Please sign in to purchase Avora Token ($AVR) from your wallet.');
+      return;
+    }
+    if (!tokenRiskAccepted) {
+      setAllocMsg({ type: 'error', text: 'Please read and accept the $AVR Token Risk & Vesting Disclosure before buying.' });
       return;
     }
     setAllocLoading(true);
@@ -521,12 +526,34 @@ export default function AvoraTokenPage() {
             <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-200 text-xs">
               Debits <strong>{Number(allocAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} {payCurrency}</strong> from your available wallet balance immediately and records your funded $AVR token allocation in your Portfolio &amp; Ledger.
             </div>
+
+            <div className="p-3.5 rounded-xl bg-rose-50/75 dark:bg-rose-950/30 border border-rose-500/40 space-y-2 text-xs">
+              <div className="font-bold text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>Mandatory $AVR Token Risk &amp; Lock-In Disclosure</span>
+              </div>
+              <p className="text-[11px] text-rose-900/90 dark:text-rose-200/90 leading-relaxed">
+                Digital token allocations carry price volatility and market liquidity risks. Tokens are subject to the configured{' '}
+                <strong>{tokenInfo?.lockinDays ?? userStatus?.earlyAccess?.lockinDays ?? 90}-day vesting lock-in schedule</strong> before redemption into wallet funds, unless unlocked by platform policy.
+              </p>
+              <label className="flex items-start gap-2 pt-1.5 border-t border-rose-200 dark:border-rose-900/60 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={tokenRiskAccepted}
+                  onChange={(e) => setTokenRiskAccepted(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded accent-emerald-600 cursor-pointer shrink-0"
+                />
+                <span className="text-[11px] font-bold text-slate-900 dark:text-white leading-snug">
+                  I have read and accepted the $AVR token volatility, lock-in vesting terms, and risk disclosures.
+                </span>
+              </label>
+            </div>
           </div>
 
           <button
             type="submit"
-            disabled={allocLoading || !allocAmount || allocAmount < 10}
-            className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md disabled:opacity-50 transition-all cursor-pointer flex items-center justify-center gap-2"
+            disabled={allocLoading || !tokenRiskAccepted || !allocAmount || allocAmount < 10}
+            className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
           >
             <Coins className="w-4 h-4" />
             <span>{allocLoading ? 'Processing Wallet Deduction...' : `Buy ${Math.round((allocAmount || 0) / (livePriceUsd || 0.10)).toLocaleString()} $AVR ($${Number(allocAmount || 0).toLocaleString()} ${payCurrency})`}</span>

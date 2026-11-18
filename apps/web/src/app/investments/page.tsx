@@ -28,6 +28,7 @@ import {
   Bookmark,
   Check,
   Award,
+  ExternalLink,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
@@ -67,6 +68,17 @@ interface StartupItem {
   businessModel?: string;
   marketOpportunity?: string;
   riskFactors?: string;
+  registrationDetails?: string;
+  pitchDeckUrl?: string;
+  officialLinks?: {
+    websiteUrl?: string;
+    linkedinUrl?: string;
+    twitterUrl?: string;
+    githubUrl?: string;
+    registryVerifyUrl?: string;
+    pitchDeckUrl?: string;
+    extraLinks?: { label: string; url: string }[];
+  };
   allocationFeePct: number;
   profitShareFeePct: number;
   useOfFunds?: Record<string, string>;
@@ -92,6 +104,7 @@ export default function InvestmentsMarketplacePage() {
   const [detailsModalOpen, setDetailsModalOpen] = useState<boolean>(false);
   const [investModalOpen, setInvestModalOpen] = useState<boolean>(false);
   const [investAmount, setInvestAmount] = useState<number>(1000);
+  const [investRiskAccepted, setInvestRiskAccepted] = useState<boolean>(false);
   const [investLoading, setInvestLoading] = useState<boolean>(false);
   const [investMsg, setInvestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -193,6 +206,13 @@ export default function InvestmentsMarketplacePage() {
       return;
     }
     if (!selectedCampaign) return;
+    if (!investRiskAccepted) {
+      setInvestMsg({
+        type: 'error',
+        text: 'Please read the Risk Disclosure and tick the acknowledgement checkbox before confirming.',
+      });
+      return;
+    }
 
     setInvestLoading(true);
     setInvestMsg(null);
@@ -202,6 +222,7 @@ export default function InvestmentsMarketplacePage() {
         listingId: selectedCampaign.id,
         grossAmount: investAmount,
         instrument: selectedCampaign.instrument,
+        riskAcknowledged: true,
       });
 
       if (res.data?.success) {
@@ -538,6 +559,8 @@ export default function InvestmentsMarketplacePage() {
                 onClick={() => {
                   setSelectedCampaign(c);
                   setInvestAmount(Math.max(1000, c.minInvestment));
+                  setInvestRiskAccepted(false);
+                  setInvestMsg(null);
                   setInvestModalOpen(true);
                 }}
                 className="py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
@@ -896,7 +919,58 @@ export default function InvestmentsMarketplacePage() {
                 </div>
               )}
 
-              {/* 6. Due Diligence & Supporting Documents */}
+              {/* 6. Company Registration, Official Links & Supporting Documents */}
+              {(() => {
+                const links = selectedCampaign.officialLinks || {};
+                const pillLinks = [
+                  links.websiteUrl ? { label: 'Official Website', url: links.websiteUrl } : null,
+                  links.linkedinUrl ? { label: 'LinkedIn Profile', url: links.linkedinUrl } : null,
+                  links.twitterUrl ? { label: 'X / Twitter', url: links.twitterUrl } : null,
+                  links.registryVerifyUrl ? { label: 'Corporate Registry Filing', url: links.registryVerifyUrl } : null,
+                  links.githubUrl ? { label: 'GitHub / Product', url: links.githubUrl } : null,
+                  (links.pitchDeckUrl || selectedCampaign.pitchDeckUrl)
+                    ? { label: 'Pitch Deck / Data Room', url: (links.pitchDeckUrl || selectedCampaign.pitchDeckUrl)! }
+                    : null,
+                  ...(Array.isArray(links.extraLinks) ? links.extraLinks : []),
+                ].filter((x): x is { label: string; url: string } => Boolean(x && x.url));
+
+                if (!selectedCampaign.registrationDetails && pillLinks.length === 0) return null;
+
+                return (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                    <div className="font-black text-slate-900 dark:text-white flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                      <Globe className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Independent Company Verification, Registration &amp; Official Links</span>
+                    </div>
+                    {selectedCampaign.registrationDetails && (
+                      <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-700 dark:text-slate-300 whitespace-pre-line">
+                        <strong className="block text-[10px] uppercase text-slate-400 mb-0.5">
+                          Registration &amp; Legal Entity
+                        </strong>
+                        {selectedCampaign.registrationDetails}
+                      </div>
+                    )}
+                    {pillLinks.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {pillLinks.map((lnk, i) => (
+                          <a
+                            key={i}
+                            href={lnk.url.startsWith('http') ? lnk.url : `https://${lnk.url}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-800 dark:text-slate-200 hover:text-emerald-600 transition-colors"
+                          >
+                            <ExternalLink className="w-3 h-3 text-emerald-500" />
+                            <span>{lnk.label}</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* 7. Due Diligence & Supporting Documents */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-500/30 space-y-1.5">
                   <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
@@ -982,6 +1056,8 @@ export default function InvestmentsMarketplacePage() {
                   onClick={() => {
                     setDetailsModalOpen(false);
                     setInvestAmount(Math.max(1000, selectedCampaign.minInvestment));
+                    setInvestRiskAccepted(false);
+                    setInvestMsg(null);
                     setInvestModalOpen(true);
                   }}
                   className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md flex items-center gap-1.5 cursor-pointer"
@@ -996,11 +1072,11 @@ export default function InvestmentsMarketplacePage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 1: INVEST NOW (WITH TRANSPARENT 5% ALLOCATION FEE BREAKDOWN) */}
+      {/* MODAL 1: INVEST NOW (WITH TRANSPARENT 5% FEE & MANDATORY RISK ACK)        */}
       {/* ========================================================================= */}
       {investModalOpen && selectedCampaign && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-6">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-5 max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setInvestModalOpen(false)}
               className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white"
@@ -1102,10 +1178,53 @@ export default function InvestmentsMarketplacePage() {
                 </p>
               </div>
 
+              {/* 3. Mandatory Risk Disclosure & Investor Acknowledgement Checkbox */}
+              <div className="p-4 rounded-2xl bg-rose-50/75 dark:bg-rose-950/30 border border-rose-500/40 space-y-3 text-xs">
+                <div className="font-bold text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Mandatory Investment Risk Disclosure</span>
+                </div>
+                <div className="max-h-32 overflow-y-auto pr-1 text-[11px] text-rose-900/90 dark:text-rose-200/90 leading-relaxed space-y-1.5">
+                  {selectedCampaign.riskFactors ? (
+                    <p className="whitespace-pre-line">{selectedCampaign.riskFactors}</p>
+                  ) : (
+                    <>
+                      <p>
+                        <strong>1. Capital at Risk:</strong> Private startup investments carry high risk of partial or total loss of capital. Future returns and target yields are not guaranteed.
+                      </p>
+                      <p>
+                        <strong>2. Illiquidity &amp; Lock-In Period:</strong> Funds committed to {selectedCampaign.companyName} are subject to a{' '}
+                        <strong>{selectedCampaign.lockInMonths ?? 12}-month lock-in period</strong> and cannot be withdrawn prior to round maturity/exit.
+                      </p>
+                      <p>
+                        <strong>3. Independent Verification:</strong> You should review the Company Dossier, registration details, official website, and supporting documents prior to investing.
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                <label className="flex items-start gap-2.5 pt-2 border-t border-rose-200 dark:border-rose-900/60 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={investRiskAccepted}
+                    onChange={(e) => setInvestRiskAccepted(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded accent-emerald-600 cursor-pointer shrink-0"
+                  />
+                  <span className="text-[11px] font-bold text-slate-900 dark:text-white leading-snug">
+                    I have read and understood the risk disclosure, lock-in period ({selectedCampaign.lockInMonths ?? 12} months), and terms for{' '}
+                    {selectedCampaign.companyName}, and I accept all associated investment risks.
+                  </span>
+                </label>
+              </div>
+
               <button
                 type="submit"
-                disabled={investLoading}
-                className="w-full py-4 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                disabled={investLoading || !investRiskAccepted}
+                className={`w-full py-4 rounded-2xl font-bold text-xs shadow-lg flex items-center justify-center gap-2 transition-all ${
+                  investRiskAccepted && !investLoading
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/25 cursor-pointer'
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                }`}
               >
                 <Check className="w-4 h-4" />
                 <span>{investLoading ? 'Securing Allocation...' : `Confirm & Commit $${totalRequired.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`}</span>
