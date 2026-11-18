@@ -909,7 +909,7 @@ export default function ExchangeDeskPage() {
 
         {/* Action CTAs */}
         <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-          {myDesk ? (
+          {myDesk && myDesk.status === 'ACTIVE' ? (
             <button
               onClick={() => openManageDeskModal(myDesk)}
               className="px-5 py-3 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg flex items-center gap-2 transition-all cursor-pointer"
@@ -917,13 +917,18 @@ export default function ExchangeDeskPage() {
               <Sliders className="w-4 h-4" />
               <span>Manage My OTC Desk &amp; Live Rates ({myDesk.deskCode})</span>
             </button>
+          ) : myDesk && myDesk.status === 'UNDER_REVIEW' ? (
+            <div className="px-5 py-3 rounded-2xl font-bold text-xs bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-300 shadow-sm flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              <span>Application Pending Admin Approval ({myDesk.deskCode})</span>
+            </div>
           ) : (
             <button
               onClick={() => setApplyModalOpen(true)}
               className="px-5 py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-lg flex items-center gap-2 transition-all cursor-pointer"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>Apply to Operate an OTC Desk ($1,000 Deposit)</span>
+              <span>Apply to Operate an OTC Desk (${otcDepositUsd.toLocaleString()} Deposit)</span>
             </button>
           )}
 
@@ -940,7 +945,7 @@ export default function ExchangeDeskPage() {
       {/* Operator Application / Live Rate & Pricing Control Card */}
       {user && myDesk && (
         <div
-          className={`p-5 sm:p-6 rounded-3xl border text-white shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
+          className={`p-5 sm:p-6 rounded-3xl border text-white shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-5 ${
             myDesk.status === 'UNDER_REVIEW'
               ? 'bg-gradient-to-r from-amber-950/90 via-slate-900 to-slate-950 border-amber-500/40'
               : myDesk.status === 'SUSPENDED' || myDesk.status === 'CLOSED'
@@ -948,7 +953,7 @@ export default function ExchangeDeskPage() {
               : 'bg-gradient-to-r from-emerald-950/90 via-slate-900 to-slate-950 border-emerald-500/40'
           }`}
         >
-          <div className="space-y-1.5">
+          <div className="space-y-2.5 flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               {myDesk.status === 'UNDER_REVIEW' ? (
                 <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase tracking-wider border border-amber-500/30">
@@ -971,8 +976,36 @@ export default function ExchangeDeskPage() {
               {myDesk.operatorDisplayName && (
                 <span className="font-mono text-xs text-emerald-300">@{myDesk.operatorDisplayName}</span>
               )}
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-300">
+                ${Number(myDesk.securityDeposit || otcDepositUsd).toLocaleString()} {myDesk.depositStatus === 'REFUNDED' ? 'Deposit Refunded' : 'Security Deposit Protected'}
+              </span>
             </div>
-            <h2 className="text-lg font-black text-white">{myDesk.deskName}</h2>
+
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 className="text-xl font-black text-white">{myDesk.deskName}</h2>
+              <span className="inline-flex items-center gap-1 text-xs text-slate-300">
+                <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>
+                  {myDesk.city}, {myDesk.country} ({myDesk.countryCode}) • {myDesk.locationAddress}
+                </span>
+              </span>
+              {myDesk.landmark && (
+                <span className="text-[11px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  Landmark: {myDesk.landmark}
+                </span>
+              )}
+              <a
+                href={getDeskGoogleMapsHref(myDesk)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-400 hover:underline"
+              >
+                <Navigation className="w-3 h-3" />
+                <span>View Pin on Google Maps</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
             {myDesk.status === 'UNDER_REVIEW' ? (
               <p className="text-xs text-amber-200/90 leading-relaxed max-w-2xl">
                 Your OTC Desk application is currently under Admin Compliance verification (${Number(myDesk.securityDeposit || otcDepositUsd).toLocaleString()} security deposit held in escrow). It will go live in the public OTC directory once approved by Admin.
@@ -982,21 +1015,40 @@ export default function ExchangeDeskPage() {
                 This OTC desk listing is closed ({myDesk.depositStatus}). {myDesk.adminNotes ? `Compliance Note: ${myDesk.adminNotes}` : 'You may submit a new application anytime.'}
               </p>
             ) : (
-              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 font-mono">
-                <span>Buy Margin: <strong className="text-emerald-400">+{myDesk.buyRateMarginPct}%</strong></span>
-                <span>•</span>
-                <span>Sell Margin: <strong className="text-sky-400">-{myDesk.sellRateMarginPct}%</strong></span>
-                <span>•</span>
-                <span>
-                  Custom Fixed Rates:{' '}
-                  <strong className="text-amber-300">
-                    {myDesk.customRates && Object.keys(myDesk.customRates).length > 0
-                      ? Object.entries(myDesk.customRates)
-                          .map(([cur, p]) => `${cur}: ${p.buyRate || '-'} / ${p.sellRate || '-'}`)
-                          .join(' | ')
-                      : 'Following Live Market + Margins'}
-                  </strong>
-                </span>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 font-mono">
+                  <span>Buy Margin: <strong className="text-emerald-400">+{myDesk.buyRateMarginPct}%</strong></span>
+                  <span>•</span>
+                  <span>Sell Margin: <strong className="text-sky-400">-{myDesk.sellRateMarginPct}%</strong></span>
+                  <span>•</span>
+                  <span>
+                    Custom Fixed Rates:{' '}
+                    <strong className="text-amber-300">
+                      {myDesk.customRates && Object.keys(myDesk.customRates).length > 0
+                        ? Object.entries(myDesk.customRates)
+                            .map(([cur, p]) => `${cur}: ${p.buyRate || '-'} / ${p.sellRate || '-'}`)
+                            .join(' | ')
+                        : 'Following Live Market + Margins'}
+                    </strong>
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Rating: <strong className="text-amber-400">★ {myDesk.rating?.toFixed(2) || '5.00'}</strong> ({myDesk.completedTrades}/{myDesk.totalTrades} settled)
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+                  <div className="flex flex-wrap gap-1">
+                    {(myDesk.supportedCurrencies || []).map((c) => (
+                      <span key={c} className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px] font-bold text-slate-200">
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-slate-300">
+                    Rails: <strong className="text-white">{(myDesk.settlementMethods || []).join(', ')}</strong>
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -1099,51 +1151,57 @@ export default function ExchangeDeskPage() {
       {/* SECTION 1: GLOBAL OTC DESK DISCOVERY */}
       {/* ========================================================================= */}
       <div className="space-y-6">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
+        <div className="flex flex-col gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
           <div className="space-y-1">
             <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
               <MapPin className="w-6 h-6 text-emerald-500" />
               <span>Available OTC Desks by Location</span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Browse independent, $1,000-deposit verified OTC operators with mapped physical pickup counters &amp; landmarks
+              Browse independent, ${otcDepositUsd.toLocaleString()}-deposit verified OTC operators with mapped physical pickup counters &amp; landmarks
             </p>
           </div>
 
           {/* Location Filters */}
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="text"
-              placeholder="Search city, address, landmark..."
-              value={searchCity}
-              onChange={(e) => setSearchCity(e.target.value)}
-              className="px-3 py-1.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
-            />
-            <SearchableCountrySelect
-              showAllOption
-              allOptionLabel="All Desks (Global)"
-              value={selectedCountry}
-              onChange={(c) => setSelectedCountry(c.code)}
-              size="sm"
-            />
-            {[
-              { code: 'ALL', label: 'All Desks' },
-              { code: 'LK', label: 'Sri Lanka' },
-              { code: 'AE', label: 'UAE' },
-              { code: 'GE', label: 'Georgia' },
-            ].map((country) => (
-              <button
-                key={country.code}
-                onClick={() => setSelectedCountry(country.code)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  selectedCountry === country.code
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                }`}
-              >
-                {country.label}
-              </button>
-            ))}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 flex-1">
+              <input
+                type="text"
+                placeholder="Search city, address, landmark, desk..."
+                value={searchCity}
+                onChange={(e) => setSearchCity(e.target.value)}
+                className="w-full sm:w-72 px-3.5 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+              />
+              <SearchableCountrySelect
+                showAllOption
+                allOptionLabel="All Desks (Global)"
+                value={selectedCountry}
+                onChange={(c) => setSelectedCountry(c.code)}
+                size="sm"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { code: 'ALL', label: 'All Desks' },
+                { code: 'IN', label: 'India' },
+                { code: 'LK', label: 'Sri Lanka' },
+                { code: 'AE', label: 'UAE' },
+                { code: 'GE', label: 'Georgia' },
+              ].map((country) => (
+                <button
+                  key={country.code}
+                  onClick={() => setSelectedCountry(country.code)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    selectedCountry === country.code
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {country.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
