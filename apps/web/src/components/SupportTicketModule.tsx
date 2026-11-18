@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
+import PaginationControls, { usePagination } from './PaginationControls';
 import {
   MessageSquare,
   PlusCircle,
@@ -270,6 +271,8 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
     return true;
   });
 
+  const ticketsPagination = usePagination(filteredTickets, 50);
+
   const getCategoryMeta = (catId: string) => {
     return INQUIRY_CATEGORIES.find((c) => c.id === catId) || INQUIRY_CATEGORIES[0];
   };
@@ -400,7 +403,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
             </button>
           </div>
         ) : (
-          filteredTickets.map((t) => {
+          ticketsPagination.pagedItems.map((t) => {
             const cat = getCategoryMeta(t.category);
             const Icon = cat.icon;
 
@@ -458,6 +461,17 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
               </div>
             );
           })
+        )}
+        {filteredTickets.length > 0 && (
+          <PaginationControls
+            currentPage={ticketsPagination.page}
+            totalItems={filteredTickets.length}
+            pageSize={ticketsPagination.pageSize}
+            onPageChange={ticketsPagination.setPage}
+            onPageSizeChange={ticketsPagination.setPageSize}
+            itemLabel="inquiries"
+            theme="auto"
+          />
         )}
       </div>
 

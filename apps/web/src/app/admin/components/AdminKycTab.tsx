@@ -16,6 +16,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
+import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 
 interface KycTabProps {
   kycDocs: any[];
@@ -85,6 +86,8 @@ export default function AdminKycTab({
     );
   });
 
+  const { page, setPage, pageSize, setPageSize, pagedItems: pagedDocs } = usePagination(filteredDocs, 50);
+
   return (
     <div className="space-y-6">
       {/* Header Bar */}
@@ -147,7 +150,7 @@ export default function AdminKycTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {filteredDocs.map((doc) => (
+                {pagedDocs.map((doc) => (
                   <tr key={doc.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3.5 px-4">
                       <div className="font-bold text-white text-sm">
@@ -206,6 +209,17 @@ export default function AdminKycTab({
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="px-4 pb-4">
+            <PaginationControls
+              currentPage={page}
+              totalItems={filteredDocs.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="KYC submissions"
+              theme="dark"
+            />
           </div>
         </div>
       )}

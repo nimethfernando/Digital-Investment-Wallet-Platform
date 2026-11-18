@@ -18,6 +18,7 @@ import {
   Check,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
+import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 
 interface RemittanceTabProps {
   transfers: any[];
@@ -88,6 +89,8 @@ export default function AdminRemittanceTab({
     const matchStatus = !statusFilter || t.status === statusFilter;
     return matchSearch && matchStatus;
   });
+
+  const { page, setPage, pageSize, setPageSize, pagedItems: pagedTransfers } = usePagination(filteredTransfers, 50);
 
   return (
     <div className="space-y-6">
@@ -187,7 +190,7 @@ export default function AdminRemittanceTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {filteredTransfers.map((t) => (
+                {pagedTransfers.map((t) => (
                   <tr key={t.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3.5 px-4 font-mono font-bold text-white text-xs">
                       {t.transferCode}
@@ -254,6 +257,17 @@ export default function AdminRemittanceTab({
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="px-4 pb-4">
+            <PaginationControls
+              currentPage={page}
+              totalItems={filteredTransfers.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="remittances"
+              theme="dark"
+            />
           </div>
         </div>
       )}

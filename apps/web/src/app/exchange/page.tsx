@@ -32,6 +32,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
+import PaginationControls, { usePagination } from '../../components/PaginationControls';
 
 const OTC_SETTLEMENT_PRESETS = [
   'Physical Cash',
@@ -1173,6 +1174,10 @@ export default function ExchangeDeskPage() {
     return user.id === sellerId || user.role === 'ADMIN';
   }, [activeTrade, user]);
 
+  const desksPagination = usePagination(filteredDesks, 50);
+  const myTradesPagination = usePagination(myTrades, 50);
+  const otcInquiriesPagination = usePagination(otcInquiries, 50);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-16">
       {/* Header Banner */}
@@ -1468,7 +1473,7 @@ export default function ExchangeDeskPage() {
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {myTrades.slice(0, 9).map((tr) => {
+            {myTradesPagination.pagedItems.map((tr) => {
               const msgs = Array.isArray(tr.messages) ? tr.messages : [];
               const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
               const isOperatorRole = user.id === tr.operatorId;
@@ -1534,6 +1539,15 @@ export default function ExchangeDeskPage() {
               );
             })}
           </div>
+          <PaginationControls
+            currentPage={myTradesPagination.page}
+            totalItems={myTrades.length}
+            pageSize={myTradesPagination.pageSize}
+            onPageChange={myTradesPagination.setPage}
+            onPageSizeChange={myTradesPagination.setPageSize}
+            itemLabel="OTC trades"
+            theme="dark"
+          />
         </div>
       )}
 
@@ -1550,7 +1564,7 @@ export default function ExchangeDeskPage() {
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {otcInquiries.slice(0, 9).map((inq) => {
+            {otcInquiriesPagination.pagedItems.map((inq) => {
               const msgs = Array.isArray(inq.messages) ? inq.messages : [];
               const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
               const isOperatorRole = user.id === inq.operatorId;
@@ -1600,6 +1614,15 @@ export default function ExchangeDeskPage() {
               );
             })}
           </div>
+          <PaginationControls
+            currentPage={otcInquiriesPagination.page}
+            totalItems={otcInquiries.length}
+            pageSize={otcInquiriesPagination.pageSize}
+            onPageChange={otcInquiriesPagination.setPage}
+            onPageSizeChange={otcInquiriesPagination.setPageSize}
+            itemLabel="inquiries"
+            theme="dark"
+          />
         </div>
       )}
 
@@ -1679,8 +1702,9 @@ export default function ExchangeDeskPage() {
             No active OTC desks match your location filter.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredDesks.map((desk) => {
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {desksPagination.pagedItems.map((desk) => {
               const mapsHref = getDeskGoogleMapsHref(desk);
               return (
                 <div
@@ -1889,7 +1913,17 @@ export default function ExchangeDeskPage() {
                 </div>
               );
             })}
-          </div>
+            </div>
+            <PaginationControls
+              currentPage={desksPagination.page}
+              totalItems={filteredDesks.length}
+              pageSize={desksPagination.pageSize}
+              onPageChange={desksPagination.setPage}
+              onPageSizeChange={desksPagination.setPageSize}
+              itemLabel="OTC desks"
+              theme="auto"
+            />
+          </>
         )}
       </div>
 

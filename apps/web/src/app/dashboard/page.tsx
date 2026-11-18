@@ -14,6 +14,7 @@ import { DepositModal } from '../../components/DepositModal';
 import { ChooseSendMethodModal } from '../../components/ChooseSendMethodModal';
 import { BankAccountsModule, UserBankAccount } from '../../components/BankAccountsModule';
 import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
+import PaginationControls, { usePagination } from '../../components/PaginationControls';
 import {
   CustomerNotificationItem,
   CustomerNotificationSummary,
@@ -692,11 +693,11 @@ function DashboardContent() {
       setInspectedUser(null);
       const [walletRes, pkgRes, txRes, wthRes, ticketRes, depRes, investRes, tokenRes, notifRes] = await Promise.all([
         api.get('/wallet').catch(() => ({ data: { wallet: null } })),
-        api.get('/packages').catch(() => ({ data: { packages: [] } })),
-        api.get('/wallet/transactions').catch(() => ({ data: { transactions: [] } })),
-        api.get('/withdrawals').catch(() => ({ data: { withdrawals: [] } })),
-        api.get('/tickets').catch(() => ({ data: { data: [] } })),
-        api.get('/wallet/deposits').catch(() => ({ data: { data: [] } })),
+        api.get('/packages?limit=500').catch(() => ({ data: { packages: [] } })),
+        api.get('/wallet/transactions?limit=500').catch(() => ({ data: { transactions: [] } })),
+        api.get('/withdrawals?limit=500').catch(() => ({ data: { withdrawals: [] } })),
+        api.get('/tickets?limit=500').catch(() => ({ data: { data: [] } })),
+        api.get('/wallet/deposits?limit=500').catch(() => ({ data: { data: [] } })),
         api.get('/investments/dashboard').catch(() => ({ data: { commitments: [], summary: null } })),
         api.get('/token/my-status').catch(() => ({ data: { earlyAccess: null, testnetBalance: 0 } })),
         api.get('/wallet/notifications').catch(() => ({ data: { notifications: [], summary: null } })),
@@ -1286,6 +1287,27 @@ function DashboardContent() {
     }
     return true;
   });
+
+  const filteredNotifications = customerNotifications.filter((item) => {
+    if (notifCategoryFilter === 'UNREAD' && item.isRead) return false;
+    if (
+      notifCategoryFilter !== 'ALL' &&
+      notifCategoryFilter !== 'UNREAD' &&
+      item.category !== notifCategoryFilter
+    ) {
+      return false;
+    }
+    if (notifSearch.trim()) {
+      const q = notifSearch.trim().toLowerCase();
+      const hay = `${item.title} ${item.message} ${item.referenceCode || ''} ${item.status || ''} ${item.amount || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const txPagination = usePagination(filteredTransactions, 50);
+  const wthPagination = usePagination(withdrawals, 50);
+  const notifPagination = usePagination(filteredNotifications, 50);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors pb-20">
@@ -3205,7 +3227,7 @@ function DashboardContent() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {filteredTransactions.map((tx) => {
+                    {txPagination.pagedItems.map((tx) => {
                       const explorer = getExplorerInfo(tx.settlementReference, tx.currency);
                       const isUsd = tx.currency === 'USD';
                       return (
@@ -3266,6 +3288,17 @@ function DashboardContent() {
                     })}
                   </tbody>
                 </table>
+              )}
+              {filteredTransactions.length > 0 && (
+                <PaginationControls
+                  currentPage={txPagination.page}
+                  totalItems={filteredTransactions.length}
+                  pageSize={txPagination.pageSize}
+                  onPageChange={txPagination.setPage}
+                  onPageSizeChange={txPagination.setPageSize}
+                  itemLabel="transactions"
+                  theme="auto"
+                />
               )}
             </div>
           </div>
@@ -3515,7 +3548,7 @@ function DashboardContent() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {withdrawals.map((w) => {
+                    {wthPagination.pagedItems.map((w) => {
                       let details: any = {};
                       try {
                         details = typeof w.payoutDetails === 'string' ? JSON.parse(w.payoutDetails) : (w.payoutDetails || {});
@@ -3595,6 +3628,15 @@ function DashboardContent() {
                     })}
                   </tbody>
                 </table>
+                <PaginationControls
+                  currentPage={wthPagination.page}
+                  totalItems={withdrawals.length}
+                  pageSize={wthPagination.pageSize}
+                  onPageChange={wthPagination.setPage}
+                  onPageSizeChange={wthPagination.setPageSize}
+                  itemLabel="withdrawals"
+                  theme="auto"
+                />
               </div>
             )}
           </div>
@@ -3924,24 +3966,7 @@ function DashboardContent() {
 
               {/* Feed Cards */}
               {(() => {
-                const filteredNotifs = customerNotifications.filter((item) => {
-                  if (notifCategoryFilter === 'UNREAD' && item.isRead) return false;
-                  if (
-                    notifCategoryFilter !== 'ALL' &&
-                    notifCategoryFilter !== 'UNREAD' &&
-                    item.category !== notifCategoryFilter
-                  ) {
-                    return false;
-                  }
-                  if (notifSearch.trim()) {
-                    const q = notifSearch.trim().toLowerCase();
-                    const hay = `${item.title} ${item.message} ${item.referenceCode || ''} ${item.status || ''} ${item.amount || ''}`.toLowerCase();
-                    if (!hay.includes(q)) return false;
-                  }
-                  return true;
-                });
-
-                if (filteredNotifs.length === 0) {
+                if (filteredNotifications.length === 0) {
                   return (
                     <div className="py-12 text-center space-y-2 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
                       <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto opacity-80" />
@@ -3957,7 +3982,7 @@ function DashboardContent() {
 
                 return (
                   <div className="space-y-3">
-                    {filteredNotifs.map((item) => {
+                    {notifPagination.pagedItems.map((item) => {
                       const visual = getNotificationVisuals(item);
                       const Icon = visual.Icon;
                       const severityAccent =
@@ -4045,6 +4070,15 @@ function DashboardContent() {
                         </div>
                       );
                     })}
+                    <PaginationControls
+                      currentPage={notifPagination.page}
+                      totalItems={filteredNotifications.length}
+                      pageSize={notifPagination.pageSize}
+                      onPageChange={notifPagination.setPage}
+                      onPageSizeChange={notifPagination.setPageSize}
+                      itemLabel="notifications"
+                      theme="auto"
+                    />
                   </div>
                 );
               })()}

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { api, extractErrorMessage } from '../../lib/api';
+import PaginationControls, { usePagination } from '../../components/PaginationControls';
 import {
   Globe,
   ArrowRight,
@@ -312,6 +313,8 @@ export default function GlobalMoneyTransferPage() {
       setSubmitting(false);
     }
   };
+
+  const transfersPagination = usePagination(myTransfers, 50);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
@@ -1093,7 +1096,7 @@ export default function GlobalMoneyTransferPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                {myTransfers.map((tx) => (
+                {transfersPagination.pagedItems.map((tx) => (
                   <tr key={tx.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                     <td className="py-3 font-mono font-bold text-slate-900 dark:text-white">{tx.transferCode}</td>
                     <td className="py-3 font-bold">{tx.recipientName}</td>
@@ -1111,6 +1114,15 @@ export default function GlobalMoneyTransferPage() {
               </tbody>
             </table>
           </div>
+          <PaginationControls
+            currentPage={transfersPagination.page}
+            totalItems={myTransfers.length}
+            pageSize={transfersPagination.pageSize}
+            onPageChange={transfersPagination.setPage}
+            onPageSizeChange={transfersPagination.setPageSize}
+            itemLabel="transfers"
+            theme="auto"
+          />
         </div>
       )}
 

@@ -17,6 +17,7 @@ import {
   Users,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
+import PaginationControls from '../../../components/PaginationControls';
 
 interface AdminNewsletterTabProps {
   data: {
@@ -30,8 +31,6 @@ interface AdminNewsletterTabProps {
   onFeedback: (feedback: { text: string; type: 'success' | 'error' } | null) => void;
 }
 
-const PAGE_SIZE = 20;
-
 export default function AdminNewsletterTab({
   data,
   loading,
@@ -41,6 +40,7 @@ export default function AdminNewsletterTab({
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'REGISTERED' | 'GUEST'>('ALL');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [copiedEmails, setCopiedEmails] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
@@ -67,9 +67,9 @@ export default function AdminNewsletterTab({
     });
   }, [subscribers, filterType, search]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const handleCopyAllEmails = () => {
     const list = filtered.map((s) => s.email).filter(Boolean).join(', ');
@@ -298,34 +298,15 @@ export default function AdminNewsletterTab({
               </table>
             </div>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
-                <span>
-                  Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length} subscribers
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={safePage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                  </button>
-                  <span className="font-mono text-white">
-                    {safePage} / {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                  >
-                    Next <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
+            <PaginationControls
+              currentPage={safePage}
+              totalItems={filtered.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+              itemLabel="subscribers"
+              theme="dark"
+            />
           </>
         )}
       </div>

@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { getExplorerInfo } from '../../../lib/blockchain';
+import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 
 interface UsersTabProps {
   users: any[];
@@ -264,6 +265,8 @@ export default function AdminUsersTab({
     return matchSearch && matchRole && matchKyc && matchStatus;
   });
 
+  const { page, setPage, pageSize, setPageSize, pagedItems: pagedUsers } = usePagination(filteredUsers, 50);
+
   return (
     <div className="space-y-6">
       {/* Header & Controls Bar */}
@@ -376,7 +379,7 @@ export default function AdminUsersTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {filteredUsers.map((u) => (
+                {pagedUsers.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3.5 px-4">
                       <Link
@@ -584,6 +587,17 @@ export default function AdminUsersTab({
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="px-4 pb-4">
+            <PaginationControls
+              currentPage={page}
+              totalItems={filteredUsers.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="users"
+              theme="dark"
+            />
           </div>
         </div>
       )}

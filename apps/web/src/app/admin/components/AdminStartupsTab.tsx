@@ -29,6 +29,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { api, resolveMediaUrl } from '../../../lib/api';
+import PaginationControls from '../../../components/PaginationControls';
 
 interface StartupsTabProps {
   listings: any[];
@@ -50,6 +51,7 @@ export default function AdminStartupsTab({
   const [commitmentSearch, setCommitmentSearch] = useState('');
   const [commitmentStatusFilter, setCommitmentStatusFilter] = useState<'ALL' | 'CLEARED_FUNDS' | 'ACTIVE' | 'EXITED'>('ALL');
   const [commitmentPage, setCommitmentPage] = useState(1);
+  const [commitmentPageSize, setCommitmentPageSize] = useState(50);
   const [selectedCommitment, setSelectedCommitment] = useState<any | null>(null);
   const commitmentsSectionRef = useRef<HTMLDivElement | null>(null);
 
@@ -622,7 +624,6 @@ export default function AdminStartupsTab({
 
       {/* Investor Commitments Ledger Table (Per-Startup Drill-Down, Search & Pagination) */}
       {(() => {
-        const COMMITMENTS_PER_PAGE = 15;
         const selectedStartupObj =
           selectedListingFilterId !== 'ALL'
             ? listings.find((l) => l.id === selectedListingFilterId) || null
@@ -641,11 +642,11 @@ export default function AdminStartupsTab({
             String(inv.listing?.companyName || '').toLowerCase().includes(cQuery)
           );
         });
-        const totalCPages = Math.max(1, Math.ceil(filteredCommitments.length / COMMITMENTS_PER_PAGE));
+        const totalCPages = Math.max(1, Math.ceil(filteredCommitments.length / commitmentPageSize));
         const safeCPage = Math.min(commitmentPage, totalCPages);
         const pageCommitments = filteredCommitments.slice(
-          (safeCPage - 1) * COMMITMENTS_PER_PAGE,
-          safeCPage * COMMITMENTS_PER_PAGE
+          (safeCPage - 1) * commitmentPageSize,
+          safeCPage * commitmentPageSize
         );
 
         return (
@@ -833,35 +834,15 @@ export default function AdminStartupsTab({
                   </table>
                 </div>
 
-                {totalCPages > 1 && (
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
-                    <span>
-                      Showing {(safeCPage - 1) * COMMITMENTS_PER_PAGE + 1}–
-                      {Math.min(safeCPage * COMMITMENTS_PER_PAGE, filteredCommitments.length)} of {filteredCommitments.length} investors
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={safeCPage <= 1}
-                        onClick={() => setCommitmentPage((p) => Math.max(1, p - 1))}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                      </button>
-                      <span className="font-mono text-white">
-                        {safeCPage} / {totalCPages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={safeCPage >= totalCPages}
-                        onClick={() => setCommitmentPage((p) => Math.min(totalCPages, p + 1))}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                      >
-                        Next <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <PaginationControls
+                  currentPage={safeCPage}
+                  totalItems={filteredCommitments.length}
+                  pageSize={commitmentPageSize}
+                  onPageChange={setCommitmentPage}
+                  onPageSizeChange={(s) => { setCommitmentPageSize(s); setCommitmentPage(1); }}
+                  itemLabel="investors"
+                  theme="dark"
+                />
               </>
             )}
           </div>

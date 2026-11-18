@@ -13,6 +13,7 @@ import {
   Sparkles,
   BookOpen,
 } from 'lucide-react';
+import PaginationControls, { usePagination } from '../../components/PaginationControls';
 
 export default function BlogListingPage() {
   const router = useRouter();
@@ -72,6 +73,8 @@ export default function BlogListingPage() {
   const featuredPost = useMemo(() => {
     return posts.find((p) => p.isFeatured) || posts[0];
   }, [posts]);
+
+  const postsPagination = usePagination(filteredPosts, 50);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 space-y-12">
@@ -212,8 +215,9 @@ export default function BlogListingPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredPosts.map((post) => (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {postsPagination.pagedItems.map((post) => (
             <article
               key={post.id}
               onClick={() => router.push(`/announcements/${post.slug}`)}
@@ -287,7 +291,17 @@ export default function BlogListingPage() {
               </div>
             </article>
           ))}
-        </div>
+          </div>
+          <PaginationControls
+            currentPage={postsPagination.page}
+            totalItems={filteredPosts.length}
+            pageSize={postsPagination.pageSize}
+            onPageChange={postsPagination.setPage}
+            onPageSizeChange={postsPagination.setPageSize}
+            itemLabel="announcements"
+            theme="auto"
+          />
+        </>
       )}
     </div>
   );

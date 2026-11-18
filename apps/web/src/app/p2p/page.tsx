@@ -53,6 +53,7 @@ import { SearchableCountrySelect } from '../../components/SearchableCountrySelec
 import { P2PTraderProfileModal } from '../../components/p2p/P2PTraderProfileModal';
 import { P2PTradeProgressAndActions } from '../../components/p2p/P2PTradeProgressAndActions';
 import { P2PPaymentProofModal } from '../../components/p2p/P2PPaymentProofModal';
+import PaginationControls, { usePagination } from '../../components/PaginationControls';
 import { P2POnboardingWizard } from '../../components/p2p/P2POnboardingWizard';
 
 interface CountryRail {
@@ -1333,6 +1334,10 @@ function P2PPageContent() {
     }
     return combined;
   })();
+
+  const offersPagination = usePagination(displayedOffers, 50);
+  const myOrdersPagination = usePagination(ordersList, 50);
+  const myAdsPagination = usePagination(myOffers, 50);
 
   // Load Orders
   const fetchOrders = async () => {
@@ -2792,7 +2797,7 @@ function P2PPageContent() {
               </div>
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {displayedOffers.map((offer) => (
+                {offersPagination.pagedItems.map((offer) => (
                   <div
                     key={offer.id}
                     className={`p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors ${
@@ -3017,6 +3022,17 @@ function P2PPageContent() {
                     )}
                   </div>
                 ))}
+                <div className="p-4">
+                  <PaginationControls
+                    currentPage={offersPagination.page}
+                    totalItems={displayedOffers.length}
+                    pageSize={offersPagination.pageSize}
+                    onPageChange={offersPagination.setPage}
+                    onPageSizeChange={offersPagination.setPageSize}
+                    itemLabel="P2P offers"
+                    theme="auto"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -3131,7 +3147,7 @@ function P2PPageContent() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {ordersList.map((order) => (
+              {myOrdersPagination.pagedItems.map((order) => (
                 <div
                   key={order.id}
                   className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all"
@@ -3198,6 +3214,17 @@ function P2PPageContent() {
                 </div>
               ))}
             </div>
+          )}
+          {ordersList.length > 0 && (
+            <PaginationControls
+              currentPage={myOrdersPagination.page}
+              totalItems={ordersList.length}
+              pageSize={myOrdersPagination.pageSize}
+              onPageChange={myOrdersPagination.setPage}
+              onPageSizeChange={myOrdersPagination.setPageSize}
+              itemLabel="orders"
+              theme="auto"
+            />
           )}
         </div>
       )}
@@ -3781,7 +3808,7 @@ function P2PPageContent() {
               </div>
             ) : (
               <div className="space-y-3">
-                {myOffers.map((ad) => (
+                {myAdsPagination.pagedItems.map((ad) => (
                   <div
                     key={ad.id}
                     className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
@@ -3882,6 +3909,15 @@ function P2PPageContent() {
                     </div>
                   </div>
                 ))}
+                <PaginationControls
+                  currentPage={myAdsPagination.page}
+                  totalItems={myOffers.length}
+                  pageSize={myAdsPagination.pageSize}
+                  onPageChange={myAdsPagination.setPage}
+                  onPageSizeChange={myAdsPagination.setPageSize}
+                  itemLabel="listings"
+                  theme="auto"
+                />
               </div>
             )}
           </div>

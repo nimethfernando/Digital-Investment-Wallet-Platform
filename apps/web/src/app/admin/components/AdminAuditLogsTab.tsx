@@ -11,6 +11,7 @@ import {
   Calendar,
   Lock,
 } from 'lucide-react';
+import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 
 interface AuditLogsTabProps {
   logs: any[];
@@ -37,6 +38,8 @@ export default function AdminAuditLogsTab({
     const matchAction = !actionFilter || l.action === actionFilter;
     return matchSearch && matchAction;
   });
+
+  const { page, setPage, pageSize, setPageSize, pagedItems: pagedLogs } = usePagination(filteredLogs, 50);
 
   return (
     <div className="space-y-6">
@@ -99,7 +102,7 @@ export default function AdminAuditLogsTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
-                {filteredLogs.map((l) => (
+                {pagedLogs.map((l) => (
                   <tr key={l.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3 px-4 text-slate-400 text-[11px] whitespace-nowrap">
                       {new Date(l.createdAt).toLocaleString()}
@@ -134,6 +137,17 @@ export default function AdminAuditLogsTab({
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="px-4 pb-4">
+            <PaginationControls
+              currentPage={page}
+              totalItems={filteredLogs.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="audit logs"
+              theme="dark"
+            />
           </div>
         </div>
       )}

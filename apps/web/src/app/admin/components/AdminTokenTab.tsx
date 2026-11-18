@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Users,
 } from 'lucide-react';
+import PaginationControls from '../../../components/PaginationControls';
 
 interface AdminTokenTabProps {
   data: {
@@ -42,8 +43,6 @@ interface AdminTokenTabProps {
   onNavigateTab: (tab: string) => void;
 }
 
-const PAGE_SIZE = 20;
-
 export default function AdminTokenTab({
   data,
   loading,
@@ -53,6 +52,7 @@ export default function AdminTokenTab({
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<'ALL' | 'PAID' | 'UNLOCKED' | 'LOCKED' | 'WHITELIST'>('PAID');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   const policy = data?.policy || {
     priceUsd: 0.1,
@@ -94,9 +94,9 @@ export default function AdminTokenTab({
     });
   }, [holders, filterMode, search]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
     <div className="space-y-6">
@@ -332,34 +332,15 @@ export default function AdminTokenTab({
               </table>
             </div>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
-                <span>
-                  Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length} records
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={safePage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                  </button>
-                  <span className="font-mono text-white">
-                    {safePage} / {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                  >
-                    Next <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
+            <PaginationControls
+              currentPage={safePage}
+              totalItems={filtered.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+              itemLabel="holders"
+              theme="dark"
+            />
           </>
         )}
       </div>

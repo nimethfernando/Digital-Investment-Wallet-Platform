@@ -19,6 +19,7 @@ import AdminSystemTab from './components/AdminSystemTab';
 import AdminAuditLogsTab from './components/AdminAuditLogsTab';
 import AdminActionModals from './components/AdminActionModals';
 import AutoContentPublisher from './components/AutoContentPublisher';
+import PaginationControls, { usePagination } from '../../components/PaginationControls';
 import {
   LayoutDashboard,
   Globe,
@@ -404,7 +405,7 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'users') {
       setUsersLoading(true);
       try {
-        const res = await api.get('/admin/users');
+        const res = await api.get('/admin/users?limit=1000');
         const userList = res.data?.data?.users || res.data?.users || res.data?.data;
         setUsers(Array.isArray(userList) ? userList : []);
       } catch (e) {
@@ -416,7 +417,7 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'remittance') {
       setRemittanceLoading(true);
       try {
-        const res = await api.get('/admin/remittance/transfers');
+        const res = await api.get('/admin/remittance/transfers?limit=1000');
         const list = res.data?.data?.transfers || res.data?.transfers || res.data?.data;
         setRemittanceTransfers(Array.isArray(list) ? list : []);
       } catch (e) {
@@ -428,7 +429,7 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'p2p') {
       setP2PLoading(true);
       try {
-        const res = await api.get('/admin/p2p/orders');
+        const res = await api.get('/admin/p2p/orders?limit=1000');
         const list = res.data?.data?.orders || res.data?.orders || res.data?.data;
         setP2POrders(Array.isArray(list) ? list : []);
       } catch (e) {
@@ -464,7 +465,7 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'audit') {
       setAuditLoading(true);
       try {
-        const res = await api.get('/admin/audit-logs');
+        const res = await api.get('/admin/audit-logs?limit=1000');
         const list = res.data?.data?.logs || res.data?.logs || res.data?.data;
         setAuditLogs(Array.isArray(list) ? list : []);
       } catch (e) {
@@ -515,7 +516,7 @@ export default function AdminPortalPage() {
         const [recRes, revRes, pkgRes] = await Promise.all([
           api.get('/admin/ledger/reconcile').catch(() => ({ data: { data: null } })),
           api.get('/admin/ledger/revenue').catch(() => ({ data: { data: null } })),
-          api.get('/admin/packages').catch(() => ({ data: { packages: [] } })),
+          api.get('/admin/packages?limit=1000').catch(() => ({ data: { packages: [] } })),
         ]);
         if (recRes.data?.success) setLedgerReconciliation(recRes.data.data);
         if (revRes.data?.success) setPlatformRevenue(revRes.data.data);
@@ -580,7 +581,7 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'deposits') {
       setDepositsLoading(true);
       try {
-        const res = await api.get('/admin/deposits');
+        const res = await api.get('/admin/deposits?limit=1000');
         const rawDeposits = res.data?.data?.deposits || res.data?.deposits || res.data?.data;
         setDeposits(Array.isArray(rawDeposits) ? rawDeposits : []);
       } catch (e) {
@@ -592,7 +593,7 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'withdrawals') {
       setWithdrawalsLoading(true);
       try {
-        const res = await api.get('/admin/withdrawals');
+        const res = await api.get('/admin/withdrawals?limit=1000');
         if (res.data?.success) setWithdrawals(res.data.data?.withdrawals || res.data.data || []);
       } catch (e) {
         console.error('Failed to load withdrawals:', e);
@@ -602,7 +603,7 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'disputes') {
       setTicketsLoading(true);
       try {
-        const res = await api.get('/tickets/admin/all');
+        const res = await api.get('/tickets/admin/all?limit=1000');
         if (res.data?.success) setTickets(res.data.data || []);
       } catch (e) {
         console.error('Failed to load tickets:', e);
@@ -1538,6 +1539,17 @@ export default function AdminPortalPage() {
     depSearch,
   ]);
 
+  const pendingReqPagination = usePagination(filteredPendingRequests, 50);
+  const packagesPagination = usePagination(filteredPackages, 50);
+  const depositsPagination = usePagination(filteredDeposits, 50);
+  const withdrawalsPagination = usePagination(withdrawals, 50);
+  const ticketsPagination = usePagination(tickets, 50);
+  const feeTransactionsList = useMemo(
+    () => (Array.isArray(platformRevenue?.recentFeeTransactions) ? platformRevenue.recentFeeTransactions : []),
+    [platformRevenue]
+  );
+  const feeTxPagination = usePagination(feeTransactionsList, 50);
+
   const depositAuditStats = useMemo(() => {
     const list = Array.isArray(deposits) ? deposits : [];
     const approved = list.filter((d) => d.status === 'APPROVED');
@@ -2225,7 +2237,7 @@ export default function AdminPortalPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
-                      {filteredPendingRequests.map((reqItem: any) => (
+                      {pendingReqPagination.pagedItems.map((reqItem: any) => (
                         <tr key={reqItem.id} className="hover:bg-slate-800/35 transition-colors align-top">
                           <td className="py-3 pr-3 whitespace-nowrap">
                             <div className="font-mono font-bold text-rose-400">{reqItem.code}</div>
@@ -2346,6 +2358,15 @@ export default function AdminPortalPage() {
                       ))}
                     </tbody>
                   </table>
+                  <PaginationControls
+                    currentPage={pendingReqPagination.page}
+                    totalItems={filteredPendingRequests.length}
+                    pageSize={pendingReqPagination.pageSize}
+                    onPageChange={pendingReqPagination.setPage}
+                    onPageSizeChange={pendingReqPagination.setPageSize}
+                    itemLabel="pending requests"
+                    theme="dark"
+                  />
                 </div>
               )}
             </div>
@@ -3809,7 +3830,7 @@ export default function AdminPortalPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 bg-slate-900/60">
-                          {platformRevenue.recentFeeTransactions.slice(0, 15).map((tx: any) => (
+                          {feeTxPagination.pagedItems.map((tx: any) => (
                             <tr key={tx.id}>
                               <td className="py-2 px-3 font-mono font-bold text-slate-200">{tx.transactionCode}</td>
                               <td className="py-2 px-3 font-mono text-[10px] text-emerald-400">{tx.type}</td>
@@ -3822,6 +3843,17 @@ export default function AdminPortalPage() {
                           ))}
                         </tbody>
                       </table>
+                      <div className="px-3 pb-3 bg-slate-900/60">
+                        <PaginationControls
+                          currentPage={feeTxPagination.page}
+                          totalItems={feeTransactionsList.length}
+                          pageSize={feeTxPagination.pageSize}
+                          onPageChange={feeTxPagination.setPage}
+                          onPageSizeChange={feeTxPagination.setPageSize}
+                          itemLabel="fee transactions"
+                          theme="dark"
+                        />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -4239,7 +4271,7 @@ export default function AdminPortalPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
-                      {filteredPackages.map((pkg) => {
+                      {packagesPagination.pagedItems.map((pkg) => {
                         const isSettled = ['MATURED', 'SETTLED', 'CANCELLED'].includes(pkg.status);
                         const isPending = pkg.status === 'PENDING_PAYMENT';
                         const isDueNow =
@@ -4527,6 +4559,15 @@ export default function AdminPortalPage() {
                       })}
                     </tbody>
                   </table>
+                  <PaginationControls
+                    currentPage={packagesPagination.page}
+                    totalItems={filteredPackages.length}
+                    pageSize={packagesPagination.pageSize}
+                    onPageChange={packagesPagination.setPage}
+                    onPageSizeChange={packagesPagination.setPageSize}
+                    itemLabel="packages"
+                    theme="dark"
+                  />
                 </div>
               )}
             </div>
@@ -4844,7 +4885,7 @@ export default function AdminPortalPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredDeposits.map((dep) => {
+                {depositsPagination.pagedItems.map((dep) => {
                   const createdDt = formatDepDateTime(dep.createdAt);
                   const reviewedDt = formatDepDateTime(dep.reviewedAt);
                   const explorer = getExplorerInfo(dep.txHashOrRef, dep.currency, dep.depositMethod);
@@ -5153,6 +5194,15 @@ export default function AdminPortalPage() {
                     </div>
                   );
                 })}
+                <PaginationControls
+                  currentPage={depositsPagination.page}
+                  totalItems={filteredDeposits.length}
+                  pageSize={depositsPagination.pageSize}
+                  onPageChange={depositsPagination.setPage}
+                  onPageSizeChange={depositsPagination.setPageSize}
+                  itemLabel="deposits"
+                  theme="dark"
+                />
               </div>
             )}
           </div>
@@ -5178,7 +5228,7 @@ export default function AdminPortalPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {withdrawals.map((w) => {
+                {withdrawalsPagination.pagedItems.map((w) => {
                   const details = parsePayoutDetails(w.payoutDetails);
                   const isCrypto = w.payoutMethod === 'USDT_WALLET' || Boolean(details?.address) || (w.destination && w.destination.startsWith('0x')) || (w.destination && w.destination.startsWith('T'));
                   const cryptoAddr = details?.address || w.destination || '';
@@ -5388,6 +5438,15 @@ export default function AdminPortalPage() {
                     </div>
                   );
                 })}
+                <PaginationControls
+                  currentPage={withdrawalsPagination.page}
+                  totalItems={withdrawals.length}
+                  pageSize={withdrawalsPagination.pageSize}
+                  onPageChange={withdrawalsPagination.setPage}
+                  onPageSizeChange={withdrawalsPagination.setPageSize}
+                  itemLabel="withdrawals"
+                  theme="dark"
+                />
               </div>
             )}
           </div>
@@ -5411,7 +5470,8 @@ export default function AdminPortalPage() {
                     No client inquiries or questions yet.
                   </div>
                 ) : (
-                  tickets.map((t) => (
+                  <>
+                    {ticketsPagination.pagedItems.map((t) => (
                     <div
                       key={t.id}
                       onClick={async () => {
@@ -5439,7 +5499,17 @@ export default function AdminPortalPage() {
                         {t.user?.email || 'Client'} • {t.category}
                       </div>
                     </div>
-                  ))
+                  ))}
+                    <PaginationControls
+                      currentPage={ticketsPagination.page}
+                      totalItems={tickets.length}
+                      pageSize={ticketsPagination.pageSize}
+                      onPageChange={ticketsPagination.setPage}
+                      onPageSizeChange={ticketsPagination.setPageSize}
+                      itemLabel="tickets"
+                      theme="dark"
+                    />
+                  </>
                 )}
               </div>
             </div>

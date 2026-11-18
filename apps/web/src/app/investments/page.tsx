@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
+import PaginationControls, { usePagination } from '../../components/PaginationControls';
 
 interface StartupItem {
   id: string;
@@ -262,6 +263,12 @@ export default function InvestmentsMarketplacePage() {
     }
   };
 
+  const campaignsPagination = usePagination(campaigns, 50);
+  const myCommitmentsPagination = usePagination(
+    Array.isArray(investorData?.commitments) ? investorData.commitments : [],
+    50
+  );
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
       
@@ -410,7 +417,7 @@ export default function InvestmentsMarketplacePage() {
 
       {/* Startup Campaign Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
-        {campaigns.map((c) => (
+        {campaignsPagination.pagedItems.map((c) => (
           <div
             key={c.id}
             className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md hover:shadow-xl transition-all flex flex-col justify-between space-y-6 relative overflow-hidden"
@@ -537,6 +544,15 @@ export default function InvestmentsMarketplacePage() {
           </div>
         ))}
       </div>
+      <PaginationControls
+        currentPage={campaignsPagination.page}
+        totalItems={campaigns.length}
+        pageSize={campaignsPagination.pageSize}
+        onPageChange={campaignsPagination.setPage}
+        onPageSizeChange={campaignsPagination.setPageSize}
+        itemLabel="offerings"
+        theme="auto"
+      />
 
       {/* ========================================================================= */}
       {/* MODAL 0: DUE DILIGENCE DETAILS & COMPANY BRIEF                            */}
@@ -1168,7 +1184,7 @@ export default function InvestmentsMarketplacePage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {investorData.commitments.map((c: any) => (
+                  {myCommitmentsPagination.pagedItems.map((c: any) => (
                     <div
                       key={c.id}
                       className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs"
@@ -1186,6 +1202,15 @@ export default function InvestmentsMarketplacePage() {
                       </div>
                     </div>
                   ))}
+                  <PaginationControls
+                    currentPage={myCommitmentsPagination.page}
+                    totalItems={investorData.commitments.length}
+                    pageSize={myCommitmentsPagination.pageSize}
+                    onPageChange={myCommitmentsPagination.setPage}
+                    onPageSizeChange={myCommitmentsPagination.setPageSize}
+                    itemLabel="commitments"
+                    theme="auto"
+                  />
                 </div>
               )}
             </div>

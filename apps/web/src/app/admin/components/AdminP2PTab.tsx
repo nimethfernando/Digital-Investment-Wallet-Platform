@@ -21,6 +21,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { api, extractErrorMessage, resolveMediaUrl } from '../../../lib/api';
+import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 
 interface P2PTabProps {
   orders: any[];
@@ -293,6 +294,9 @@ export default function AdminP2PTab({
     return matchSearch && matchStatus;
   });
 
+  const ordersPagination = usePagination(filteredOrders, 50);
+  const appsPagination = usePagination(filteredApps, 50);
+
   return (
     <div className="space-y-6">
       {/* Sub-Tab Switcher: Escrow Orders vs P2P Trader Verification Applications */}
@@ -409,7 +413,7 @@ export default function AdminP2PTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {filteredOrders.map((o) => {
+                {ordersPagination.pagedItems.map((o) => {
                   const fiatCur = (o.fiatCurrency || o.offer?.fiatCurrency || 'USD').toUpperCase();
                   const cryptoCur = (o.cryptoCurrency || o.offer?.cryptoCurrency || 'USDT').toUpperCase();
                   const sla = o.status === 'DISPUTED' ? formatCountdownMs(o.disputeDeadlineAt, nowMs) : null;
@@ -537,6 +541,17 @@ export default function AdminP2PTab({
               </tbody>
             </table>
           </div>
+          <div className="px-4 pb-4">
+            <PaginationControls
+              currentPage={ordersPagination.page}
+              totalItems={filteredOrders.length}
+              pageSize={ordersPagination.pageSize}
+              onPageChange={ordersPagination.setPage}
+              onPageSizeChange={ordersPagination.setPageSize}
+              itemLabel="P2P orders"
+              theme="dark"
+            />
+          </div>
         </div>
       )}
         </>
@@ -597,7 +612,7 @@ export default function AdminP2PTab({
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredApps.map((app) => (
+              {appsPagination.pagedItems.map((app) => (
                 <div
                   key={app.id}
                   className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-3 text-xs"
@@ -694,6 +709,15 @@ export default function AdminP2PTab({
                   </div>
                 </div>
               ))}
+              <PaginationControls
+                currentPage={appsPagination.page}
+                totalItems={filteredApps.length}
+                pageSize={appsPagination.pageSize}
+                onPageChange={appsPagination.setPage}
+                onPageSizeChange={appsPagination.setPageSize}
+                itemLabel="applications"
+                theme="dark"
+              />
             </div>
           )}
         </div>

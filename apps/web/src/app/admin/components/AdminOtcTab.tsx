@@ -22,6 +22,7 @@ import {
   Globe,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
+import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 
 interface AdminOtcTabProps {
   desks: any[];
@@ -300,6 +301,10 @@ export default function AdminOtcTab({
       .includes(q);
   });
 
+  const desksPagination = usePagination(filteredDesks, 50);
+  const tradesPagination = usePagination(filteredTrades, 50);
+  const inquiriesPagination = usePagination(inquiries, 50);
+
   return (
     <div className="space-y-6">
       {/* Header & Controls */}
@@ -547,7 +552,7 @@ export default function AdminOtcTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {filteredDesks.map((d) => (
+                  {desksPagination.pagedItems.map((d) => (
                     <tr key={d.id} className="hover:bg-slate-800/40 transition-colors align-top">
                       <td className="py-3.5 px-4 space-y-1">
                         <div className="font-mono font-bold text-emerald-400 text-xs">
@@ -755,6 +760,17 @@ export default function AdminOtcTab({
                 </tbody>
               </table>
             </div>
+            <div className="px-4 pb-4">
+              <PaginationControls
+                currentPage={desksPagination.page}
+                totalItems={filteredDesks.length}
+                pageSize={desksPagination.pageSize}
+                onPageChange={desksPagination.setPage}
+                onPageSizeChange={desksPagination.setPageSize}
+                itemLabel="OTC desks"
+                theme="dark"
+              />
+            </div>
           </div>
         )
       ) : subTab === 'TRADES' ? (
@@ -779,7 +795,7 @@ export default function AdminOtcTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {filteredTrades.map((t) => (
+                {tradesPagination.pagedItems.map((t) => (
                   <tr key={t.id} className="hover:bg-slate-800/40 transition-colors align-top">
                     <td className="py-3.5 px-4 space-y-1">
                       <div className="font-mono font-bold text-white text-xs">{t.tradeCode}</div>
@@ -877,6 +893,17 @@ export default function AdminOtcTab({
               </tbody>
             </table>
           </div>
+          <div className="px-4 pb-4">
+            <PaginationControls
+              currentPage={tradesPagination.page}
+              totalItems={filteredTrades.length}
+              pageSize={tradesPagination.pageSize}
+              onPageChange={tradesPagination.setPage}
+              onPageSizeChange={tradesPagination.setPageSize}
+              itemLabel="OTC trades"
+              theme="dark"
+            />
+          </div>
         </div>
         )
       ) : (
@@ -900,7 +927,7 @@ export default function AdminOtcTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/70 text-xs text-slate-300">
-                  {inquiries.map((inq) => {
+                  {inquiriesPagination.pagedItems.map((inq) => {
                     const msgs = Array.isArray(inq.messages) ? inq.messages : [];
                     const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
                     return (
@@ -956,6 +983,17 @@ export default function AdminOtcTab({
                   })}
                 </tbody>
               </table>
+            </div>
+            <div className="px-4 pb-4">
+              <PaginationControls
+                currentPage={inquiriesPagination.page}
+                totalItems={inquiries.length}
+                pageSize={inquiriesPagination.pageSize}
+                onPageChange={inquiriesPagination.setPage}
+                onPageSizeChange={inquiriesPagination.setPageSize}
+                itemLabel="OTC inquiries"
+                theme="dark"
+              />
             </div>
           </div>
         )
