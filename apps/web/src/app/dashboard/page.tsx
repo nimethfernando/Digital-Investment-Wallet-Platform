@@ -4080,30 +4080,37 @@ function DashboardContent() {
             {/* AVAILABLE BALANCE OVERVIEW BANNER */}
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                <span>Your Available Balances</span>
+                <span>Your Separate Balances</span>
                 <span className="text-emerald-600 dark:text-emerald-400 font-mono">
                   Active Source: {wthSource === 'USDT_WALLET_BAL' ? 'USDT Wallet' : wthSource === 'FD_PRINCIPAL' ? 'FD Principal' : 'USD Wallet'}
                 </span>
               </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Each bucket is held separately: USD Wallet does <strong>not</strong> include your USDT Vault or still-locked FD Principal. (Already-released matured FDs &amp; 1% monthly yields are credited into USD Wallet.)
+              </p>
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-400 block">Available USD</span>
+                  <span className="text-[10px] text-slate-400 block">Available USD (Fiat)</span>
                   <span className="font-mono font-black text-slate-900 dark:text-white">
                     ${availUsdNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
+                  <span className="text-[9px] text-slate-400 block">Liquid USD only</span>
                 </div>
                 <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-400 block">Available USDT</span>
+                  <span className="text-[10px] text-slate-400 block">Available USDT (Crypto)</span>
                   <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
                     {availUsdtNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
                   </span>
+                  <span className="text-[9px] text-slate-400 block">Separate from USD</span>
                 </div>
                 <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-400 block">FD Principal</span>
+                  <span className="text-[10px] text-slate-400 block">Locked FD Principal</span>
                   <span className="font-mono font-black text-blue-600 dark:text-blue-400">
                     ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
-                  <span className="text-[9px] text-slate-400 block">{maturedPackagesList.length} matured</span>
+                  <span className="text-[9px] text-slate-400 block">
+                    {maturedPackagesList.length} matured / {packages.length} total
+                  </span>
                 </div>
               </div>
             </div>
@@ -4202,14 +4209,18 @@ function DashboardContent() {
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-black text-slate-900 dark:text-white">Matured FD Principal</span>
+                      <span className="text-[11px] font-black text-slate-900 dark:text-white">FD Principal (Locked)</span>
                       {wthSource === 'FD_PRINCIPAL' && <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />}
                     </div>
                     <div className="font-mono text-sm font-black text-amber-600 dark:text-amber-400">
                       ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                     <span className="text-[10px] text-slate-500 block mt-0.5">
-                      {maturedPackagesList.length} matured / {packages.length} total
+                      {maturedPackagesList.filter((p) => p.status === 'ACTIVE').length > 0
+                        ? `${maturedPackagesList.filter((p) => p.status === 'ACTIVE').length} ready to release • ${packages.length} total`
+                        : maturedPackagesList.length > 0
+                        ? `${maturedPackagesList.length} matured (in USD) • ${packages.length} total`
+                        : `${packages.length} locked package(s)`}
                     </span>
                   </button>
                 </div>
