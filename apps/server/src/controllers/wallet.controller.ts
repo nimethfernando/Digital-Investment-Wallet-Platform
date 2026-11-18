@@ -485,7 +485,7 @@ export class WalletController {
   /**
    * Build real-time event-driven notifications for an authenticated customer
    */
-  private async buildCustomerNotifications(userId: string) {
+  async buildCustomerNotifications(userId: string) {
     const now = new Date();
     const settingKey = `notif_state_${userId}`;
 

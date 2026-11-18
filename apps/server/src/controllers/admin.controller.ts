@@ -19,6 +19,9 @@ import {
 import { globalMoneyTransferService } from '../services/gmt.service';
 import { otcService } from '../services/otc.service';
 import { rateService } from '../services/rate.service';
+import { investmentsService } from '../services/investments.service';
+import { tokenService } from '../services/token.service';
+import { walletController } from './wallet.controller';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -1654,6 +1657,109 @@ export class AdminController {
         data: {
           ...user,
           accountNumber: generateAvoraAccountNumber(user.id),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Read-only Client Portal preview payload for Admin/Staff support inspection
+   */
+  async getUserClientView(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : undefined;
+      const id = String(req.params.id);
+
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          displayName: true,
+          phone: true,
+          country: true,
+          role: true,
+          status: true,
+          kycStatus: true,
+          twoFactorEnabled: true,
+          emailVerified: true,
+          isP2pMerchant: true,
+          p2pBlocked: true,
+          withdrawalLockedUntil: true,
+          isAvailable: true,
+          lastLoginAt: true,
+          createdAt: true,
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+
+      const [
+        wallet,
+        packages,
+        transactions,
+        withdrawals,
+        tickets,
+        deposits,
+        investments,
+        tokenStatus,
+        notifications,
+      ] = await Promise.all([
+        ledgerService.getUserWalletSummary(id).catch(() => null),
+        packageService.getUserPackages(id).catch(() => []),
+        prisma.transaction
+          .findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 100 })
+          .catch(() => []),
+        withdrawalService.getUserWithdrawals(id).catch(() => []),
+        prisma.supportTicket
+          .findMany({
+            where: { userId: id },
+            include: { replies: { orderBy: { createdAt: 'asc' } } },
+            orderBy: { createdAt: 'desc' },
+          })
+          .catch(() => []),
+        depositService.getUserDeposits(id).catch(() => []),
+        investmentsService.getInvestorDashboard(id).catch(() => ({ commitments: [], summary: null })),
+        tokenService.getUserTokenStatus(id).catch(() => null),
+        walletController.buildCustomerNotifications(id).catch(() => ({ notifications: [], summary: null })),
+      ]);
+
+      if (adminUserId) {
+        await prisma.adminAuditLog
+          .create({
+            data: {
+              userId: adminUserId,
+              action: 'ADMIN_CLIENT_VIEW_INSPECT',
+              entity: 'User',
+              entityId: id,
+              details: `Admin opened read-only Client Portal View for ${user.firstName || ''} ${user.lastName || ''} (${user.email}).`,
+            },
+          })
+          .catch(() => {});
+      }
+
+      res.json({
+        success: true,
+        data: {
+          user: {
+            ...user,
+            accountNumber: generateAvoraAccountNumber(user.id),
+          },
+          wallet,
+          packages,
+          transactions,
+          withdrawals,
+          tickets,
+          deposits,
+          investments,
+          tokenStatus,
+          notifications,
         },
       });
     } catch (err) {

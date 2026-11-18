@@ -62,6 +62,7 @@ import {
   ExternalLink,
   RefreshCw,
   ArrowLeftRight,
+  Eye,
 } from 'lucide-react';
 
 interface WalletSummary {
@@ -243,6 +244,10 @@ function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, token, isLoading: authLoading, refreshUser, updateAvailability } = useAuth();
+  const inspectUserId = searchParams.get('inspectUser');
+  const isInspectMode = Boolean(inspectUserId && (user?.role === 'ADMIN' || user?.role === 'STAFF'));
+  const [inspectedUser, setInspectedUser] = useState<any | null>(null);
+  const viewedUser: any = isInspectMode && inspectedUser ? inspectedUser : user;
 
   const [activeTab, setActiveTab] = useState<'overview' | 'notifications' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'redotpay' | 'bank_details'>('overview');
   const [customerNotifications, setCustomerNotifications] = useState<CustomerNotificationItem[]>([]);
@@ -427,7 +432,7 @@ function DashboardContent() {
   const [qrInitialRecipient, setQrInitialRecipient] = useState<string>('');
   const [qrInitialAmount, setQrInitialAmount] = useState<string>('');
 
-  const userAccountNumber = user?.accountNumber || generateLocalAccountNumber(user?.id);
+  const userAccountNumber = viewedUser?.accountNumber || generateLocalAccountNumber(viewedUser?.id);
 
   // Handle query params on initial load
   useEffect(() => {
@@ -610,6 +615,7 @@ function DashboardContent() {
 
   const syncCustomerNotifications = async () => {
     if (!token) return;
+    if (isInspectMode && inspectUserId) return;
     try {
       const notifRes = await api.get('/wallet/notifications');
       const payload = notifRes.data?.data || notifRes.data;
@@ -629,6 +635,33 @@ function DashboardContent() {
     if (!token) return;
     setLoadingData(true);
     try {
+      if (isInspectMode && inspectUserId) {
+        const res = await api.get(`/admin/users/${inspectUserId}/client-view`);
+        const d = res.data?.data;
+        if (d) {
+          setInspectedUser(d.user || null);
+          setWallet(d.wallet || null);
+          setPackages(Array.isArray(d.packages) ? d.packages : []);
+          setTransactions(Array.isArray(d.transactions) ? d.transactions : []);
+          setWithdrawals(Array.isArray(d.withdrawals) ? d.withdrawals : []);
+          setTickets(Array.isArray(d.tickets) ? d.tickets : []);
+          setUserDeposits(Array.isArray(d.deposits) ? d.deposits : []);
+          setStartupInvestments(Array.isArray(d.investments?.commitments) ? d.investments.commitments : []);
+          setStartupSummary(d.investments?.summary || null);
+          setTokenStatus(d.tokenStatus || null);
+          if (Array.isArray(d.notifications?.notifications)) {
+            setCustomerNotifications(d.notifications.notifications);
+          } else {
+            setCustomerNotifications([]);
+          }
+          if (d.notifications?.summary) {
+            setNotifSummary(d.notifications.summary);
+          }
+        }
+        return;
+      }
+
+      setInspectedUser(null);
       const [walletRes, pkgRes, txRes, wthRes, ticketRes, depRes, investRes, tokenRes, notifRes] = await Promise.all([
         api.get('/wallet').catch(() => ({ data: { wallet: null } })),
         api.get('/packages').catch(() => ({ data: { packages: [] } })),
@@ -707,7 +740,7 @@ function DashboardContent() {
         window.removeEventListener('avora-bell-read-sync', onBellSync);
       };
     }
-  }, [token]);
+  }, [token, inspectUserId, user?.role]);
 
   const navigateFromNotification = (actionUrl?: string) => {
     if (!actionUrl) {
@@ -1229,8 +1262,53 @@ function DashboardContent() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors pb-20">
       
+      {/* ADMIN CLIENT VIEW INSPECTION BANNER */}
+      {isInspectMode && (
+        <div className="bg-blue-600 text-white border-b border-blue-500 px-4 py-3 sm:px-6 shadow-md">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3 text-xs sm:text-sm">
+              <Eye className="w-5 h-5 shrink-0 mt-0.5 sm:mt-0 text-blue-100" />
+              <div>
+                <span className="font-black">Admin Client View (Support Inspection): </span>
+                <span>
+                  Viewing exact portal state for{' '}
+                  <strong>
+                    {viewedUser?.firstName || viewedUser?.lastName
+                      ? `${viewedUser?.firstName || ''} ${viewedUser?.lastName || ''}`.trim()
+                      : viewedUser?.email || 'Loading customer...'}
+                  </strong>
+                  {viewedUser?.email ? ` (${viewedUser.email})` : ''}
+                </span>
+                {viewedUser?.status && viewedUser.status !== 'ACTIVE' && (
+                  <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 uppercase">
+                    Status: {viewedUser.status}
+                  </span>
+                )}
+                {viewedUser?.p2pBlocked && (
+                  <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-900 text-white uppercase">
+                    P2P Banned
+                  </span>
+                )}
+                {viewedUser?.withdrawalLockedUntil && (
+                  <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-900 text-amber-100 uppercase">
+                    Withdrawals Frozen
+                  </span>
+                )}
+              </div>
+            </div>
+            <Link
+              href="/admin?tab=users"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-black text-xs shrink-0 self-start sm:self-auto shadow-sm transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Back to Admin Users</span>
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* 24-HOUR SECURITY COOLDOWN BANNER */}
-      {user?.isWithdrawalLocked && (
+      {(viewedUser?.isWithdrawalLocked || (isInspectMode && Boolean(viewedUser?.withdrawalLockedUntil))) && (
         <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-3 sm:px-6">
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -1254,41 +1332,44 @@ function DashboardContent() {
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-3">
                 <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-                  Welcome back, {user?.firstName || 'Private Client'}
+                  {isInspectMode
+                    ? `Client View: ${viewedUser?.firstName || ''} ${viewedUser?.lastName || ''}`.trim() || 'Client Account'
+                    : `Welcome back, ${viewedUser?.firstName || 'Private Client'}`}
                 </h1>
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-900 text-white dark:bg-emerald-950 dark:text-emerald-300">
-                  {user?.role}
+                  {viewedUser?.role}
                 </span>
-                {user?.twoFactorEnabled ? (
+                {viewedUser?.twoFactorEnabled ? (
                   <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
                     <ShieldCheck className="w-3.5 h-3.5" />
                     2FA Verified
                   </span>
                 ) : (
                   <button
-                    onClick={handleStart2FASetup}
-                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 hover:bg-amber-200 transition-colors"
+                    onClick={() => !isInspectMode && handleStart2FASetup()}
+                    disabled={isInspectMode}
+                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 hover:bg-amber-200 transition-colors disabled:opacity-75"
                   >
                     <Shield className="w-3.5 h-3.5" />
-                    Enable 2FA
+                    {isInspectMode ? '2FA Disabled' : 'Enable 2FA'}
                   </button>
                 )}
 
                 {/* KYC Identity Verification Badge */}
-                {user?.kycStatus === 'APPROVED' ? (
+                {viewedUser?.kycStatus === 'APPROVED' ? (
                   <button
                     type="button"
-                    onClick={() => setKycModalOpen(true)}
+                    onClick={() => !isInspectMode && setKycModalOpen(true)}
                     className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-colors cursor-pointer"
                     title="Click to view KYC Certificate"
                   >
                     <ShieldCheck className="w-3.5 h-3.5" />
                     KYC Verified
                   </button>
-                ) : user?.kycStatus === 'PENDING' ? (
+                ) : viewedUser?.kycStatus === 'PENDING' ? (
                   <button
                     type="button"
-                    onClick={() => setKycModalOpen(true)}
+                    onClick={() => !isInspectMode && setKycModalOpen(true)}
                     className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 hover:bg-amber-200 transition-colors cursor-pointer"
                     title="Verification undergoing compliance review"
                   >
@@ -1298,31 +1379,33 @@ function DashboardContent() {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => setKycModalOpen(true)}
+                    onClick={() => !isInspectMode && setKycModalOpen(true)}
                     className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 hover:bg-rose-200 transition-colors cursor-pointer"
                   >
                     <ShieldAlert className="w-3.5 h-3.5" />
-                    Verify Identity (KYC)
+                    {isInspectMode ? `KYC: ${viewedUser?.kycStatus || 'NOT_STARTED'}` : 'Verify Identity (KYC)'}
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => updateAvailability(user?.isAvailable === false)}
-                  className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border transition-colors cursor-pointer ${
-                    user?.isAvailable === false
-                      ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:border-emerald-500'
-                      : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
-                  }`}
-                  title="Single global Online / Offline toggle across P2P, OTC Desk & all services. Transactions and messages still arrive while Offline."
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      user?.isAvailable === false ? 'bg-slate-400' : 'bg-emerald-500 animate-pulse'
+                {!isInspectMode && (
+                  <button
+                    type="button"
+                    onClick={() => updateAvailability(user?.isAvailable === false)}
+                    className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border transition-colors cursor-pointer ${
+                      user?.isAvailable === false
+                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:border-emerald-500'
+                        : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
                     }`}
-                  />
-                  <span>{user?.isAvailable === false ? 'Offline (Click to Go Online)' : 'Online (Click to Mark Offline)'}</span>
-                </button>
+                    title="Single global Online / Offline toggle across P2P, OTC Desk & all services. Transactions and messages still arrive while Offline."
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        user?.isAvailable === false ? 'bg-slate-400' : 'bg-emerald-500 animate-pulse'
+                      }`}
+                    />
+                    <span>{user?.isAvailable === false ? 'Offline (Click to Go Online)' : 'Online (Click to Mark Offline)'}</span>
+                  </button>
+                )}
               </div>
 
               {/* ACCOUNT NUMBER WITH COPY BUTTON */}
@@ -1339,7 +1422,7 @@ function DashboardContent() {
                   </button>
                 </div>
                 <span>•</span>
-                <span>{user?.email}</span>
+                <span>{viewedUser?.email}</span>
               </div>
             </div>
 
@@ -1680,8 +1763,8 @@ function DashboardContent() {
               </div>
             )}
 
-            {/* Admin Platform Commission Earnings Notice (Visible Only to Admins) */}
-            {user?.role === 'ADMIN' && (wallet as any)?.adminRevenueSummary && (
+            {/* Admin Platform Commission Earnings Notice (Visible Only to Admins on Own Dashboard) */}
+            {!isInspectMode && user?.role === 'ADMIN' && (wallet as any)?.adminRevenueSummary && (
               <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-950 border border-emerald-500/35 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-white shadow-md">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 font-black text-emerald-400 uppercase tracking-wider text-[11px]">

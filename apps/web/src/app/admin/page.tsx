@@ -334,6 +334,16 @@ export default function AdminPortalPage() {
     }
   }, [isLoading, token, isAdmin, router]);
 
+  // Honor ?tab= deep-link (e.g. returning from Client View to Users & Accounts)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const tabParam = new URLSearchParams(window.location.search).get('tab');
+    const validTabs = ['overview', 'alerts', 'users', 'packages', 'remittance', 'investments', 'p2p', 'otc', 'deposits', 'withdrawals', 'kyc', 'treasury', 'addresses', 'config', 'system', 'audit', 'disputes', 'content'];
+    if (tabParam && validTabs.includes(tabParam)) {
+      setActiveTab(tabParam as any);
+    }
+  }, []);
+
   // Load Tab Data
   const loadData = async () => {
     // Re-fetch overview analytics in background on any data load to keep tab counts & notifications accurate

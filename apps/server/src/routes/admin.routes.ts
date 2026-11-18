@@ -11,6 +11,7 @@ router.use(requireRole([Role.ADMIN, Role.STAFF]));
 // User Management operations
 router.get('/users', (req, res, next) => adminController.getUsers(req, res, next));
 router.post('/users/create', requireRole([Role.ADMIN]), (req, res, next) => adminController.createUser(req, res, next));
+router.get('/users/:id/client-view', (req, res, next) => adminController.getUserClientView(req, res, next));
 router.get('/users/:id', (req, res, next) => adminController.getUserDetails(req, res, next));
 router.patch('/users/:id', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUser(req, res, next));
 router.post('/users/:id/adjust-balance', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.adjustUserBalance(req, res, next));
