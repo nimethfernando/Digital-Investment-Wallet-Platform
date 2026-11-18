@@ -1889,6 +1889,89 @@ export class AdminController {
   }
 
   /**
+   * List all Newsletter Subscribers (cross-referenced with registered client accounts)
+   */
+  async getNewsletterSubscribers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rows = await prisma.inquiry.findMany({
+        where: {
+          subject: { startsWith: 'NEWSLETTER:' },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const emails = Array.from(new Set(rows.map((r) => r.email.toLowerCase().trim()).filter(Boolean)));
+      const matchedUsers =
+        emails.length > 0
+          ? await prisma.user.findMany({
+              where: { email: { in: emails } },
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                kycStatus: true,
+                status: true,
+              },
+            })
+          : [];
+
+      const userByEmail = new Map(matchedUsers.map((u) => [u.email.toLowerCase().trim(), u]));
+
+      let registeredCount = 0;
+      const subscribers = rows.map((r) => {
+        const cleanEmail = r.email.toLowerCase().trim();
+        const u = userByEmail.get(cleanEmail) || null;
+        if (u) registeredCount += 1;
+        return {
+          id: r.id,
+          email: cleanEmail,
+          name: r.name,
+          subject: r.subject,
+          status: r.status,
+          subscribedAt: r.createdAt,
+          registeredUser: u
+            ? {
+                ...u,
+                accountNumber: generateAvoraAccountNumber(u.id),
+              }
+            : null,
+        };
+      });
+
+      res.json({
+        success: true,
+        data: {
+          total: subscribers.length,
+          registeredUsersCount: registeredCount,
+          guestCount: subscribers.length - registeredCount,
+          subscribers,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Remove a Newsletter Subscriber record
+   */
+  async deleteNewsletterSubscriber(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = String(req.params.id);
+      const existing = await prisma.inquiry.findUnique({ where: { id } });
+      if (!existing || !String(existing.subject || '').startsWith('NEWSLETTER:')) {
+        return res.status(404).json({ success: false, message: 'Newsletter subscriber not found' });
+      }
+      await prisma.inquiry.delete({ where: { id } });
+      res.json({ success: true, message: `Removed ${existing.email} from newsletter subscribers.` });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Update user role, KYC status, or freeze withdrawals
    */
   async updateUser(req: Request, res: Response, next: NextFunction) {
@@ -4070,6 +4153,10 @@ export class AdminController {
         },
       };
 
+      const newsletterSubscribersCount = await prisma.inquiry
+        .count({ where: { subject: { startsWith: 'NEWSLETTER:' } } })
+        .catch(() => 0);
+
       res.json({
         success: true,
         data: {
@@ -4085,6 +4172,7 @@ export class AdminController {
           totalTickets,
           totalOtcDesks,
           totalOtcTrades,
+          newsletterSubscribersCount,
           commandCenter,
           platformRevenueSummary,
           sectionMetrics,

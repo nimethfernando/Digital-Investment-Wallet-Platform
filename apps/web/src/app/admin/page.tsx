@@ -11,6 +11,7 @@ import AdminUsersTab from './components/AdminUsersTab';
 import AdminRemittanceTab from './components/AdminRemittanceTab';
 import AdminStartupsTab from './components/AdminStartupsTab';
 import AdminTokenTab from './components/AdminTokenTab';
+import AdminNewsletterTab from './components/AdminNewsletterTab';
 import AdminP2PTab from './components/AdminP2PTab';
 import AdminOtcTab from './components/AdminOtcTab';
 import AdminKycTab from './components/AdminKycTab';
@@ -61,6 +62,7 @@ import {
   Sparkles,
   Bell,
   AlertTriangle,
+  Mail,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -69,7 +71,7 @@ export default function AdminPortalPage() {
   const { user, token, isAdmin, isLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'alerts' | 'users' | 'packages' | 'remittance' | 'investments' | 'token' | 'p2p' | 'otc' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
+    'overview' | 'alerts' | 'users' | 'packages' | 'remittance' | 'investments' | 'token' | 'newsletter' | 'p2p' | 'otc' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
   >('overview');
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -224,6 +226,10 @@ export default function AdminPortalPage() {
   const [tokenHoldersData, setTokenHoldersData] = useState<any | null>(null);
   const [tokenHoldersLoading, setTokenHoldersLoading] = useState(false);
 
+  // Newsletter Subscribers State
+  const [newsletterData, setNewsletterData] = useState<any | null>(null);
+  const [newsletterLoading, setNewsletterLoading] = useState(false);
+
   // KYC State
   const [kycDocs, setKycDocs] = useState<any[]>([]);
   const [kycLoading, setKycLoading] = useState(false);
@@ -344,7 +350,7 @@ export default function AdminPortalPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const tabParam = new URLSearchParams(window.location.search).get('tab');
-    const validTabs = ['overview', 'alerts', 'users', 'packages', 'remittance', 'investments', 'token', 'p2p', 'otc', 'deposits', 'withdrawals', 'kyc', 'treasury', 'addresses', 'config', 'system', 'audit', 'disputes', 'content'];
+    const validTabs = ['overview', 'alerts', 'users', 'packages', 'remittance', 'investments', 'token', 'newsletter', 'p2p', 'otc', 'deposits', 'withdrawals', 'kyc', 'treasury', 'addresses', 'config', 'system', 'audit', 'disputes', 'content'];
     if (tabParam && validTabs.includes(tabParam)) {
       setActiveTab(tabParam as any);
     }
@@ -550,6 +556,16 @@ export default function AdminPortalPage() {
         console.error('Failed to load $AVR holders:', e);
       } finally {
         setTokenHoldersLoading(false);
+      }
+    } else if (activeTab === 'newsletter') {
+      setNewsletterLoading(true);
+      try {
+        const res = await api.get('/admin/newsletter/subscribers');
+        if (res.data?.success) setNewsletterData(res.data.data || null);
+      } catch (e) {
+        console.error('Failed to load newsletter subscribers:', e);
+      } finally {
+        setNewsletterLoading(false);
       }
     } else if (activeTab === 'kyc') {
       setKycLoading(true);
@@ -1814,6 +1830,7 @@ export default function AdminPortalPage() {
             { id: 'system', label: 'System & Maintenance', icon: Settings },
             { id: 'audit', label: 'Audit Logs', icon: FileText },
             { id: 'content', label: 'Announcements CMS', icon: Sparkles },
+            { id: 'newsletter', label: `Newsletter (${overviewAnalytics?.newsletterSubscribersCount ?? newsletterData?.total ?? 0})`, icon: Mail },
             { id: 'disputes', label: `Inquiries & Chat (${tabBadgeCounts.disputes})`, icon: MessageSquare },
           ].map((t) => {
             const Icon = t.icon;
@@ -4534,6 +4551,16 @@ export default function AdminPortalPage() {
             loading={tokenHoldersLoading}
             onRefresh={loadData}
             onNavigateTab={(tab) => setActiveTab(tab as any)}
+          />
+        )}
+
+        {/* TAB 1.7: NEWSLETTER SUBSCRIBERS */}
+        {activeTab === 'newsletter' && (
+          <AdminNewsletterTab
+            data={newsletterData}
+            loading={newsletterLoading}
+            onRefresh={loadData}
+            onFeedback={setFeedback}
           />
         )}
 
