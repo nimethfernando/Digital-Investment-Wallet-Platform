@@ -222,6 +222,35 @@ export class InvestmentsService {
   }
 
   /**
+   * List all distinct categories (industries) and instruments across published listings
+   */
+  async listPublishedFilterOptions() {
+    await this.ensureVentureSchema();
+    const rows = await prisma.startupListing.findMany({
+      where: { status: 'PUBLISHED' },
+      select: { industry: true, instrument: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const catMap = new Map<string, string>();
+    const instSet = new Set<string>();
+    for (const r of rows) {
+      const ind = String(r.industry || '').trim();
+      if (ind) {
+        const key = ind.toLowerCase();
+        if (!catMap.has(key)) catMap.set(key, ind);
+      }
+      const inst = String(r.instrument || '').trim().toUpperCase();
+      if (inst) instSet.add(inst);
+    }
+
+    return {
+      categories: Array.from(catMap.values()).sort((a, b) => a.localeCompare(b)),
+      instruments: Array.from(instSet).sort(),
+    };
+  }
+
+  /**
    * Get single startup campaign by slug
    */
   async getCampaignBySlug(slug: string, userId?: string) {

@@ -676,6 +676,23 @@ export default function AdminStartupsTab({
 
   return (
     <div className="space-y-6">
+      <datalist id="startup-categories-list">
+        {Array.from(
+          new Set([
+            ...listings.map((l) => String(l.industry || '').trim()).filter(Boolean),
+            'Token',
+            'AI & DeepTech',
+            'Fintech & Payments',
+            'CleanTech & Mobility',
+            'Supply Chain & Logistics',
+            'Digital Assets & Web3',
+            'Clean Energy & Infrastructure',
+            'AI & RegTech',
+          ])
+        ).map((cat) => (
+          <option key={cat} value={cat} />
+        ))}
+      </datalist>
       {/* Header & Controls Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-5 rounded-3xl border border-slate-800">
         <div>
@@ -1399,9 +1416,10 @@ export default function AdminStartupsTab({
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Industry / Sector</label>
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Industry / Category</label>
                     <input
                       type="text"
+                      list="startup-categories-list"
                       value={editIndustry}
                       onChange={(e) => setEditIndustry(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
@@ -2220,10 +2238,11 @@ export default function AdminStartupsTab({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Industry</label>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Industry / Category</label>
                   <input
                     type="text"
-                    placeholder="e.g. AI Fintech Infrastructure"
+                    list="startup-categories-list"
+                    placeholder="e.g. Token, Fintech & Payments, AI & DeepTech"
                     value={newStartup.industry}
                     onChange={(e) => setNewStartup({ ...newStartup, industry: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"

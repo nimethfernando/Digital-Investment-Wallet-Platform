@@ -9,14 +9,22 @@ export class InvestmentsController {
   async listCampaigns(req: Request, res: Response, next: NextFunction) {
     try {
       const { industry, countryCode, stage, instrument, search } = req.query as any;
-      const campaigns = await investmentsService.listCampaigns({
-        industry,
-        countryCode,
-        stage,
-        instrument,
-        search,
+      const [campaigns, filterOptions] = await Promise.all([
+        investmentsService.listCampaigns({
+          industry,
+          countryCode,
+          stage,
+          instrument,
+          search,
+        }),
+        investmentsService.listPublishedFilterOptions(),
+      ]);
+      res.json({
+        success: true,
+        data: campaigns,
+        categories: filterOptions.categories,
+        instruments: filterOptions.instruments,
       });
-      res.json({ success: true, data: campaigns });
     } catch (err) {
       next(err);
     }

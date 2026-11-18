@@ -264,6 +264,19 @@ export default function InvestmentsMarketplacePage() {
   });
 
   const [watchlistIds, setWatchlistIds] = useState<Set<string>>(new Set());
+  const [availableCategories, setAvailableCategories] = useState<string[]>([
+    'AI & DeepTech',
+    'CleanTech',
+    'Fintech',
+    'Supply Chain',
+    'Token',
+  ]);
+  const [availableInstruments, setAvailableInstruments] = useState<string[]>([
+    'SAFE',
+    'EQUITY',
+    'CONVERTIBLE_NOTE',
+    'REVENUE_SHARE',
+  ]);
 
   // Load Campaigns
   const fetchCampaigns = async (overrideSearch?: string) => {
@@ -278,7 +291,31 @@ export default function InvestmentsMarketplacePage() {
         },
       });
       if (res.data?.success) {
-        setCampaigns(res.data.data);
+        const list = Array.isArray(res.data.data) ? res.data.data : [];
+        setCampaigns(list);
+
+        // Dynamically collect all published categories from server + loaded campaigns
+        const serverCats: string[] = Array.isArray(res.data.categories) ? res.data.categories : [];
+        const loadedCats: string[] = list
+          .map((c: StartupItem) => String(c.industry || '').trim())
+          .filter(Boolean);
+        const mergedCatsMap = new Map<string, string>();
+        for (const cat of [...serverCats, ...loadedCats]) {
+          const clean = String(cat || '').trim();
+          if (clean && !mergedCatsMap.has(clean.toLowerCase())) {
+            mergedCatsMap.set(clean.toLowerCase(), clean);
+          }
+        }
+        if (mergedCatsMap.size > 0) {
+          setAvailableCategories(Array.from(mergedCatsMap.values()).sort((a, b) => a.localeCompare(b)));
+        }
+
+        const serverInsts: string[] = Array.isArray(res.data.instruments) ? res.data.instruments : [];
+        if (serverInsts.length > 0) {
+          setAvailableInstruments(
+            Array.from(new Set([...serverInsts, 'SAFE', 'EQUITY', 'CONVERTIBLE_NOTE', 'REVENUE_SHARE']))
+          );
+        }
       }
     } catch (e) {
       console.warn('Failed to load campaigns', e);
@@ -549,27 +586,28 @@ export default function InvestmentsMarketplacePage() {
       {/* Filter and Search Bar */}
       <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-4">
         
-        {/* Industry Filter */}
+        {/* Dynamic Category / Industry Navigation Pills */}
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="font-bold text-slate-400 mr-1 flex items-center gap-1">
-            <Filter className="w-3.5 h-3.5" /> Industry:
+            <Filter className="w-3.5 h-3.5" /> Category:
           </span>
-          {['ALL', 'AI & DeepTech', 'CleanTech', 'Fintech', 'Supply Chain'].map((ind) => (
+          {['ALL', ...availableCategories].map((ind) => (
             <button
               key={ind}
+              type="button"
               onClick={() => setIndustryFilter(ind)}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                 industryFilter === ind
                   ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              {ind}
+              {ind === 'ALL' ? 'ALL' : ind}
             </button>
           ))}
         </div>
 
-        {/* Search, Country & Instrument Selectors */}
+        {/* Search, Category Dropdown, Country & Instrument Selectors */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -592,6 +630,20 @@ export default function InvestmentsMarketplacePage() {
             Search
           </button>
 
+          <select
+            value={industryFilter}
+            onChange={(e) => setIndustryFilter(e.target.value)}
+            aria-label="Filter by category"
+            className="px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none cursor-pointer"
+          >
+            <option value="ALL">All Categories</option>
+            {availableCategories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+
           <SearchableCountrySelect
             showAllOption
             allOptionLabel="All Countries"
@@ -603,13 +655,14 @@ export default function InvestmentsMarketplacePage() {
           <select
             value={instrumentFilter}
             onChange={(e) => setInstrumentFilter(e.target.value)}
-            className="px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+            className="px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none cursor-pointer"
           >
             <option value="ALL">All Instruments</option>
-            <option value="SAFE">SAFE Note</option>
-            <option value="EQUITY">Preferred Equity</option>
-            <option value="CONVERTIBLE_NOTE">Convertible Note</option>
-            <option value="REVENUE_SHARE">Revenue Share</option>
+            {availableInstruments.map((inst) => (
+              <option key={inst} value={inst}>
+                {inst.replace(/_/g, ' ')}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -1606,11 +1659,21 @@ export default function InvestmentsMarketplacePage() {
                     onChange={(e) => setFounderIndustry(e.target.value)}
                     className="w-full mt-1 px-3 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
                   >
-                    <option value="AI & DeepTech">AI & DeepTech</option>
-                    <option value="Fintech & Payments">Fintech & Payments</option>
-                    <option value="CleanTech & Mobility">CleanTech & Mobility</option>
-                    <option value="Supply Chain & Logistics">Supply Chain & Logistics</option>
-                    <option value="Digital Assets & Web3">Digital Assets & Web3</option>
+                    {Array.from(
+                      new Set([
+                        ...availableCategories,
+                        'Token',
+                        'AI & DeepTech',
+                        'Fintech & Payments',
+                        'CleanTech & Mobility',
+                        'Supply Chain & Logistics',
+                        'Digital Assets & Web3',
+                      ])
+                    ).map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
