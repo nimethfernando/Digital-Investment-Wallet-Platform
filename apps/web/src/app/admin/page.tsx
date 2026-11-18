@@ -142,6 +142,7 @@ export default function AdminPortalPage() {
     razorpay_key_secret: '',
     remittance_fee_percent: '3.0',
     remittance_margin_percent: '2.0',
+    show_remittance_spread_controls: 'false',
     remittance_corridors_count: '7',
     remittance_countries_count: '110+',
     remittance_delivery_days: '2',
@@ -2735,6 +2736,37 @@ export default function AdminPortalPage() {
                           On a <span className="text-white font-mono">$10,000</span> transfer to EUR/INR:
                           Bank retains <span className="text-emerald-400 font-mono font-bold">${((10000 * parseFloat(platformConfig.remittance_margin_percent || '2.0')) / 100).toFixed(2)}</span> FX spread + <span className="text-emerald-400 font-mono font-bold">${((10000 * parseFloat(platformConfig.remittance_fee_percent || '3.0')) / 100).toFixed(2)}</span> transfer fee = <span className="text-white font-mono font-bold">${(((10000 * parseFloat(platformConfig.remittance_margin_percent || '2.0')) / 100) + ((10000 * parseFloat(platformConfig.remittance_fee_percent || '3.0')) / 100)).toFixed(2)}</span> total gross profit with <strong className="text-emerald-400">0% forex loss risk</strong>.
                         </p>
+                      </div>
+
+                      {/* Visibility Toggle for Customer-Facing Remittance Calculator Spread Controls */}
+                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <div className="text-[11px] font-bold text-white">
+                            Show Adjustable Spread Margin Controls in User Calculator
+                          </div>
+                          <p className="text-[10px] text-slate-400">
+                            When hidden (recommended), customers see clean live conversion rates using your configured spread silently without the 1.0%–5.0% bank margin selector or internal spread labels.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPlatformConfig({
+                              ...platformConfig,
+                              show_remittance_spread_controls:
+                                platformConfig.show_remittance_spread_controls === 'true' ? 'false' : 'true',
+                            })
+                          }
+                          className={`shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                            platformConfig.show_remittance_spread_controls === 'true'
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-600'
+                          }`}
+                        >
+                          {platformConfig.show_remittance_spread_controls === 'true'
+                            ? 'Shown to Users'
+                            : 'Hidden (Default)'}
+                        </button>
                       </div>
                     </div>
 

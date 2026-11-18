@@ -10,16 +10,18 @@ export class OtcController {
    */
   async getRates(req: Request, res: Response, next: NextFunction) {
     try {
-      const [data, marginSetting, feeSetting, otcCommission, wdFeeSetting, wdSpreadSetting] = await Promise.all([
+      const [data, marginSetting, feeSetting, showSpreadSetting, otcCommission, wdFeeSetting, wdSpreadSetting] = await Promise.all([
         rateService.getLiveRates(),
         prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
         prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
+        prisma.cmsSetting.findUnique({ where: { key: 'show_remittance_spread_controls' } }).catch(() => null),
         otcService.getOtcCommissionConfig(),
         prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fee_percent' } }).catch(() => null),
         prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fx_spread_percent' } }).catch(() => null),
       ]);
       const marginPercent = parseFloat(marginSetting?.value || '2.0');
       const feePercent = parseFloat(feeSetting?.value || '3.0');
+      const showRemittanceSpreadControls = String(showSpreadSetting?.value || 'false').toLowerCase() === 'true';
       const withdrawalFeePct = parseFloat(wdFeeSetting?.value || '0.0');
       const withdrawalFxSpreadPct = parseFloat(wdSpreadSetting?.value || '0.0');
 
@@ -31,6 +33,7 @@ export class OtcController {
         lastUpdated: data.lastUpdated,
         marginPercent,
         feePercent,
+        showRemittanceSpreadControls,
         rates: data.rates,
         marketRates: data.marketRates,
         overrides: data.overrides,

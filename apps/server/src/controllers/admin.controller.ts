@@ -1748,6 +1748,7 @@ export class AdminController {
         razorpay_webhook_secret: configMap['razorpay_webhook_secret'] || process.env.RAZORPAY_WEBHOOK_SECRET || '',
         remittance_fee_percent: configMap['remittance_fee_percent'] || '3.0',
         remittance_margin_percent: configMap['remittance_margin_percent'] || '2.0',
+        show_remittance_spread_controls: configMap['show_remittance_spread_controls'] || 'false',
         remittance_corridors_count: configMap['remittance_corridors_count'] || '7',
         remittance_countries_count: configMap['remittance_countries_count'] || '110+',
         remittance_delivery_days: configMap['remittance_delivery_days'] || '2',
@@ -1806,6 +1807,7 @@ export class AdminController {
         'razorpay_webhook_secret',
         'remittance_fee_percent',
         'remittance_margin_percent',
+        'show_remittance_spread_controls',
         'remittance_corridors_count',
         'remittance_countries_count',
         'remittance_delivery_days',
@@ -1831,7 +1833,7 @@ export class AdminController {
           let group = 'COMMISSION';
           if (key.startsWith('package_') || key === 'payout_day_of_month') group = 'INVESTMENT';
           if (key.startsWith('withdrawal_')) group = 'WITHDRAWAL';
-          if (key.startsWith('remittance_')) group = 'REMITTANCE';
+          if (key.startsWith('remittance_') || key === 'show_remittance_spread_controls') group = 'REMITTANCE';
           if (key.startsWith('otc_')) group = 'OTC';
           if (key.startsWith('p2p_')) group = 'P2P';
 
