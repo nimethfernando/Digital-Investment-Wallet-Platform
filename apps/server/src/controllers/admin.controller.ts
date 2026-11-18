@@ -1047,10 +1047,18 @@ export class AdminController {
           parsedLinks = {};
         }
 
+        let parsedContact: any = {};
+        try {
+          parsedContact = l.contactInfo ? JSON.parse(l.contactInfo) : {};
+        } catch {
+          parsedContact = {};
+        }
+
         return {
           ...l,
           supportingDocuments: Array.isArray(parsedDocs) ? parsedDocs : [],
           officialLinks: parsedLinks && typeof parsedLinks === 'object' ? parsedLinks : {},
+          contactInfo: parsedContact && typeof parsedContact === 'object' ? parsedContact : {},
           actualCollectedFromUsersUsd: Number(actualCollectedFromUsersUsd.toFixed(2)),
           actualDistributedToUsersUsd: Number(actualDistributedToUsersUsd.toFixed(2)),
           actualCommitmentsCount: listingCommitments.length,
@@ -1226,6 +1234,11 @@ export class AdminController {
       const {
         companyName,
         tagline,
+        country,
+        countryCode,
+        city,
+        industry,
+        dueDiligenceStatus,
         pitchOverview,
         logoUrl,
         valuation,
@@ -1248,10 +1261,12 @@ export class AdminController {
         supportingDocuments,
         registrationDetails,
         officialLinks,
+        contactInfo,
         riskFactors,
         problemSolution,
         businessModel,
         marketOpportunity,
+        financialHighlights,
         pitchDeckUrl,
         providerName,
         providerInvestedAmount,
@@ -1296,9 +1311,14 @@ export class AdminController {
           : listing.financialHighlights,
       };
 
-      if (companyName) updateData.companyName = String(companyName).trim();
-      if (tagline) updateData.tagline = String(tagline).trim();
-      if (pitchOverview) updateData.pitchOverview = String(pitchOverview).trim();
+      if (companyName !== undefined && String(companyName).trim()) updateData.companyName = String(companyName).trim();
+      if (tagline !== undefined) updateData.tagline = String(tagline).trim();
+      if (country !== undefined && String(country).trim()) updateData.country = String(country).trim();
+      if (countryCode !== undefined && String(countryCode).trim()) updateData.countryCode = String(countryCode).trim().toUpperCase();
+      if (city !== undefined && String(city).trim()) updateData.city = String(city).trim();
+      if (industry !== undefined && String(industry).trim()) updateData.industry = String(industry).trim();
+      if (dueDiligenceStatus !== undefined && String(dueDiligenceStatus).trim()) updateData.dueDiligenceStatus = String(dueDiligenceStatus).trim().toUpperCase();
+      if (pitchOverview !== undefined) updateData.pitchOverview = String(pitchOverview).trim();
       if (logoUrl !== undefined) updateData.logoUrl = logoUrl || listing.logoUrl;
       if (instrument) updateData.instrument = String(instrument).toUpperCase();
       if (dueDiligenceSummary !== undefined) updateData.dueDiligenceSummary = dueDiligenceSummary || null;
@@ -1308,6 +1328,14 @@ export class AdminController {
       if (problemSolution !== undefined) updateData.problemSolution = problemSolution || null;
       if (businessModel !== undefined) updateData.businessModel = businessModel || null;
       if (marketOpportunity !== undefined) updateData.marketOpportunity = marketOpportunity || null;
+      if (financialHighlights !== undefined && !growthNotes) {
+        updateData.financialHighlights =
+          typeof financialHighlights === 'string'
+            ? financialHighlights || null
+            : financialHighlights
+            ? JSON.stringify(financialHighlights)
+            : null;
+      }
       if (pitchDeckUrl !== undefined) updateData.pitchDeckUrl = pitchDeckUrl || null;
 
       if (officialLinks !== undefined) {
@@ -1315,6 +1343,13 @@ export class AdminController {
           typeof officialLinks === 'string'
             ? officialLinks
             : JSON.stringify(officialLinks && typeof officialLinks === 'object' ? officialLinks : {});
+      }
+
+      if (contactInfo !== undefined) {
+        updateData.contactInfo =
+          typeof contactInfo === 'string'
+            ? contactInfo
+            : JSON.stringify(contactInfo && typeof contactInfo === 'object' ? contactInfo : {});
       }
 
       if (supportingDocuments !== undefined) {
@@ -2775,10 +2810,12 @@ export class AdminController {
         supportingDocuments,
         registrationDetails,
         officialLinks,
+        contactInfo,
         riskFactors,
         problemSolution,
         businessModel,
         marketOpportunity,
+        financialHighlights,
         logoUrl,
         coverImageUrl,
         pitchDeckUrl,
@@ -2834,10 +2871,20 @@ export class AdminController {
               ? officialLinks
               : JSON.stringify(officialLinks)
             : null,
+          contactInfo: contactInfo
+            ? typeof contactInfo === 'string'
+              ? contactInfo
+              : JSON.stringify(contactInfo)
+            : null,
           riskFactors: riskFactors || null,
           problemSolution: problemSolution || null,
           businessModel: businessModel || null,
           marketOpportunity: marketOpportunity || null,
+          financialHighlights: financialHighlights
+            ? typeof financialHighlights === 'string'
+              ? financialHighlights
+              : JSON.stringify(financialHighlights)
+            : null,
           supportingDocuments: supportingDocuments
             ? typeof supportingDocuments === 'string'
               ? supportingDocuments
@@ -2886,6 +2933,7 @@ export class AdminController {
       const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
       const id = String(req.params.id);
       const {
+        companyName,
         status,
         valuation,
         fundingTarget,
@@ -2893,6 +2941,11 @@ export class AdminController {
         minInvestment,
         investorCount,
         stage,
+        instrument,
+        country,
+        countryCode,
+        city,
+        industry,
         dueDiligenceStatus,
         dueDiligenceSummary,
         pitchOverview,
@@ -2908,6 +2961,8 @@ export class AdminController {
         supportingDocuments,
         registrationDetails,
         officialLinks,
+        contactInfo,
+        financialHighlights,
         riskFactors,
         problemSolution,
         businessModel,
@@ -2916,8 +2971,14 @@ export class AdminController {
       } = req.body;
 
       const updateData: any = {};
+      if (companyName !== undefined && companyName !== '') updateData.companyName = String(companyName).trim();
       if (status) updateData.status = status;
       if (stage) updateData.stage = stage;
+      if (instrument) updateData.instrument = instrument;
+      if (country !== undefined) updateData.country = country;
+      if (countryCode !== undefined) updateData.countryCode = countryCode;
+      if (city !== undefined) updateData.city = city;
+      if (industry !== undefined) updateData.industry = industry;
       if (valuation !== undefined && valuation !== '') updateData.valuation = new Decimal(valuation.toString());
       if (fundingTarget !== undefined && fundingTarget !== '') updateData.fundingTarget = new Decimal(fundingTarget.toString());
       if (verifiedFundsRaised !== undefined && verifiedFundsRaised !== '') updateData.verifiedFundsRaised = new Decimal(verifiedFundsRaised.toString());
@@ -2925,8 +2986,8 @@ export class AdminController {
       if (investorCount !== undefined && investorCount !== '') updateData.investorCount = Math.max(0, Math.floor(Number(investorCount)));
       if (dueDiligenceStatus) updateData.dueDiligenceStatus = dueDiligenceStatus;
       if (dueDiligenceSummary !== undefined) updateData.dueDiligenceSummary = dueDiligenceSummary;
-      if (pitchOverview) updateData.pitchOverview = pitchOverview;
-      if (tagline) updateData.tagline = tagline;
+      if (pitchOverview !== undefined) updateData.pitchOverview = pitchOverview;
+      if (tagline !== undefined) updateData.tagline = tagline;
       if (logoUrl !== undefined) updateData.logoUrl = logoUrl;
       if (lockInMonths !== undefined && lockInMonths !== '') updateData.lockInMonths = Math.max(0, Math.floor(Number(lockInMonths)));
       if (maturityDate !== undefined) updateData.maturityDate = maturityDate ? new Date(maturityDate) : null;
@@ -2944,6 +3005,14 @@ export class AdminController {
       if (officialLinks !== undefined) {
         updateData.officialLinks =
           typeof officialLinks === 'string' ? officialLinks : JSON.stringify(officialLinks);
+      }
+      if (contactInfo !== undefined) {
+        updateData.contactInfo =
+          typeof contactInfo === 'string' ? contactInfo : JSON.stringify(contactInfo);
+      }
+      if (financialHighlights !== undefined) {
+        updateData.financialHighlights =
+          typeof financialHighlights === 'string' ? financialHighlights : JSON.stringify(financialHighlights);
       }
       if (supportingDocuments !== undefined) {
         updateData.supportingDocuments =

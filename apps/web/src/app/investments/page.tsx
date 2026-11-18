@@ -29,10 +29,78 @@ import {
   Check,
   Award,
   ExternalLink,
+  Mail,
+  Phone,
+  MessageSquare,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
 import PaginationControls, { usePagination } from '../../components/PaginationControls';
+
+const stripMarkdownText = (raw?: string): string => {
+  if (!raw) return '';
+  return raw
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*•]\s+/gm, '• ')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\n{2,}/g, ' — ')
+    .replace(/\n+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+};
+
+const renderInlineBold = (line: string): React.ReactNode => {
+  const parts = line.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return (
+        <strong key={i} className="font-bold text-slate-900 dark:text-white">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+};
+
+function FormattedMarkdownContent({ content }: { content?: string }) {
+  if (!content) return null;
+  const blocks = content.split(/\r?\n/);
+  return (
+    <div className="space-y-2 text-slate-700 dark:text-slate-300 leading-relaxed">
+      {blocks.map((rawLine, idx) => {
+        const line = rawLine.trim();
+        if (!line) return <div key={idx} className="h-1" />;
+        if (line.startsWith('### ')) {
+          return (
+            <h5 key={idx} className="font-bold text-slate-900 dark:text-white text-xs pt-1">
+              {renderInlineBold(line.replace(/^###\s+/, ''))}
+            </h5>
+          );
+        }
+        if (line.startsWith('## ') || line.startsWith('# ')) {
+          return (
+            <h4 key={idx} className="font-extrabold text-slate-900 dark:text-white text-sm pt-1">
+              {renderInlineBold(line.replace(/^#{1,2}\s+/, ''))}
+            </h4>
+          );
+        }
+        if (/^[-*•]\s+/.test(line)) {
+          return (
+            <div key={idx} className="flex items-start gap-2 pl-1">
+              <span className="text-emerald-500 font-bold mt-0.5">•</span>
+              <span className="flex-1">{renderInlineBold(line.replace(/^[-*•]\s+/, ''))}</span>
+            </div>
+          );
+        }
+        return <p key={idx}>{renderInlineBold(line)}</p>;
+      })}
+    </div>
+  );
+}
 
 interface StartupItem {
   id: string;
@@ -79,6 +147,14 @@ interface StartupItem {
     pitchDeckUrl?: string;
     extraLinks?: { label: string; url: string }[];
   };
+  contactInfo?: {
+    contactName?: string;
+    contactRole?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    contactWhatsApp?: string;
+    contactNote?: string;
+  };
   allocationFeePct: number;
   profitShareFeePct: number;
   useOfFunds?: Record<string, string>;
@@ -99,14 +175,64 @@ export default function InvestmentsMarketplacePage() {
   const [instrumentFilter, setInstrumentFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Selected Campaign for Detail Modal / Investment
+  // Selected Campaign for Detail Modal / Investment / Contact
   const [selectedCampaign, setSelectedCampaign] = useState<StartupItem | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState<boolean>(false);
+  const [contactModalOpen, setContactModalOpen] = useState<boolean>(false);
+  const [contactSubject, setContactSubject] = useState<string>('');
+  const [contactMessage, setContactMessage] = useState<string>('');
+  const [contactSending, setContactSending] = useState<boolean>(false);
+  const [contactFeedback, setContactFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [investModalOpen, setInvestModalOpen] = useState<boolean>(false);
   const [investAmount, setInvestAmount] = useState<number>(1000);
   const [investRiskAccepted, setInvestRiskAccepted] = useState<boolean>(false);
   const [investLoading, setInvestLoading] = useState<boolean>(false);
   const [investMsg, setInvestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const openContactModal = (campaign: StartupItem) => {
+    setSelectedCampaign(campaign);
+    setContactSubject(`Investor Inquiry: ${campaign.companyName}`);
+    setContactMessage('');
+    setContactFeedback(null);
+    setContactModalOpen(true);
+  };
+
+  const handleSubmitContactInquiry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCampaign) return;
+    if (!user) {
+      setContactFeedback({
+        type: 'error',
+        text: 'Please sign in to send an audited portal inquiry, or reach out directly using the Email / Phone details above.',
+      });
+      return;
+    }
+    if (!contactMessage.trim()) {
+      setContactFeedback({ type: 'error', text: 'Please enter your question or message.' });
+      return;
+    }
+    setContactSending(true);
+    setContactFeedback(null);
+    try {
+      const res = await api.post('/investments/inquiries', {
+        listingId: selectedCampaign.id,
+        type: 'QUESTION',
+        subject: contactSubject.trim() || `Investor Inquiry: ${selectedCampaign.companyName}`,
+        message: contactMessage.trim(),
+      });
+      if (res.data?.success) {
+        setContactFeedback({
+          type: 'success',
+          text: `Your inquiry for ${selectedCampaign.companyName} has been delivered to the Investor Relations Desk.`,
+        });
+        setContactMessage('');
+      }
+    } catch (err: any) {
+      setContactFeedback({ type: 'error', text: extractErrorMessage(err) });
+    } finally {
+      setContactSending(false);
+    }
+  };
 
   // Apply for Funding Modal (Founders)
   const [applyModalOpen, setApplyModalOpen] = useState<boolean>(false);
@@ -548,37 +674,62 @@ export default function InvestmentsMarketplacePage() {
               </div>
 
               {/* Pitch Snippet */}
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-3">
-                {c.pitchOverview}
-              </p>
+              <div className="space-y-1.5">
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-4">
+                  {stripMarkdownText(c.pitchOverview)}
+                </p>
+                {c.pitchOverview && c.pitchOverview.length > 180 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCampaign(c);
+                      setDetailsModalOpen(true);
+                    }}
+                    className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    Read Full Overview ({c.pitchOverview.length} chars) →
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Action Bar */}
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                onClick={() => {
-                  setSelectedCampaign(c);
-                  setInvestAmount(Math.max(1000, c.minInvestment));
-                  setInvestRiskAccepted(false);
-                  setInvestMsg(null);
-                  setInvestModalOpen(true);
-                }}
-                className="py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-              >
-                <span>Invest in {c.companyName.split(' ')[0]}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+            <div className="space-y-2.5 pt-2">
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  onClick={() => {
+                    setSelectedCampaign(c);
+                    setInvestAmount(Math.max(1000, c.minInvestment));
+                    setInvestRiskAccepted(false);
+                    setInvestMsg(null);
+                    setInvestModalOpen(true);
+                  }}
+                  className="py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <span>Invest in {c.companyName.split(' ')[0]}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCampaign(c);
+                    setDetailsModalOpen(true);
+                  }}
+                  className="py-3 rounded-2xl font-bold text-xs border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Full Company Dossier</span>
+                </button>
+              </div>
 
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedCampaign(c);
-                  setDetailsModalOpen(true);
-                }}
-                className="py-3 rounded-2xl font-bold text-xs border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                onClick={() => openContactModal(c)}
+                className="w-full py-2.5 rounded-2xl font-bold text-xs border border-emerald-500/30 bg-emerald-50/70 dark:bg-emerald-950/30 hover:bg-emerald-100/80 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
               >
-                <FileText className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Full Company Dossier</span>
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>Contact / Reach Out About {c.companyName.split(' ')[0]}</span>
               </button>
             </div>
           </div>
@@ -706,10 +857,8 @@ export default function InvestmentsMarketplacePage() {
                 </h4>
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
                   <div>
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Business Summary</span>
-                    <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
-                      {selectedCampaign.pitchOverview}
-                    </p>
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1.5">Business Summary</span>
+                    <FormattedMarkdownContent content={selectedCampaign.pitchOverview} />
                   </div>
 
                   {(selectedCampaign.problemSolution || selectedCampaign.businessModel || selectedCampaign.marketOpportunity) && (
@@ -719,9 +868,9 @@ export default function InvestmentsMarketplacePage() {
                           <span className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400 block mb-1">
                             Problem &amp; Solution
                           </span>
-                          <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
-                            {selectedCampaign.problemSolution}
-                          </p>
+                          <div className="text-[11px]">
+                            <FormattedMarkdownContent content={selectedCampaign.problemSolution} />
+                          </div>
                         </div>
                       )}
                       {selectedCampaign.businessModel && (
@@ -729,9 +878,9 @@ export default function InvestmentsMarketplacePage() {
                           <span className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400 block mb-1">
                             Business Model &amp; Revenue
                           </span>
-                          <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
-                            {selectedCampaign.businessModel}
-                          </p>
+                          <div className="text-[11px]">
+                            <FormattedMarkdownContent content={selectedCampaign.businessModel} />
+                          </div>
                         </div>
                       )}
                       {selectedCampaign.marketOpportunity && (
@@ -739,9 +888,9 @@ export default function InvestmentsMarketplacePage() {
                           <span className="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400 block mb-1">
                             Market Opportunity
                           </span>
-                          <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
-                            {selectedCampaign.marketOpportunity}
-                          </p>
+                          <div className="text-[11px]">
+                            <FormattedMarkdownContent content={selectedCampaign.marketOpportunity} />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -824,9 +973,9 @@ export default function InvestmentsMarketplacePage() {
                     </div>
                   </div>
                   {selectedCampaign.termsAndNotes && (
-                    <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line pt-1">
-                      {selectedCampaign.termsAndNotes}
-                    </p>
+                    <div className="pt-1 text-xs">
+                      <FormattedMarkdownContent content={selectedCampaign.termsAndNotes} />
+                    </div>
                   )}
                 </div>
               </div>
@@ -1035,6 +1184,34 @@ export default function InvestmentsMarketplacePage() {
                   </ul>
                 )}
               </div>
+              {/* 8. Direct Investor Contact / Reach Out Desk */}
+              <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/25 border border-indigo-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                    <MessageSquare className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span>
+                      Questions About {selectedCampaign.companyName}? Reach Out to{' '}
+                      {selectedCampaign.contactInfo?.contactName || 'Investor Relations'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                    {selectedCampaign.contactInfo?.contactEmail || 'investments@avorabank.com'}
+                    {selectedCampaign.contactInfo?.contactPhone ? ` • ${selectedCampaign.contactInfo.contactPhone}` : ''}
+                    {selectedCampaign.contactInfo?.contactNote ? ` — ${selectedCampaign.contactInfo.contactNote}` : ''}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetailsModalOpen(false);
+                    openContactModal(selectedCampaign);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Contact / Send Inquiry</span>
+                </button>
+              </div>
             </div>
 
             {/* Sticky Footer */}
@@ -1043,13 +1220,24 @@ export default function InvestmentsMarketplacePage() {
                 Min Ticket: <strong className="font-mono text-slate-900 dark:text-white">${Number(selectedCampaign.minInvestment || 250).toLocaleString()} USD</strong> •{' '}
                 Lock-In: <strong className="font-mono text-amber-600 dark:text-amber-400">{selectedCampaign.lockInMonths ?? 12}m</strong>
               </div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setDetailsModalOpen(false)}
                   className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetailsModalOpen(false);
+                    openContactModal(selectedCampaign);
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-indigo-500/40 bg-indigo-50 dark:bg-indigo-950/40 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Contact / Reach Out</span>
                 </button>
                 <button
                   type="button"
@@ -1509,6 +1697,166 @@ export default function InvestmentsMarketplacePage() {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 4: CONTACT / REACH OUT TO COMPANY & INVESTOR RELATIONS              */}
+      {/* ========================================================================= */}
+      {contactModalOpen && selectedCampaign && (() => {
+        const contact = selectedCampaign.contactInfo || {};
+        const contactEmail = contact.contactEmail?.trim() || 'investments@avorabank.com';
+        const contactName = contact.contactName?.trim() || `${selectedCampaign.companyName} Investor Relations`;
+        const contactRole = contact.contactRole?.trim() || 'Institutional Deal Desk';
+        const contactPhone = contact.contactPhone?.trim();
+        const contactWhatsApp = contact.contactWhatsApp?.trim();
+        const contactNote =
+          contact.contactNote?.trim() ||
+          'Reach out for pitch deck walkthroughs, due diligence documents, accreditation support, or allocation inquiries.';
+
+        return (
+          <div
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in"
+            onClick={() => setContactModalOpen(false)}
+          >
+            <div
+              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                    <MessageSquare className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                      Contact {selectedCampaign.companyName}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {contactName} • {contactRole}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setContactModalOpen(false)}
+                  className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Direct Channels */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">{contactNote}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <a
+                    href={`mailto:${contactEmail}?subject=${encodeURIComponent(`Investment Inquiry: ${selectedCampaign.companyName}`)}`}
+                    className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 flex items-center gap-2.5 transition-colors"
+                  >
+                    <Mail className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="text-[10px] text-slate-400 block uppercase font-bold">Direct Email</span>
+                      <span className="font-bold text-slate-900 dark:text-white truncate block">{contactEmail}</span>
+                    </div>
+                  </a>
+
+                  {contactPhone && (
+                    <a
+                      href={`tel:${contactPhone.replace(/\s+/g, '')}`}
+                      className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 flex items-center gap-2.5 transition-colors"
+                    >
+                      <Phone className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <div className="min-w-0">
+                        <span className="text-[10px] text-slate-400 block uppercase font-bold">Phone / Hotline</span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-white truncate block">{contactPhone}</span>
+                      </div>
+                    </a>
+                  )}
+
+                  {contactWhatsApp && (
+                    <a
+                      href={
+                        contactWhatsApp.startsWith('http')
+                          ? contactWhatsApp
+                          : `https://wa.me/${contactWhatsApp.replace(/[^0-9]/g, '')}`
+                      }
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 flex items-center gap-2.5 transition-colors sm:col-span-2"
+                    >
+                      <ExternalLink className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <div className="min-w-0">
+                        <span className="text-[10px] text-slate-400 block uppercase font-bold">WhatsApp / Messaging</span>
+                        <span className="font-bold text-slate-900 dark:text-white truncate block">{contactWhatsApp}</span>
+                      </div>
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Direct Portal Inquiry Form */}
+              <form onSubmit={handleSubmitContactInquiry} className="space-y-3 text-xs">
+                <div className="font-bold text-slate-900 dark:text-white">Send an Investor Inquiry Directly</div>
+                {contactFeedback && (
+                  <div
+                    className={`p-3 rounded-xl font-bold flex items-center gap-2 ${
+                      contactFeedback.type === 'success'
+                        ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                        : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-500/30'
+                    }`}
+                  >
+                    {contactFeedback.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                    )}
+                    <span>{contactFeedback.text}</span>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">Subject</label>
+                  <input
+                    type="text"
+                    value={contactSubject}
+                    onChange={(e) => setContactSubject(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">Your Question or Request</label>
+                  <textarea
+                    rows={4}
+                    required
+                    placeholder={`Ask ${contactName} about ${selectedCampaign.companyName}'s valuation, roadmap, lock-in period, or supporting documents...`}
+                    value={contactMessage}
+                    onChange={(e) => setContactMessage(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setContactModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={contactSending}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{contactSending ? 'Sending...' : 'Send Inquiry'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

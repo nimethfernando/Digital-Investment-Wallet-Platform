@@ -35,14 +35,43 @@ interface StartupsTabProps {
   listings: any[];
   commitments: any[];
   listingsLoading: boolean;
+  admin2FaCode?: string;
+  onAdmin2FaCodeChange?: (code: string) => void;
   onRefresh: () => void;
   onFeedback: (feedback: { text: string; type: 'success' | 'error' } | null) => void;
 }
+
+const formatKeyValueLines = (obj: any): string => {
+  if (!obj || typeof obj !== 'object') return '';
+  return Object.entries(obj)
+    .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
+};
+
+const parseKeyValueLines = (raw: string): Record<string, string> => {
+  const result: Record<string, string> = {};
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf(':');
+    if (idx > 0) {
+      const key = trimmed.slice(0, idx).trim();
+      const val = trimmed.slice(idx + 1).trim();
+      if (key && val) result[key] = val;
+    } else {
+      result[`Highlight ${Object.keys(result).length + 1}`] = trimmed;
+    }
+  }
+  return result;
+};
 
 export default function AdminStartupsTab({
   listings,
   commitments,
   listingsLoading,
+  admin2FaCode = '',
+  onAdmin2FaCodeChange,
   onRefresh,
   onFeedback,
 }: StartupsTabProps) {
@@ -54,6 +83,13 @@ export default function AdminStartupsTab({
   const [commitmentPageSize, setCommitmentPageSize] = useState(50);
   const [selectedCommitment, setSelectedCommitment] = useState<any | null>(null);
   const commitmentsSectionRef = useRef<HTMLDivElement | null>(null);
+  const [local2FaCode, setLocal2FaCode] = useState('');
+  const [modalError, setModalError] = useState<string | null>(null);
+  const effective2Fa = (admin2FaCode || local2FaCode || '').trim();
+  const handle2FaInput = (val: string) => {
+    setLocal2FaCode(val);
+    onAdmin2FaCodeChange?.(val);
+  };
 
   // Create Startup Modal
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -81,8 +117,20 @@ export default function AdminStartupsTab({
     registrationDetails: '',
     riskFactors: '',
     pitchOverview: '',
+    problemSolution: '',
+    businessModel: '',
+    marketOpportunity: '',
+    financialHighlightsText: '',
     logoUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80',
     coverImageUrl: 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&auto=format&fit=crop&q=80',
+  });
+  const [newStartupContact, setNewStartupContact] = useState({
+    contactName: '',
+    contactRole: '',
+    contactEmail: '',
+    contactPhone: '',
+    contactWhatsApp: '',
+    contactNote: '',
   });
   const [newStartupLinks, setNewStartupLinks] = useState<{
     websiteUrl: string;
@@ -112,7 +160,24 @@ export default function AdminStartupsTab({
   const [editModalTab, setEditModalTab] = useState<'ROUND' | 'DOCS' | 'PROVIDER'>('ROUND');
   const [editCompanyName, setEditCompanyName] = useState('');
   const [editTagline, setEditTagline] = useState('');
+  const [editCountry, setEditCountry] = useState('United States');
+  const [editCountryCode, setEditCountryCode] = useState('US');
+  const [editCity, setEditCity] = useState('');
+  const [editIndustry, setEditIndustry] = useState('');
+  const [editDueDiligenceStatus, setEditDueDiligenceStatus] = useState('VERIFIED');
   const [editPitchOverview, setEditPitchOverview] = useState('');
+  const [editProblemSolution, setEditProblemSolution] = useState('');
+  const [editBusinessModel, setEditBusinessModel] = useState('');
+  const [editMarketOpportunity, setEditMarketOpportunity] = useState('');
+  const [editFinancialHighlightsText, setEditFinancialHighlightsText] = useState('');
+  const [editContact, setEditContact] = useState({
+    contactName: '',
+    contactRole: '',
+    contactEmail: '',
+    contactPhone: '',
+    contactWhatsApp: '',
+    contactNote: '',
+  });
   const [editLogoUrl, setEditLogoUrl] = useState('');
   const [newValuation, setNewValuation] = useState('');
   const [newPerformancePct, setNewPerformancePct] = useState('0');
@@ -197,23 +262,44 @@ export default function AdminStartupsTab({
 
   const handleCreateStartup = async (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
     if (!newStartup.companyName || !newStartup.tagline || !newStartup.pitchOverview) {
-      onFeedback({ text: 'Please fill out company name, tagline, and pitch overview', type: 'error' });
+      const msg = 'Please fill out company name, tagline, and pitch overview';
+      setModalError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
 
     setCreating(true);
     try {
-      const res = await api.post('/admin/investments/listings', {
-        ...newStartup,
-        pitchDeckUrl: newStartupLinks.pitchDeckUrl || undefined,
-        officialLinks: newStartupLinks,
-        supportingDocuments: newStartupDocs,
-      });
+      const { financialHighlightsText, ...restStartup } = newStartup;
+      const finHighlights = parseKeyValueLines(financialHighlightsText || '');
+      const res = await api.post(
+        '/admin/investments/listings',
+        {
+          ...restStartup,
+          pitchDeckUrl: newStartupLinks.pitchDeckUrl || undefined,
+          officialLinks: newStartupLinks,
+          supportingDocuments: newStartupDocs,
+          contactInfo: newStartupContact,
+          financialHighlights: Object.keys(finHighlights).length > 0 ? finHighlights : undefined,
+          admin2FaCode: effective2Fa || undefined,
+        },
+        { headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {} }
+      );
       if (res.data?.success) {
         onFeedback({ text: res.data.message || 'Crowdfunding round created successfully!', type: 'success' });
         setCreateModalOpen(false);
+        setModalError(null);
         setNewStartupDocs([]);
+        setNewStartupContact({
+          contactName: '',
+          contactRole: '',
+          contactEmail: '',
+          contactPhone: '',
+          contactWhatsApp: '',
+          contactNote: '',
+        });
         setNewStartupLinks({
           websiteUrl: '',
           linkedinUrl: '',
@@ -226,7 +312,9 @@ export default function AdminStartupsTab({
         onRefresh();
       }
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to create startup listing', type: 'error' });
+      const errMsg = err.response?.data?.message || 'Failed to create startup listing';
+      setModalError(errMsg);
+      onFeedback({ text: errMsg, type: 'error' });
     } finally {
       setCreating(false);
     }
@@ -243,10 +331,29 @@ export default function AdminStartupsTab({
 
   const handleOpenValuationModal = (listing: any, initialTab: 'ROUND' | 'DOCS' | 'PROVIDER' = 'ROUND') => {
     setSelectedListing(listing);
+    setModalError(null);
     setEditModalTab(initialTab);
     setEditCompanyName(listing.companyName || '');
     setEditTagline(listing.tagline || '');
+    setEditCountry(listing.country || 'United States');
+    setEditCountryCode(listing.countryCode || 'US');
+    setEditCity(listing.city || '');
+    setEditIndustry(listing.industry || '');
+    setEditDueDiligenceStatus(listing.dueDiligenceStatus || 'VERIFIED');
     setEditPitchOverview(listing.pitchOverview || '');
+    setEditProblemSolution(listing.problemSolution || '');
+    setEditBusinessModel(listing.businessModel || '');
+    setEditMarketOpportunity(listing.marketOpportunity || '');
+    setEditFinancialHighlightsText(formatKeyValueLines(listing.financialHighlights));
+    const rawContact = listing.contactInfo && typeof listing.contactInfo === 'object' ? listing.contactInfo : {};
+    setEditContact({
+      contactName: rawContact.contactName || '',
+      contactRole: rawContact.contactRole || '',
+      contactEmail: rawContact.contactEmail || '',
+      contactPhone: rawContact.contactPhone || '',
+      contactWhatsApp: rawContact.contactWhatsApp || '',
+      contactNote: rawContact.contactNote || '',
+    });
     setEditLogoUrl(listing.logoUrl || '');
     setNewValuation(String(listing.valuation || ''));
     setNewPerformancePct(String(listing.performancePct ?? '0'));
@@ -295,8 +402,11 @@ export default function AdminStartupsTab({
 
   const handleSaveValuation = async (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
     if (!selectedListing || !newValuation || parseFloat(newValuation) <= 0) {
-      onFeedback({ text: 'Valid post-money valuation is required', type: 'error' });
+      const msg = 'Valid post-money valuation is required';
+      setModalError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
     const raisedNum = parseFloat(newFundsRaised || '0');
@@ -305,26 +415,43 @@ export default function AdminStartupsTab({
     const investorsNum = parseInt(newInvestorCount || '0', 10);
 
     if (!Number.isFinite(raisedNum) || raisedNum < 0) {
-      onFeedback({ text: 'Invested / raised funds cannot be negative', type: 'error' });
+      const msg = 'Invested / raised funds cannot be negative';
+      setModalError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
     if (!Number.isFinite(targetNum) || targetNum <= 0) {
-      onFeedback({ text: 'Funding target must be greater than zero', type: 'error' });
+      const msg = 'Funding target must be greater than zero';
+      setModalError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
     if (!Number.isFinite(minNum) || minNum <= 0) {
-      onFeedback({ text: 'Minimum investment check must be greater than zero', type: 'error' });
+      const msg = 'Minimum investment check must be greater than zero';
+      setModalError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
 
     setSavingValuation(true);
     try {
+      const parsedFinancialHighlights = parseKeyValueLines(editFinancialHighlightsText);
       const res = await api.patch(
         `/admin/investments/listings/${selectedListing.id}/valuation`,
         {
           companyName: editCompanyName,
           tagline: editTagline,
+          country: editCountry,
+          countryCode: editCountryCode,
+          city: editCity,
+          industry: editIndustry,
+          dueDiligenceStatus: editDueDiligenceStatus,
           pitchOverview: editPitchOverview,
+          problemSolution: editProblemSolution,
+          businessModel: editBusinessModel,
+          marketOpportunity: editMarketOpportunity,
+          financialHighlights: parsedFinancialHighlights,
+          contactInfo: editContact,
           logoUrl: editLogoUrl,
           valuation: parseFloat(newValuation),
           performancePct: newPerformancePct !== '' ? parseFloat(newPerformancePct) : undefined,
@@ -356,15 +483,20 @@ export default function AdminStartupsTab({
           providerActualReceivedAmount: parseFloat(provActualReceivedAmt || '0') || 0,
           providerReceivedAt: provReceivedAt || null,
           providerNotes: provNotes,
-        }
+          admin2FaCode: effective2Fa || undefined,
+        },
+        { headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {} }
       );
       if (res.data?.success) {
         onFeedback({ text: res.data.message || 'Crowdfunding round updated successfully!', type: 'success' });
         setValuationModalOpen(false);
+        setModalError(null);
         onRefresh();
       }
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to update crowdfunding round', type: 'error' });
+      const errMsg = err.response?.data?.message || 'Failed to update crowdfunding round';
+      setModalError(errMsg);
+      onFeedback({ text: errMsg, type: 'error' });
     } finally {
       setSavingValuation(false);
     }
@@ -372,6 +504,7 @@ export default function AdminStartupsTab({
 
   const handleOpenExitModal = (listing: any) => {
     setSelectedListing(listing);
+    setModalError(null);
     const raised = parseFloat(listing.verifiedFundsRaised || '0');
     setDistributionType('EXIT_BUYOUT');
     setExitMultiplier('2.0');
@@ -382,9 +515,12 @@ export default function AdminStartupsTab({
 
   const handleExecuteExit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
     if (!selectedListing) return;
     if ((!totalProceeds || parseFloat(totalProceeds) <= 0) && (!exitMultiplier || parseFloat(exitMultiplier) <= 0)) {
-      onFeedback({ text: 'Valid proceeds amount or multiplier required', type: 'error' });
+      const msg = 'Valid proceeds amount or multiplier required';
+      setModalError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
 
@@ -398,15 +534,20 @@ export default function AdminStartupsTab({
           totalGrossProceeds: totalProceeds ? parseFloat(totalProceeds) : undefined,
           exitMultiplier: exitMultiplier ? parseFloat(exitMultiplier) : undefined,
           notes: exitNotes,
-        }
+          admin2FaCode: effective2Fa || undefined,
+        },
+        { headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {} }
       );
       if (res.data?.success) {
         onFeedback({ text: res.data.message || 'Exit proceeds distributed to investor wallets!', type: 'success' });
         setExitModalOpen(false);
+        setModalError(null);
         onRefresh();
       }
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to distribute exit proceeds', type: 'error' });
+      const errMsg = err.response?.data?.message || 'Failed to distribute exit proceeds';
+      setModalError(errMsg);
+      onFeedback({ text: errMsg, type: 'error' });
     } finally {
       setDistributingExit(false);
     }
@@ -415,7 +556,9 @@ export default function AdminStartupsTab({
   const handleDeleteListing = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to suspend startup campaign for ${name}?`)) return;
     try {
-      const res = await api.delete(`/admin/investments/listings/${id}`);
+      const res = await api.delete(`/admin/investments/listings/${id}`, {
+        headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {},
+      });
       if (res.data?.success) {
         onFeedback({ text: `Listing ${name} suspended`, type: 'success' });
         onRefresh();
@@ -457,7 +600,10 @@ export default function AdminStartupsTab({
           </div>
 
           <button
-            onClick={() => setCreateModalOpen(true)}
+            onClick={() => {
+              setModalError(null);
+              setCreateModalOpen(true);
+            }}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-600/30 transition-all flex items-center gap-2 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -1046,6 +1192,48 @@ export default function AdminStartupsTab({
                   </div>
                 </div>
 
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Industry / Sector</label>
+                    <input
+                      type="text"
+                      value={editIndustry}
+                      onChange={(e) => setEditIndustry(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Country</label>
+                    <input
+                      type="text"
+                      value={editCountry}
+                      onChange={(e) => setEditCountry(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">City / HQ</label>
+                    <input
+                      type="text"
+                      value={editCity}
+                      onChange={(e) => setEditCity(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">DD Status</label>
+                    <select
+                      value={editDueDiligenceStatus}
+                      onChange={(e) => setEditDueDiligenceStatus(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                    >
+                      <option value="VERIFIED">VERIFIED</option>
+                      <option value="PENDING_REVIEW">PENDING REVIEW</option>
+                      <option value="FEATURED">FEATURED</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center justify-between gap-2">
@@ -1254,13 +1442,115 @@ export default function AdminStartupsTab({
             {editModalTab === 'DOCS' && (
               <div className="space-y-4 text-xs">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Description / Investment Thesis</label>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                    Description / Investment Thesis (500+ chars &amp; Markdown headings supported)
+                  </label>
                   <textarea
-                    rows={3}
+                    rows={5}
                     value={editPitchOverview}
                     onChange={(e) => setEditPitchOverview(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
                   />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-emerald-400 uppercase font-mono">Problem &amp; Solution</label>
+                    <textarea
+                      rows={3}
+                      placeholder="What core problem does this company solve?"
+                      value={editProblemSolution}
+                      onChange={(e) => setEditProblemSolution(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-indigo-400 uppercase font-mono">Business Model &amp; Revenue</label>
+                    <textarea
+                      rows={3}
+                      placeholder="How does the company generate revenue &amp; scale?"
+                      value={editBusinessModel}
+                      onChange={(e) => setEditBusinessModel(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-amber-400 uppercase font-mono">Market Opportunity</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Target TAM/SAM, traction, growth thesis..."
+                      value={editMarketOpportunity}
+                      onChange={(e) => setEditMarketOpportunity(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                    Financial &amp; Operational Highlights (One per line, Label: Value)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder={'Stage: Pre-Launch / Early Growth\nRevenue Target: $1.2M ARR\nUse of Funds: Engineering, Licensing & Product'}
+                    value={editFinancialHighlightsText}
+                    onChange={(e) => setEditFinancialHighlightsText(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white font-mono text-[11px] outline-none"
+                  />
+                </div>
+
+                {/* Direct Contact / Reach Out Details */}
+                <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-3">
+                  <div>
+                    <div className="font-bold text-emerald-300">Investor Contact / Reach Out Desk</div>
+                    <p className="text-[10px] text-slate-400">
+                      Shown to prospective investors via &quot;Contact / Reach Out&quot; on this opportunity&apos;s card and dossier.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <input
+                      type="text"
+                      placeholder="Contact Person / Desk (e.g. Investor Relations Team)"
+                      value={editContact.contactName}
+                      onChange={(e) => setEditContact((p) => ({ ...p, contactName: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Role / Title (e.g. Managing Director / Founder)"
+                      value={editContact.contactRole}
+                      onChange={(e) => setEditContact((p) => ({ ...p, contactRole: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="email"
+                      placeholder="Direct Email (e.g. investments@company.com)"
+                      value={editContact.contactEmail}
+                      onChange={(e) => setEditContact((p) => ({ ...p, contactEmail: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Phone / Hotline (e.g. +1 415 555 0199)"
+                      value={editContact.contactPhone}
+                      onChange={(e) => setEditContact((p) => ({ ...p, contactPhone: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                    />
+                    <input
+                      type="text"
+                      placeholder="WhatsApp / Telegram Handle or URL"
+                      value={editContact.contactWhatsApp}
+                      onChange={(e) => setEditContact((p) => ({ ...p, contactWhatsApp: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none sm:col-span-2"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Response Hours / Instructions (e.g. Mon–Fri 9am–6pm EST • Data room walkthroughs available)"
+                      value={editContact.contactNote}
+                      onChange={(e) => setEditContact((p) => ({ ...p, contactNote: e.target.value }))}
+                      className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none sm:col-span-2"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-1">
@@ -1605,10 +1895,39 @@ export default function AdminStartupsTab({
               </div>
             )}
 
+            {modalError && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-xs text-rose-300 font-bold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
+
+            <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div>
+                <div className="font-bold text-slate-200 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Admin 2FA Authorization Code</span>
+                </div>
+                <p className="text-[10px] text-slate-400">Required if 2FA is enabled on your Admin account</p>
+              </div>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={8}
+                placeholder="6-digit 2FA code"
+                value={effective2Fa}
+                onChange={(e) => handle2FaInput(e.target.value)}
+                className="sm:w-44 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-center tracking-widest outline-none focus:border-amber-500"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
               <button
                 type="button"
-                onClick={() => setValuationModalOpen(false)}
+                onClick={() => {
+                  setValuationModalOpen(false);
+                  setModalError(null);
+                }}
                 className="w-full py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
               >
                 Cancel
@@ -1717,7 +2036,38 @@ export default function AdminStartupsTab({
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Country</label>
+                  <input
+                    type="text"
+                    value={newStartup.country}
+                    onChange={(e) => setNewStartup({ ...newStartup, country: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">City / HQ</label>
+                  <input
+                    type="text"
+                    value={newStartup.city}
+                    onChange={(e) => setNewStartup({ ...newStartup, city: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div className="space-y-1 col-span-2 sm:col-span-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Min Ticket ($)</label>
+                  <input
+                    type="number"
+                    required
+                    value={newStartup.minInvestment}
+                    onChange={(e) => setNewStartup({ ...newStartup, minInvestment: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Current Valuation ($)</label>
                   <input
@@ -1741,12 +2091,25 @@ export default function AdminStartupsTab({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Min Ticket ($)</label>
+                  <label className="text-[11px] font-bold text-emerald-400 uppercase font-mono">Initial Raised ($)</label>
                   <input
                     type="number"
-                    required
-                    value={newStartup.minInvestment}
-                    onChange={(e) => setNewStartup({ ...newStartup, minInvestment: e.target.value })}
+                    min="0"
+                    step="0.01"
+                    value={newStartup.verifiedFundsRaised}
+                    onChange={(e) => setNewStartup({ ...newStartup, verifiedFundsRaised: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500 font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-emerald-400 uppercase font-mono">Initial Investors</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={newStartup.investorCount}
+                    onChange={(e) => setNewStartup({ ...newStartup, investorCount: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500 font-mono"
                   />
                 </div>
@@ -1823,15 +2186,92 @@ export default function AdminStartupsTab({
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Description &amp; Investment Thesis</label>
+                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                  Description &amp; Investment Thesis (500+ chars &amp; Markdown headings supported)
+                </label>
                 <textarea
                   required
-                  rows={3}
+                  rows={5}
                   placeholder="Detail the project scope, use of funds, and revenue model..."
                   value={newStartup.pitchOverview}
                   onChange={(e) => setNewStartup({ ...newStartup, pitchOverview: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500 resize-none"
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none focus:border-purple-500"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-emerald-400 uppercase font-mono">Problem &amp; Solution</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Core problem & product..."
+                    value={newStartup.problemSolution}
+                    onChange={(e) => setNewStartup({ ...newStartup, problemSolution: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-indigo-400 uppercase font-mono">Business Model</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Revenue streams & unit economics..."
+                    value={newStartup.businessModel}
+                    onChange={(e) => setNewStartup({ ...newStartup, businessModel: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-amber-400 uppercase font-mono">Market Opportunity</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Market size & growth..."
+                    value={newStartup.marketOpportunity}
+                    onChange={(e) => setNewStartup({ ...newStartup, marketOpportunity: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Investor Contact / Reach Out Details */}
+              <div className="p-3 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-2">
+                <div className="font-bold text-emerald-300">Investor Contact / Reach Out Desk (Optional)</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    placeholder="Contact Person / Desk"
+                    value={newStartupContact.contactName}
+                    onChange={(e) => setNewStartupContact((p) => ({ ...p, contactName: e.target.value }))}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Role / Title (e.g. Investor Relations)"
+                    value={newStartupContact.contactRole}
+                    onChange={(e) => setNewStartupContact((p) => ({ ...p, contactRole: e.target.value }))}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Direct Email (e.g. ir@company.com)"
+                    value={newStartupContact.contactEmail}
+                    onChange={(e) => setNewStartupContact((p) => ({ ...p, contactEmail: e.target.value }))}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Phone / WhatsApp Number"
+                    value={newStartupContact.contactPhone}
+                    onChange={(e) => setNewStartupContact((p) => ({ ...p, contactPhone: e.target.value }))}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Additional contact notes / office hours"
+                    value={newStartupContact.contactNote}
+                    onChange={(e) => setNewStartupContact((p) => ({ ...p, contactNote: e.target.value }))}
+                    className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white outline-none sm:col-span-2"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -2002,10 +2442,39 @@ export default function AdminStartupsTab({
               </div>
             </div>
 
+            {modalError && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-xs text-rose-300 font-bold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
+
+            <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div>
+                <div className="font-bold text-slate-200 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Admin 2FA Authorization Code</span>
+                </div>
+                <p className="text-[10px] text-slate-400">Required if 2FA is enabled on your Admin account</p>
+              </div>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={8}
+                placeholder="6-digit 2FA code"
+                value={effective2Fa}
+                onChange={(e) => handle2FaInput(e.target.value)}
+                className="sm:w-44 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-center tracking-widest outline-none focus:border-amber-500"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setCreateModalOpen(false)}
+                onClick={() => {
+                  setCreateModalOpen(false);
+                  setModalError(null);
+                }}
                 className="w-full py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
               >
                 Cancel
@@ -2097,10 +2566,39 @@ export default function AdminStartupsTab({
               </div>
             </div>
 
+            {modalError && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-xs text-rose-300 font-bold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
+
+            <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div>
+                <div className="font-bold text-slate-200 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Admin 2FA Authorization Code</span>
+                </div>
+                <p className="text-[10px] text-slate-400">Required if 2FA is enabled on your Admin account</p>
+              </div>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={8}
+                placeholder="6-digit 2FA code"
+                value={effective2Fa}
+                onChange={(e) => handle2FaInput(e.target.value)}
+                className="sm:w-44 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-center tracking-widest outline-none focus:border-amber-500"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setExitModalOpen(false)}
+                onClick={() => {
+                  setExitModalOpen(false);
+                  setModalError(null);
+                }}
                 className="w-full py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
               >
                 Cancel

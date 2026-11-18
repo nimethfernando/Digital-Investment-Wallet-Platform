@@ -4631,6 +4631,8 @@ export default function AdminPortalPage() {
             listings={startupListings}
             commitments={adminInvestments}
             listingsLoading={investmentsLoading}
+            admin2FaCode={admin2FaCode}
+            onAdmin2FaCodeChange={setAdmin2FaCode}
             onRefresh={loadData}
             onFeedback={setFeedback}
           />

@@ -25,6 +25,7 @@ export class InvestmentsService {
         ['diw_startup_listings', 'supportingDocuments', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `supportingDocuments` TEXT NULL'],
         ['diw_startup_listings', 'registrationDetails', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `registrationDetails` TEXT NULL'],
         ['diw_startup_listings', 'officialLinks', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `officialLinks` TEXT NULL'],
+        ['diw_startup_listings', 'contactInfo', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `contactInfo` TEXT NULL'],
         ['diw_startup_listings', 'riskFactors', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `riskFactors` TEXT NULL'],
         ['diw_startup_listings', 'providerName', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerName` VARCHAR(150) NULL'],
         ['diw_startup_listings', 'providerInvestedAmount', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerInvestedAmount` DECIMAL(20,2) NOT NULL DEFAULT 0.00'],
@@ -264,6 +265,7 @@ export class InvestmentsService {
     const progressPct = Math.min(100, Math.round(raised.dividedBy(target).times(100).toNumber()));
     const docs = this.safeParseJson(c.supportingDocuments, []);
     const links = this.safeParseJson(c.officialLinks, {});
+    const contact = this.safeParseJson(c.contactInfo, {});
 
     const {
       providerName: _pn,
@@ -294,6 +296,7 @@ export class InvestmentsService {
       supportingDocuments: Array.isArray(docs) ? docs : [],
       registrationDetails: c.registrationDetails || null,
       officialLinks: links && typeof links === 'object' ? links : {},
+      contactInfo: contact && typeof contact === 'object' ? contact : {},
       riskFactors: c.riskFactors || null,
       progressPct,
       useOfFunds: this.safeParseJson(c.useOfFunds, null),
