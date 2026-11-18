@@ -1518,13 +1518,17 @@ export default function ExchangeDeskPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {[
-                { code: 'ALL', label: 'All Desks' },
-                { code: 'IN', label: 'India' },
-                { code: 'LK', label: 'Sri Lanka' },
-                { code: 'AE', label: 'UAE' },
-                { code: 'GE', label: 'Georgia' },
-              ].map((country) => (
+              {(() => {
+                const seen = new Set<string>();
+                const activeCountries: { code: string; label: string }[] = [];
+                desks.forEach((d) => {
+                  const code = String(d.countryCode || '').toUpperCase();
+                  if (!code || seen.has(code)) return;
+                  seen.add(code);
+                  activeCountries.push({ code, label: d.country || code });
+                });
+                return [{ code: 'ALL', label: 'All Desks' }, ...activeCountries];
+              })().map((country) => (
                 <button
                   key={country.code}
                   onClick={() => setSelectedCountry(country.code)}
