@@ -25,6 +25,7 @@ import {
   QrCode,
 } from 'lucide-react';
 import { DepositModal } from '../../components/DepositModal';
+import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
 
 export default function PackagesPage() {
   const router = useRouter();
@@ -266,10 +267,37 @@ export default function PackagesPage() {
       {/* CUSTOM ALLOCATOR & RETURN CALCULATOR */}
       <div className="max-w-3xl mx-auto rounded-3xl p-8 sm:p-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-8">
         <div>
-          <div className="flex items-center justify-between">
-            <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
-              Package Calculator & Allocation Desk
-            </h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
+                Package Calculator & Allocation Desk
+              </h3>
+              <InvestmentInfoTip
+                tone="emerald"
+                title="What Happens When You Invest in an FD Package"
+                subtitle={`${selectedTerm}-Month Lock-In • ${(monthlyRate * 100).toFixed(2)}% Monthly Return`}
+                items={[
+                  {
+                    label: 'Principal Moves to Locked Vault',
+                    detail: 'Your invested amount moves from Available USD Wallet into Locked FD Principal for the selected lock-in period (or activates once your deposit is verified).',
+                  },
+                  {
+                    label: 'Monthly Yield Credits to Available USD',
+                    detail: `Each completed monthly cycle credits ${(monthlyRate * 100).toFixed(2)}% (+$${monthlyEst.toFixed(2)} USD/mo) directly to your liquid Available USD Wallet — withdrawable immediately.`,
+                  },
+                  {
+                    label: 'Maturity Principal Release',
+                    detail: `After ${selectedTerm} months, your full principal is released back into your Available USD Wallet (or via Dashboard → Request Withdrawal Settlement → FD Principal).`,
+                  },
+                  {
+                    label: 'Where to Track Your Package',
+                    detail: 'Track countdown, paid monthly yields, and maturity dates inside Client Dashboard → Investments → Fixed Deposits.',
+                  },
+                ]}
+                linkHref="/dashboard"
+                linkLabel="View My Packages in Dashboard"
+              />
+            </div>
             <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
               {selectedTerm} Months @ {(monthlyRate * 100).toFixed(2)}%/mo
             </span>

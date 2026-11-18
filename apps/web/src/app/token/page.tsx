@@ -24,6 +24,7 @@ import {
   Lock,
   Unlock,
 } from 'lucide-react';
+import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
 
 export default function AvoraTokenPage() {
   const { user } = useAuth();
@@ -346,11 +347,38 @@ export default function AvoraTokenPage() {
         {/* Module B: Instant Wallet Purchase & Allocation */}
         <form onSubmit={handlePurchaseTokens} className="lg:col-span-6 p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-5">
           <div className="flex items-center justify-between gap-2">
-            <div className="space-y-0.5">
-              <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                Buy Avora Token ($AVR)
-              </h3>
-              <p className="text-xs text-slate-500">Instant Wallet Purchase @ ${livePriceUsd.toFixed(2)} USD / AVR</p>
+            <div className="flex items-start gap-2">
+              <div className="space-y-0.5">
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  Buy Avora Token ($AVR)
+                </h3>
+                <p className="text-xs text-slate-500">Instant Wallet Purchase @ ${livePriceUsd.toFixed(2)} USD / AVR</p>
+              </div>
+              <InvestmentInfoTip
+                tone="emerald"
+                title="What Happens When You Invest in Avora Token ($AVR)"
+                subtitle={`Live Price: $${livePriceUsd.toFixed(2)} USD / AVR • Lock-In: ${tokenInfo?.lockinDays ?? 180} Days`}
+                items={[
+                  {
+                    label: 'Instant Wallet Settlement',
+                    detail: `Debits your selected USD, USDT, or USDC balance and credits ${Math.round((allocAmount || 0) / (livePriceUsd || 0.1)).toLocaleString()} $AVR tokens to your Avora vault immediately.`,
+                  },
+                  {
+                    label: 'How You Earn Profit',
+                    detail: 'As the platform valuation price of $AVR rises above your average entry price, your holding value & ROI % increase (plus fee discounts and card rewards).',
+                  },
+                  {
+                    label: 'Unlock Window & Redemption to Cash',
+                    detail: `Holdings unlock after ${tokenInfo?.lockinDays ?? 180} days (or earlier if Admin activates instant unlock). Once unlocked, redeem any amount of $AVR directly back into USD, USDT, or USDC in your wallet on this page.`,
+                  },
+                  {
+                    label: 'Where to Track Your $AVR',
+                    detail: 'Track live value, entry price, profit/ROI, and unlock countdown in Client Dashboard → Investments → AVR Tokens, or below at #redeem.',
+                  },
+                ]}
+                linkHref="/dashboard"
+                linkLabel="Open My Portfolio in Dashboard"
+              />
             </div>
             {userStatus?.earlyAccess?.isPaidAllocation ? (
               <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">

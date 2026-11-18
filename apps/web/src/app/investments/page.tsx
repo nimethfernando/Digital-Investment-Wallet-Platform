@@ -30,6 +30,7 @@ import {
   Award,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
+import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
 
 interface StartupItem {
   id: string;
@@ -293,7 +294,7 @@ export default function InvestmentsMarketplacePage() {
         </div>
 
         {/* Transparent Fee Model Badge Strip */}
-        <div className="inline-flex flex-wrap items-center justify-center gap-4 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300">
+        <div className="inline-flex flex-wrap items-center justify-center gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300">
           <span className="font-bold flex items-center gap-1.5 text-slate-900 dark:text-white">
             <Percent className="w-3.5 h-3.5 text-emerald-500" />
             Fee Structure:
@@ -301,6 +302,32 @@ export default function InvestmentsMarketplacePage() {
           <span>• {feeConfig.allocationFeePct}% Platform Allocation Fee (Added to investment)</span>
           <span>• {feeConfig.profitSharePct}% Profit-Sharing Fee (On realized net profit only)</span>
           <span className="text-emerald-600 font-bold">• 0% Fee on Unrealized Valuation</span>
+          <InvestmentInfoTip
+            tone="amber"
+            buttonLabel="How Startup Investments Work"
+            title="What Happens When You Invest in a Startup"
+            subtitle="From wallet debit to valuation tracking & realized cash exits"
+            items={[
+              {
+                label: 'Escrow Deduction & Nominee Allocation',
+                detail: `Your net principal (plus the ${feeConfig.allocationFeePct}% platform fee) is debited from your Available USD Wallet (or USDT fallback) and locked into Venture Nominee Escrow under status CLEARED_FUNDS.`,
+              },
+              {
+                label: 'Where to Track Your Holding',
+                detail: 'View your startup stake anytime in Client Portal → Investments → Startup Equity, or click "Investor Dashboard & Ledger" right on this page.',
+              },
+              {
+                label: 'Live Valuation Adjustments',
+                detail: 'Whenever the company completes a new valuation milestone or Admin adjusts the company valuation, your Holding Valuation & Unrealized Growth % adjust automatically with 0% fee.',
+              },
+              {
+                label: 'Dividends & Exit / Buyout Payouts',
+                detail: `When Admin distributes startup dividends or a full exit buyout, your returned principal + profit (minus ${feeConfig.profitSharePct}% profit-share on net gains only) credit straight to your Available USD Wallet for withdrawal.`,
+              },
+            ]}
+            linkHref="/dashboard"
+            linkLabel="Go to Client Dashboard → Investments"
+          />
         </div>
       </div>
 
@@ -532,9 +559,33 @@ export default function InvestmentsMarketplacePage() {
 
             <form onSubmit={handleExecuteInvest} className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Target Investment in Startup (USD)
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Target Investment in Startup (USD)
+                  </label>
+                  <InvestmentInfoTip
+                    tone="amber"
+                    buttonLabel="What happens next?"
+                    title={`How Your ${selectedCampaign.companyName} Investment Works`}
+                    subtitle={`Instrument: ${selectedCampaign.instrument} • ${feeConfig.allocationFeePct}% entry / ${feeConfig.profitSharePct}% realized profit-share`}
+                    items={[
+                      {
+                        label: 'Wallet Deduction',
+                        detail: `Your Available USD Wallet (or USDT if USD is lower) is debited by the investment amount + ${feeConfig.allocationFeePct}% allocation fee.`,
+                      },
+                      {
+                        label: 'Track Equity Anytime',
+                        detail: 'Immediately appears in Dashboard → Investments → Startup Equity and the Investor Dashboard & Ledger on this page.',
+                      },
+                      {
+                        label: 'Valuation Growth vs Cash Payouts',
+                        detail: `Paper valuation updates reflect in your Holding Value automatically. Cash returns pay out to your USD Wallet only when dividends or an exit/buyout are distributed (${feeConfig.profitSharePct}% fee on profit only).`,
+                      },
+                    ]}
+                    linkHref="/dashboard"
+                    linkLabel="Open My Dashboard"
+                  />
+                </div>
                 <div className="relative mt-1">
                   <span className="absolute left-4 top-3 text-lg font-bold text-slate-400">$</span>
                   <input

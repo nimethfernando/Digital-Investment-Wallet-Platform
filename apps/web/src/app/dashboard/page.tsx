@@ -13,6 +13,7 @@ import { QrTransferModal } from '../../components/QrTransferModal';
 import { DepositModal } from '../../components/DepositModal';
 import { ChooseSendMethodModal } from '../../components/ChooseSendMethodModal';
 import { BankAccountsModule, UserBankAccount } from '../../components/BankAccountsModule';
+import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
 import {
   CustomerNotificationItem,
   CustomerNotificationSummary,
@@ -2313,6 +2314,27 @@ function DashboardContent() {
                     <h3 className="text-base font-bold text-slate-900 dark:text-white">
                       Fixed-Term Capital Deployments (1% Monthly Yield)
                     </h3>
+                    <InvestmentInfoTip
+                      tone="emerald"
+                      title="How Your Fixed Deposits Work"
+                      subtitle="Monthly yield credits & maturity principal release"
+                      items={[
+                        {
+                          label: 'Principal Locked Until Maturity',
+                          detail: 'Your FD principal remains locked for the 6-month term while generating monthly returns.',
+                        },
+                        {
+                          label: 'Monthly Yields Pay to USD Wallet',
+                          detail: 'Each monthly cycle credits yield straight to your Available USD Wallet, withdrawable immediately.',
+                        },
+                        {
+                          label: 'Principal Release on Maturity',
+                          detail: 'When lock-in completes, principal moves to Available USD Wallet (or can be released via Withdrawals → Request Settlement → FD Principal).',
+                        },
+                      ]}
+                      linkHref="/packages"
+                      linkLabel="Open Packages Desk"
+                    />
                   </div>
                   <span className="text-xs text-slate-500 font-mono">
                     Total Locked: ${parseFloat(lockedPrincipal).toLocaleString()} USD
@@ -2426,9 +2448,32 @@ function DashboardContent() {
                   <div className="flex items-center gap-2">
                     <Building className="w-5 h-5 text-amber-500" />
                     <div>
-                      <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                        Startup Venture Equity Investments ({startupInvestments.length})
-                      </h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                          Startup Venture Equity Investments ({startupInvestments.length})
+                        </h3>
+                        <InvestmentInfoTip
+                          tone="amber"
+                          title="How Your Startup Investments Are Adjusted & Settled"
+                          subtitle="Valuation updates, dividend payouts & exit buyouts"
+                          items={[
+                            {
+                              label: 'Initial Net Allocation & Fee',
+                              detail: 'When you invest, the net amount is held under Venture Nominee Escrow and the entry fee (e.g. 5%) is added on top. Zero ongoing fee is charged on paper valuation.',
+                            },
+                            {
+                              label: 'Mark-to-Market Valuation Adjustments',
+                              detail: 'When Admin updates a startup’s valuation in Startup Portfolio & Equity, your Holding Value & Unrealized Growth % scale proportionally.',
+                            },
+                            {
+                              label: 'Cash Dividends & Exit / Buyout Payouts',
+                              detail: 'When Admin executes a Dividend or Exit/Buyout distribution, your capital return + net profit (minus the realized profit-share fee on gains only) credit straight into your Available USD Wallet.',
+                            },
+                          ]}
+                          linkHref="/investments"
+                          linkLabel="Open Startup Equity Portal"
+                        />
+                      </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         Track live mark-to-market valuation growth, quarterly disclosures, and realized exit distributions.
                       </p>

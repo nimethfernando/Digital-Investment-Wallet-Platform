@@ -385,7 +385,7 @@ export class InvestmentsService {
             netInvestedAmount: netDec,
             instrument: data.instrument || campaign.instrument,
             status: 'CLEARED_FUNDS',
-            currentValuation: campaign.valuation,
+            currentValuation: netDec,
             unrealizedReturnPct: new Decimal('0.00'),
             realizedProceeds: new Decimal('0.00'),
             returnOfCapital: new Decimal('0.00'),
@@ -607,6 +607,7 @@ export class InvestmentsService {
             industry: true,
             country: true,
             stage: true,
+            valuation: true,
           },
         },
       },
@@ -668,26 +669,51 @@ export class InvestmentsService {
           profitShareBasis: 'Eligible net realized profit only (no fees on unrealized valuation)',
         },
       },
-      commitments: commitments.map((c) => ({
-        id: c.id,
-        investmentCode: c.investmentCode,
-        companyName: c.listing.companyName,
-        slug: c.listing.slug,
-        industry: c.listing.industry,
-        country: c.listing.country,
-        instrument: c.instrument,
-        grossAmount: Number(c.grossAmount),
-        allocationFeeAmount: Number(c.allocationFeeAmount),
-        netInvestedAmount: Number(c.netInvestedAmount),
-        status: c.status,
-        currentValuation: c.currentValuation ? Number(c.currentValuation) : null,
-        realizedProceeds: Number(c.realizedProceeds),
-        returnOfCapital: Number(c.returnOfCapital),
-        eligibleNetProfit: Number(c.eligibleNetProfit),
-        profitShareFeeAmount: Number(c.profitShareFeeAmount),
-        netDistributedProfit: Number(c.netDistributedProfit),
-        createdAt: c.createdAt,
-      })),
+      commitments: commitments.map((c) => {
+        const netNum = Number(c.netInvestedAmount);
+        const rawCurVal = c.currentValuation ? Number(c.currentValuation) : netNum;
+        const rawRetPct = c.unrealizedReturnPct ? Number(c.unrealizedReturnPct) : 0;
+        const listingVal = c.listing?.valuation ? Number(c.listing.valuation) : 0;
+        // Guard legacy rows created when currentValuation mistakenly stored company valuation instead of investor holding value
+        const normalizedHoldingVal =
+          rawRetPct === 0 && listingVal > 0 && rawCurVal === listingVal && netNum < listingVal
+            ? netNum
+            : rawCurVal;
+        return {
+          id: c.id,
+          investmentCode: c.investmentCode,
+          companyName: c.listing.companyName,
+          slug: c.listing.slug,
+          industry: c.listing.industry,
+          country: c.listing.country,
+          listing: {
+            id: c.listing.id,
+            slug: c.listing.slug,
+            companyName: c.listing.companyName,
+            logoUrl: c.listing.logoUrl,
+            industry: c.listing.industry,
+            country: c.listing.country,
+            stage: c.listing.stage,
+            valuation: listingVal,
+          },
+          instrument: c.instrument,
+          ownershipPct: c.ownershipPct ? Number(c.ownershipPct) : null,
+          grossAmount: Number(c.grossAmount),
+          allocationFeePct: Number(c.allocationFeePct),
+          allocationFeeAmount: Number(c.allocationFeeAmount),
+          netInvestedAmount: netNum,
+          profitShareFeePct: Number(c.profitShareFeePct),
+          status: c.status,
+          currentValuation: normalizedHoldingVal,
+          unrealizedReturnPct: rawRetPct,
+          realizedProceeds: Number(c.realizedProceeds),
+          returnOfCapital: Number(c.returnOfCapital),
+          eligibleNetProfit: Number(c.eligibleNetProfit),
+          profitShareFeeAmount: Number(c.profitShareFeeAmount),
+          netDistributedProfit: Number(c.netDistributedProfit),
+          createdAt: c.createdAt,
+        };
+      }),
       watchlist: watchlist.map((w) => this.formatCampaign(w.listing)),
       inquiries,
     };
