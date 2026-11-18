@@ -560,13 +560,13 @@ export default function AutoContentPublisher({
           <div className="space-y-1.5">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold uppercase tracking-wider">
               <BookOpen className="w-3.5 h-3.5" />
-              <span>Institutional Thought Leadership &amp; Research Papers CMS</span>
+              <span>Announcements &amp; Platform Updates CMS</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-              Manage Articles, Research Papers &amp; Market Insights
+              Manage Official Announcements &amp; Updates
             </h2>
             <p className="text-xs text-slate-400 max-w-2xl">
-              Create, edit, publish, unpublish, feature, or delete any article on the Home Page and <code className="text-emerald-400">/blog</code> Research Directory — including title, category, tags, author, publish date, read time, key takeaways, and body copy.
+              Create, edit, publish, unpublish, feature, or delete any announcement on the Home Page and <code className="text-emerald-400">/announcements</code> Directory — including title, category, tags, author, publish date, key takeaways, and body copy.
             </p>
           </div>
 
@@ -577,7 +577,7 @@ export default function AutoContentPublisher({
               className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg shadow-emerald-950/50 flex items-center gap-2 cursor-pointer transition-all"
             >
               <Plus className="w-4 h-4" />
-              <span>+ Create New Article</span>
+              <span>+ Create Announcement</span>
             </button>
 
             {onOpenRatesConfig && (
@@ -602,11 +602,11 @@ export default function AutoContentPublisher({
             </button>
 
             <Link
-              href="/blog"
+              href="/announcements"
               target="_blank"
               className="px-4 py-3 rounded-2xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-colors"
             >
-              <span>View Public /blog</span>
+              <span>View Public /announcements</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </Link>
           </div>

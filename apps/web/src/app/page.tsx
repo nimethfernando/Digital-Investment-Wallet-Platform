@@ -1094,26 +1094,26 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* LATEST BLOGS & MARKET INSIGHTS SECTION */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" id="blog">
+      {/* LATEST ANNOUNCEMENTS & MARKET UPDATES SECTION */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" id="announcements">
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
           <div className="space-y-3 max-w-2xl">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider">
-              <Sparkles className="w-3.5 h-3.5" /> Latest Blogs &amp; Market Insights
+              <Sparkles className="w-3.5 h-3.5" /> Latest Announcements &amp; Platform Updates
             </div>
             <h3 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-              Institutional Thought Leadership &amp; Research Papers
+              Official Announcements, Notices &amp; Market Updates
             </h3>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              In-depth architectural breakdowns, cross-border FX liquidity reports, venture crowdfunding models, and double-entry ledger papers published by Avora Bank’s research desk.
+              Platform notices, settlement corridor updates, treasury briefs, and official releases published by Avora Bank.
             </p>
           </div>
 
           <Link
-            href="/blog"
+            href="/announcements"
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-50 dark:bg-slate-900 hover:bg-emerald-100 dark:hover:bg-slate-800 text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm font-bold transition-all border border-emerald-200/60 dark:border-slate-800 self-start md:self-end group shadow-xs"
           >
-            <span>View All Research Articles</span>
+            <span>View All Announcements</span>
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Link>
         </div>
@@ -1126,7 +1126,7 @@ export default function HomePage() {
             >
               <div>
                 <Link
-                  href={`/blog/${post.slug}`}
+                  href={`/announcements/${post.slug}`}
                   className="block relative aspect-[16/9] w-full overflow-hidden bg-slate-900"
                 >
                   <img
@@ -1156,7 +1156,7 @@ export default function HomePage() {
                   </div>
 
                   <h4 className="text-lg font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors line-clamp-2 leading-snug">
-                    <Link href={`/blog/${post.slug}`}>{post.title}</Link>
+                    <Link href={`/announcements/${post.slug}`}>{post.title}</Link>
                   </h4>
 
                   <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-3 leading-relaxed">
@@ -1182,10 +1182,10 @@ export default function HomePage() {
                     {post.authorName}
                   </span>
                   <Link
-                    href={`/blog/${post.slug}`}
+                    href={`/announcements/${post.slug}`}
                     className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 group-hover:translate-x-1 transition-transform"
                   >
-                    Read Article <ArrowRight className="w-3.5 h-3.5" />
+                    Read Announcement <ArrowRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>
               </div>

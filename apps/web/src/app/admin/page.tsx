@@ -1781,7 +1781,7 @@ export default function AdminPortalPage() {
             { id: 'config', label: 'FX Rates & Fee Controls', icon: Sliders },
             { id: 'system', label: 'System & Maintenance', icon: Settings },
             { id: 'audit', label: 'Audit Logs', icon: FileText },
-            { id: 'content', label: 'Articles & Research CMS', icon: Sparkles },
+            { id: 'content', label: 'Announcements CMS', icon: Sparkles },
             { id: 'disputes', label: `Inquiries & Chat (${tabBadgeCounts.disputes})`, icon: MessageSquare },
           ].map((t) => {
             const Icon = t.icon;
@@ -2394,7 +2394,7 @@ export default function AdminPortalPage() {
                   className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Articles &amp; Research CMS</span>
+                  <span>Announcements CMS</span>
                 </button>
                 <button
                   type="button"

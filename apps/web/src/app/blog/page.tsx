@@ -78,17 +78,17 @@ export default function BlogListingPage() {
       {/* Page Header */}
       <div className="text-center max-w-3xl mx-auto space-y-4">
         <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider">
-          <Sparkles className="w-3.5 h-3.5" /> Avora Bank Research &amp; Insights
+          <Sparkles className="w-3.5 h-3.5" /> Avora Bank Announcements &amp; Notices
         </div>
         <h1 className="text-3xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
-          Institutional Thought Leadership &amp; Market Papers
+          Official Announcements &amp; Platform Updates
         </h1>
         <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
-          In-depth architectural breakdowns, cross-border FX liquidity reports, venture crowdfunding structures, and treasury risk papers published by Avora Bank’s research desk.
+          Platform releases, liquidity desk notices, product updates, and official treasury announcements from Avora Bank.
         </p>
       </div>
 
-      {/* Featured Research Hero Card */}
+      {/* Featured Announcement Hero Card */}
       {!searchQuery && selectedCategory === 'all' && !activeTag && featuredPost && (
         <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 p-6 sm:p-10 lg:p-12 relative overflow-hidden shadow-2xl">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
@@ -100,7 +100,7 @@ export default function BlogListingPage() {
               />
               <div className="absolute top-4 left-4">
                 <span className="px-3 py-1 rounded-full bg-emerald-600 text-white text-xs font-bold uppercase tracking-wider shadow-md">
-                  Featured Research
+                  Featured Announcement
                 </span>
               </div>
             </div>
@@ -121,7 +121,7 @@ export default function BlogListingPage() {
 
               <h2 className="text-2xl sm:text-3xl lg:text-4xl font-black leading-tight tracking-tight">
                 <Link
-                  href={`/blog/${featuredPost.slug}`}
+                  href={`/announcements/${featuredPost.slug}`}
                   className="hover:text-emerald-400 transition-colors"
                 >
                   {featuredPost.title}
@@ -139,7 +139,7 @@ export default function BlogListingPage() {
                 </div>
 
                 <Link
-                  href={`/blog/${featuredPost.slug}`}
+                  href={`/announcements/${featuredPost.slug}`}
                   className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg transition-all"
                 >
                   <span>Read Full Paper</span>
@@ -167,7 +167,7 @@ export default function BlogListingPage() {
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              {cat === 'all' ? 'All Articles' : cat}
+              {cat === 'all' ? 'All Announcements' : cat}
             </button>
           ))}
         </div>
@@ -178,7 +178,7 @@ export default function BlogListingPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search research & insights..."
+            placeholder="Search announcements & updates..."
             className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
@@ -205,10 +205,10 @@ export default function BlogListingPage() {
         <div className="text-center py-16 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
           <BookOpen className="w-10 h-10 text-slate-400 mx-auto" />
           <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-            No matching articles found
+            No matching announcements found
           </h3>
           <p className="text-xs text-slate-500">
-            Try clearing your search filter or selecting another research category.
+            Try clearing your search filter or selecting another category.
           </p>
         </div>
       ) : (
@@ -216,7 +216,7 @@ export default function BlogListingPage() {
           {filteredPosts.map((post) => (
             <article
               key={post.id}
-              onClick={() => router.push(`/blog/${post.slug}`)}
+              onClick={() => router.push(`/announcements/${post.slug}`)}
               className="group rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden flex flex-col justify-between hover:shadow-2xl hover:border-emerald-500/50 transition-all duration-300 cursor-pointer"
             >
               <div>

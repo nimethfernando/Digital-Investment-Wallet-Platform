@@ -188,17 +188,17 @@ export default function BlogPostDetailPage() {
     return (
       <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
         <h1 className="text-2xl font-black text-slate-900 dark:text-white">
-          Research Article Not Found
+          Announcement Not Found
         </h1>
         <p className="text-xs text-slate-500">
-          The requested article could not be located in our research directory.
+          The requested announcement could not be located.
         </p>
         <Link
-          href="/blog"
+          href="/announcements"
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to All Articles
+          Back to All Announcements
         </Link>
       </div>
     );
@@ -211,11 +211,11 @@ export default function BlogPostDetailPage() {
       {/* Back Link */}
       <div>
         <Link
-          href="/blog"
+          href="/announcements"
           className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Avora Research &amp; Insights</span>
+          <span>Back to All Announcements</span>
         </Link>
       </div>
 
@@ -556,7 +556,7 @@ export default function BlogPostDetailPage() {
         {post.tags.map((tag) => (
           <Link
             key={tag}
-            href="/blog"
+            href="/announcements"
             className="px-3 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-emerald-500/20 hover:text-emerald-500 transition-colors"
           >
             #{tag}
@@ -588,16 +588,16 @@ export default function BlogPostDetailPage() {
         </div>
       </div>
 
-      {/* Related Articles */}
+      {/* Related Announcements */}
       <div className="pt-8 border-t border-slate-200 dark:border-slate-800 space-y-6">
         <h3 className="text-xl font-black text-slate-900 dark:text-white">
-          Related Research &amp; Insights
+          Related Announcements &amp; Updates
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {relatedPosts.map((rel) => (
             <Link
               key={rel.id}
-              href={`/blog/${rel.slug}`}
+              href={`/announcements/${rel.slug}`}
               className="group p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-500/50 transition-all space-y-2.5 flex flex-col justify-between"
             >
               <div className="space-y-2">
