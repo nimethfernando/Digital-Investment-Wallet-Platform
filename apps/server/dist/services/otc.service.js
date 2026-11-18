@@ -40,6 +40,53 @@ const DEFAULT_DESK_LOCATION_FALLBACKS = {
     },
 };
 class OtcService {
+    schemaEnsured = false;
+    async ensureOtcSchema() {
+        if (this.schemaEnsured)
+            return;
+        try {
+            await prisma_1.prisma.$executeRawUnsafe(`
+        ALTER TABLE \`diw_users\` ADD COLUMN \`isAvailable\` BOOLEAN NOT NULL DEFAULT true
+      `).catch(() => { });
+            await prisma_1.prisma.$executeRawUnsafe(`
+        ALTER TABLE \`diw_users\` ADD COLUMN \`availabilityUpdatedAt\` DATETIME(3) NULL
+      `).catch(() => { });
+            await prisma_1.prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS \`diw_otc_inquiries\` (
+          \`id\` VARCHAR(191) NOT NULL,
+          \`inquiryCode\` VARCHAR(30) NOT NULL,
+          \`deskId\` VARCHAR(191) NOT NULL,
+          \`customerId\` VARCHAR(191) NOT NULL,
+          \`operatorId\` VARCHAR(191) NOT NULL,
+          \`subject\` VARCHAR(180) NOT NULL,
+          \`status\` VARCHAR(30) NOT NULL DEFAULT 'OPEN',
+          \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          \`updatedAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          PRIMARY KEY (\`id\`),
+          UNIQUE INDEX \`diw_otc_inquiries_inquiryCode_key\` (\`inquiryCode\`),
+          INDEX \`diw_otc_inquiries_deskId_customerId_status_idx\` (\`deskId\`, \`customerId\`, \`status\`),
+          INDEX \`diw_otc_inquiries_operatorId_status_idx\` (\`operatorId\`, \`status\`)
+        ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+      `).catch(() => { });
+            await prisma_1.prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS \`diw_otc_inquiry_messages\` (
+          \`id\` VARCHAR(191) NOT NULL,
+          \`inquiryId\` VARCHAR(191) NOT NULL,
+          \`senderId\` VARCHAR(191) NOT NULL,
+          \`senderName\` VARCHAR(120) NOT NULL,
+          \`senderRole\` VARCHAR(20) NOT NULL DEFAULT 'USER',
+          \`message\` TEXT NOT NULL,
+          \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+          PRIMARY KEY (\`id\`),
+          INDEX \`diw_otc_inquiry_messages_inquiryId_createdAt_idx\` (\`inquiryId\`, \`createdAt\`)
+        ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+      `).catch(() => { });
+            this.schemaEnsured = true;
+        }
+        catch {
+            // ignore concurrent schema init
+        }
+    }
     parseCoord(val) {
         if (val === null || val === undefined || val === '')
             return null;
@@ -208,7 +255,10 @@ class OtcService {
             securityDeposit: new decimal_js_1.default(d.securityDeposit.toString()).toFixed(2),
             depositStatus: d.depositStatus,
             status: d.status,
-            isOnline: d.isOnline,
+            isOnline: d.status === 'ACTIVE' && Boolean(d.isOnline) && d.user?.isAvailable !== false,
+            operatorIsAvailable: d.user?.isAvailable !== false,
+            operatorAvailabilityUpdatedAt: d.user?.availabilityUpdatedAt || null,
+            isHouseDesk: Boolean(d.user?.email?.toLowerCase?.().endsWith('@avorabank.com')),
             buyRateMarginPct: new decimal_js_1.default(d.buyRateMarginPct.toString()).toNumber(),
             sellRateMarginPct: new decimal_js_1.default(d.sellRateMarginPct.toString()).toNumber(),
             totalTrades: d.totalTrades,
@@ -375,24 +425,26 @@ class OtcService {
      * List verified OTC desks with location-based filtering
      */
     async listDesks(filters) {
+        await this.ensureOtcSchema();
         await this.ensureDefaultDesks();
         const where = { status: 'ACTIVE' };
         if (filters.countryCode)
             where.countryCode = filters.countryCode.toUpperCase();
         if (filters.city)
             where.city = { contains: filters.city };
-        if (filters.isOnline !== undefined)
-            where.isOnline = filters.isOnline;
         const desks = await prisma_1.prisma.otcDesk.findMany({
             where,
             include: {
                 user: {
                     select: {
                         id: true,
+                        email: true,
                         firstName: true,
                         lastName: true,
                         displayName: true,
                         kycStatus: true,
+                        isAvailable: true,
+                        availabilityUpdatedAt: true,
                         createdAt: true,
                     },
                 },
@@ -407,7 +459,11 @@ class OtcService {
                 return list.includes(targetCur);
             });
         }
-        return result.map((d) => this.formatDesk(d, false));
+        const formatted = result.map((d) => this.formatDesk(d, false));
+        if (filters.isOnline !== undefined) {
+            return formatted.filter((d) => d.isOnline === filters.isOnline);
+        }
+        return formatted;
     }
     /**
      * Apply to operate an OTC Desk (requires $1,000 security deposit locked, unique desk & operator names,
@@ -1375,6 +1431,17 @@ class OtcService {
             },
         })
             .catch(() => { })));
+        // If customer messaged an official @avorabank.com house desk (e.g. Colombo Central OTC Desk), also alert Admin
+        if (senderId === trade.customerId) {
+            const opUser = await prisma_1.prisma.user
+                .findUnique({ where: { id: trade.operatorId }, select: { email: true } })
+                .catch(() => null);
+            if (opUser?.email?.toLowerCase().endsWith('@avorabank.com')) {
+                notification_provider_1.notificationService
+                    .sendAdminAlert(`OTC Desk Message [${trade.tradeCode}]`, `Customer ${senderName} sent a message to institutional desk on ${trade.tradeCode}:\n"${cleanMsg}"\n\nReply in Admin → OTC Desks & Trades → OTC Escrow Trades.`)
+                    .catch(() => { });
+            }
+        }
         return createdMsg;
     }
     /**
@@ -1384,9 +1451,9 @@ class OtcService {
         const trade = await prisma_1.prisma.otcTrade.findUnique({
             where: { id: tradeId },
             include: {
-                desk: { include: { user: true } },
-                customer: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, phone: true } },
-                operator: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, phone: true } },
+                desk: { include: { user: { select: { id: true, email: true, firstName: true, lastName: true, displayName: true, isAvailable: true, availabilityUpdatedAt: true } } } },
+                customer: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, phone: true, isAvailable: true } },
+                operator: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, phone: true, isAvailable: true } },
                 messages: { orderBy: { createdAt: 'asc' } },
             },
         });
@@ -1409,7 +1476,18 @@ class OtcService {
         const desk = await prisma_1.prisma.otcDesk.findUnique({
             where: { userId },
             include: {
-                user: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, kycStatus: true } },
+                user: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        displayName: true,
+                        email: true,
+                        kycStatus: true,
+                        isAvailable: true,
+                        availabilityUpdatedAt: true,
+                    },
+                },
                 trades: {
                     orderBy: { createdAt: 'desc' },
                     take: 15,
@@ -1439,6 +1517,14 @@ class OtcService {
         const updateData = {};
         if (data.isOnline !== undefined) {
             updateData.isOnline = desk.status === 'ACTIVE' ? data.isOnline : false;
+            if (desk.status === 'ACTIVE') {
+                await prisma_1.prisma.user
+                    .update({
+                    where: { id: userId },
+                    data: { isAvailable: Boolean(data.isOnline), availabilityUpdatedAt: new Date() },
+                })
+                    .catch(() => { });
+            }
         }
         if (data.buyRateMarginPct !== undefined && Number.isFinite(Number(data.buyRateMarginPct))) {
             updateData.buyRateMarginPct = new decimal_js_1.default(data.buyRateMarginPct).toFixed(4);
@@ -1507,6 +1593,8 @@ class OtcService {
                             displayName: true,
                             phone: true,
                             kycStatus: true,
+                            isAvailable: true,
+                            availabilityUpdatedAt: true,
                         },
                     },
                     _count: {
@@ -2077,6 +2165,290 @@ class OtcService {
             }
         }, { timeout: 30000, maxWait: 10000 });
         return result;
+    }
+    // ============================================================================
+    // PRE-TRADE OTC DESK INQUIRIES (ASK AVAILABILITY / CURRENCY BEFORE ESCROW)
+    // ============================================================================
+    /**
+     * Customer sends a pre-trade inquiry message to any active OTC Desk (e.g. "Are you available / have LKR ready?")
+     */
+    async createOrMessageDeskInquiry(customerId, deskId, data) {
+        await this.ensureOtcSchema();
+        const cleanMsg = String(data.message || '').trim();
+        if (cleanMsg.length < 2) {
+            throw new Error('Please enter a message for the OTC desk.');
+        }
+        const desk = await prisma_1.prisma.otcDesk.findFirst({
+            where: { OR: [{ id: deskId }, { deskCode: deskId }] },
+            include: { user: { select: { id: true, email: true, firstName: true, lastName: true, displayName: true } } },
+        });
+        if (!desk || desk.status !== 'ACTIVE') {
+            throw new Error('This OTC Desk is not active.');
+        }
+        if (desk.userId === customerId) {
+            throw new Error('You cannot send a customer inquiry to your own OTC desk.');
+        }
+        const sender = await prisma_1.prisma.user.findUnique({
+            where: { id: customerId },
+            select: { id: true, firstName: true, lastName: true, displayName: true, email: true },
+        });
+        const senderName = sender?.displayName
+            ? `${`${sender.firstName || ''} ${sender.lastName || ''}`.trim() || 'Trader'} (@${sender.displayName})`
+            : `${sender?.firstName || ''} ${sender?.lastName || ''}`.trim() || sender?.email?.split('@')[0] || 'Client';
+        // Reuse existing open inquiry for this customer + desk if present, so conversation stays in one thread
+        let inquiry = await prisma_1.prisma.otcInquiry.findFirst({
+            where: {
+                deskId: desk.id,
+                customerId,
+                status: { in: ['OPEN', 'REPLIED'] },
+            },
+            orderBy: { updatedAt: 'desc' },
+        });
+        const subject = String(data.subject || '').trim().slice(0, 175) ||
+            `Pre-Trade Availability Check — ${desk.deskName}`;
+        if (!inquiry) {
+            const inquiryCode = `OINQ-${Date.now().toString().slice(-6)}`;
+            inquiry = await prisma_1.prisma.otcInquiry.create({
+                data: {
+                    inquiryCode,
+                    deskId: desk.id,
+                    customerId,
+                    operatorId: desk.userId,
+                    subject,
+                    status: 'OPEN',
+                },
+            });
+        }
+        else {
+            await prisma_1.prisma.otcInquiry.update({
+                where: { id: inquiry.id },
+                data: { status: 'OPEN', updatedAt: new Date() },
+            });
+        }
+        await prisma_1.prisma.otcInquiryMessage.create({
+            data: {
+                inquiryId: inquiry.id,
+                senderId: customerId,
+                senderName,
+                senderRole: 'CUSTOMER',
+                message: cleanMsg,
+            },
+        });
+        // Notify OTC Desk operator immediately in Notification Bell + email
+        const isHouseDesk = Boolean(desk.user?.email?.toLowerCase().endsWith('@avorabank.com'));
+        await prisma_1.prisma.userNotification
+            .create({
+            data: {
+                userId: desk.userId,
+                category: 'OTC',
+                type: 'OTC_INQUIRY_MESSAGE',
+                severity: 'INFO',
+                title: `New Desk Question on ${desk.deskName} [${inquiry.inquiryCode}]`,
+                message: `${senderName}: "${cleanMsg.slice(0, 140)}"`,
+                referenceCode: inquiry.inquiryCode,
+                status: 'OPEN',
+                actionUrl: `/exchange?inquiryId=${inquiry.id}`,
+                actionLabel: 'Reply to Inquiry',
+            },
+        })
+            .catch(() => { });
+        if (desk.user?.email && !isHouseDesk) {
+            notification_provider_1.notificationService
+                .sendEmail({
+                to: desk.user.email,
+                subject: `New OTC Desk Inquiry (${inquiry.inquiryCode}) — ${desk.deskName}`,
+                html: `
+            <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
+              <h2>New Pre-Trade Question for ${desk.deskName}</h2>
+              <p><strong>From:</strong> ${senderName}</p>
+              <p><strong>Inquiry Code:</strong> ${inquiry.inquiryCode}</p>
+              <p><strong>Message:</strong> "${cleanMsg}"</p>
+              <p>Log in to the OTC Portal (<code>/exchange</code>) or click your Notification Bell to reply live.</p>
+            </div>
+          `,
+            })
+                .catch(() => { });
+        }
+        if (isHouseDesk) {
+            const admins = await prisma_1.prisma.user.findMany({ where: { role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } }).catch(() => []);
+            await Promise.all(admins.map((adm) => prisma_1.prisma.userNotification
+                .create({
+                data: {
+                    userId: adm.id,
+                    category: 'OTC',
+                    type: 'OTC_INQUIRY_MESSAGE',
+                    severity: 'INFO',
+                    title: `House Desk Inquiry [${inquiry.inquiryCode}] — ${desk.deskName}`,
+                    message: `${senderName}: "${cleanMsg.slice(0, 140)}"`,
+                    referenceCode: inquiry.inquiryCode,
+                    status: 'OPEN',
+                    actionUrl: '/admin?tab=otc',
+                    actionLabel: 'Reply in Admin',
+                },
+            })
+                .catch(() => { })));
+            notification_provider_1.notificationService
+                .sendAdminAlert(`OTC Desk Pre-Trade Inquiry [${inquiry.inquiryCode}] — ${desk.deskName}`, `Client ${senderName} asked regarding ${desk.deskName} (${desk.city}, ${desk.country}):\n\n"${cleanMsg}"\n\nReply under Admin -> OTC Desks & Trades -> Pre-Trade Inquiries.`)
+                .catch(() => { });
+        }
+        return this.getInquiry(inquiry.id, customerId);
+    }
+    /**
+     * List authenticated user's pre-trade OTC inquiries (sent by them OR addressed to their desk)
+     */
+    async getMyInquiries(userId) {
+        await this.ensureOtcSchema();
+        const list = await prisma_1.prisma.otcInquiry.findMany({
+            where: { OR: [{ customerId: userId }, { operatorId: userId }] },
+            include: {
+                desk: { include: { user: { select: { id: true, email: true, displayName: true, firstName: true, lastName: true, isAvailable: true } } } },
+                customer: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, isAvailable: true } },
+                operator: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, isAvailable: true } },
+                messages: { orderBy: { createdAt: 'asc' } },
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: 30,
+        });
+        return list.map((inq) => ({
+            ...inq,
+            desk: inq.desk ? this.formatDesk(inq.desk, false) : null,
+            isHouseDesk: Boolean(inq.desk?.user?.email?.toLowerCase().endsWith('@avorabank.com')),
+        }));
+    }
+    /**
+     * Get single OTC Desk inquiry thread (accessible to customer, desk operator, or Admin)
+     */
+    async getInquiry(inquiryId, userId) {
+        await this.ensureOtcSchema();
+        const inq = await prisma_1.prisma.otcInquiry.findUnique({
+            where: { id: inquiryId },
+            include: {
+                desk: { include: { user: { select: { id: true, email: true, displayName: true, firstName: true, lastName: true, isAvailable: true } } } },
+                customer: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, isAvailable: true } },
+                operator: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true, isAvailable: true } },
+                messages: { orderBy: { createdAt: 'asc' } },
+            },
+        });
+        if (!inq)
+            throw new Error('OTC inquiry not found');
+        if (inq.customerId !== userId && inq.operatorId !== userId) {
+            const u = await prisma_1.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+            if (u?.role !== 'ADMIN' && u?.role !== 'STAFF') {
+                throw new Error('Unauthorized inquiry access');
+            }
+        }
+        return {
+            ...inq,
+            desk: inq.desk ? this.formatDesk(inq.desk, false) : null,
+            isHouseDesk: Boolean(inq.desk?.user?.email?.toLowerCase().endsWith('@avorabank.com')),
+        };
+    }
+    /**
+     * Post reply/message to a pre-trade OTC Desk inquiry thread (customer, operator, or Admin)
+     */
+    async postInquiryMessage(inquiryId, senderId, messageText) {
+        await this.ensureOtcSchema();
+        const cleanMsg = String(messageText || '').trim();
+        if (!cleanMsg)
+            throw new Error('Message cannot be empty.');
+        const inq = await prisma_1.prisma.otcInquiry.findUnique({
+            where: { id: inquiryId },
+            include: {
+                desk: { include: { user: { select: { id: true, email: true } } } },
+            },
+        });
+        if (!inq)
+            throw new Error('OTC inquiry not found');
+        const sender = await prisma_1.prisma.user.findUnique({
+            where: { id: senderId },
+            select: { id: true, role: true, firstName: true, lastName: true, displayName: true, email: true },
+        });
+        if (!sender)
+            throw new Error('Sender not found');
+        const isAdminOrStaff = sender.role === 'ADMIN' || sender.role === 'STAFF';
+        if (inq.customerId !== senderId && inq.operatorId !== senderId && !isAdminOrStaff) {
+            throw new Error('Unauthorized inquiry access');
+        }
+        const senderRole = isAdminOrStaff ? 'ADMIN' : senderId === inq.operatorId ? 'OPERATOR' : 'CUSTOMER';
+        const senderName = isAdminOrStaff
+            ? 'Avora OTC Support Desk'
+            : sender.displayName
+                ? `${`${sender.firstName || ''} ${sender.lastName || ''}`.trim() || 'Trader'} (@${sender.displayName})`
+                : `${sender.firstName || ''} ${sender.lastName || ''}`.trim() || sender.email.split('@')[0];
+        const created = await prisma_1.prisma.otcInquiryMessage.create({
+            data: {
+                inquiryId,
+                senderId,
+                senderName,
+                senderRole,
+                message: cleanMsg,
+            },
+        });
+        await prisma_1.prisma.otcInquiry.update({
+            where: { id: inquiryId },
+            data: {
+                status: senderRole === 'CUSTOMER' ? 'OPEN' : 'REPLIED',
+                updatedAt: new Date(),
+            },
+        });
+        const isHouseDesk = Boolean(inq.desk?.user?.email?.toLowerCase().endsWith('@avorabank.com'));
+        const notifyTargetIds = [];
+        if (senderRole === 'CUSTOMER') {
+            notifyTargetIds.push(inq.operatorId);
+            if (isHouseDesk) {
+                const admins = await prisma_1.prisma.user.findMany({ where: { role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } }).catch(() => []);
+                admins.forEach((a) => {
+                    if (!notifyTargetIds.includes(a.id))
+                        notifyTargetIds.push(a.id);
+                });
+            }
+        }
+        else {
+            notifyTargetIds.push(inq.customerId);
+        }
+        await Promise.all(notifyTargetIds.map((uid) => prisma_1.prisma.userNotification
+            .create({
+            data: {
+                userId: uid,
+                category: 'OTC',
+                type: 'OTC_INQUIRY_MESSAGE',
+                severity: 'INFO',
+                title: `${senderRole === 'CUSTOMER' ? 'New Question' : 'Desk Replied'}: ${inq.desk?.deskName || 'OTC Desk'} [${inq.inquiryCode}]`,
+                message: `${senderName}: "${cleanMsg.slice(0, 140)}"`,
+                referenceCode: inq.inquiryCode,
+                status: senderRole === 'CUSTOMER' ? 'OPEN' : 'REPLIED',
+                actionUrl: uid === inq.customerId || uid === inq.operatorId ? `/exchange?inquiryId=${inq.id}` : '/admin?tab=otc',
+                actionLabel: 'Open OTC Inquiry',
+            },
+        })
+            .catch(() => { })));
+        if (senderRole === 'CUSTOMER' && isHouseDesk) {
+            notification_provider_1.notificationService
+                .sendAdminAlert(`OTC Desk Inquiry Message [${inq.inquiryCode}]`, `${senderName} sent a follow-up on ${inq.desk?.deskName || 'OTC Desk'}:\n"${cleanMsg}"`)
+                .catch(() => { });
+        }
+        return created;
+    }
+    /**
+     * Admin: list all pre-trade OTC desk inquiries (including Colombo & institutional desks)
+     */
+    async getAllInquiriesAdmin() {
+        await this.ensureOtcSchema();
+        const list = await prisma_1.prisma.otcInquiry.findMany({
+            include: {
+                desk: { include: { user: { select: { id: true, email: true, displayName: true, firstName: true, lastName: true, isAvailable: true } } } },
+                customer: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true } },
+                operator: { select: { id: true, firstName: true, lastName: true, displayName: true, email: true } },
+                messages: { orderBy: { createdAt: 'asc' } },
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: 60,
+        });
+        return list.map((inq) => ({
+            ...inq,
+            desk: inq.desk ? this.formatDesk(inq.desk, true) : null,
+            isHouseDesk: Boolean(inq.desk?.user?.email?.toLowerCase().endsWith('@avorabank.com')),
+        }));
     }
 }
 exports.OtcService = OtcService;

@@ -12,6 +12,7 @@ import {
   refreshSession,
   checkDisplayName,
   updateDisplayName,
+  updateAvailability,
   submitKyc,
   getKycStatus,
   getSumsubToken,
@@ -36,6 +37,7 @@ router.post('/reset-password', authRateLimiter, resetPassword);
 router.get('/me', authenticateToken, getMe);
 router.post('/refresh', authenticateToken, refreshSession);
 router.patch('/display-name', authenticateToken, updateDisplayName);
+router.patch('/availability', authenticateToken, updateAvailability);
 router.post('/change-password', authenticateToken, authRateLimiter, changePassword);
 
 // Identity Verification (KYC / AML & Sumsub/Onfido SDK integration)

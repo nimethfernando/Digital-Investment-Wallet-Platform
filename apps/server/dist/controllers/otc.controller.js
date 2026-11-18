@@ -307,6 +307,67 @@ class OtcController {
             next(err);
         }
     }
+    /**
+     * POST /api/v1/otc/desks/:deskId/inquire
+     */
+    async createInquiry(req, res, next) {
+        try {
+            const customerId = req.user?.id || req.user?.userId;
+            const deskId = Array.isArray(req.params.deskId) ? req.params.deskId[0] : String(req.params.deskId);
+            const { subject, message } = req.body || {};
+            const data = await otc_service_1.otcService.createOrMessageDeskInquiry(customerId, deskId, { subject, message });
+            res.status(201).json({
+                success: true,
+                message: 'Your inquiry has been delivered to the OTC desk operator and notification queue.',
+                data,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * GET /api/v1/otc/inquiries
+     */
+    async getMyInquiries(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            const data = await otc_service_1.otcService.getMyInquiries(userId);
+            res.json({ success: true, data });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * GET /api/v1/otc/inquiries/:id
+     */
+    async getInquiry(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            const inquiryId = Array.isArray(req.params.id) ? req.params.id[0] : String(req.params.id);
+            const data = await otc_service_1.otcService.getInquiry(inquiryId, userId);
+            res.json({ success: true, data });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/otc/inquiries/:id/messages
+     */
+    async sendInquiryMessage(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            const inquiryId = Array.isArray(req.params.id) ? req.params.id[0] : String(req.params.id);
+            const { message } = req.body || {};
+            const data = await otc_service_1.otcService.postInquiryMessage(inquiryId, userId, message);
+            res.status(201).json({ success: true, data });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
 }
 exports.OtcController = OtcController;
 exports.otcController = new OtcController();

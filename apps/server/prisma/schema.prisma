@@ -224,6 +224,8 @@ model User {
   p2pBlocked             Boolean    @default(false)
   p2pBlockedReason       String?    @db.VarChar(500)
   p2pBlockedAt           DateTime?
+  isAvailable            Boolean    @default(true)
+  availabilityUpdatedAt  DateTime?
   lastLoginAt            DateTime?
   createdAt              DateTime   @default(now())
   updatedAt              DateTime   @updatedAt
@@ -248,10 +250,12 @@ model User {
   deposits              DepositRequest[]
   virtualCard           VirtualCard?
   supportTickets        SupportTicket[]
-  otcDesk               OtcDesk?
-  otcQuotesRequested    OtcQuote[]          @relation("CustomerOtcQuotes")
-  otcTradesAsCustomer   OtcTrade[]          @relation("CustomerOtcTrades")
-  otcTradesAsOperator   OtcTrade[]          @relation("OperatorOtcTrades")
+  otcDesk                OtcDesk?
+  otcQuotesRequested     OtcQuote[]          @relation("CustomerOtcQuotes")
+  otcTradesAsCustomer    OtcTrade[]          @relation("CustomerOtcTrades")
+  otcTradesAsOperator    OtcTrade[]          @relation("OperatorOtcTrades")
+  otcInquiriesAsCustomer OtcInquiry[]        @relation("CustomerOtcInquiries")
+  otcInquiriesAsOperator OtcInquiry[]        @relation("OperatorOtcInquiries")
   globalTransfers       GlobalTransfer[]
   tokenEarlyAccess      TokenEarlyAccess?
   fundSeekerListings    StartupListing[]    @relation("FundSeekerListings")
@@ -839,6 +843,7 @@ model OtcDesk {
 
   quotes              OtcQuote[]
   trades              OtcTrade[]
+  inquiries           OtcInquiry[]
 
   @@index([countryCode, city, isOnline, status])
   @@map("diw_otc_desks")
@@ -913,6 +918,41 @@ model OtcMessage {
 
   @@index([tradeId, createdAt])
   @@map("diw_otc_messages")
+}
+
+model OtcInquiry {
+  id          String              @id @default(uuid())
+  inquiryCode String              @unique @db.VarChar(30)
+  deskId      String
+  desk        OtcDesk             @relation(fields: [deskId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    User                @relation("CustomerOtcInquiries", fields: [customerId], references: [id])
+  operatorId  String
+  operator    User                @relation("OperatorOtcInquiries", fields: [operatorId], references: [id])
+  subject     String              @db.VarChar(180)
+  status      String              @default("OPEN") // OPEN, REPLIED, CLOSED
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  messages    OtcInquiryMessage[]
+
+  @@index([deskId, customerId, status])
+  @@index([operatorId, status])
+  @@map("diw_otc_inquiries")
+}
+
+model OtcInquiryMessage {
+  id         String     @id @default(uuid())
+  inquiryId  String
+  inquiry    OtcInquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  senderId   String
+  senderName String     @db.VarChar(120)
+  senderRole String     @default("USER") @db.VarChar(20)
+  message    String     @db.Text
+  createdAt  DateTime   @default(now())
+
+  @@index([inquiryId, createdAt])
+  @@map("diw_otc_inquiry_messages")
 }
 
 // ============================================================================

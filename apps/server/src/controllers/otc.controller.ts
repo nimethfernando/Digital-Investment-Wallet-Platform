@@ -337,6 +337,67 @@ export class OtcController {
       next(err);
     }
   }
+
+  /**
+   * POST /api/v1/otc/desks/:deskId/inquire
+   */
+  async createInquiry(req: Request, res: Response, next: NextFunction) {
+    try {
+      const customerId = (req as any).user?.id || (req as any).user?.userId;
+      const deskId = Array.isArray(req.params.deskId) ? req.params.deskId[0] : String(req.params.deskId);
+      const { subject, message } = req.body || {};
+      const data = await otcService.createOrMessageDeskInquiry(customerId, deskId, { subject, message });
+      res.status(201).json({
+        success: true,
+        message: 'Your inquiry has been delivered to the OTC desk operator and notification queue.',
+        data,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/otc/inquiries
+   */
+  async getMyInquiries(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const data = await otcService.getMyInquiries(userId);
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/otc/inquiries/:id
+   */
+  async getInquiry(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const inquiryId = Array.isArray(req.params.id) ? req.params.id[0] : String(req.params.id);
+      const data = await otcService.getInquiry(inquiryId, userId);
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/otc/inquiries/:id/messages
+   */
+  async sendInquiryMessage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const inquiryId = Array.isArray(req.params.id) ? req.params.id[0] : String(req.params.id);
+      const { message } = req.body || {};
+      const data = await otcService.postInquiryMessage(inquiryId, userId, message);
+      res.status(201).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const otcController = new OtcController();

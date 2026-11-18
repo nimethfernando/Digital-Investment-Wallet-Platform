@@ -27,4 +27,10 @@ router.post('/trades/:id/release', (req, res, next) => otcController.releaseEscr
 router.post('/trades/:id/dispute', (req, res, next) => otcController.disputeTrade(req, res, next));
 router.post('/trades/:id/cancel', (req, res, next) => otcController.cancelTrade(req, res, next));
 
+// Pre-Trade OTC Desk Inquiries (Ask availability / currency before escrow)
+router.post('/desks/:deskId/inquire', (req, res, next) => otcController.createInquiry(req, res, next));
+router.get('/inquiries', (req, res, next) => otcController.getMyInquiries(req, res, next));
+router.get('/inquiries/:id', (req, res, next) => otcController.getInquiry(req, res, next));
+router.post('/inquiries/:id/messages', (req, res, next) => otcController.sendInquiryMessage(req, res, next));
+
 export default router;

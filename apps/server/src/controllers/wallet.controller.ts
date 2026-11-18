@@ -7,6 +7,7 @@ import { depositService } from '../services/deposit.service';
 import { cardService } from '../services/card.service';
 import { computePackageYieldSchedule } from '../services/package.service';
 import { p2pService } from '../services/p2p.service';
+import { otcService } from '../services/otc.service';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -516,7 +517,7 @@ export class WalletController {
       };
     }
 
-    await p2pService.ensureP2PReady();
+    await Promise.all([p2pService.ensureP2PReady(), otcService.ensureOtcSchema()]);
 
     const [
       kycDocuments,
@@ -530,6 +531,7 @@ export class WalletController {
       globalTransfers,
       p2pOrders,
       otcTrades,
+      otcInquiries,
       persistedNotifications,
       notifSetting,
     ] = await Promise.all([
@@ -616,6 +618,20 @@ export class WalletController {
           },
           orderBy: { updatedAt: 'desc' },
           take: 25,
+        })
+        .catch(() => []),
+      prisma.otcInquiry
+        .findMany({
+          where: { OR: [{ customerId: userId }, { operatorId: userId }] },
+          include: {
+            desk: { select: { deskName: true, deskCode: true } },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 5,
+            },
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 20,
         })
         .catch(() => []),
       prisma.userNotification
@@ -1182,6 +1198,36 @@ export class WalletController {
           status: tr.status,
           actionUrl: `/exchange?tradeId=${tr.id}`,
           actionLabel: 'Open OTC Chat',
+          createdAt: new Date(msg.createdAt).toISOString(),
+        });
+      }
+    }
+
+    // 5c. PRE-TRADE OTC DESK INQUIRIES (ASK AVAILABILITY / CURRENCY)
+    for (const inq of otcInquiries as any[]) {
+      for (const msg of inq.messages || []) {
+        if (msg.senderId === userId) continue;
+        const msgText = String(msg.message || '');
+        const snippet = msgText.length > 140 ? `${msgText.slice(0, 140)}...` : msgText;
+        const alreadyPersisted = persistedNotifications.some(
+          (n) =>
+            n.type === 'OTC_INQUIRY_MESSAGE' &&
+            n.referenceCode === inq.inquiryCode &&
+            n.message.includes(msgText.slice(0, 80))
+        );
+        if (alreadyPersisted) continue;
+
+        rawItems.push({
+          id: `otc-inq-msg-${msg.id}`,
+          category: 'OTC',
+          type: 'OTC_INQUIRY_MESSAGE',
+          severity: 'INFO',
+          title: `OTC Desk Question (${inq.desk?.deskName || 'OTC Desk'}) [${inq.inquiryCode}]`,
+          message: `${msg.senderName}: "${snippet}"`,
+          referenceCode: inq.inquiryCode,
+          status: inq.status,
+          actionUrl: `/exchange?inquiryId=${inq.id}`,
+          actionLabel: 'Open OTC Inquiry',
           createdAt: new Date(msg.createdAt).toISOString(),
         });
       }

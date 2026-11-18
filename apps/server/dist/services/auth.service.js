@@ -204,6 +204,8 @@ class AuthService {
                 role: user.role,
                 kycStatus: user.kycStatus,
                 twoFactorEnabled: user.twoFactorEnabled,
+                isAvailable: user.isAvailable !== false,
+                availabilityUpdatedAt: user.availabilityUpdatedAt || null,
             },
             token,
         };
@@ -280,6 +282,8 @@ class AuthService {
                 kycStatus: user.kycStatus,
                 twoFactorEnabled: user.twoFactorEnabled,
                 mustChangePassword: user.mustChangePassword,
+                isAvailable: user.isAvailable !== false,
+                availabilityUpdatedAt: user.availabilityUpdatedAt || null,
                 wallet: user.wallet,
             },
             token,
@@ -511,6 +515,36 @@ class AuthService {
         }
         const token = this.generateToken(user.id, user.email, user.role, user.mustChangePassword);
         return { token };
+    }
+    /**
+     * Toggle user's single global availability status (Online / Offline) across P2P, OTC, and all services.
+     * Users stay Online by default unless manually marked Offline; transactions & messages still arrive when Offline.
+     */
+    async updateAvailability(userId, isAvailable) {
+        const nextAvailable = Boolean(isAvailable);
+        const now = new Date();
+        const updated = await prisma_1.prisma.user.update({
+            where: { id: userId },
+            data: {
+                isAvailable: nextAvailable,
+                availabilityUpdatedAt: now,
+            },
+            select: {
+                id: true,
+                isAvailable: true,
+                availabilityUpdatedAt: true,
+            },
+        });
+        await prisma_1.prisma.otcDesk
+            .updateMany({
+            where: { userId, status: 'ACTIVE' },
+            data: { isOnline: nextAvailable },
+        })
+            .catch(() => { });
+        return {
+            isAvailable: updated.isAvailable,
+            availabilityUpdatedAt: updated.availabilityUpdatedAt,
+        };
     }
     generateToken(userId, email, role, mustChangePassword = false) {
         const secret = role === client_1.Role.ADMIN ? config_1.config.adminJwtSecret : config_1.config.jwtSecret;

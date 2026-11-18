@@ -105,6 +105,7 @@ export default function AdminPortalPage() {
   // OTC Desks & Escrow Trades State
   const [otcDesks, setOtcDesks] = useState<any[]>([]);
   const [otcTrades, setOtcTrades] = useState<any[]>([]);
+  const [otcInquiries, setOtcInquiries] = useState<any[]>([]);
   const [otcSummary, setOtcSummary] = useState<any | null>(null);
   const [otcLoading, setOtcLoading] = useState(false);
 
@@ -412,20 +413,24 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'otc') {
       setOtcLoading(true);
       try {
-        const [desksRes, tradesRes] = await Promise.all([
+        const [desksRes, tradesRes, inqRes] = await Promise.all([
           api.get('/admin/otc/desks').catch(() => ({ data: { desks: [], summary: null } })),
           api.get('/admin/otc/trades').catch(() => ({ data: { trades: [] } })),
+          api.get('/admin/otc/inquiries').catch(() => ({ data: { inquiries: [] } })),
         ]);
         const deskList = desksRes.data?.desks || desksRes.data?.data?.desks || [];
         const summaryObj = desksRes.data?.summary || desksRes.data?.data?.summary || null;
         const tradeList = tradesRes.data?.trades || tradesRes.data?.data || [];
+        const inqList = inqRes.data?.inquiries || inqRes.data?.data || [];
         setOtcDesks(Array.isArray(deskList) ? deskList : []);
         setOtcSummary(summaryObj);
         setOtcTrades(Array.isArray(tradeList) ? tradeList : []);
+        setOtcInquiries(Array.isArray(inqList) ? inqList : []);
       } catch (e) {
         console.error('Failed to load OTC data:', e);
         setOtcDesks([]);
         setOtcTrades([]);
+        setOtcInquiries([]);
       } finally {
         setOtcLoading(false);
       }
@@ -2337,6 +2342,7 @@ export default function AdminPortalPage() {
           <AdminOtcTab
             desks={otcDesks}
             trades={otcTrades}
+            inquiries={otcInquiries}
             summary={otcSummary}
             loading={otcLoading}
             admin2FaCode={admin2FaCode}

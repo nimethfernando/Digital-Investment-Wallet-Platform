@@ -78,6 +78,7 @@ router.get('/otc/desks', (req, res, next) => admin_controller_1.adminController.
 router.patch('/otc/desks/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateOtcDesk(req, res, next));
 router.get('/otc/trades', (req, res, next) => admin_controller_1.adminController.getOtcTrades(req, res, next));
 router.post('/otc/trades/:id/resolve', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.resolveOtcTrade(req, res, next));
+router.get('/otc/inquiries', (req, res, next) => admin_controller_1.adminController.getOtcInquiries(req, res, next));
 // Institutional Audit Logs
 router.get('/audit-logs', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.getAdminAuditLogs(req, res, next));
 // System Controls & Announcement Broadcast

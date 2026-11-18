@@ -128,6 +128,8 @@ class P2PService {
       `).catch(() => { });
             await this.ensureColumns('diw_users', [
                 ['p2pOnboardingStatus', "ALTER TABLE `diw_users` ADD COLUMN `p2pOnboardingStatus` VARCHAR(30) NOT NULL DEFAULT 'NOT_APPLIED'"],
+                ['isAvailable', 'ALTER TABLE `diw_users` ADD COLUMN `isAvailable` BOOLEAN NOT NULL DEFAULT true'],
+                ['availabilityUpdatedAt', 'ALTER TABLE `diw_users` ADD COLUMN `availabilityUpdatedAt` DATETIME(3) NULL'],
             ]);
             await this.ensureColumns('diw_p2p_offers', [
                 ['isSponsored', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `isSponsored` BOOLEAN NOT NULL DEFAULT false'],
@@ -334,7 +336,9 @@ class P2PService {
                 id: counterparty?.id || '',
                 name: cpName,
                 avatar: cpAvatar,
-                online: true,
+                online: counterparty?.isAvailable !== false,
+                isOnline: counterparty?.isAvailable !== false,
+                isOffline: counterparty?.isAvailable === false,
                 isVerified: counterparty?.kycStatus === 'APPROVED',
                 isP2pMerchant: Boolean(counterparty?.isP2pMerchant),
                 totalOrders: cpStats?.totalOrders ?? 0,
@@ -941,6 +945,8 @@ class P2PService {
                         kycStatus: true,
                         isP2pMerchant: true,
                         country: true,
+                        isAvailable: true,
+                        availabilityUpdatedAt: true,
                         createdAt: true,
                     },
                 },
@@ -987,6 +993,9 @@ class P2PService {
                     isVerified: o.user.kycStatus === 'APPROVED',
                     isP2pMerchant: Boolean(o.user.isP2pMerchant),
                     isInstitutional: (0, p2p_helpers_1.isInstitutionalDeskEmail)(o.user.email),
+                    isOnline: o.user.isAvailable !== false,
+                    isOffline: o.user.isAvailable === false,
+                    availabilityUpdatedAt: o.user.availabilityUpdatedAt || null,
                     completionRate: stats?.completionRate ?? 'New Trader',
                     completionRatePct: stats?.completionRatePct ?? null,
                     cancellationRatePct: stats?.cancellationRatePct ?? 0,
@@ -1075,6 +1084,8 @@ class P2PService {
                 p2pBlocked: true,
                 status: true,
                 country: true,
+                isAvailable: true,
+                availabilityUpdatedAt: true,
                 createdAt: true,
             },
         });
@@ -1108,6 +1119,9 @@ class P2PService {
                 isVerified: user.kycStatus === 'APPROVED',
                 isP2pMerchant: Boolean(user.isP2pMerchant),
                 isInstitutional: (0, p2p_helpers_1.isInstitutionalDeskEmail)(user.email),
+                isOnline: user.isAvailable !== false,
+                isOffline: user.isAvailable === false,
+                availabilityUpdatedAt: user.availabilityUpdatedAt || null,
                 p2pBlocked: Boolean(user.p2pBlocked),
                 status: user.status,
                 country: user.country || 'Global',
@@ -1945,8 +1959,8 @@ class P2PService {
         const orders = await prisma_1.prisma.p2POrder.findMany({
             where,
             include: {
-                buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
-                seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+                buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, isAvailable: true } },
+                seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, isAvailable: true } },
                 offer: true,
                 reviews: true,
                 messages: {
@@ -1968,8 +1982,8 @@ class P2PService {
         const order = await prisma_1.prisma.p2POrder.findUnique({
             where: { id: orderId },
             include: {
-                buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
-                seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+                buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, isAvailable: true } },
+                seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, isAvailable: true } },
                 offer: true,
                 reviews: true,
                 messages: { orderBy: { createdAt: 'asc' } },
@@ -2078,8 +2092,8 @@ class P2PService {
         const order = await prisma_1.prisma.p2POrder.findUnique({
             where: { id: orderId },
             include: {
-                buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
-                seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+                buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, isAvailable: true } },
+                seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, isAvailable: true } },
                 offer: true,
                 reviews: true,
             },
@@ -2160,8 +2174,8 @@ class P2PService {
         const order = await prisma_1.prisma.p2POrder.findUnique({
             where: { id: orderId },
             include: {
-                buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
-                seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true } },
+                buyer: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, isAvailable: true } },
+                seller: { select: { id: true, firstName: true, lastName: true, email: true, kycStatus: true, isP2pMerchant: true, isAvailable: true } },
                 offer: true,
                 reviews: true,
             },
@@ -2500,8 +2514,8 @@ class P2PService {
         const order = await prisma_1.prisma.p2POrder.findUnique({
             where: { id: orderId },
             include: {
-                buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
-                seller: { select: { id: true, firstName: true, lastName: true, email: true } },
+                buyer: { select: { id: true, firstName: true, lastName: true, email: true, isAvailable: true } },
+                seller: { select: { id: true, firstName: true, lastName: true, email: true, isAvailable: true } },
                 offer: { select: { userId: true } },
             },
         });
@@ -2527,7 +2541,7 @@ class P2PService {
                 id: counterparty.id,
                 name: `${counterparty.firstName || ''} ${counterparty.lastName || ''}`.trim() || counterparty.email.split('@')[0],
                 avatar: (counterparty.firstName || counterparty.email || 'H')[0].toUpperCase(),
-                online: true,
+                online: counterparty.isAvailable !== false,
             },
             messages: messages.map((m) => {
                 const d = new Date(m.createdAt);
@@ -2779,8 +2793,8 @@ class P2PService {
                 OR: [{ buyerId: userId }, { sellerId: userId }],
             },
             include: {
-                buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
-                seller: { select: { id: true, firstName: true, lastName: true, email: true } },
+                buyer: { select: { id: true, firstName: true, lastName: true, email: true, isAvailable: true } },
+                seller: { select: { id: true, firstName: true, lastName: true, email: true, isAvailable: true } },
                 messages: {
                     orderBy: { createdAt: 'desc' },
                     take: 1,
@@ -2802,7 +2816,7 @@ class P2PService {
                     id: counterparty.id,
                     name: `${counterparty.firstName || ''} ${counterparty.lastName || ''}`.trim() || counterparty.email.split('@')[0],
                     avatar: (counterparty.firstName || counterparty.email || 'H')[0].toUpperCase(),
-                    online: true,
+                    online: counterparty.isAvailable !== false,
                 },
                 lastMessage: lastMsg?.message || '[System] Order Created',
                 time: timeStr,
@@ -3009,7 +3023,7 @@ class P2PService {
                 },
             });
             return app;
-        });
+        }, { timeout: 25000, maxWait: 10000 });
         await (0, p2p_helpers_1.createP2PNotification)({
             userId,
             category: 'ACCOUNT',
@@ -3209,7 +3223,7 @@ class P2PService {
                     details: `${decision === 'APPROVE' ? 'Approved' : 'Rejected'} P2P onboarding application ${app.applicationCode} for ${app.user.email}. SOF: ${app.sourceOfFunds}. Notes: ${notes}`,
                 },
             });
-        });
+        }, { timeout: 25000, maxWait: 10000 });
         await (0, p2p_helpers_1.createP2PNotification)({
             userId: app.userId,
             category: 'ACCOUNT',

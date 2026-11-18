@@ -101,7 +101,7 @@ async function runHttpProductionE2E() {
       await tx.walletBalance.update({ where: { id: usd.id }, data: { availableBalance: '100.00000000' } });
       const usdt = await ledgerService.lockWalletBalance(tx, sellerWallet.id, 'USDT');
       await tx.walletBalance.update({ where: { id: usdt.id }, data: { availableBalance: '300.00000000' } });
-    });
+    }, { timeout: 25000, maxWait: 10000 });
 
     const sellerToken = authService.generateToken(seller.id, seller.email, seller.role);
     const buyerToken = authService.generateToken(buyer.id, buyer.email, buyer.role);
@@ -1287,6 +1287,155 @@ async function runHttpProductionE2E() {
         throw new Error(`Expected /wallet/notifications to include both new & synthesized OTC messages with otcCount, got summary=${JSON.stringify(bellSummary)} items=${JSON.stringify(bellNotifs.filter((n) => n.category === 'OTC'))}`);
       }
       await apiCall('POST', `/api/v1/otc/trades/${trId}/cancel`, op2Token, { reason: 'E2E cleanup' });
+    });
+
+    await assertHttp('H14: Unified Online/Offline status syncs across P2P & OTC + Pre-Trade OTC Inquiry delivers to Operator & Admin', async () => {
+      const availOp = await prisma.user.create({
+        data: {
+          email: `avail_op_${ts}@testmail.com`,
+          passwordHash: seller.passwordHash,
+          firstName: 'Kasun',
+          lastName: 'Unified',
+          displayName: `kasun_uni_${String(ts).slice(-5)}`,
+          country: 'Sri Lanka',
+          kycStatus: 'APPROVED',
+          isP2pMerchant: true,
+          p2pOnboardingStatus: 'APPROVED',
+        },
+      });
+      const clientUser = await prisma.user.create({
+        data: {
+          email: `avail_cli_${ts}@testmail.com`,
+          passwordHash: buyer.passwordHash,
+          firstName: 'Nimal',
+          lastName: 'Client',
+          displayName: `nimal_cli_${String(ts).slice(-5)}`,
+          country: 'Sri Lanka',
+          kycStatus: 'APPROVED',
+          p2pOnboardingStatus: 'APPROVED',
+        },
+      });
+      const opWallet = await ledgerService.ensureWallet(availOp.id);
+      await prisma.$transaction(async (tx) => {
+        const usdBal = await ledgerService.lockWalletBalance(tx, opWallet.id, 'USD');
+        await tx.walletBalance.update({ where: { id: usdBal.id }, data: { availableBalance: '1500.00000000' } });
+        const usdtBal = await ledgerService.lockWalletBalance(tx, opWallet.id, 'USDT');
+        await tx.walletBalance.update({ where: { id: usdtBal.id }, data: { availableBalance: '250.00000000' } });
+      }, { timeout: 25000, maxWait: 10000 });
+
+      const opTok = authService.generateToken(availOp.id, availOp.email, availOp.role);
+      const cliTok = authService.generateToken(clientUser.id, clientUser.email, clientUser.role);
+
+      // Verify user starts Online by default
+      const meDefault = await apiCall('GET', '/api/v1/auth/me', opTok);
+      if (meDefault.status !== 200 || meDefault.json?.user?.isAvailable !== true) {
+        throw new Error(`Expected new user to be Online (isAvailable=true) by default, got ${JSON.stringify(meDefault.json)}`);
+      }
+
+      // Create P2P offer & approved OTC desk
+      const p2pRes = await apiCall('POST', '/api/v1/p2p/offers', opTok, {
+        side: 'SELL',
+        cryptoCurrency: 'USDT',
+        fiatCurrency: 'LKR',
+        price: 315.0,
+        totalAmount: 100,
+        minLimit: 3000,
+        maxLimit: 30000,
+        paymentMethods: ['Commercial Bank SL'],
+      });
+      if (p2pRes.status !== 201) {
+        throw new Error(`Failed to create P2P offer for unified availability test: ${p2pRes.status} ${JSON.stringify(p2pRes.json)}`);
+      }
+      const deskRes = await apiCall('POST', '/api/v1/otc/apply', opTok, {
+        deskName: `Colombo Unified OTC ${ts}`,
+        country: 'Sri Lanka',
+        countryCode: 'LK',
+        city: 'Colombo',
+        locationAddress: 'Galle Face Center Road 10, Colombo 01',
+        supportedCurrencies: ['USDT', 'LKR'],
+        settlementMethods: ['Physical Cash'],
+      });
+      if (deskRes.status !== 201 || !deskRes.json?.data?.id) {
+        throw new Error(`OTC apply failed: ${deskRes.status}`);
+      }
+      const deskId = deskRes.json.data.id;
+      await apiCall(
+        'PATCH',
+        `/api/v1/admin/otc/desks/${deskId}`,
+        adminToken,
+        { status: 'ACTIVE', isOnline: true },
+        { 'x-admin-2fa': authenticator.generate(adminSecret) }
+      );
+
+      // Mark user Offline manually -> verify Offline on /auth/me, /p2p/offers, and /otc/desks
+      const offRes = await apiCall('PATCH', '/api/v1/auth/availability', opTok, { isAvailable: false });
+      if (offRes.status !== 200 || offRes.json?.isAvailable !== false) {
+        throw new Error(`Expected PATCH /auth/availability false to succeed, got ${offRes.status} ${JSON.stringify(offRes.json)}`);
+      }
+      const [offersOff, desksOff] = await Promise.all([
+        apiCall('GET', '/api/v1/p2p/offers?side=SELL&fiatCurrency=LKR'),
+        apiCall('GET', '/api/v1/otc/desks?countryCode=LK'),
+      ]);
+      const matchingP2pOff = offersOff.json?.data?.find((o: any) => o.trader?.id === availOp.id);
+      const matchingDeskOff = desksOff.json?.data?.find((d: any) => d.id === deskId);
+      if (!matchingP2pOff || matchingP2pOff.trader?.isOffline !== true || matchingP2pOff.trader?.isOnline !== false) {
+        throw new Error(`Expected P2P offer to show trader offline, got ${JSON.stringify(matchingP2pOff?.trader)}`);
+      }
+      if (!matchingDeskOff || matchingDeskOff.isOnline !== false) {
+        throw new Error(`Expected OTC desk to automatically show Offline when operator marks Offline, got ${JSON.stringify(matchingDeskOff)}`);
+      }
+
+      // While Offline, customer STILL can send pre-trade OTC Desk inquiry & quote/messages without blocking
+      const inqCreate = await apiCall('POST', `/api/v1/otc/desks/${deskId}/inquire`, cliTok, {
+        message: 'Are you available today and do you have LKR cash on hand before I come?',
+      });
+      if (inqCreate.status !== 201 || !inqCreate.json?.data?.id) {
+        throw new Error(`Expected pre-trade inquiry allowed while desk offline, got ${inqCreate.status} ${JSON.stringify(inqCreate.json)}`);
+      }
+      const inqId = inqCreate.json.data.id;
+
+      // Verify Operator sees inquiry in /otc/inquiries & /wallet/notifications AND Admin sees in /admin/otc/inquiries & /admin/alerts
+      const [opInqList, opNotifBell, adminInqList, adminAlerts] = await Promise.all([
+        apiCall('GET', '/api/v1/otc/inquiries', opTok),
+        apiCall('GET', '/api/v1/wallet/notifications', opTok),
+        apiCall('GET', '/api/v1/admin/otc/inquiries', adminToken),
+        apiCall('GET', '/api/v1/admin/notifications', adminToken),
+      ]);
+      if (!opInqList.json?.data?.some((q: any) => q.id === inqId)) {
+        throw new Error(`Operator missing pre-trade inquiry in /otc/inquiries`);
+      }
+      if (!opNotifBell.json?.notifications?.some((n: any) => n.category === 'OTC' && n.message.includes('Are you available today'))) {
+        throw new Error(`Operator missing pre-trade inquiry notification in /wallet/notifications`);
+      }
+      if (!adminInqList.json?.inquiries?.some((q: any) => q.id === inqId)) {
+        throw new Error(`Admin missing pre-trade inquiry in /admin/otc/inquiries`);
+      }
+      const adminAlertList = adminAlerts.json?.data?.alerts || adminAlerts.json?.alerts || [];
+      if (!adminAlertList.some((a: any) => a.entityId === inqId)) {
+        throw new Error(`Admin alerts queue missing open OTC pre-trade inquiry`);
+      }
+
+      // Operator replies -> Customer receives reply -> Toggle back Online -> Verify Online everywhere
+      const opReply = await apiCall('POST', `/api/v1/otc/inquiries/${inqId}/messages`, opTok, {
+        message: 'Yes! I was stepped away, I have 500,000 LKR available now.',
+      });
+      if (opReply.status !== 201) {
+        throw new Error(`Operator inquiry reply failed: ${opReply.status}`);
+      }
+      const onRes = await apiCall('PATCH', '/api/v1/auth/availability', opTok, { isAvailable: true });
+      if (onRes.status !== 200 || onRes.json?.isAvailable !== true) {
+        throw new Error(`Failed toggling back Online`);
+      }
+      const [offersOn, desksOn] = await Promise.all([
+        apiCall('GET', '/api/v1/p2p/offers?side=SELL&fiatCurrency=LKR'),
+        apiCall('GET', '/api/v1/otc/desks?countryCode=LK'),
+      ]);
+      if (offersOn.json?.data?.find((o: any) => o.trader?.id === availOp.id)?.trader?.isOnline !== true) {
+        throw new Error('Expected P2P offer back Online after PATCH /auth/availability true');
+      }
+      if (desksOn.json?.data?.find((d: any) => d.id === deskId)?.isOnline !== true) {
+        throw new Error('Expected OTC desk back Online after PATCH /auth/availability true');
+      }
     });
 
     console.log('\n================================================================');

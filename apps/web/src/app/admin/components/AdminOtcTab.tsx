@@ -26,6 +26,7 @@ import { api } from '../../../lib/api';
 interface AdminOtcTabProps {
   desks: any[];
   trades: any[];
+  inquiries?: any[];
   summary: any | null;
   loading: boolean;
   admin2FaCode?: string;
@@ -37,6 +38,7 @@ interface AdminOtcTabProps {
 export default function AdminOtcTab({
   desks,
   trades,
+  inquiries = [],
   summary,
   loading,
   admin2FaCode,
@@ -44,7 +46,7 @@ export default function AdminOtcTab({
   onFeedback,
   onOpenRatesConfig,
 }: AdminOtcTabProps) {
-  const [subTab, setSubTab] = useState<'DESKS' | 'TRADES'>('DESKS');
+  const [subTab, setSubTab] = useState<'DESKS' | 'TRADES' | 'INQUIRIES'>('DESKS');
   const [search, setSearch] = useState('');
   const [deskStatusFilter, setDeskStatusFilter] = useState('ALL');
   const [tradeStatusFilter, setTradeStatusFilter] = useState('ALL');
@@ -81,6 +83,43 @@ export default function AdminOtcTab({
 
   // Trade Chat Viewer Modal
   const [chatModalTrade, setChatModalTrade] = useState<any | null>(null);
+
+  // Pre-Trade OTC Inquiry Reply Modal
+  const [selectedInquiry, setSelectedInquiry] = useState<any | null>(null);
+  const [inquiryReplyText, setInquiryReplyText] = useState('');
+  const [sendingInquiryReply, setSendingInquiryReply] = useState(false);
+
+  const handleSendAdminInquiryReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedInquiry || !inquiryReplyText.trim()) return;
+    setSendingInquiryReply(true);
+    try {
+      const res = await api.post(`/otc/inquiries/${selectedInquiry.id}/messages`, {
+        message: inquiryReplyText.trim(),
+      });
+      if (res.data?.success && res.data?.data) {
+        setSelectedInquiry((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                status: 'REPLIED',
+                messages: [...(prev.messages || []), res.data.data],
+              }
+            : prev
+        );
+        setInquiryReplyText('');
+        onFeedback({ text: `Reply sent to customer on ${selectedInquiry.inquiryCode}.`, type: 'success' });
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback({
+        text: err.response?.data?.message || 'Failed to reply to OTC inquiry.',
+        type: 'error',
+      });
+    } finally {
+      setSendingInquiryReply(false);
+    }
+  };
 
   // Trade Escrow Resolution Modal
   const [resolveModalTrade, setResolveModalTrade] = useState<any | null>(null);
@@ -434,6 +473,18 @@ export default function AdminOtcTab({
             <Scale className="w-3.5 h-3.5" />
             <span>OTC Escrow Trades ({trades.length})</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setSubTab('INQUIRIES')}
+            className={`px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+              subTab === 'INQUIRIES'
+                ? 'bg-sky-600 text-white shadow'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>Pre-Trade Inquiries ({inquiries.length})</span>
+          </button>
         </div>
 
         {subTab === 'DESKS' ? (
@@ -448,7 +499,7 @@ export default function AdminOtcTab({
             <option value="SUSPENDED">SUSPENDED</option>
             <option value="CLOSED">CLOSED</option>
           </select>
-        ) : (
+        ) : subTab === 'TRADES' ? (
           <select
             value={tradeStatusFilter}
             onChange={(e) => setTradeStatusFilter(e.target.value)}
@@ -460,7 +511,7 @@ export default function AdminOtcTab({
             <option value="COMPLETED">COMPLETED</option>
             <option value="CANCELLED">CANCELLED</option>
           </select>
-        )}
+        ) : null}
       </div>
 
       {loading ? (
@@ -691,14 +742,15 @@ export default function AdminOtcTab({
             </div>
           </div>
         )
-      ) : /* TRADES TABLE */
-      filteredTrades.length === 0 ? (
-        <div className="p-16 text-center text-slate-500 bg-slate-900/50 border border-slate-800 rounded-3xl">
-          <Scale className="w-10 h-10 mx-auto text-slate-600 mb-2" />
-          <p className="text-sm font-semibold text-slate-400">No OTC escrow trades found</p>
-        </div>
-      ) : (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+      ) : subTab === 'TRADES' ? (
+        /* TRADES TABLE */
+        filteredTrades.length === 0 ? (
+          <div className="p-16 text-center text-slate-500 bg-slate-900/50 border border-slate-800 rounded-3xl">
+            <Scale className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+            <p className="text-sm font-semibold text-slate-400">No OTC escrow trades found</p>
+          </div>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-950/70 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
@@ -809,6 +861,157 @@ export default function AdminOtcTab({
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+        )
+      ) : (
+        /* PRE-TRADE DESK INQUIRIES TABLE */
+        inquiries.length === 0 ? (
+          <div className="p-16 text-center text-slate-500 bg-slate-900/50 border border-slate-800 rounded-3xl">
+            <MessageSquare className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+            <p className="text-sm font-semibold text-slate-400">No pre-trade OTC desk inquiries yet</p>
+          </div>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-950/60 text-[10px] font-mono text-slate-400 uppercase">
+                    <th className="py-3.5 px-4">Inquiry / Desk</th>
+                    <th className="py-3.5 px-4">Customer</th>
+                    <th className="py-3.5 px-4">Latest Message</th>
+                    <th className="py-3.5 px-4">Status</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70 text-xs text-slate-300">
+                  {inquiries.map((inq) => {
+                    const msgs = Array.isArray(inq.messages) ? inq.messages : [];
+                    const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+                    return (
+                      <tr key={inq.id} className="hover:bg-slate-800/30 transition-colors">
+                        <td className="py-3.5 px-4 space-y-1">
+                          <div className="font-mono font-bold text-white">{inq.inquiryCode}</div>
+                          <div className="text-[11px] text-emerald-400 font-semibold">
+                            {inq.desk?.deskName || 'OTC Desk'}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="font-semibold text-white">
+                            {inq.customer?.firstName || ''} {inq.customer?.lastName || ''}{' '}
+                            {inq.customer?.displayName ? `(@${inq.customer.displayName})` : ''}
+                          </div>
+                          <div className="text-[10px] text-slate-400">{inq.customer?.email}</div>
+                        </td>
+                        <td className="py-3.5 px-4 max-w-xs truncate">
+                          {lastMsg ? (
+                            <span>
+                              <strong className="text-sky-400">{lastMsg.senderName}:</strong> {lastMsg.message}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">No messages</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-black ${
+                              inq.status === 'REPLIED'
+                                ? 'bg-emerald-500/20 text-emerald-400'
+                                : 'bg-sky-500/20 text-sky-300'
+                            }`}
+                          >
+                            {inq.status}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedInquiry(inq);
+                              setInquiryReplyText('');
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <MessageSquare className="w-3 h-3" />
+                            <span>View &amp; Reply ({msgs.length})</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* MODAL 2B: PRE-TRADE OTC DESK INQUIRY REPLY VIEWER */}
+      {selectedInquiry && (
+        <div
+          onClick={() => setSelectedInquiry(null)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto overscroll-contain p-3 sm:p-6 flex items-start sm:items-center justify-center"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="my-auto bg-slate-950 border border-slate-800 rounded-3xl max-w-lg w-full max-h-[calc(100dvh-1.5rem)] sm:max-h-[90dvh] flex flex-col overflow-hidden shadow-2xl"
+          >
+            <div className="shrink-0 px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-extrabold text-white">
+                  OTC Desk Inquiry — {selectedInquiry.inquiryCode}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {selectedInquiry.desk?.deskName} • {selectedInquiry.customer?.email}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedInquiry(null)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-4 space-y-3 text-xs">
+              {(selectedInquiry.messages || []).map((m: any) => (
+                <div
+                  key={m.id}
+                  className={`p-3 rounded-2xl border ${
+                    m.senderRole === 'ADMIN' || m.senderRole === 'OPERATOR'
+                      ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-100'
+                      : 'bg-slate-900 border-slate-800 text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mb-1">
+                    <span>{m.senderName}</span>
+                    <span>{new Date(m.createdAt).toLocaleString()}</span>
+                  </div>
+                  <div>{m.message}</div>
+                </div>
+              ))}
+            </div>
+
+            <form
+              onSubmit={handleSendAdminInquiryReply}
+              className="shrink-0 px-6 py-4 border-t border-slate-800 flex gap-2 bg-slate-900/60"
+            >
+              <input
+                type="text"
+                placeholder="Reply as Avora OTC Desk / Support..."
+                value={inquiryReplyText}
+                onChange={(e) => setInquiryReplyText(e.target.value)}
+                className="flex-1 px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none focus:border-sky-500"
+              />
+              <button
+                type="submit"
+                disabled={sendingInquiryReply || !inquiryReplyText.trim()}
+                className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+              >
+                {sendingInquiryReply ? 'Sending...' : 'Reply'}
+              </button>
+            </form>
           </div>
         </div>
       )}

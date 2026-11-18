@@ -16,6 +16,7 @@ router.post('/reset-password', rate_limiter_1.authRateLimiter, auth_controller_1
 router.get('/me', auth_1.authenticateToken, auth_controller_1.getMe);
 router.post('/refresh', auth_1.authenticateToken, auth_controller_1.refreshSession);
 router.patch('/display-name', auth_1.authenticateToken, auth_controller_1.updateDisplayName);
+router.patch('/availability', auth_1.authenticateToken, auth_controller_1.updateAvailability);
 router.post('/change-password', auth_1.authenticateToken, rate_limiter_1.authRateLimiter, auth_controller_1.changePassword);
 // Identity Verification (KYC / AML & Sumsub/Onfido SDK integration)
 router.post('/kyc/submit', auth_1.authenticateToken, auth_controller_1.submitKyc);

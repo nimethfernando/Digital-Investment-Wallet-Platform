@@ -16,6 +16,8 @@ export interface User {
   isWithdrawalLocked?: boolean;
   withdrawalLockedUntil?: string | null;
   accountNumber?: string;
+  isAvailable?: boolean;
+  availabilityUpdatedAt?: string | null;
 }
 
 interface AuthContextType {
@@ -27,6 +29,7 @@ interface AuthContextType {
   register: (data: any) => Promise<any>;
   logout: (redirectTo?: string | any) => void;
   refreshUser: () => Promise<void>;
+  updateAvailability: (isAvailable: boolean) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -300,6 +303,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateAvailability = async (nextAvailable: boolean): Promise<boolean> => {
+    try {
+      const res = await api.patch('/auth/availability', { isAvailable: nextAvailable });
+      if (res.data?.success) {
+        setUser((prev) => {
+          if (!prev) return prev;
+          const updated = {
+            ...prev,
+            isAvailable: Boolean(res.data.isAvailable),
+            availabilityUpdatedAt: res.data.availabilityUpdatedAt || new Date().toISOString(),
+          };
+          localStorage.setItem('avora_user', JSON.stringify(updated));
+          return updated;
+        });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('avora-availability-updated'));
+        }
+        return true;
+      }
+    } catch {
+      // ignore error
+    }
+    return false;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -311,6 +339,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         refreshUser,
+        updateAvailability,
       }}
     >
       {children}

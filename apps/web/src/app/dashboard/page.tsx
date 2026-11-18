@@ -230,7 +230,7 @@ function generateLocalAccountNumber(userId?: string): string {
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, token, isLoading: authLoading, refreshUser } = useAuth();
+  const { user, token, isLoading: authLoading, refreshUser, updateAvailability } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'notifications' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'redotpay' | 'bank_details'>('overview');
   const [customerNotifications, setCustomerNotifications] = useState<CustomerNotificationItem[]>([]);
@@ -1293,6 +1293,24 @@ function DashboardContent() {
                     Verify Identity (KYC)
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => updateAvailability(user?.isAvailable === false)}
+                  className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border transition-colors cursor-pointer ${
+                    user?.isAvailable === false
+                      ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:border-emerald-500'
+                      : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+                  }`}
+                  title="Single global Online / Offline toggle across P2P, OTC Desk & all services. Transactions and messages still arrive while Offline."
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      user?.isAvailable === false ? 'bg-slate-400' : 'bg-emerald-500 animate-pulse'
+                    }`}
+                  />
+                  <span>{user?.isAvailable === false ? 'Offline (Click to Go Online)' : 'Online (Click to Mark Offline)'}</span>
+                </button>
               </div>
 
               {/* ACCOUNT NUMBER WITH COPY BUTTON */}

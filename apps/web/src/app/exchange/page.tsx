@@ -114,7 +114,7 @@ function getDeskGoogleMapsHref(desk: {
 
 export default function ExchangeDeskPage() {
   const router = useRouter();
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, updateAvailability } = useAuth();
 
   // Filter States
   const [selectedCountry, setSelectedCountry] = useState<string>('ALL');
@@ -277,6 +277,18 @@ export default function ExchangeDeskPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const deepLinkTradeHandledRef = useRef<string | null>(null);
 
+  // Pre-Trade OTC Desk Inquiries (Ask availability / currency before escrow)
+  const [otcInquiries, setOtcInquiries] = useState<any[]>([]);
+  const [inquiryModalOpen, setInquiryModalOpen] = useState<boolean>(false);
+  const [inquiryDesk, setInquiryDesk] = useState<OtcDeskItem | null>(null);
+  const [activeInquiry, setActiveInquiry] = useState<any>(null);
+  const [inquiryInitialMsg, setInquiryInitialMsg] = useState<string>('');
+  const [inquiryReplyInput, setInquiryReplyInput] = useState<string>('');
+  const [inquiryLoading, setInquiryLoading] = useState<boolean>(false);
+  const [inquiryError, setInquiryError] = useState<string | null>(null);
+  const deepLinkInquiryHandledRef = useRef<string | null>(null);
+  const inquiryMessagesEndRef = useRef<HTMLDivElement | null>(null);
+
   // Benchmark Rates & Dynamic OTC Commission Structure (Default: 1.5% Broker + 0.5% Platform = 2.0%)
   const [baseRates, setBaseRates] = useState<Record<string, number>>({
     USD: 1.0,
@@ -300,7 +312,7 @@ export default function ExchangeDeskPage() {
 
   // Lock background page scroll cleanly while modal is open & allow Escape dismissal
   useEffect(() => {
-    const anyModalOpen = applyModalOpen || chatModalOpen || manageDeskModalOpen;
+    const anyModalOpen = applyModalOpen || chatModalOpen || manageDeskModalOpen || inquiryModalOpen;
     const prevOverflow = document.body.style.overflow;
     if (anyModalOpen) {
       document.body.style.overflow = 'hidden';
@@ -313,6 +325,7 @@ export default function ExchangeDeskPage() {
         if (applyModalOpen) setApplyModalOpen(false);
         if (chatModalOpen) setChatModalOpen(false);
         if (manageDeskModalOpen) setManageDeskModalOpen(false);
+        if (inquiryModalOpen) setInquiryModalOpen(false);
       }
     };
     if (anyModalOpen) {
@@ -323,7 +336,7 @@ export default function ExchangeDeskPage() {
       document.body.style.overflow = prevOverflow || '';
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [applyModalOpen, chatModalOpen, manageDeskModalOpen]);
+  }, [applyModalOpen, chatModalOpen, manageDeskModalOpen, inquiryModalOpen]);
 
   // Computed live Google Maps search query and embed URL for OTC application form
   const resolvedLocationQuery = useMemo(() => {
@@ -481,6 +494,18 @@ export default function ExchangeDeskPage() {
     }
   };
 
+  const fetchMyInquiries = async () => {
+    if (!user) return;
+    try {
+      const res = await api.get('/otc/inquiries');
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        setOtcInquiries(res.data.data);
+      }
+    } catch {
+      // ignore unauthenticated errors
+    }
+  };
+
   const fetchMyDesk = async () => {
     if (!user) return;
     try {
@@ -557,6 +582,7 @@ export default function ExchangeDeskPage() {
         setMyDesk(res.data.data);
         setManageSuccess('Your OTC Desk rates, margins & payment methods have been updated live!');
         fetchDesks();
+        refreshUser();
       }
     } catch (err: any) {
       setManageError(extractErrorMessage(err, 'Failed to update OTC Desk rates.'));
@@ -573,39 +599,104 @@ export default function ExchangeDeskPage() {
     if (!user) {
       setMyTrades([]);
       setMyDesk(null);
+      setOtcInquiries([]);
       return;
     }
     fetchMyTrades();
     fetchMyDesk();
+    fetchMyInquiries();
     const interval = setInterval(() => {
       fetchMyTrades();
+      fetchMyInquiries();
     }, 6000);
     return () => clearInterval(interval);
   }, [user]);
 
-  // Deep-link ?tradeId=... support when navigating from live notifications
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onAvail = () => {
+      fetchDesks();
+      fetchMyDesk();
+    };
+    window.addEventListener('avora-availability-updated', onAvail);
+    return () => window.removeEventListener('avora-availability-updated', onAvail);
+  }, [user]);
+
+  // Deep-link ?tradeId=... or ?inquiryId=... support when navigating from live notifications
   useEffect(() => {
     if (!user || typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const targetTradeId = params.get('tradeId');
-    if (!targetTradeId || deepLinkTradeHandledRef.current === targetTradeId) return;
-
-    const matched = myTrades.find((t) => t.id === targetTradeId);
-    if (matched) {
-      deepLinkTradeHandledRef.current = targetTradeId;
-      handleOpenExistingTrade(matched);
-    } else {
-      api
-        .get(`/otc/trades/${targetTradeId}`)
-        .then((res) => {
-          if (res.data?.success && res.data?.data) {
-            deepLinkTradeHandledRef.current = targetTradeId;
-            handleOpenExistingTrade(res.data.data);
-          }
-        })
-        .catch(() => {});
+    if (targetTradeId && deepLinkTradeHandledRef.current !== targetTradeId) {
+      const matched = myTrades.find((t) => t.id === targetTradeId);
+      if (matched) {
+        deepLinkTradeHandledRef.current = targetTradeId;
+        handleOpenExistingTrade(matched);
+      } else {
+        api
+          .get(`/otc/trades/${targetTradeId}`)
+          .then((res) => {
+            if (res.data?.success && res.data?.data) {
+              deepLinkTradeHandledRef.current = targetTradeId;
+              handleOpenExistingTrade(res.data.data);
+            }
+          })
+          .catch(() => {});
+      }
     }
-  }, [user, myTrades]);
+
+    const targetInquiryId = params.get('inquiryId');
+    if (targetInquiryId && deepLinkInquiryHandledRef.current !== targetInquiryId) {
+      const matchedInq = otcInquiries.find((q) => q.id === targetInquiryId);
+      if (matchedInq) {
+        deepLinkInquiryHandledRef.current = targetInquiryId;
+        setActiveInquiry(matchedInq);
+        setInquiryDesk(matchedInq.desk || null);
+        setInquiryError(null);
+        setInquiryModalOpen(true);
+      } else {
+        api
+          .get(`/otc/inquiries/${targetInquiryId}`)
+          .then((res) => {
+            if (res.data?.success && res.data?.data) {
+              deepLinkInquiryHandledRef.current = targetInquiryId;
+              setActiveInquiry(res.data.data);
+              setInquiryDesk(res.data.data.desk || null);
+              setInquiryError(null);
+              setInquiryModalOpen(true);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [user, myTrades, otcInquiries]);
+
+  // Live 3-second polling for open Inquiry chat modal
+  useEffect(() => {
+    if (!user || !inquiryModalOpen || !activeInquiry?.id) return;
+    let cancelled = false;
+    const refreshInquiry = async () => {
+      try {
+        const res = await api.get(`/otc/inquiries/${activeInquiry.id}`);
+        if (!cancelled && res.data?.success && res.data?.data) {
+          setActiveInquiry(res.data.data);
+        }
+      } catch {
+        // ignore transient polling error
+      }
+    };
+    const interval = setInterval(refreshInquiry, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user, inquiryModalOpen, activeInquiry?.id]);
+
+  useEffect(() => {
+    if (inquiryModalOpen && inquiryMessagesEndRef.current) {
+      inquiryMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [inquiryModalOpen, activeInquiry?.messages?.length]);
 
   // Live 3-second chat & escrow status polling while trade room is open
   useEffect(() => {
@@ -748,6 +839,84 @@ export default function ExchangeDeskPage() {
     setMessages([]);
     setQuoteError(null);
     setChatModalOpen(true);
+  };
+
+  // Open Pre-Trade OTC Inquiry Modal ("Ask Availability / Currency" without locking escrow)
+  const handleOpenInquiryModal = (desk: OtcDeskItem) => {
+    if (!user) {
+      router.push('/login?redirect=/exchange');
+      return;
+    }
+    const existing = otcInquiries.find((q) => q.deskId === desk.id && q.status !== 'CLOSED');
+    setInquiryDesk(desk);
+    setActiveInquiry(existing || null);
+    setInquiryInitialMsg('');
+    setInquiryReplyInput('');
+    setInquiryError(null);
+    setInquiryModalOpen(true);
+  };
+
+  const handleOpenExistingInquiry = async (inq: any) => {
+    setInquiryDesk(inq.desk || null);
+    setActiveInquiry(inq);
+    setInquiryInitialMsg('');
+    setInquiryReplyInput('');
+    setInquiryError(null);
+    setInquiryModalOpen(true);
+    try {
+      const res = await api.get(`/otc/inquiries/${inq.id}`);
+      if (res.data?.success && res.data?.data) {
+        setActiveInquiry(res.data.data);
+      }
+    } catch {
+      // keep loaded state
+    }
+  };
+
+  const handleCreateInquiry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inquiryDesk || !inquiryInitialMsg.trim()) return;
+    setInquiryLoading(true);
+    setInquiryError(null);
+    try {
+      const res = await api.post(`/otc/desks/${inquiryDesk.id}/inquire`, {
+        message: inquiryInitialMsg.trim(),
+      });
+      if (res.data?.success && res.data?.data) {
+        setActiveInquiry(res.data.data);
+        setInquiryInitialMsg('');
+        fetchMyInquiries();
+      }
+    } catch (err: any) {
+      setInquiryError(extractErrorMessage(err, 'Failed to send message to OTC desk.'));
+    } finally {
+      setInquiryLoading(false);
+    }
+  };
+
+  const handleSendInquiryReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeInquiry || !inquiryReplyInput.trim()) return;
+    const text = inquiryReplyInput.trim();
+    setInquiryReplyInput('');
+    setInquiryLoading(true);
+    setInquiryError(null);
+    try {
+      const res = await api.post(`/otc/inquiries/${activeInquiry.id}/messages`, {
+        message: text,
+      });
+      if (res.data?.success && res.data?.data) {
+        setActiveInquiry((prev: any) =>
+          prev ? { ...prev, messages: [...(prev.messages || []), res.data.data] } : prev
+        );
+        fetchMyInquiries();
+      }
+    } catch (err: any) {
+      setInquiryError(extractErrorMessage(err, 'Failed to send message.'));
+      setInquiryReplyInput(text);
+    } finally {
+      setInquiryLoading(false);
+    }
   };
 
   const handleOpenExistingTrade = async (tradeItem: any) => {
@@ -999,6 +1168,26 @@ export default function ExchangeDeskPage() {
             <ArrowRightLeft className="w-4 h-4 text-emerald-500" />
             <span>Visit P2P Marketplace ($50 Deposit)</span>
           </Link>
+
+          {user && (
+            <button
+              type="button"
+              onClick={() => updateAvailability(user.isAvailable === false)}
+              className={`px-4 py-3 rounded-2xl font-bold text-xs border shadow-sm flex items-center gap-2 transition-all cursor-pointer ${
+                user.isAvailable === false
+                  ? 'bg-slate-900 text-slate-300 border-slate-700 hover:border-emerald-500'
+                  : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
+              }`}
+              title="Single Online / Offline status across P2P, OTC Desks & all services"
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  user.isAvailable === false ? 'bg-slate-400' : 'bg-emerald-500 animate-pulse'
+                }`}
+              />
+              <span>{user.isAvailable === false ? 'Status: Offline (Click to Go Online)' : 'Status: Online (Mark Offline)'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1218,6 +1407,72 @@ export default function ExchangeDeskPage() {
                   {lastMsg && (
                     <div className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800/80 text-[11px] text-slate-300 truncate">
                       <span className="font-bold text-emerald-400">{lastMsg.senderName}: </span>
+                      <span>{lastMsg.message}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* My Pre-Trade OTC Desk Inquiries (Ask availability / currency before escrow) */}
+      {user && otcInquiries.length > 0 && (
+        <div className="p-5 rounded-3xl bg-slate-900/90 border border-sky-500/30 text-white space-y-3 shadow-lg">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-black flex items-center gap-2 text-sky-400">
+              <MessageSquare className="w-4 h-4" />
+              <span>Pre-Trade OTC Desk Questions &amp; Messages ({otcInquiries.length})</span>
+            </h2>
+            <span className="text-[11px] text-slate-400 font-mono">
+              Live synced with Operator &amp; Admin • No escrow lock needed
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {otcInquiries.slice(0, 9).map((inq) => {
+              const msgs = Array.isArray(inq.messages) ? inq.messages : [];
+              const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+              const isOperatorRole = user.id === inq.operatorId;
+              const counterpartyLabel = isOperatorRole
+                ? `${inq.customer?.firstName || ''} ${inq.customer?.lastName || ''}`.trim() ||
+                  (inq.customer?.displayName ? `@${inq.customer.displayName}` : 'Client')
+                : inq.desk?.deskName || 'OTC Desk';
+              return (
+                <div
+                  key={inq.id}
+                  className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-2.5 text-xs"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono font-bold text-white flex flex-wrap items-center gap-1.5">
+                        <span>{inq.inquiryCode}</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                            inq.status === 'REPLIED'
+                              ? 'bg-emerald-500/20 text-emerald-300'
+                              : 'bg-sky-500/20 text-sky-300'
+                          }`}
+                        >
+                          {inq.status}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-300 truncate mt-0.5">
+                        {isOperatorRole ? 'Question from ' : 'Desk: '}
+                        <span className="text-sky-300 font-semibold">{counterpartyLabel}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenExistingInquiry(inq)}
+                      className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] shrink-0 cursor-pointer"
+                    >
+                      Open Chat ({msgs.length})
+                    </button>
+                  </div>
+                  {lastMsg && (
+                    <div className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800/80 text-[11px] text-slate-300 truncate">
+                      <span className="font-bold text-sky-400">{lastMsg.senderName}: </span>
                       <span>{lastMsg.message}</span>
                     </div>
                   )}
@@ -1465,13 +1720,24 @@ export default function ExchangeDeskPage() {
                       <span>Update My Desk Rates &amp; Rails</span>
                     </button>
                   ) : (
-                    <button
-                      onClick={() => handleOpenQuoteModal(desk)}
-                      className="w-full py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <MessageSquare className="w-4 h-4" />
-                      <span>Chat &amp; Request Quote</span>
-                    </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenInquiryModal(desk)}
+                        className="w-full py-3 px-3 rounded-2xl font-bold text-xs border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-sky-600 hover:text-white hover:border-sky-600 text-slate-800 dark:text-slate-200 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Ask Availability</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenQuoteModal(desk)}
+                        className="w-full py-3 px-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <ArrowRightLeft className="w-3.5 h-3.5" />
+                        <span>Request Quote</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               );
@@ -2314,6 +2580,9 @@ export default function ExchangeDeskPage() {
                       <Send className="w-4 h-4" />
                     </button>
                   </form>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    ✓ Messages sent here deliver immediately to the operator&apos;s Notification Bell, <span className="font-mono text-emerald-500">/exchange</span>, and Admin Oversight (<span className="font-semibold">Admin → OTC Desks &amp; Trades</span>).
+                  </p>
                 </div>
               )}
             </div>
@@ -2606,6 +2875,128 @@ export default function ExchangeDeskPage() {
                   {manageSaving ? 'Saving Live OTC Desk Rates...' : 'Save Live OTC Desk Rates & Settings'}
                 </button>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: PRE-TRADE OTC DESK INQUIRY ("ASK AVAILABILITY / CURRENCY") */}
+      {/* ========================================================================= */}
+      {inquiryModalOpen && (inquiryDesk || activeInquiry) && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setInquiryModalOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg max-h-[90vh] flex flex-col rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
+          >
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-black text-slate-900 dark:text-white truncate">
+                  {activeInquiry?.desk?.deskName || inquiryDesk?.deskName || 'OTC Desk Inquiry'}
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {activeInquiry ? `Inquiry ${activeInquiry.inquiryCode} • ` : ''}
+                  Ask availability, currency on hand, or pickup hours before locking escrow
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInquiryModalOpen(false)}
+                className="p-2 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto overscroll-contain flex-1 min-h-0">
+              {(activeInquiry?.desk?.isOnline === false || inquiryDesk?.isOnline === false) && (
+                <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300">
+                  <strong>Desk is currently marked Offline.</strong> You can still send your question — it will appear in the operator&apos;s Notification Bell and OTC Portal so they can reply as soon as they are available.
+                </div>
+              )}
+
+              {inquiryError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300">
+                  {inquiryError}
+                </div>
+              )}
+
+              {!activeInquiry ? (
+                <form onSubmit={handleCreateInquiry} className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Question for {inquiryDesk?.deskName}
+                    </label>
+                    <textarea
+                      rows={4}
+                      required
+                      placeholder="Example: Hi, are you available today and do you have 300,000 LKR / cash available before I visit your desk?"
+                      value={inquiryInitialMsg}
+                      onChange={(e) => setInquiryInitialMsg(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={inquiryLoading || inquiryInitialMsg.trim().length < 2}
+                    className="w-full py-3 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-md disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>{inquiryLoading ? 'Sending to Desk...' : 'Send Question to Desk'}</span>
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <div className="h-60 overflow-y-auto overscroll-contain p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                    {(activeInquiry.messages || []).map((m: any) => (
+                      <div
+                        key={m.id}
+                        className={`p-2.5 rounded-xl max-w-[85%] ${
+                          m.senderId === user?.id
+                            ? 'bg-sky-600 text-white ml-auto'
+                            : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white'
+                        }`}
+                      >
+                        <div className="text-[10px] opacity-75 font-bold mb-0.5">
+                          {m.senderName}
+                        </div>
+                        <div>{m.message}</div>
+                      </div>
+                    ))}
+                    <div ref={inquiryMessagesEndRef} />
+                  </div>
+
+                  <form onSubmit={handleSendInquiryReply} className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Reply to OTC desk..."
+                      value={inquiryReplyInput}
+                      onChange={(e) => setInquiryReplyInput(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={inquiryLoading || !inquiryReplyInput.trim()}
+                      className="px-4 py-2.5 rounded-xl font-bold text-xs bg-sky-600 hover:bg-sky-500 text-white shrink-0 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
+                </>
+              )}
+
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 text-[11px] text-emerald-800 dark:text-emerald-300 space-y-1">
+                <div className="font-bold">Where your message appears:</div>
+                <div>
+                  • <strong>Desk Operator:</strong> Top header <strong>Notification Bell → OTC Desk</strong> &amp; <strong>/exchange → Pre-Trade OTC Desk Questions</strong>.
+                </div>
+                <div>
+                  • <strong>Official Desks (e.g. Colombo Central OTC Desk) &amp; Admin:</strong> <strong>Admin Control → OTC Desks &amp; Trades → Pre-Trade Inquiries</strong> &amp; <strong>Alerts Queue</strong>.
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.instantVerifyKyc = exports.resetKyc = exports.getSumsubToken = exports.getKycStatus = exports.submitKyc = exports.updateDisplayName = exports.checkDisplayName = exports.refreshSession = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.detectLocation = exports.register = void 0;
+exports.instantVerifyKyc = exports.resetKyc = exports.getSumsubToken = exports.getKycStatus = exports.submitKyc = exports.updateAvailability = exports.updateDisplayName = exports.checkDisplayName = exports.refreshSession = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.detectLocation = exports.register = void 0;
 const zod_1 = require("zod");
 const prisma_1 = require("../lib/prisma");
 const auth_service_1 = require("../services/auth.service");
@@ -168,6 +168,8 @@ const getMe = async (req, res, next) => {
                 twoFactorEnabled: true,
                 withdrawalLockedUntil: true,
                 passwordChangedAt: true,
+                isAvailable: true,
+                availabilityUpdatedAt: true,
                 status: true,
             },
         });
@@ -224,6 +226,27 @@ const updateDisplayName = async (req, res, next) => {
     }
 };
 exports.updateDisplayName = updateDisplayName;
+const updateAvailability = async (req, res, next) => {
+    try {
+        if (!req.user)
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (typeof req.body?.isAvailable !== 'boolean') {
+            return res.status(400).json({ success: false, message: 'isAvailable (boolean) is required' });
+        }
+        const result = await auth_service_1.authService.updateAvailability(req.user.userId, req.body.isAvailable);
+        res.json({
+            success: true,
+            ...result,
+            message: result.isAvailable
+                ? 'Your status is now Online across P2P, OTC, and all services.'
+                : 'Your status is now Offline across P2P, OTC, and all services. You will still receive transactions and messages.',
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.updateAvailability = updateAvailability;
 const submitKyc = async (req, res, next) => {
     try {
         if (!req.user)

@@ -158,6 +158,7 @@ interface P2POfferItem {
   promotionBadgeLabel?: string | null;
   promotedUntil?: string | null;
   isOffline?: boolean;
+  isCuratedOffline?: boolean;
   lastSeen?: string;
   isDeskConcierge?: boolean;
   trader: {
@@ -169,6 +170,9 @@ interface P2POfferItem {
     isVerified: boolean;
     isP2pMerchant?: boolean;
     isInstitutional?: boolean;
+    isOnline?: boolean;
+    isOffline?: boolean;
+    availabilityUpdatedAt?: string | null;
     completionRate: string;
     completionRatePct?: number | null;
     cancellationRatePct?: number;
@@ -1224,6 +1228,13 @@ function P2PPageContent() {
     fetchOffers();
   }, [marketSide, selectedCountry, marketCryptoFilter, marketPaymentFilter, marketAmountFilter, marketMinCompletion, marketLocationFilter, marketSortBy]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onAvail = () => fetchOffers();
+    window.addEventListener('avora-availability-updated', onAvail);
+    return () => window.removeEventListener('avora-availability-updated', onAvail);
+  }, []);
+
   const displayedOffers: P2POfferItem[] = (() => {
     const cur = selectedCountry.currency;
     const activeCrypto = marketCryptoFilter !== 'ALL' ? marketCryptoFilter : 'USDT';
@@ -1288,6 +1299,7 @@ function P2PPageContent() {
         paymentTerms: tpl.terms,
         locationCountry: selectedCountry.name,
         isOffline: true,
+        isCuratedOffline: true,
         lastSeen: tpl.lastSeen,
         trader: {
           id: tpl.id,
@@ -1301,7 +1313,11 @@ function P2PPageContent() {
       };
     });
 
-    let combined = [...offers];
+    let combined: P2POfferItem[] = offers.map((o) => ({
+      ...o,
+      isOffline: Boolean(o.trader?.isOffline || o.trader?.isOnline === false),
+      lastSeen: o.trader?.isOffline || o.trader?.isOnline === false ? 'Unavailable' : undefined,
+    }));
     if (marketMinCompletion === 'ALL' && !marketLocationFilter.trim() && !marketAmountFilter.trim()) {
       combined = [...offers, deskListing, ...curatedOfflineListings];
     } else if (!marketAmountFilter.trim() && !marketLocationFilter.trim()) {
@@ -2789,12 +2805,12 @@ function P2PPageContent() {
                       <div className="relative shrink-0">
                         <button
                           type="button"
-                          onClick={() => !offer.isOffline && !offer.isDeskConcierge && setViewingTraderId(offer.trader.id)}
+                          onClick={() => !offer.isCuratedOffline && !offer.isDeskConcierge && setViewingTraderId(offer.trader.id)}
                           className={`w-10 h-10 rounded-2xl border font-extrabold flex items-center justify-center text-sm ${
                             offer.isDeskConcierge
                               ? 'bg-gradient-to-br from-emerald-500 to-teal-600 border-emerald-400/50 text-white shadow-sm'
                               : offer.isOffline
-                              ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+                              ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 cursor-pointer'
                               : 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 cursor-pointer hover:scale-105 transition-transform'
                           }`}
                         >
@@ -2811,9 +2827,9 @@ function P2PPageContent() {
                         <div className="flex flex-wrap items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => !offer.isOffline && !offer.isDeskConcierge && setViewingTraderId(offer.trader.id)}
+                            onClick={() => !offer.isCuratedOffline && !offer.isDeskConcierge && setViewingTraderId(offer.trader.id)}
                             className={`font-bold text-sm text-slate-900 dark:text-white ${
-                              !offer.isOffline && !offer.isDeskConcierge ? 'hover:text-emerald-500 cursor-pointer' : ''
+                              !offer.isCuratedOffline && !offer.isDeskConcierge ? 'hover:text-emerald-500 cursor-pointer' : ''
                             }`}
                           >
                             {offer.trader.name}
@@ -2857,7 +2873,7 @@ function P2PPageContent() {
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 mt-0.5">
-                          {offer.isDeskConcierge || offer.isOffline ? (
+                          {offer.isDeskConcierge || offer.isCuratedOffline ? (
                             <span>{offer.trader.completionRate}</span>
                           ) : (
                             <>
@@ -2934,7 +2950,7 @@ function P2PPageContent() {
                         <Headphones className="w-3.5 h-3.5" />
                         <span>{marketSide === 'BUY' ? 'Buy via Desk' : 'Sell via Desk'}</span>
                       </button>
-                    ) : offer.isOffline ? (
+                    ) : offer.isCuratedOffline ? (
                       <button
                         onClick={() =>
                           openDeskConcierge({

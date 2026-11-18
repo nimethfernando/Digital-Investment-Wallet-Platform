@@ -158,6 +158,8 @@ export const getMe = async (req: Request, res: Response, next: NextFunction) => 
         twoFactorEnabled: true,
         withdrawalLockedUntil: true,
         passwordChangedAt: true,
+        isAvailable: true,
+        availabilityUpdatedAt: true,
         status: true,
       },
     });
@@ -205,6 +207,25 @@ export const updateDisplayName = async (req: Request, res: Response, next: NextF
     const raw = String(req.body?.displayName || '');
     const user = await authService.updateDisplayName(req.user.userId, raw);
     res.json({ success: true, user, message: `Unique trader handle set to @${user.displayName}` });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateAvailability = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (typeof req.body?.isAvailable !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'isAvailable (boolean) is required' });
+    }
+    const result = await authService.updateAvailability(req.user.userId, req.body.isAvailable);
+    res.json({
+      success: true,
+      ...result,
+      message: result.isAvailable
+        ? 'Your status is now Online across P2P, OTC, and all services.'
+        : 'Your status is now Offline across P2P, OTC, and all services. You will still receive transactions and messages.',
+    });
   } catch (err) {
     next(err);
   }

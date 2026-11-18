@@ -2841,7 +2841,8 @@ export class AdminController {
       }),
     ]);
 
-    const [activeAndDisputedOtcTradesList, underReviewOtcDesksList, pendingP2PAppsList] = await Promise.all([
+    await otcService.ensureOtcSchema();
+    const [activeAndDisputedOtcTradesList, underReviewOtcDesksList, pendingP2PAppsList, openOtcInquiriesList] = await Promise.all([
       prisma.otcTrade.findMany({
         where: { status: { in: ['DISPUTED', 'IN_PROGRESS'] } },
         include: {
@@ -2865,6 +2866,17 @@ export class AdminController {
         },
         orderBy: { createdAt: 'asc' },
       }),
+      prisma.otcInquiry
+        .findMany({
+          where: { status: 'OPEN' },
+          include: {
+            desk: { select: { deskName: true, city: true, country: true } },
+            customer: { select: { id: true, email: true, firstName: true, lastName: true } },
+            messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+          },
+          orderBy: { updatedAt: 'desc' },
+        })
+        .catch(() => []),
     ]);
 
     const pendingRequests: any[] = [];
@@ -3466,6 +3478,41 @@ export class AdminController {
       alerts.push(item);
     }
 
+    // Open Pre-Trade OTC Desk Inquiries (customer asking availability / currency)
+    for (const inq of openOtcInquiriesList as any[]) {
+      const custName =
+        `${inq.customer?.firstName || ''} ${inq.customer?.lastName || ''}`.trim() ||
+        inq.customer?.email ||
+        'Client';
+      const lastMsgText = inq.messages?.[0]?.message || inq.subject;
+      const age = this.computeAgeInfo(inq.updatedAt || inq.createdAt, now, 12);
+      const item = {
+        id: `OTC_INQ-${inq.id}`,
+        entityId: inq.id,
+        code: inq.inquiryCode,
+        category: 'OTC_TRADE',
+        typeLabel: 'OTC Desk Inquiry',
+        title: `OTC Inquiry: ${inq.desk?.deskName || 'OTC Desk'} (${inq.inquiryCode})`,
+        description: `${custName}: "${String(lastMsgText).slice(0, 120)}"`,
+        customerId: inq.customerId,
+        customerName: custName,
+        customerEmail: inq.customer?.email || '',
+        status: inq.status,
+        targetTab: 'otc',
+        requestDate: (inq.updatedAt || inq.createdAt).toISOString(),
+        createdDate: inq.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : 'HIGH',
+        priorityRank: 1,
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
     const sortByUrgencyThenAge = (a: any, b: any) => {
       if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
       return b.ageMs - a.ageMs;
@@ -3963,6 +4010,18 @@ export class AdminController {
       });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message || 'Failed to resolve OTC trade' });
+    }
+  }
+
+  /**
+   * Admin: List all pre-trade OTC Desk inquiries across all desks
+   */
+  async getOtcInquiries(req: Request, res: Response, next: NextFunction) {
+    try {
+      const inquiries = await otcService.getAllInquiriesAdmin();
+      res.json({ success: true, data: inquiries, inquiries });
+    } catch (err) {
+      next(err);
     }
   }
 

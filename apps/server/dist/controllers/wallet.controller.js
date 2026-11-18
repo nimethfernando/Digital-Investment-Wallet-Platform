@@ -12,6 +12,7 @@ const deposit_service_1 = require("../services/deposit.service");
 const card_service_1 = require("../services/card.service");
 const package_service_1 = require("../services/package.service");
 const p2p_service_1 = require("../services/p2p.service");
+const otc_service_1 = require("../services/otc.service");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 function fmtAmountDisplay(value, currency = 'USD') {
     const num = Number(value || 0);
@@ -463,8 +464,8 @@ class WalletController {
                 notifications: [],
             };
         }
-        await p2p_service_1.p2pService.ensureP2PReady();
-        const [kycDocuments, supportTickets, inquiries, investmentInquiries, packages, deposits, withdrawals, transactions, globalTransfers, p2pOrders, otcTrades, persistedNotifications, notifSetting,] = await Promise.all([
+        await Promise.all([p2p_service_1.p2pService.ensureP2PReady(), otc_service_1.otcService.ensureOtcSchema()]);
+        const [kycDocuments, supportTickets, inquiries, investmentInquiries, packages, deposits, withdrawals, transactions, globalTransfers, p2pOrders, otcTrades, otcInquiries, persistedNotifications, notifSetting,] = await Promise.all([
             prisma_1.prisma.kycDocument.findMany({
                 where: { userId },
                 orderBy: { createdAt: 'desc' },
@@ -548,6 +549,20 @@ class WalletController {
                 },
                 orderBy: { updatedAt: 'desc' },
                 take: 25,
+            })
+                .catch(() => []),
+            prisma_1.prisma.otcInquiry
+                .findMany({
+                where: { OR: [{ customerId: userId }, { operatorId: userId }] },
+                include: {
+                    desk: { select: { deskName: true, deskCode: true } },
+                    messages: {
+                        orderBy: { createdAt: 'desc' },
+                        take: 5,
+                    },
+                },
+                orderBy: { updatedAt: 'desc' },
+                take: 20,
             })
                 .catch(() => []),
             prisma_1.prisma.userNotification
@@ -1066,6 +1081,33 @@ class WalletController {
                     status: tr.status,
                     actionUrl: `/exchange?tradeId=${tr.id}`,
                     actionLabel: 'Open OTC Chat',
+                    createdAt: new Date(msg.createdAt).toISOString(),
+                });
+            }
+        }
+        // 5c. PRE-TRADE OTC DESK INQUIRIES (ASK AVAILABILITY / CURRENCY)
+        for (const inq of otcInquiries) {
+            for (const msg of inq.messages || []) {
+                if (msg.senderId === userId)
+                    continue;
+                const msgText = String(msg.message || '');
+                const snippet = msgText.length > 140 ? `${msgText.slice(0, 140)}...` : msgText;
+                const alreadyPersisted = persistedNotifications.some((n) => n.type === 'OTC_INQUIRY_MESSAGE' &&
+                    n.referenceCode === inq.inquiryCode &&
+                    n.message.includes(msgText.slice(0, 80)));
+                if (alreadyPersisted)
+                    continue;
+                rawItems.push({
+                    id: `otc-inq-msg-${msg.id}`,
+                    category: 'OTC',
+                    type: 'OTC_INQUIRY_MESSAGE',
+                    severity: 'INFO',
+                    title: `OTC Desk Question (${inq.desk?.deskName || 'OTC Desk'}) [${inq.inquiryCode}]`,
+                    message: `${msg.senderName}: "${snippet}"`,
+                    referenceCode: inq.inquiryCode,
+                    status: inq.status,
+                    actionUrl: `/exchange?inquiryId=${inq.id}`,
+                    actionLabel: 'Open OTC Inquiry',
                     createdAt: new Date(msg.createdAt).toISOString(),
                 });
             }

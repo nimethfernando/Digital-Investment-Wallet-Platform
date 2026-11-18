@@ -137,6 +137,7 @@ router.get('/otc/desks', (req, res, next) => adminController.getOtcDesks(req, re
 router.patch('/otc/desks/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateOtcDesk(req, res, next));
 router.get('/otc/trades', (req, res, next) => adminController.getOtcTrades(req, res, next));
 router.post('/otc/trades/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resolveOtcTrade(req, res, next));
+router.get('/otc/inquiries', (req, res, next) => adminController.getOtcInquiries(req, res, next));
 
 // Institutional Audit Logs
 router.get('/audit-logs', requireRole([Role.ADMIN]), (req, res, next) => adminController.getAdminAuditLogs(req, res, next));

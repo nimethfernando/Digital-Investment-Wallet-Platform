@@ -236,6 +236,8 @@ export class AuthService {
         role: user.role,
         kycStatus: user.kycStatus,
         twoFactorEnabled: user.twoFactorEnabled,
+        isAvailable: user.isAvailable !== false,
+        availabilityUpdatedAt: user.availabilityUpdatedAt || null,
       },
       token,
     };
@@ -324,6 +326,8 @@ export class AuthService {
         kycStatus: user.kycStatus,
         twoFactorEnabled: user.twoFactorEnabled,
         mustChangePassword: user.mustChangePassword,
+        isAvailable: user.isAvailable !== false,
+        availabilityUpdatedAt: user.availabilityUpdatedAt || null,
         wallet: user.wallet,
       },
       token,
@@ -589,6 +593,39 @@ export class AuthService {
 
     const token = this.generateToken(user.id, user.email, user.role, user.mustChangePassword);
     return { token };
+  }
+
+  /**
+   * Toggle user's single global availability status (Online / Offline) across P2P, OTC, and all services.
+   * Users stay Online by default unless manually marked Offline; transactions & messages still arrive when Offline.
+   */
+  public async updateAvailability(userId: string, isAvailable: boolean) {
+    const nextAvailable = Boolean(isAvailable);
+    const now = new Date();
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        isAvailable: nextAvailable,
+        availabilityUpdatedAt: now,
+      },
+      select: {
+        id: true,
+        isAvailable: true,
+        availabilityUpdatedAt: true,
+      },
+    });
+
+    await prisma.otcDesk
+      .updateMany({
+        where: { userId, status: 'ACTIVE' },
+        data: { isOnline: nextAvailable },
+      })
+      .catch(() => {});
+
+    return {
+      isAvailable: updated.isAvailable,
+      availabilityUpdatedAt: updated.availabilityUpdatedAt,
+    };
   }
 
   private generateToken(userId: string, email: string, role: Role, mustChangePassword = false): string {
