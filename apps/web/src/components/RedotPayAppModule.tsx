@@ -54,6 +54,7 @@ import {
   Clipboard,
   Copy,
   QrCode,
+  Search,
 } from 'lucide-react';
 import { SupportTicketModule } from './SupportTicketModule';
 import { ChooseSendMethodModal } from './ChooseSendMethodModal';
@@ -159,6 +160,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   // Transactions Filter States
   const [txTypeFilter, setTxTypeFilter] = useState<string>('ALL');
   const [txCurrencyFilter, setTxCurrencyFilter] = useState<string>('ALL');
+  const [txSearchQuery, setTxSearchQuery] = useState<string>('');
 
   // Support & Services Modals
   const [ticketCenterOpen, setTicketCenterOpen] = useState(false);
@@ -475,6 +477,11 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     }
     if (txCurrencyFilter !== 'ALL') {
       if (t.currency !== txCurrencyFilter) return false;
+    }
+    if (txSearchQuery.trim()) {
+      const q = txSearchQuery.trim().toLowerCase();
+      const hay = `${t.transactionCode || ''} ${t.type || ''} ${t.currency || ''} ${t.notes || ''} ${t.settlementReference || ''} ${t.status || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
     }
     return true;
   });
@@ -1183,6 +1190,18 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 <Download className="w-3.5 h-3.5" />
                 <span>Export CSV</span>
               </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={txSearchQuery}
+                onChange={(e) => setTxSearchQuery(e.target.value)}
+                placeholder="Search TX-, currency, notes..."
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+              />
             </div>
 
             {/* Filter Chips */}

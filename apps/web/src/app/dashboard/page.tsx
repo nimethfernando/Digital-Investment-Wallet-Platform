@@ -321,6 +321,8 @@ function DashboardContent() {
   const [txTypeFilter, setTxTypeFilter] = useState('');
   const [txCurrencyFilter, setTxCurrencyFilter] = useState('');
   const [txSearch, setTxSearch] = useState('');
+  const [wthSearch, setWthSearch] = useState('');
+  const [pkgSearch, setPkgSearch] = useState('');
 
   // Instant Statement Export
   const handleExportStatementCsv = () => {
@@ -1321,8 +1323,22 @@ function DashboardContent() {
     return true;
   });
 
+  const filteredWithdrawals = withdrawals.filter((w) => {
+    if (!wthSearch.trim()) return true;
+    const q = wthSearch.trim().toLowerCase();
+    const hay = `${w.requestCode || ''} ${w.currency || ''} ${w.payoutMethod || ''} ${w.status || ''} ${w.settlementReference || ''} ${w.payoutDetails || ''} ${w.packageCode || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const filteredDashboardPackages = packages.filter((pkg) => {
+    if (!pkgSearch.trim()) return true;
+    const q = pkgSearch.trim().toLowerCase();
+    const hay = `${pkg.packageCode || ''} ${pkg.status || ''} ${(pkg as any).depositMethod || ''} ${pkg.currency || ''} ${pkg.amount || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
   const txPagination = usePagination(filteredTransactions, 50);
-  const wthPagination = usePagination(withdrawals, 50);
+  const wthPagination = usePagination(filteredWithdrawals, 50);
   const notifPagination = usePagination(filteredNotifications, 50);
 
   return (
@@ -2665,9 +2681,23 @@ function DashboardContent() {
                       linkLabel="Open Packages Desk"
                     />
                   </div>
-                  <span className="text-xs text-slate-500 font-mono">
-                    Total Locked: ${parseFloat(lockedPrincipal).toLocaleString()} USD
-                  </span>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {packages.length > 0 && (
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={pkgSearch}
+                          onChange={(e) => setPkgSearch(e.target.value)}
+                          placeholder="Search FD code, status..."
+                          className="pl-8 pr-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs outline-none focus:border-emerald-500 w-44 sm:w-52"
+                        />
+                      </div>
+                    )}
+                    <span className="text-xs text-slate-500 font-mono">
+                      Total Locked: ${parseFloat(lockedPrincipal).toLocaleString()} USD
+                    </span>
+                  </div>
                 </div>
 
                 {packages.length === 0 ? (
@@ -2680,9 +2710,13 @@ function DashboardContent() {
                       Purchase Fixed Deposit ($1,000 - $10,000)
                     </Link>
                   </div>
+                ) : filteredDashboardPackages.length === 0 ? (
+                  <div className="p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
+                    No FD packages match &ldquo;{pkgSearch}&rdquo;.
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {packages.map((pkg) => (
+                    {filteredDashboardPackages.map((pkg) => (
                       <div
                         key={pkg.id}
                         className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-5 relative overflow-hidden"
@@ -3652,7 +3686,27 @@ function DashboardContent() {
                 No withdrawal requests on record.
               </div>
             ) : (
-              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto">
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 overflow-x-auto">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                    Withdrawal Requests ({filteredWithdrawals.length} of {withdrawals.length})
+                  </h4>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={wthSearch}
+                      onChange={(e) => setWthSearch(e.target.value)}
+                      placeholder="Search WTH-, method, status..."
+                      className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+                {filteredWithdrawals.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-slate-400">
+                    No withdrawal requests match &ldquo;{wthSearch}&rdquo;.
+                  </div>
+                ) : (
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-semibold">
                     <tr>
@@ -3745,9 +3799,10 @@ function DashboardContent() {
                     })}
                   </tbody>
                 </table>
+                )}
                 <PaginationControls
                   currentPage={wthPagination.page}
-                  totalItems={withdrawals.length}
+                  totalItems={filteredWithdrawals.length}
                   pageSize={wthPagination.pageSize}
                   onPageChange={wthPagination.setPage}
                   onPageSizeChange={wthPagination.setPageSize}

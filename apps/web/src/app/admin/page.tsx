@@ -259,6 +259,8 @@ export default function AdminPortalPage() {
   // Withdrawals State
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [withdrawalsLoading, setWithdrawalsLoading] = useState(false);
+  const [withdrawalSearch, setWithdrawalSearch] = useState('');
+  const [withdrawalStatusFilter, setWithdrawalStatusFilter] = useState<'ALL' | 'PENDING' | 'SETTLED' | 'REJECTED'>('ALL');
   const [settleModalOpen, setSettleModalOpen] = useState(false);
   const [selectedWithdrawal, setSelectedWithdrawal] = useState<any | null>(null);
   const [settlementRef, setSettlementRef] = useState('');
@@ -266,6 +268,8 @@ export default function AdminPortalPage() {
   // Support & Dispute State
   const [tickets, setTickets] = useState<any[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketSearch, setTicketSearch] = useState('');
+  const [ticketStatusFilter, setTicketStatusFilter] = useState<string>('ALL');
   const [adminPackages, setAdminPackages] = useState<any[]>([]);
   const [packagesLoading, setPackagesLoading] = useState(false);
   const [returnsResult, setReturnsResult] = useState<any>(null);
@@ -1617,11 +1621,35 @@ export default function AdminPortalPage() {
     depSearch,
   ]);
 
+  const filteredWithdrawals = useMemo(() => {
+    const list = Array.isArray(withdrawals) ? withdrawals : [];
+    const q = withdrawalSearch.trim().toLowerCase();
+    return list.filter((w) => {
+      if (withdrawalStatusFilter === 'PENDING' && !['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w.status)) return false;
+      if (withdrawalStatusFilter === 'SETTLED' && w.status !== 'SETTLED') return false;
+      if (withdrawalStatusFilter === 'REJECTED' && w.status !== 'REJECTED') return false;
+      if (!q) return true;
+      const hay = `${w.requestCode || ''} ${w.currency || ''} ${w.payoutMethod || ''} ${w.status || ''} ${w.user?.email || ''} ${w.user?.firstName || ''} ${w.user?.lastName || ''} ${w.settlementReference || ''} ${w.payoutDetails || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [withdrawals, withdrawalSearch, withdrawalStatusFilter]);
+
+  const filteredTickets = useMemo(() => {
+    const list = Array.isArray(tickets) ? tickets : [];
+    const q = ticketSearch.trim().toLowerCase();
+    return list.filter((t) => {
+      if (ticketStatusFilter !== 'ALL' && t.status !== ticketStatusFilter) return false;
+      if (!q) return true;
+      const hay = `${t.ticketNumber || ''} ${t.subject || ''} ${t.category || ''} ${t.status || ''} ${t.user?.email || ''} ${t.user?.firstName || ''} ${t.user?.lastName || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [tickets, ticketSearch, ticketStatusFilter]);
+
   const pendingReqPagination = usePagination(filteredPendingRequests, 50);
   const packagesPagination = usePagination(filteredPackages, 50);
   const depositsPagination = usePagination(filteredDeposits, 50);
-  const withdrawalsPagination = usePagination(withdrawals, 50);
-  const ticketsPagination = usePagination(tickets, 50);
+  const withdrawalsPagination = usePagination(filteredWithdrawals, 50);
+  const ticketsPagination = usePagination(filteredTickets, 50);
   const feeTransactionsList = useMemo(
     () => (Array.isArray(platformRevenue?.recentFeeTransactions) ? platformRevenue.recentFeeTransactions : []),
     [platformRevenue]
@@ -5930,20 +5958,42 @@ export default function AdminPortalPage() {
         {/* TAB 4: WITHDRAWALS SETTLEMENT QUEUE */}
         {activeTab === 'withdrawals' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-extrabold text-base text-white">Settlement Queue ({withdrawals.length})</h3>
-              <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1">
-                <RefreshCw className="w-3.5 h-3.5" /> Refresh
-              </button>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h3 className="font-extrabold text-base text-white">Settlement Queue ({filteredWithdrawals.length} of {withdrawals.length})</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={withdrawalSearch}
+                    onChange={(e) => setWithdrawalSearch(e.target.value)}
+                    placeholder="Search WTH-, email, wallet/bank..."
+                    className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-rose-500 w-56 sm:w-64"
+                  />
+                </div>
+                <select
+                  value={withdrawalStatusFilter}
+                  onChange={(e) => setWithdrawalStatusFilter(e.target.value as any)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-bold outline-none cursor-pointer"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="PENDING">Pending Settlement</option>
+                  <option value="SETTLED">Settled</option>
+                  <option value="REJECTED">Rejected</option>
+                </select>
+                <button onClick={loadData} className="text-xs text-rose-400 hover:underline flex items-center gap-1 cursor-pointer">
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                </button>
+              </div>
             </div>
 
             {withdrawalsLoading ? (
               <div className="p-12 text-center text-slate-500">
                 <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500" />
               </div>
-            ) : withdrawals.length === 0 ? (
+            ) : filteredWithdrawals.length === 0 ? (
               <div className="p-12 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl">
-                No withdrawals currently in the settlement queue.
+                {withdrawals.length === 0 ? 'No withdrawals currently in the settlement queue.' : 'No withdrawal requests match your search/filter.'}
               </div>
             ) : (
               <div className="space-y-4">
@@ -6159,7 +6209,7 @@ export default function AdminPortalPage() {
                 })}
                 <PaginationControls
                   currentPage={withdrawalsPagination.page}
-                  totalItems={withdrawals.length}
+                  totalItems={filteredWithdrawals.length}
                   pageSize={withdrawalsPagination.pageSize}
                   onPageChange={withdrawalsPagination.setPage}
                   onPageSizeChange={withdrawalsPagination.setPageSize}
@@ -6177,16 +6227,40 @@ export default function AdminPortalPage() {
             {/* Inquiries & Tickets List */}
             <div className="lg:col-span-1 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-bold text-sm text-white">Client Inquiries & Support ({tickets.length})</h4>
-                <button onClick={loadData} className="text-xs text-emerald-400 hover:underline">
+                <h4 className="font-bold text-sm text-white">Client Inquiries &amp; Support ({filteredTickets.length} of {tickets.length})</h4>
+                <button onClick={loadData} className="text-xs text-emerald-400 hover:underline cursor-pointer">
                   Refresh
                 </button>
               </div>
 
-              <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
-                {tickets.length === 0 ? (
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={ticketSearch}
+                    onChange={(e) => setTicketSearch(e.target.value)}
+                    placeholder="Search TKT-, email, topic..."
+                    className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <select
+                  value={ticketStatusFilter}
+                  onChange={(e) => setTicketStatusFilter(e.target.value)}
+                  className="px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-bold outline-none cursor-pointer"
+                >
+                  <option value="ALL">All</option>
+                  <option value="OPEN">OPEN</option>
+                  <option value="WAITING_USER">WAITING_USER</option>
+                  <option value="RESOLVED">RESOLVED</option>
+                  <option value="CLOSED">CLOSED</option>
+                </select>
+              </div>
+
+              <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+                {filteredTickets.length === 0 ? (
                   <div className="p-8 text-center text-xs text-slate-500 bg-slate-900 rounded-2xl border border-slate-800">
-                    No client inquiries or questions yet.
+                    {tickets.length === 0 ? 'No client inquiries or questions yet.' : 'No inquiries match your search filter.'}
                   </div>
                 ) : (
                   <>
@@ -6221,7 +6295,7 @@ export default function AdminPortalPage() {
                   ))}
                     <PaginationControls
                       currentPage={ticketsPagination.page}
-                      totalItems={tickets.length}
+                      totalItems={filteredTickets.length}
                       pageSize={ticketsPagination.pageSize}
                       onPageChange={ticketsPagination.setPage}
                       onPageSizeChange={ticketsPagination.setPageSize}

@@ -720,9 +720,13 @@ function P2PPageContent() {
   const [ordersMainTab, setOrdersMainTab] = useState<'ongoing' | 'fulfilled'>('ongoing');
   const [ordersFilterChip, setOrdersFilterChip] = useState<'all' | 'pending' | 'unpaid' | 'paid' | 'dispute'>('all');
   const [ordersList, setOrdersList] = useState<P2POrderItem[]>([]);
+  const [orderSearch, setOrderSearch] = useState('');
   const [loadingOrders, setLoadingOrders] = useState(false);
 
-  // Chat Hub State
+  // Chat Hub & Marketplace/Ads Search State
+  const [marketSearch, setMarketSearch] = useState('');
+  const [chatSearch, setChatSearch] = useState('');
+  const [adSearch, setAdSearch] = useState('');
   const [chatList, setChatList] = useState<ChatConversation[]>([]);
   const [loadingChats, setLoadingChats] = useState(false);
 
@@ -1361,12 +1365,40 @@ function P2PPageContent() {
         (item.paymentMethods || []).some((m) => m.toLowerCase().includes(targetMethod))
       );
     }
+    if (marketSearch.trim()) {
+      const q = marketSearch.trim().toLowerCase();
+      combined = combined.filter((item) => {
+        const hay = `${item.offerCode || ''} ${item.trader?.name || ''} ${item.trader?.accountNumber || ''} ${item.cryptoCurrency || ''} ${item.fiatCurrency || ''} ${item.price || ''} ${item.locationCountry || ''} ${item.locationCity || ''} ${(item.paymentMethods || []).join(' ')}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
     return combined;
   })();
 
+  const filteredOrdersList = ordersList.filter((o) => {
+    if (!orderSearch.trim()) return true;
+    const q = orderSearch.trim().toLowerCase();
+    const hay = `${o.orderCode || ''} ${o.statusBadge || ''} ${o.status || ''} ${o.cryptoCurrency || ''} ${o.fiatCurrency || ''} ${o.selectedPaymentMethod || ''} ${o.counterparty?.name || ''} ${o.counterparty?.accountNumber || ''} ${o.counterparty?.bankName || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const filteredMyOffers = myOffers.filter((ad) => {
+    if (!adSearch.trim()) return true;
+    const q = adSearch.trim().toLowerCase();
+    const hay = `${ad.offerCode || ''} ${ad.side || ''} ${ad.cryptoCurrency || ''} ${ad.fiatCurrency || ''} ${ad.price || ''} ${ad.status || ''} ${(ad.paymentMethods || []).join(' ')}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const filteredChatList = chatList.filter((chat) => {
+    if (!chatSearch.trim()) return true;
+    const q = chatSearch.trim().toLowerCase();
+    const hay = `${chat.orderCode || ''} ${chat.counterparty?.name || ''} ${chat.lastMessage || ''} ${chat.status || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
   const offersPagination = usePagination(displayedOffers, 50);
-  const myOrdersPagination = usePagination(ordersList, 50);
-  const myAdsPagination = usePagination(myOffers, 50);
+  const myOrdersPagination = usePagination(filteredOrdersList, 50);
+  const myAdsPagination = usePagination(filteredMyOffers, 50);
 
   // Load Orders
   const fetchOrders = async () => {
@@ -2811,7 +2843,17 @@ function P2PPageContent() {
                   Verified regional merchants &amp; 24/7 Avora Priority Settlement Desk
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={marketSearch}
+                    onChange={(e) => setMarketSearch(e.target.value)}
+                    placeholder="Search trader, offer, city, rail..."
+                    className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 w-52 sm:w-64"
+                  />
+                </div>
                 <button
                   onClick={() =>
                     openDeskConcierge({
@@ -3141,14 +3183,26 @@ function P2PPageContent() {
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={fetchOrders}
-              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-              title="Refresh Orders"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={orderSearch}
+                  onChange={(e) => setOrderSearch(e.target.value)}
+                  placeholder="Search OTC#, trader, currency..."
+                  className="pl-8 pr-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 w-48 sm:w-60"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={fetchOrders}
+                className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                title="Refresh Orders"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {ordersMainTab === 'ongoing' && (
@@ -3286,10 +3340,10 @@ function P2PPageContent() {
               ))}
             </div>
           )}
-          {ordersList.length > 0 && (
+          {filteredOrdersList.length > 0 && (
             <PaginationControls
               currentPage={myOrdersPagination.page}
-              totalItems={ordersList.length}
+              totalItems={filteredOrdersList.length}
               pageSize={myOrdersPagination.pageSize}
               onPageChange={myOrdersPagination.setPage}
               onPageSizeChange={myOrdersPagination.setPageSize}
@@ -3305,21 +3359,35 @@ function P2PPageContent() {
       {/* -------------------------------------------------------------------- */}
       {bottomNav === 'chat' && activeNav === 'chat' && (
         <div className="max-w-4xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-extrabold text-slate-900 dark:text-white">P2P Trade Conversations</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Select any trade thread to coordinate payment details or release escrow.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={fetchChats}
-              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-              title="Refresh Conversations"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              {chatList.length > 0 && (
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={chatSearch}
+                    onChange={(e) => setChatSearch(e.target.value)}
+                    placeholder="Search order #, trader, message..."
+                    className="pl-8 pr-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 w-48 sm:w-64"
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={fetchChats}
+                className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                title="Refresh Conversations"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {!authLoading && !user ? (
@@ -3358,7 +3426,11 @@ function P2PPageContent() {
             </div>
           ) : (
             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden shadow-sm">
-              {chatList.map((chat) => (
+              {filteredChatList.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                  No conversations match &ldquo;{chatSearch}&rdquo;.
+                </div>
+              ) : filteredChatList.map((chat) => (
                 <button
                   key={chat.orderId}
                   type="button"
@@ -3875,14 +3947,28 @@ function P2PPageContent() {
                   Update your exchange rates, toggle Google Pay / Apple Pay / Bank Transfer rails, or pause listings in real time as market rates move.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={fetchMyOffers}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingMyOffers ? 'animate-spin' : ''}`} />
-                <span>Refresh Ads</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {myOffers.length > 0 && (
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={adSearch}
+                      onChange={(e) => setAdSearch(e.target.value)}
+                      placeholder="Search offer, currency, rail..."
+                      className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 w-48 sm:w-56"
+                    />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={fetchMyOffers}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingMyOffers ? 'animate-spin' : ''}`} />
+                  <span>Refresh Ads</span>
+                </button>
+              </div>
             </div>
 
             {loadingMyOffers ? (
@@ -3999,7 +4085,7 @@ function P2PPageContent() {
                 ))}
                 <PaginationControls
                   currentPage={myAdsPagination.page}
-                  totalItems={myOffers.length}
+                  totalItems={filteredMyOffers.length}
                   pageSize={myAdsPagination.pageSize}
                   onPageChange={myAdsPagination.setPage}
                   onPageSizeChange={myAdsPagination.setPageSize}
