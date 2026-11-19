@@ -570,8 +570,12 @@ export default function AdminPortalPage() {
     } else if (activeTab === 'investments') {
       setInvestmentsLoading(true);
       try {
+        let adminInvErr: any = null;
         const [invRes, listRes, usersRes] = await Promise.all([
-          api.get('/admin/investments'),
+          api.get('/admin/investments').catch((err) => {
+            adminInvErr = err;
+            return { data: null };
+          }),
           api.get('/investments/campaigns').catch(() => ({ data: { data: [] } })),
           users.length === 0
             ? api.get('/admin/users?limit=1000').catch(() => ({ data: { users: [] } }))
@@ -591,6 +595,15 @@ export default function AdminPortalPage() {
         if (usersRes) {
           const userList = usersRes.data?.data?.users || usersRes.data?.users || usersRes.data?.data;
           if (Array.isArray(userList)) setUsers(userList);
+        }
+        if (adminInvErr) {
+          console.error('Failed to load admin investments ledger:', adminInvErr);
+          setFeedback({
+            text:
+              adminInvErr?.response?.data?.message ||
+              'Failed to load full admin ledger commitments (showing public campaign listings fallback).',
+            type: 'error',
+          });
         }
       } catch (e: any) {
         console.error('Failed to load investments:', e);
