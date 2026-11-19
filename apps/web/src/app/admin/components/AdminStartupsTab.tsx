@@ -175,6 +175,8 @@ export default function AdminStartupsTab({
   const [newExtraUrl, setNewExtraUrl] = useState('');
   const [newStartupDocs, setNewStartupDocs] = useState<{ title: string; url: string; uploadedAt: string }[]>([]);
   const [uploadingAsset, setUploadingAsset] = useState(false);
+  const [uploadedLogoName, setUploadedLogoName] = useState<string | null>(null);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
   const [docTitleInput, setDocTitleInput] = useState('');
 
   // Valuation, Funding Range, Performance, Lock-In & Provider Fund Tracking Modal
@@ -254,19 +256,24 @@ export default function AdminStartupsTab({
 
   const uploadVentureAsset = async (file: File): Promise<{ url: string; originalName: string } | null> => {
     setUploadingAsset(true);
+    setLogoUploadError(null);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await api.post('/uploads/venture-asset', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await api.post('/upload/venture-asset', formData);
       if (res.data?.success && res.data?.url) {
         return { url: res.data.url, originalName: res.data.originalName || file.name };
       }
-      onFeedback({ text: 'Upload failed — server did not return a URL', type: 'error' });
+      const msg = res.data?.message || 'Upload failed — server did not return a URL';
+      setLogoUploadError(msg);
+      setModalError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return null;
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to upload file', type: 'error' });
+      const msg = err.response?.data?.message || err.message || 'Failed to upload file';
+      setLogoUploadError(msg);
+      setModalError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return null;
     } finally {
       setUploadingAsset(false);
@@ -354,6 +361,8 @@ export default function AdminStartupsTab({
   const handleOpenValuationModal = (listing: any, initialTab: 'ROUND' | 'DOCS' | 'PROVIDER' = 'ROUND') => {
     setSelectedListing(listing);
     setModalError(null);
+    setLogoUploadError(null);
+    setUploadedLogoName(null);
     setEditModalTab(initialTab);
     setEditCompanyName(listing.companyName || '');
     setEditTagline(listing.tagline || '');
@@ -756,6 +765,8 @@ export default function AdminStartupsTab({
           <button
             onClick={() => {
               setModalError(null);
+              setLogoUploadError(null);
+              setUploadedLogoName(null);
               setCreateModalOpen(true);
             }}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-600/30 transition-all flex items-center gap-2 cursor-pointer"
@@ -1502,33 +1513,47 @@ export default function AdminStartupsTab({
                 </div>
 
                 {/* Project Logo Upload */}
-                <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={resolveMediaUrl(editLogoUrl) || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80'}
-                      alt="Project Logo"
-                      className="w-12 h-12 rounded-xl object-cover border border-slate-700"
-                    />
-                    <div>
-                      <div className="font-bold text-white">Project Logo</div>
-                      <p className="text-[10px] text-slate-400">Upload PNG/JPG/WebP/SVG logo stored persistently</p>
+                <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={resolveMediaUrl(editLogoUrl) || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80'}
+                        alt="Project Logo"
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-700"
+                      />
+                      <div>
+                        <div className="font-bold text-white">Project Logo</div>
+                        <p className="text-[10px] text-slate-400">Upload PNG/JPG/WebP/SVG logo stored persistently</p>
+                        {uploadedLogoName && (
+                          <p className="text-[10px] text-emerald-400 font-semibold mt-0.5">
+                            ✓ Uploaded: {uploadedLogoName} (click Save Updates below to apply)
+                          </p>
+                        )}
+                      </div>
                     </div>
+                    <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold border border-slate-700 cursor-pointer shrink-0">
+                      <Upload className="w-3.5 h-3.5 text-purple-400" />
+                      <span>{uploadingAsset ? 'Uploading...' : 'Upload Logo'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          if (!file) return;
+                          const uploaded = await uploadVentureAsset(file);
+                          if (uploaded) {
+                            setEditLogoUrl(uploaded.url);
+                            setUploadedLogoName(uploaded.originalName || file.name);
+                          }
+                        }}
+                      />
+                    </label>
                   </div>
-                  <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold border border-slate-700 cursor-pointer shrink-0">
-                    <Upload className="w-3.5 h-3.5 text-purple-400" />
-                    <span>{uploadingAsset ? 'Uploading...' : 'Upload Logo'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const uploaded = await uploadVentureAsset(file);
-                        if (uploaded) setEditLogoUrl(uploaded.url);
-                      }}
-                    />
-                  </label>
+                  {logoUploadError && (
+                    <p className="text-[11px] text-rose-400 font-semibold">{logoUploadError}</p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2335,33 +2360,47 @@ export default function AdminStartupsTab({
 
             <div className="space-y-4 text-xs">
               {/* Project Logo Upload */}
-              <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={resolveMediaUrl(newStartup.logoUrl)}
-                    alt="Logo preview"
-                    className="w-12 h-12 rounded-xl object-cover border border-slate-700"
-                  />
-                  <div>
-                    <div className="font-bold text-white">Project Logo Upload</div>
-                    <p className="text-[10px] text-slate-400">Shown on the crowdfunding marketplace &amp; investor cards</p>
+              <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={resolveMediaUrl(newStartup.logoUrl)}
+                      alt="Logo preview"
+                      className="w-12 h-12 rounded-xl object-cover border border-slate-700"
+                    />
+                    <div>
+                      <div className="font-bold text-white">Project Logo Upload</div>
+                      <p className="text-[10px] text-slate-400">Shown on the crowdfunding marketplace &amp; investor cards</p>
+                      {uploadedLogoName && (
+                        <p className="text-[10px] text-emerald-400 font-semibold mt-0.5">
+                          ✓ Logo ready: {uploadedLogoName}
+                        </p>
+                      )}
+                    </div>
                   </div>
+                  <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold border border-slate-700 cursor-pointer shrink-0">
+                    <Upload className="w-3.5 h-3.5 text-purple-400" />
+                    <span>{uploadingAsset ? 'Uploading...' : 'Upload Logo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (!file) return;
+                        const uploaded = await uploadVentureAsset(file);
+                        if (uploaded) {
+                          setNewStartup((prev) => ({ ...prev, logoUrl: uploaded.url }));
+                          setUploadedLogoName(uploaded.originalName || file.name);
+                        }
+                      }}
+                    />
+                  </label>
                 </div>
-                <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold border border-slate-700 cursor-pointer shrink-0">
-                  <Upload className="w-3.5 h-3.5 text-purple-400" />
-                  <span>{uploadingAsset ? 'Uploading...' : 'Upload Logo'}</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const uploaded = await uploadVentureAsset(file);
-                      if (uploaded) setNewStartup((prev) => ({ ...prev, logoUrl: uploaded.url }));
-                    }}
-                  />
-                </label>
+                {logoUploadError && (
+                  <p className="text-[11px] text-rose-400 font-semibold">{logoUploadError}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

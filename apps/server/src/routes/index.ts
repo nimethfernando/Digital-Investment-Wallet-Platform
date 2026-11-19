@@ -17,7 +17,7 @@ const router = Router();
 
 router.use('/auth', authRoutes);
 router.use('/cms', cmsRoutes);
-router.use('/upload', uploadRoutes);
+router.use(['/upload', '/uploads'], uploadRoutes);
 router.use('/wallet', walletRoutes);
 router.use('/packages', packageRoutes);
 router.use('/admin', adminRoutes);

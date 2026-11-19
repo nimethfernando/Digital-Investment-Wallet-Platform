@@ -71,6 +71,13 @@ export const extractErrorMessage = (err: any, fallback = 'Operation failed'): st
 };
 
 api.interceptors.request.use((config) => {
+  if (config.data instanceof FormData && config.headers) {
+    if (typeof (config.headers as any).delete === 'function') {
+      (config.headers as any).delete('Content-Type');
+    } else {
+      delete config.headers['Content-Type'];
+    }
+  }
   if (typeof window !== 'undefined') {
     const token = localStorage.getItem('avora_token') || localStorage.getItem('nexis_token');
     if (token && config.headers) {
