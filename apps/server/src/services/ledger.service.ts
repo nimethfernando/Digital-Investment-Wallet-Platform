@@ -354,7 +354,10 @@ export class LedgerService {
         {
           accountId: assetAccount,
           direction: 'DEBIT',
-          amount: amountDec.plus(avoraMarginDec).toFixed(8),
+          amount:
+            avoraMarginDec.greaterThan(0) && ['USD', 'USDT', 'USDC'].includes(upperCur)
+              ? amountDec.plus(avoraMarginDec).toFixed(8)
+              : amountDec.toFixed(8),
           currency: upperCur,
         },
         {
@@ -367,12 +370,30 @@ export class LedgerService {
       ];
 
       if (avoraMarginDec.greaterThan(0)) {
-        journalEntries.push({
-          accountId: revenueAccount,
-          direction: 'CREDIT',
-          amount: avoraMarginDec.toFixed(8),
-          currency: upperCur,
-        });
+        if (['USD', 'USDT', 'USDC'].includes(upperCur)) {
+          journalEntries.push({
+            accountId: revenueAccount,
+            direction: 'CREDIT',
+            amount: avoraMarginDec.toFixed(8),
+            currency: upperCur,
+          });
+        } else {
+          // For BTC/ETH purchases paid via USD card/gateway, keep fee revenue balanced in USD
+          journalEntries.push(
+            {
+              accountId: 'PLATFORM_TREASURY_USD',
+              direction: 'DEBIT',
+              amount: avoraMarginDec.toFixed(8),
+              currency: 'USD',
+            },
+            {
+              accountId: 'PLATFORM_FEE_REVENUE_USD',
+              direction: 'CREDIT',
+              amount: avoraMarginDec.toFixed(8),
+              currency: 'USD',
+            }
+          );
+        }
       }
 
       await this.recordJournal(tx, {
@@ -963,10 +984,12 @@ export class LedgerService {
     const toPerUsd = live.rates[toCurUpper] || 1.0;
     const spotRate = new Decimal(toPerUsd).dividedBy(new Decimal(fromPerUsd));
     const multiplier = Decimal.max(new Decimal(0.01), new Decimal(1).minus(spreadPctDec.dividedBy(100)));
-    const effectiveRate = new Decimal(spotRate.times(multiplier).toFixed(6));
+    const effectiveRate = new Decimal(spotRate.times(multiplier).toFixed(12));
 
     const fromCur = params.fromCurrency.toUpperCase();
     const toCur = params.toCurrency.toUpperCase();
+    const fromDecimals = ['BTC', 'ETH'].includes(fromCur) ? 8 : 2;
+    const toDecimals = ['BTC', 'ETH'].includes(toCur) ? 8 : 2;
     const fromAmtFixed = new Decimal(fromAmountDec.toFixed(8));
     const toAmountDec = new Decimal(fromAmtFixed.times(effectiveRate).toFixed(8));
     const spreadFeeFromDec =
@@ -1055,7 +1078,7 @@ export class LedgerService {
           idempotencyKey,
           referenceType: JournalReferenceType.EXCHANGE_BUY,
           referenceId: idempotencyKey,
-          notes: `Instant swap: ${fromAmtFixed.toFixed(2)} ${fromCur} -> ${toAmountDec.toFixed(2)} ${toCur} (Rate: ${effectiveRate.toFixed(4)}, Platform spread ${spreadPctDec.toFixed(2)}%: ${spreadFeeFromDec.toFixed(4)} ${fromCur})`,
+          notes: `Instant swap: ${fromAmtFixed.toFixed(fromDecimals)} ${fromCur} -> ${toAmountDec.toFixed(toDecimals)} ${toCur} (Rate: ${effectiveRate.toFixed(8)}, Platform spread ${spreadPctDec.toFixed(2)}%: ${spreadFeeFromDec.toFixed(4)} ${fromCur})`,
           createdBy: params.userId,
           entries: swapJournalEntries,
         });
@@ -1073,7 +1096,7 @@ export class LedgerService {
             balanceBefore: toAvail.toFixed(8),
             balanceAfter: toBalAfter.toFixed(8),
             settlementReference: idempotencyKey,
-            notes: `Swapped ${fromAmtFixed.toFixed(2)} ${fromCur} for ${toAmountDec.toFixed(2)} ${toCur} at rate ${effectiveRate.toFixed(4)}`,
+            notes: `Swapped ${fromAmtFixed.toFixed(fromDecimals)} ${fromCur} for ${toAmountDec.toFixed(toDecimals)} ${toCur} at rate ${effectiveRate.toFixed(8)}`,
           },
         });
 
@@ -1100,15 +1123,15 @@ export class LedgerService {
           transactionCode,
           fromCurrency: fromCur,
           toCurrency: toCur,
-          fromAmount: fromAmtFixed.toFixed(2),
-          toAmount: toAmountDec.toFixed(2),
+          fromAmount: fromAmtFixed.toFixed(fromDecimals),
+          toAmount: toAmountDec.toFixed(toDecimals),
           feeAmount: spreadFeeFromDec.toFixed(4),
           feeCurrency: fromCur,
           spreadPct: spreadPctDec.toFixed(2),
-          rate: effectiveRate.toFixed(4),
+          rate: effectiveRate.toFixed(8),
           balanceAfter: {
-            [fromCur]: fromBalAfter.toFixed(2),
-            [toCur]: toBalAfter.toFixed(2),
+            [fromCur]: fromBalAfter.toFixed(fromDecimals),
+            [toCur]: toBalAfter.toFixed(toDecimals),
           },
         };
       },

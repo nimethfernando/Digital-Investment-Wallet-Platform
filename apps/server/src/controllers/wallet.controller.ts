@@ -216,7 +216,7 @@ export class WalletController {
   async createRazorpayOrder(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).user.id;
-      const { amount, currency, checkoutCurrency, feeMode, purpose } = req.body;
+      const { amount, currency, creditAmount, checkoutCurrency, feeMode, purpose } = req.body;
 
       if (!amount || isNaN(parseFloat(String(amount))) || parseFloat(String(amount)) <= 0) {
         return res.status(400).json({
@@ -228,6 +228,7 @@ export class WalletController {
       const orderResult = await depositService.createRazorpayOrder(userId, {
         amount,
         currency,
+        creditAmount,
         checkoutCurrency,
         feeMode,
         purpose,

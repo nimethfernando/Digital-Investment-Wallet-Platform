@@ -218,6 +218,7 @@ export class DepositService {
     params: {
       amount: number | string;
       currency?: string;
+      creditAmount?: number | string;
       checkoutCurrency?: string;
       feeMode?: 'ADD_ON_TOP' | 'DEDUCT_FROM_GROSS';
       purpose?: string;
@@ -262,11 +263,19 @@ export class DepositService {
     }
 
     const walletCurrency = (params.currency || 'USD').toUpperCase();
+    const parsedCreditAmt =
+      params.creditAmount !== undefined && params.creditAmount !== null && !isNaN(Number(params.creditAmount))
+        ? new Decimal(params.creditAmount.toString())
+        : null;
+    const targetCreditAmount =
+      parsedCreditAmt && parsedCreditAmt.greaterThan(0) ? parsedCreditAmt : netWalletCredit;
+    const isCryptoCredit = ['BTC', 'ETH'].includes(walletCurrency);
+    const creditDecimals = isCryptoCredit ? 8 : 2;
     const checkoutCurrency = (params.checkoutCurrency || 'USD').toUpperCase();
     const depositCode = `RZP-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
     const purposeLabel = params.purpose || 'WALLET_DEPOSIT';
 
-    const feeSummaryNote = `Razorpay (${purposeLabel}) | Gross Charged: $${grossPayableAmount.toFixed(2)} USD | Total Commission ${totalCommPct.toFixed(1)}%: $${totalCommission.toFixed(2)} (${gatewayFeePct.toFixed(1)}% Razorpay Fee: $${razorpayGatewayFee.toFixed(2)} + ${platformSpreadPct.toFixed(1)}% Avora Margin: $${avoraPlatformFee.toFixed(2)}) | Net Wallet Credit: $${netWalletCredit.toFixed(2)} ${walletCurrency}`;
+    const feeSummaryNote = `Razorpay (${purposeLabel}) | Gross Charged: $${grossPayableAmount.toFixed(2)} USD | Total Commission ${totalCommPct.toFixed(1)}%: $${totalCommission.toFixed(2)} (${gatewayFeePct.toFixed(1)}% Razorpay Fee: $${razorpayGatewayFee.toFixed(2)} + ${platformSpreadPct.toFixed(1)}% Avora Margin: $${avoraPlatformFee.toFixed(2)}) | Net Wallet Credit: ${targetCreditAmount.toFixed(creditDecimals)} ${walletCurrency} ($${netWalletCredit.toFixed(2)} USD eq.)`;
 
     let razorpayOrderId = `order_avr_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`;
     let mode: 'LIVE' | 'ASSISTED' = 'ASSISTED';
@@ -322,7 +331,7 @@ export class DepositService {
       data: {
         depositCode,
         userId,
-        amount: netWalletCredit.toFixed(8),
+        amount: targetCreditAmount.toFixed(8),
         currency: walletCurrency,
         depositMethod: 'RAZORPAY',
         txHashOrRef: razorpayOrderId,
@@ -343,7 +352,8 @@ export class DepositService {
         commissionPercent: Number(totalCommPct.toFixed(2)),
         gatewayFeePercent: Number(gatewayFeePct.toFixed(2)),
         platformSpreadPercent: Number(platformSpreadPct.toFixed(2)),
-        netWalletCredit: netWalletCredit.toFixed(2),
+        netWalletCredit: targetCreditAmount.toFixed(creditDecimals),
+        netWalletCreditUsd: netWalletCredit.toFixed(2),
         razorpayGatewayFee: razorpayGatewayFee.toFixed(2),
         avoraPlatformFee: avoraPlatformFee.toFixed(2),
         totalCommission: totalCommission.toFixed(2),
@@ -352,7 +362,7 @@ export class DepositService {
       deposit: {
         id: deposit.id,
         depositCode: deposit.depositCode,
-        amount: netWalletCredit.toFixed(2),
+        amount: targetCreditAmount.toFixed(creditDecimals),
         currency: deposit.currency,
         status: deposit.status,
         txHashOrRef: deposit.txHashOrRef,

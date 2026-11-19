@@ -54,6 +54,7 @@ export default function AdminUsersTab({
   const [roleFilter, setRoleFilter] = useState('');
   const [kycFilter, setKycFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [assetFilter, setAssetFilter] = useState<string>('');
 
   // Selected User Modal
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
@@ -246,6 +247,48 @@ export default function AdminUsersTab({
     }
   };
 
+  const formatBalVal = (val: any, currency: string) => {
+    const num = parseFloat(String(val || '0')) || 0;
+    const isMajorCrypto = ['BTC', 'ETH'].includes(String(currency || '').toUpperCase());
+    return num.toLocaleString('en-US', {
+      minimumFractionDigits: isMajorCrypto ? 6 : 2,
+      maximumFractionDigits: isMajorCrypto ? 6 : 2,
+    });
+  };
+
+  // Aggregate Platform Crypto & Cash Holdings across loaded accounts
+  const aggregateHoldings = (() => {
+    const totals: Record<string, { avail: number; locked: number; holders: number }> = {
+      USD: { avail: 0, locked: 0, holders: 0 },
+      USDT: { avail: 0, locked: 0, holders: 0 },
+      USDC: { avail: 0, locked: 0, holders: 0 },
+      BTC: { avail: 0, locked: 0, holders: 0 },
+      ETH: { avail: 0, locked: 0, holders: 0 },
+    };
+    let anyCryptoHolders = 0;
+
+    for (const u of users) {
+      const wBals: any[] = Array.isArray(u.walletBalances) ? u.walletBalances : [];
+      let holdsAnyCrypto = false;
+      for (const b of wBals) {
+        const cur = String(b.currency || '').toUpperCase();
+        const avail = parseFloat(String(b.available || '0')) || 0;
+        const locked = parseFloat(String(b.locked || '0')) || 0;
+        if (!totals[cur]) totals[cur] = { avail: 0, locked: 0, holders: 0 };
+        totals[cur].avail += avail;
+        totals[cur].locked += locked;
+        if (avail > 0 || locked > 0) {
+          totals[cur].holders += 1;
+          if (['USDT', 'USDC', 'BTC', 'ETH'].includes(cur)) {
+            holdsAnyCrypto = true;
+          }
+        }
+      }
+      if (holdsAnyCrypto) anyCryptoHolders += 1;
+    }
+    return { totals, anyCryptoHolders };
+  })();
+
   // Filtered Users List
   const filteredUsers = users.filter((u) => {
     const q = search.toLowerCase().trim();
@@ -262,7 +305,25 @@ export default function AdminUsersTab({
     const matchKyc = !kycFilter || u.kycStatus === kycFilter;
     const matchStatus = !statusFilter || u.status === statusFilter;
 
-    return matchSearch && matchRole && matchKyc && matchStatus;
+    let matchAsset = true;
+    if (assetFilter) {
+      const wBals: any[] = Array.isArray(u.walletBalances) ? u.walletBalances : [];
+      if (assetFilter === 'ANY_CRYPTO') {
+        matchAsset = wBals.some(
+          (b) =>
+            ['USDT', 'USDC', 'BTC', 'ETH'].includes(String(b.currency || '').toUpperCase()) &&
+            (parseFloat(String(b.available || '0')) > 0 || parseFloat(String(b.locked || '0')) > 0)
+        );
+      } else {
+        matchAsset = wBals.some(
+          (b) =>
+            String(b.currency || '').toUpperCase() === assetFilter &&
+            (parseFloat(String(b.available || '0')) > 0 || parseFloat(String(b.locked || '0')) > 0)
+        );
+      }
+    }
+
+    return matchSearch && matchRole && matchKyc && matchStatus && matchAsset;
   });
 
   const { page, setPage, pageSize, setPageSize, pagedItems: pagedUsers } = usePagination(filteredUsers, 50);
@@ -345,6 +406,59 @@ export default function AdminUsersTab({
             </button>
           )}
         </div>
+      </div>
+
+      {/* Platform Client Crypto & Liquidity Holdings Summary Bar (Clickable Asset Filters) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setAssetFilter(assetFilter === 'ANY_CRYPTO' ? '' : 'ANY_CRYPTO');
+            setPage(1);
+          }}
+          className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+            assetFilter === 'ANY_CRYPTO'
+              ? 'bg-emerald-950/35 border-emerald-500/60'
+              : 'bg-slate-900 border-slate-800 hover:border-emerald-500/40'
+          }`}
+        >
+          <div className="text-[10px] text-emerald-400 uppercase font-mono font-bold">Any Crypto (&gt;0)</div>
+          <div className="text-lg font-black font-mono text-white mt-0.5">{aggregateHoldings.anyCryptoHolders} Users</div>
+          <div className="text-[10px] text-slate-400">
+            {assetFilter === 'ANY_CRYPTO' ? 'Filtered (Click to clear)' : 'Filter Crypto Holders →'}
+          </div>
+        </button>
+
+        {(['USDT', 'BTC', 'ETH', 'USDC', 'USD'] as const).map((cur) => {
+          const stat = aggregateHoldings.totals[cur] || { avail: 0, locked: 0, holders: 0 };
+          const active = assetFilter === cur;
+          return (
+            <button
+              key={cur}
+              type="button"
+              onClick={() => {
+                setAssetFilter(active ? '' : cur);
+                setPage(1);
+              }}
+              className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                active
+                  ? 'bg-purple-950/35 border-purple-500/60'
+                  : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[10px] uppercase font-mono font-bold">
+                <span className={cur === 'USD' ? 'text-slate-400' : 'text-purple-300'}>{cur} Held</span>
+                <span className="text-slate-400">{stat.holders} holders</span>
+              </div>
+              <div className="text-base font-black font-mono text-white mt-0.5 truncate">
+                {cur === 'USD' ? `$${formatBalVal(stat.avail, cur)}` : `${formatBalVal(stat.avail, cur)} ${cur}`}
+              </div>
+              <div className="text-[10px] text-slate-500 font-mono truncate">
+                Locked: {formatBalVal(stat.locked, cur)} {cur}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* Users Table */}
@@ -462,11 +576,32 @@ export default function AdminUsersTab({
 
                     <td className="py-3.5 px-4">
                       <div className="font-mono font-bold text-white text-xs">
-                        ${parseFloat(u.balances?.USD || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                        ${formatBalVal(u.balances?.USD || '0', 'USD')} USD
                       </div>
                       <div className="font-mono text-emerald-400 text-[11px] mt-0.5">
-                        {parseFloat(u.balances?.USDT || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })} USDT
+                        {formatBalVal(u.balances?.USDT || '0', 'USDT')} USDT
                       </div>
+                      {Array.isArray(u.walletBalances) &&
+                        u.walletBalances
+                          .filter(
+                            (b: any) =>
+                              !['USD', 'USDT'].includes(String(b.currency || '').toUpperCase()) &&
+                              (parseFloat(String(b.available || '0')) > 0 || parseFloat(String(b.locked || '0')) > 0)
+                          )
+                          .map((b: any) => (
+                            <div
+                              key={b.currency}
+                              className="inline-flex items-center gap-1 mt-1 mr-1 px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 font-mono text-[10px] font-bold text-purple-300"
+                            >
+                              <span>{formatBalVal(b.available, b.currency)}</span>
+                              <span>{b.currency}</span>
+                              {parseFloat(String(b.locked || '0')) > 0 && (
+                                <span className="text-amber-300">
+                                  (+{formatBalVal(b.locked, b.currency)} locked)
+                                </span>
+                              )}
+                            </div>
+                          ))}
                     </td>
 
                     <td className="py-3.5 px-4">
@@ -661,16 +796,27 @@ export default function AdminUsersTab({
 
             {/* Multi-Currency Balances */}
             <div className="space-y-2">
-              <h4 className="text-xs font-bold text-slate-400 uppercase font-mono">Multi-Currency Balances Breakdown</h4>
+              <h4 className="text-xs font-bold text-slate-400 uppercase font-mono">Multi-Currency &amp; Crypto Balances Breakdown</h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {(selectedUser.wallet?.balances || []).map((b: any) => (
                   <div key={b.id} className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
                     <div>
-                      <div className="font-bold text-white text-sm">{b.currency}</div>
-                      <div className="text-[10px] text-slate-400">Locked: {parseFloat(b.lockedPrincipal).toFixed(2)}</div>
+                      <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                        <span>{b.currency}</span>
+                        {['BTC', 'ETH', 'USDT', 'USDC'].includes(String(b.currency).toUpperCase()) && (
+                          <span className="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 text-[9px] font-mono">
+                            CRYPTO
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        Locked: {formatBalVal(b.lockedPrincipal, b.currency)} {b.currency}
+                      </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-mono font-bold text-emerald-400 text-sm">{parseFloat(b.availableBalance).toFixed(2)}</div>
+                      <div className="font-mono font-bold text-emerald-400 text-sm">
+                        {formatBalVal(b.availableBalance, b.currency)} {b.currency}
+                      </div>
                       <div className="text-[10px] text-slate-500">Available Funds</div>
                     </div>
                   </div>
@@ -938,6 +1084,12 @@ export default function AdminUsersTab({
                   >
                     <option value="USD">USD (United States Dollar)</option>
                     <option value="USDT">USDT (Tether USD)</option>
+                    <option value="USDC">USDC (USD Coin)</option>
+                    <option value="BTC">BTC (Bitcoin)</option>
+                    <option value="ETH">ETH (Ethereum)</option>
+                    <option value="EUR">EUR (Euro)</option>
+                    <option value="INR">INR (Indian Rupee)</option>
+                    <option value="GEL">GEL (Georgian Lari)</option>
                   </select>
                 </div>
               </div>
@@ -947,8 +1099,8 @@ export default function AdminUsersTab({
                 <div className="relative">
                   <input
                     type="number"
-                    step="0.01"
-                    min="0.01"
+                    step="any"
+                    min="0.000001"
                     placeholder="0.00"
                     value={adjustAmount}
                     onChange={(e) => setAdjustAmount(e.target.value)}

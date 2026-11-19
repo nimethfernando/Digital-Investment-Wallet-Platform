@@ -241,10 +241,15 @@ export default function BuyCryptoPage() {
     setOrderError(null);
 
     try {
+      const targetCryptoAmount = Number(
+        cryptoReceived.toFixed(selectedCrypto.code === 'USDT' ? 2 : 8)
+      );
+
       if (isRazorpayRail) {
         const orderRes = await api.post('/wallet/razorpay/create-order', {
           amount: Number(fiatValueInUsd.toFixed(2)),
-          currency: selectedCrypto.code === 'USDT' ? 'USDT' : 'USD',
+          currency: selectedCrypto.code,
+          creditAmount: targetCryptoAmount,
           checkoutCurrency: 'USD',
           feeMode: 'DEDUCT_FROM_GROSS',
           purpose: `BUY_${selectedCrypto.code}_${selectedCrypto.chain}_${paymentMethod.toUpperCase()}`,
@@ -349,8 +354,8 @@ export default function BuyCryptoPage() {
         `BUY-${selectedCrypto.code}-${paymentMethod.toUpperCase()}-${numFiat}${selectedFiat.code}`;
 
       const res = await api.post('/wallet/deposit', {
-        amount: Number(netConvertedUsd.toFixed(2)),
-        currency: selectedCrypto.code === 'USDT' ? 'USDT' : 'USD',
+        amount: targetCryptoAmount > 0 ? targetCryptoAmount : Number(netConvertedUsd.toFixed(2)),
+        currency: selectedCrypto.code,
         depositMethod,
         txHashOrRef: refTag,
       });
