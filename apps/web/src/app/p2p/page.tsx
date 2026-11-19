@@ -809,8 +809,8 @@ function P2PPageContent() {
   const [newAdCurrency, setNewAdCurrency] = useState('LKR');
   const [newAdPrice, setNewAdPrice] = useState('332.68');
   const [newAdAmount, setNewAdAmount] = useState('1000');
-  const [newAdMinLimit, setNewAdMinLimit] = useState('50');
-  const [newAdMaxLimit, setNewAdMaxLimit] = useState('1000');
+  const [newAdMinLimit, setNewAdMinLimit] = useState('');
+  const [newAdMaxLimit, setNewAdMaxLimit] = useState('');
   const [newAdMethods, setNewAdMethods] = useState<string[]>(['Commercial Bank CEFTS', 'Bank Transfer']);
   const [newAdTerms, setNewAdTerms] = useState('Instant domestic bank transfer. 15-minute fast escrow release.');
   const [newAdPaymentDetails, setNewAdPaymentDetails] = useState('');
@@ -1676,8 +1676,8 @@ function P2PPageContent() {
         fiatCurrency: newAdCurrency,
         price: parseFloat(newAdPrice),
         totalAmount: parseFloat(newAdAmount),
-        minLimit: parseFloat(newAdMinLimit || '10'),
-        maxLimit: parseFloat(newAdMaxLimit || (parseFloat(newAdAmount) * parseFloat(newAdPrice)).toString()),
+        minLimit: newAdMinLimit.trim() !== '' ? parseFloat(newAdMinLimit) : undefined,
+        maxLimit: newAdMaxLimit.trim() !== '' ? parseFloat(newAdMaxLimit) : undefined,
         paymentMethods: newAdMethods.length > 0 ? newAdMethods : ['Bank Transfer'],
         paymentTerms: newAdTerms,
         paymentDetails: newAdPaymentDetails.trim() || undefined,
@@ -3663,27 +3663,39 @@ function P2PPageContent() {
               </div>
 
               {/* Limits */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Min Order ({newAdCurrency})</label>
-                  <input
-                    type="number"
-                    value={newAdMinLimit}
-                    onChange={(e) => setNewAdMinLimit(e.target.value)}
-                    placeholder="1000"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono outline-none"
-                  />
+              <div className="space-y-1.5">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                      Min Order ({newAdCurrency}) <span className="text-[10px] font-normal text-slate-400">(Optional)</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={newAdMinLimit}
+                      onChange={(e) => setNewAdMinLimit(e.target.value)}
+                      placeholder="Auto (No minimum)"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                      Max Order ({newAdCurrency}) <span className="text-[10px] font-normal text-slate-400">(Optional)</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={newAdMaxLimit}
+                      onChange={(e) => setNewAdMaxLimit(e.target.value)}
+                      placeholder={`Auto (${Math.round((parseFloat(newAdAmount || '0') || 0) * (parseFloat(newAdPrice || '0') || 0)).toLocaleString()} ${newAdCurrency})`}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono outline-none"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Max Order ({newAdCurrency})</label>
-                  <input
-                    type="number"
-                    value={newAdMaxLimit}
-                    onChange={(e) => setNewAdMaxLimit(e.target.value)}
-                    placeholder="50000"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono outline-none"
-                  />
-                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  Leave blank to allow orders of any size up to your full {newAdAmount || '0'} {newAdCrypto} liquidity (
+                  {Math.round((parseFloat(newAdAmount || '0') || 0) * (parseFloat(newAdPrice || '0') || 0)).toLocaleString()} {newAdCurrency}).
+                </p>
               </div>
 
               {/* Stage-Gated Payment Account / Settlement Details */}

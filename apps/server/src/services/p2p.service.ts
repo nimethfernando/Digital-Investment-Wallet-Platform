@@ -98,6 +98,13 @@ export class P2PService {
         ['locationCity', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `locationCity` VARCHAR(100) NULL'],
       ]);
 
+      // Repair legacy ads created with the old hardcoded 50..1000 default fiat limits on high-unit-rate currencies (e.g. INR/LKR)
+      await prisma.$executeRawUnsafe(
+        `UPDATE \`diw_p2p_offers\`
+         SET \`maxLimit\` = ROUND(\`totalAmount\` * \`price\`, 2)
+         WHERE \`minLimit\` = 50 AND \`maxLimit\` = 1000 AND (\`totalAmount\` * \`price\`) > 2000`
+      ).catch(() => {});
+
       await this.ensureColumns('diw_p2p_orders', [
         ['cryptoCurrency', "ALTER TABLE `diw_p2p_orders` ADD COLUMN `cryptoCurrency` VARCHAR(10) NOT NULL DEFAULT 'USDT'"],
         ['fiatCurrency', "ALTER TABLE `diw_p2p_orders` ADD COLUMN `fiatCurrency` VARCHAR(10) NOT NULL DEFAULT 'USD'"],
@@ -1855,8 +1862,14 @@ export class P2PService {
       throw new Error('Total amount must be greater than zero.');
     }
 
-    const minLimitNum = input.minLimit ? new Decimal(input.minLimit.toString()) : new Decimal(10);
-    const maxLimitNum = input.maxLimit ? new Decimal(input.maxLimit.toString()) : amountNum.times(priceNum);
+    const minLimitNum =
+      input.minLimit !== undefined && input.minLimit !== null && String(input.minLimit).trim() !== ''
+        ? new Decimal(input.minLimit.toString())
+        : new Decimal(1);
+    const maxLimitNum =
+      input.maxLimit !== undefined && input.maxLimit !== null && String(input.maxLimit).trim() !== ''
+        ? new Decimal(input.maxLimit.toString())
+        : amountNum.times(priceNum);
     if (maxLimitNum.lessThan(minLimitNum)) {
       throw new Error('Maximum order limit cannot be lower than minimum order limit.');
     }
@@ -2001,7 +2014,12 @@ export class P2PService {
       : cryptoAmountDec.times(priceDec);
 
     const minLimitDec = new Decimal(offer.minLimit.toString());
-    const maxLimitDec = new Decimal(offer.maxLimit.toString());
+    const rawMaxLimitDec = new Decimal(offer.maxLimit.toString());
+    const fullOfferFiatMax = offerAvailDec.times(priceDec);
+    const maxLimitDec =
+      minLimitDec.equals(50) && rawMaxLimitDec.equals(1000) && fullOfferFiatMax.greaterThan(2000)
+        ? fullOfferFiatMax
+        : rawMaxLimitDec;
     if (fiatAmountDec.plus('0.05').lessThan(minLimitDec) || fiatAmountDec.minus('0.05').greaterThan(maxLimitDec)) {
       throw new Error(
         `Order total must be within merchant limits (${minLimitDec.toFixed(2)} - ${maxLimitDec.toFixed(2)} ${offer.fiatCurrency}).`
