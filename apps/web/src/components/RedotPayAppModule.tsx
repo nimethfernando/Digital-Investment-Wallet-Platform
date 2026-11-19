@@ -169,11 +169,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const [sendFromCurrency, setSendFromCurrency] = useState('USDT');
   const [sendToCurrency, setSendToCurrency] = useState('USDC');
   const [sendAmount, setSendAmount] = useState('100');
+  const [userEditedSwapPair, setUserEditedSwapPair] = useState(false);
+  const [userEditedSwapAmount, setUserEditedSwapAmount] = useState(false);
 
   // Swap execution state
   const [swapping, setSwapping] = useState(false);
   const [swapError, setSwapError] = useState<string | null>(null);
   const [swapReceipt, setSwapReceipt] = useState<any | null>(null);
+  const [exchangeSpreadPercent, setExchangeSpreadPercent] = useState<number>(1.0);
+  const [exchangePairs, setExchangePairs] = useState<Array<{ baseCurrency: string; quoteCurrency: string; buyMarginPct: number; sellMarginPct: number }>>([]);
 
   // Live Market Exchange Rates (units per 1 USD, fetched from /otc/rates)
   const [livePerUsdRates, setLivePerUsdRates] = useState<Record<string, number>>({
@@ -213,6 +217,12 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           if (typeof res.data?.showRemittanceSpreadControls === 'boolean') {
             setShowSpreadControls(res.data.showRemittanceSpreadControls);
           }
+          if (typeof res.data?.exchangeSpreadPercent === 'number') {
+            setExchangeSpreadPercent(res.data.exchangeSpreadPercent);
+          }
+          if (Array.isArray(res.data?.exchangePairs)) {
+            setExchangePairs(res.data.exchangePairs);
+          }
         }
       })
       .catch(() => {});
@@ -220,6 +230,34 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       active = false;
     };
   }, []);
+
+  // Match backend ledgerService.executeCurrencySwap spread resolution
+  const activeSwapSpreadPct = (() => {
+    const fromUpper = sendFromCurrency.toUpperCase();
+    const toUpper = sendToCurrency.toUpperCase();
+    const pair = exchangePairs.find(
+      (p) =>
+        (p.baseCurrency.toUpperCase() === fromUpper && p.quoteCurrency.toUpperCase() === toUpper) ||
+        (p.baseCurrency.toUpperCase() === toUpper && p.quoteCurrency.toUpperCase() === fromUpper)
+    );
+    if (pair) {
+      return Math.max(
+        0,
+        pair.baseCurrency.toUpperCase() === fromUpper ? Number(pair.sellMarginPct) || 0 : Number(pair.buyMarginPct) || 0
+      );
+    }
+    return Math.max(0, exchangeSpreadPercent);
+  })();
+  const spotSwapRate = (livePerUsdRates[sendToCurrency] || 1) / (livePerUsdRates[sendFromCurrency] || 1);
+  const effectiveSwapRate = spotSwapRate * Math.max(0.01, 1 - activeSwapSpreadPct / 100);
+  const estimatedReceiveAmount = (parseFloat(sendAmount || '0') || 0) * effectiveSwapRate;
+
+  const floorSwapAmount = (val: number, currency: string) => {
+    const factor = currency === 'BTC' || currency === 'ETH' ? 1e8 : 100;
+    const floored = Math.floor(Math.max(0, val) * factor) / factor;
+    if (floored <= 0) return '0';
+    return currency === 'BTC' || currency === 'ETH' ? floored.toFixed(8).replace(/0+$/, '').replace(/\.$/, '') : floored.toString();
+  };
 
   // Send Calculator Rate with Adjustable Bank Margin (Guaranteed Zero Bank Loss)
   const calcFromPerUsd = livePerUsdRates[calcSendCurrency] || 1.0;
@@ -288,6 +326,35 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     inrInUsd
   ).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  // Auto-select funded currency for PAY FROM on initial load if default USDT is 0
+  useEffect(() => {
+    if (userEditedSwapPair) return;
+    const currentAvail = parseFloat(balanceMap[sendFromCurrency] || '0');
+    if (currentAvail > 0) return;
+
+    const fundedEntry = Object.entries(balanceMap)
+      .map(([cur, raw]) => {
+        const bal = parseFloat(raw || '0');
+        const usdVal = bal / (livePerUsdRates[cur] || 1);
+        return { cur, bal, usdVal };
+      })
+      .filter((item) => item.bal > 0)
+      .sort((a, b) => b.usdVal - a.usdVal)[0];
+
+    if (fundedEntry) {
+      setSendFromCurrency(fundedEntry.cur);
+      if (sendToCurrency === fundedEntry.cur) {
+        setSendToCurrency(fundedEntry.cur === 'USDT' ? 'USDC' : 'USDT');
+      }
+      if (!userEditedSwapAmount) {
+        const currentAmt = parseFloat(sendAmount || '0');
+        if (currentAmt > fundedEntry.bal) {
+          setSendAmount(floorSwapAmount(Math.min(100, fundedEntry.bal), fundedEntry.cur));
+        }
+      }
+    }
+  }, [wallet?.balances, userEditedSwapPair, userEditedSwapAmount]);
+
   // Real Swap Execution against Double-Entry Ledger API
   const handleExecuteSwap = async () => {
     setSwapError(null);
@@ -331,10 +398,47 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
 
   // Flip / Invert Swap Currencies
   const handleFlipCurrencies = () => {
+    setUserEditedSwapPair(true);
     const from = sendFromCurrency;
     const to = sendToCurrency;
     setSendFromCurrency(to);
     setSendToCurrency(from);
+  };
+
+  // Smart row handler from Multi-Currency Balances (Crypto & Fiat tabs)
+  const handleSelectSwapRow = (currency: string) => {
+    setUserEditedSwapPair(true);
+    setSwapError(null);
+    const clickedBal = parseFloat(balanceMap[currency] || '0');
+    if (clickedBal > 0) {
+      setSendFromCurrency(currency);
+      if (sendToCurrency === currency) {
+        setSendToCurrency(currency === 'USDT' ? 'USD' : 'USDT');
+      }
+      const curInputAmt = parseFloat(sendAmount || '0');
+      if (!curInputAmt || curInputAmt > clickedBal) {
+        const defaultTarget = ['BTC', 'ETH'].includes(currency) ? clickedBal : Math.min(100, clickedBal);
+        setSendAmount(floorSwapAmount(defaultTarget, currency));
+      }
+    } else {
+      setSendToCurrency(currency);
+      const fromBal = parseFloat(balanceMap[sendFromCurrency] || '0');
+      if (sendFromCurrency === currency || fromBal <= 0) {
+        const funded = Object.entries(balanceMap)
+          .map(([cur, raw]) => ({ cur, bal: parseFloat(raw || '0'), usdVal: parseFloat(raw || '0') / (livePerUsdRates[cur] || 1) }))
+          .filter((x) => x.bal > 0 && x.cur !== currency)
+          .sort((a, b) => b.usdVal - a.usdVal)[0];
+        if (funded) {
+          setSendFromCurrency(funded.cur);
+          if (parseFloat(sendAmount || '0') > funded.bal) {
+            setSendAmount(floorSwapAmount(Math.min(100, funded.bal), funded.cur));
+          }
+        } else if (sendFromCurrency === currency) {
+          setSendFromCurrency(currency === 'USDT' ? 'USD' : 'USDT');
+        }
+      }
+    }
+    window.scrollTo({ top: 320, behavior: 'smooth' });
   };
 
   // Client-side Instant Statement Export
@@ -497,13 +601,17 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </div>
                 <div>
                   <h3 className="font-extrabold text-base text-slate-900 dark:text-white">Instant OTC Currency Swap</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Direct double-entry ledger swap with zero spread loss</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {activeSwapSpreadPct > 0
+                      ? `Instant double-entry ledger swap · ${activeSwapSpreadPct.toFixed(2)}% Desk Spread`
+                      : 'Direct double-entry ledger swap with zero spread'}
+                  </p>
                 </div>
               </div>
               <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold">
-                1 {sendFromCurrency} ≈ {(((livePerUsdRates[sendToCurrency] || 1) / (livePerUsdRates[sendFromCurrency] || 1)) < 0.001
-                  ? ((livePerUsdRates[sendToCurrency] || 1) / (livePerUsdRates[sendFromCurrency] || 1)).toFixed(8)
-                  : ((livePerUsdRates[sendToCurrency] || 1) / (livePerUsdRates[sendFromCurrency] || 1)).toFixed(4))} {sendToCurrency}
+                1 {sendFromCurrency} ≈ {effectiveSwapRate < 0.001
+                  ? effectiveSwapRate.toFixed(8)
+                  : effectiveSwapRate.toFixed(4)} {sendToCurrency}
               </span>
             </div>
 
@@ -553,7 +661,14 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   <div className="relative">
                     <select
                       value={sendFromCurrency}
-                      onChange={(e) => setSendFromCurrency(e.target.value)}
+                      onChange={(e) => {
+                        const nextFrom = e.target.value;
+                        setUserEditedSwapPair(true);
+                        if (nextFrom === sendToCurrency) {
+                          setSendToCurrency(sendFromCurrency);
+                        }
+                        setSendFromCurrency(nextFrom);
+                      }}
                       className="appearance-none bg-white hover:bg-slate-100/80 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-900 dark:text-white font-black text-sm pl-10 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer transition-colors shadow-xs"
                     >
                       <option value="USDT">USDT</option>
@@ -575,12 +690,19 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                     <input
                       type="number"
                       value={sendAmount}
-                      onChange={(e) => setSendAmount(e.target.value)}
+                      onChange={(e) => {
+                        setUserEditedSwapAmount(true);
+                        setSendAmount(e.target.value);
+                      }}
                       placeholder="0.00"
                       className="bg-transparent text-right font-mono text-2xl sm:text-3xl font-black text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-700 outline-none w-full"
                     />
                     <button
-                      onClick={() => setSendAmount(parseFloat(currentFromBalance).toFixed(sendFromCurrency === 'BTC' || sendFromCurrency === 'ETH' ? 6 : 4))}
+                      type="button"
+                      onClick={() => {
+                        setUserEditedSwapAmount(true);
+                        setSendAmount(floorSwapAmount(parseFloat(currentFromBalance || '0'), sendFromCurrency));
+                      }}
                       className="text-[11px] font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white px-2 py-0.5 mt-1 rounded bg-slate-200/80 hover:bg-slate-300/80 dark:bg-slate-800/80 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                     >
                       Use Max
@@ -613,7 +735,14 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   <div className="relative">
                     <select
                       value={sendToCurrency}
-                      onChange={(e) => setSendToCurrency(e.target.value)}
+                      onChange={(e) => {
+                        const nextTo = e.target.value;
+                        setUserEditedSwapPair(true);
+                        if (nextTo === sendFromCurrency) {
+                          setSendFromCurrency(sendToCurrency);
+                        }
+                        setSendToCurrency(nextTo);
+                      }}
                       className="appearance-none bg-white hover:bg-slate-100/80 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-900 dark:text-white font-black text-sm pl-10 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer transition-colors shadow-xs"
                     >
                       <option value="USD">USD</option>
@@ -634,19 +763,13 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                   <div className="text-right flex-1">
                     <div className="font-mono text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400">
                       {parseFloat(sendAmount || '0') > 0
-                        ? (
-                            (parseFloat(sendAmount || '0') * (livePerUsdRates[sendToCurrency] || 1)) /
-                            (livePerUsdRates[sendFromCurrency] || 1)
-                          ).toFixed(sendToCurrency === 'BTC' || sendToCurrency === 'ETH' ? 6 : 4)
+                        ? estimatedReceiveAmount.toFixed(sendToCurrency === 'BTC' || sendToCurrency === 'ETH' ? 6 : 4)
                         : (sendToCurrency === 'BTC' || sendToCurrency === 'ETH' ? '0.000000' : '0.0000')}
                     </div>
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
                       ≈ ${parseFloat(sendAmount || '0') > 0
-                        ? (
-                            parseFloat(sendAmount || '0') /
-                            (livePerUsdRates[sendFromCurrency] || 1)
-                          ).toFixed(2)
-                        : '0.00'} USD
+                        ? (estimatedReceiveAmount / (livePerUsdRates[sendToCurrency] || 1)).toFixed(2)
+                        : '0.00'} USD{activeSwapSpreadPct > 0 ? ` (after ${activeSwapSpreadPct.toFixed(2)}% spread)` : ''}
                     </span>
                   </div>
                 </div>
@@ -656,9 +779,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             {/* Execute Swap Button with Smart Deposit State */}
             <button
               onClick={isInsufficientFromBalance ? onOpenDeposit : handleExecuteSwap}
-              disabled={swapping || parseFloat(sendAmount || '0') <= 0}
+              disabled={swapping || parseFloat(sendAmount || '0') <= 0 || sendFromCurrency === sendToCurrency}
               className={`w-full py-4 rounded-2xl font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer ${
-                swapping || parseFloat(sendAmount || '0') <= 0
+                swapping || parseFloat(sendAmount || '0') <= 0 || sendFromCurrency === sendToCurrency
                   ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                   : isInsufficientFromBalance
                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20 active:scale-[0.99]'
@@ -904,10 +1027,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             {assetsSubTab === 'crypto' && (
               <div className="space-y-3">
                 {[
-                  { name: 'USDT', sub: 'Tether USD (BEP-20 / TRC-20)', bal: `${parseFloat(usdtBal).toLocaleString()} USDT`, val: `$${parseFloat(usdtBal).toFixed(2)} USD`, icon: '₮', color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' },
-                  { name: 'USDC', sub: 'USD Coin (ERC-20 / Solana)', bal: `${parseFloat(usdcBal).toLocaleString()} USDC`, val: `$${parseFloat(usdcBal).toFixed(2)} USD`, icon: '$', color: 'text-blue-600 dark:text-blue-400 bg-blue-500/10' },
-                  { name: 'BTC', sub: 'Bitcoin (Lightning & Native)', bal: `${parseFloat(btcBal).toFixed(6)} BTC`, val: `$${btcInUsd.toFixed(2)} USD`, icon: '₿', color: 'text-amber-600 dark:text-amber-400 bg-amber-500/10' },
-                  { name: 'ETH', sub: 'Ethereum Mainnet', bal: `${parseFloat(ethBal).toFixed(6)} ETH`, val: `$${ethInUsd.toFixed(2)} USD`, icon: 'Ξ', color: 'text-purple-600 dark:text-purple-400 bg-purple-500/10' },
+                  { name: 'USDT', sub: 'Tether USD (BEP-20 / TRC-20)', balNum: parseFloat(usdtBal), bal: `${parseFloat(usdtBal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`, val: `$${parseFloat(usdtBal).toFixed(2)} USD`, icon: '₮', color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' },
+                  { name: 'USDC', sub: 'USD Coin (ERC-20 / Solana)', balNum: parseFloat(usdcBal), bal: `${parseFloat(usdcBal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`, val: `$${parseFloat(usdcBal).toFixed(2)} USD`, icon: '$', color: 'text-blue-600 dark:text-blue-400 bg-blue-500/10' },
+                  { name: 'BTC', sub: 'Bitcoin (Lightning & Native)', balNum: parseFloat(btcBal), bal: `${parseFloat(btcBal).toFixed(6)} BTC`, val: `$${btcInUsd.toFixed(2)} USD`, icon: '₿', color: 'text-amber-600 dark:text-amber-400 bg-amber-500/10' },
+                  { name: 'ETH', sub: 'Ethereum Mainnet', balNum: parseFloat(ethBal), bal: `${parseFloat(ethBal).toFixed(6)} ETH`, val: `$${ethInUsd.toFixed(2)} USD`, icon: 'Ξ', color: 'text-purple-600 dark:text-purple-400 bg-purple-500/10' },
                 ].map((token) => (
                   <div
                     key={token.name}
@@ -941,12 +1064,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                       </div>
 
                       <button
-                        onClick={() => {
-                          setSendToCurrency(token.name);
-                          window.scrollTo({ top: 380, behavior: 'smooth' });
-                        }}
+                        type="button"
+                        onClick={() => handleSelectSwapRow(token.name)}
                         className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
-                        title={`Swap to ${token.name}`}
+                        title={token.balNum > 0 ? `Swap ${token.name} to another currency` : `Swap into ${token.name}`}
                       >
                         Swap
                       </button>
@@ -981,10 +1102,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             {assetsSubTab === 'fiat' && (
               <div className="space-y-2.5">
                 {[
-                  { name: 'USD', sub: 'US Dollar (Federal Reserve Clearing)', bal: `$${parseFloat(usdBal).toLocaleString()}`, val: `$${parseFloat(usdBal).toFixed(2)} USD`, sym: '$' },
-                  { name: 'EUR', sub: 'Euro (SEPA Target2 Clearing)', bal: `€${parseFloat(eurBal).toLocaleString()}`, val: `$${eurInUsd.toFixed(2)} USD`, sym: '€' },
-                  { name: 'GEL', sub: 'Georgian Lari (Tbilisi OTC Counter)', bal: `₾${parseFloat(gelBal).toLocaleString()}`, val: `$${gelInUsd.toFixed(2)} USD`, sym: '₾' },
-                  { name: 'INR', sub: 'Indian Rupee (UPI / IMPS Rails)', bal: `₹${parseFloat(inrBal).toLocaleString()}`, val: `$${inrInUsd.toFixed(2)} USD`, sym: '₹' },
+                  { name: 'USD', sub: 'US Dollar (Federal Reserve Clearing)', balNum: parseFloat(usdBal), bal: `$${parseFloat(usdBal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, val: `$${parseFloat(usdBal).toFixed(2)} USD`, sym: '$' },
+                  { name: 'EUR', sub: 'Euro (SEPA Target2 Clearing)', balNum: parseFloat(eurBal), bal: `€${parseFloat(eurBal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, val: `$${eurInUsd.toFixed(2)} USD`, sym: '€' },
+                  { name: 'GEL', sub: 'Georgian Lari (Tbilisi OTC Counter)', balNum: parseFloat(gelBal), bal: `₾${parseFloat(gelBal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, val: `$${gelInUsd.toFixed(2)} USD`, sym: '₾' },
+                  { name: 'INR', sub: 'Indian Rupee (UPI / IMPS Rails)', balNum: parseFloat(inrBal), bal: `₹${parseFloat(inrBal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, val: `$${inrInUsd.toFixed(2)} USD`, sym: '₹' },
                 ].map((fiat) => (
                   <div
                     key={fiat.name}
@@ -1000,13 +1121,24 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <div className="text-xs font-mono font-bold text-slate-900 dark:text-white">
-                        {showBalance ? fiat.bal : '••••'}
+                    <div className="flex items-center gap-2.5">
+                      <div className="text-right">
+                        <div className="text-xs font-mono font-bold text-slate-900 dark:text-white">
+                          {showBalance ? fiat.bal : '••••'}
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                          ≈ {showBalance ? fiat.val : '••••'}
+                        </div>
                       </div>
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                        ≈ {showBalance ? fiat.val : '••••'}
-                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSelectSwapRow(fiat.name)}
+                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
+                        title={fiat.balNum > 0 ? `Swap ${fiat.name} to another currency` : `Swap into ${fiat.name}`}
+                      >
+                        Swap
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1103,7 +1235,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
 
                       <div className="text-right">
                         <div className={`font-mono font-bold ${isDeposit ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'}`}>
-                          {isDeposit ? '+' : '-'}{parseFloat(tx.amount || '0').toFixed(2)} {tx.currency}
+                          {isDeposit ? '+' : '-'}{parseFloat(tx.amount || '0').toFixed(['BTC', 'ETH'].includes(String(tx.currency || '').toUpperCase()) ? 6 : 2)} {tx.currency}
                         </div>
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-400 uppercase font-bold">
                           {tx.status || 'COMPLETED'}
@@ -1257,6 +1389,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               <div className="flex justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Credited Amount</span>
                 <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">+{swapReceipt.toAmount} {swapReceipt.toCurrency}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Desk Spread ({swapReceipt.spreadPct || '0.00'}%)</span>
+                <span className="font-mono font-bold text-slate-700 dark:text-slate-300">-{swapReceipt.feeAmount || '0.0000'} {swapReceipt.feeCurrency || swapReceipt.fromCurrency}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Execution Rate</span>

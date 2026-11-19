@@ -10,7 +10,7 @@ export class OtcController {
    */
   async getRates(req: Request, res: Response, next: NextFunction) {
     try {
-      const [data, marginSetting, feeSetting, showSpreadSetting, otcCommission, wdFeeSetting, wdSpreadSetting] = await Promise.all([
+      const [data, marginSetting, feeSetting, showSpreadSetting, otcCommission, wdFeeSetting, wdSpreadSetting, exchangeSpreadSetting, activePairs] = await Promise.all([
         rateService.getLiveRates(),
         prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
         prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
@@ -18,12 +18,19 @@ export class OtcController {
         otcService.getOtcCommissionConfig(),
         prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fee_percent' } }).catch(() => null),
         prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fx_spread_percent' } }).catch(() => null),
+        prisma.cmsSetting.findUnique({ where: { key: 'exchange_spread_percent' } }).catch(() => null),
+        prisma.exchangePair.findMany({
+          where: { isActive: true },
+          select: { baseCurrency: true, quoteCurrency: true, buyMarginPct: true, sellMarginPct: true },
+        }).catch(() => []),
       ]);
       const marginPercent = parseFloat(marginSetting?.value || '2.0');
       const feePercent = parseFloat(feeSetting?.value || '3.0');
       const showRemittanceSpreadControls = String(showSpreadSetting?.value || 'false').toLowerCase() === 'true';
       const withdrawalFeePct = parseFloat(wdFeeSetting?.value || '0.0');
       const withdrawalFxSpreadPct = parseFloat(wdSpreadSetting?.value || '0.0');
+      const rawExchangeSpread = parseFloat(exchangeSpreadSetting?.value || '1.0');
+      const exchangeSpreadPercent = Number.isFinite(rawExchangeSpread) && rawExchangeSpread >= 0 ? rawExchangeSpread : 1.0;
 
       res.json({
         success: true,
@@ -34,6 +41,13 @@ export class OtcController {
         marginPercent,
         feePercent,
         showRemittanceSpreadControls,
+        exchangeSpreadPercent,
+        exchangePairs: activePairs.map((p) => ({
+          baseCurrency: p.baseCurrency,
+          quoteCurrency: p.quoteCurrency,
+          buyMarginPct: Number(p.buyMarginPct),
+          sellMarginPct: Number(p.sellMarginPct),
+        })),
         rates: data.rates,
         marketRates: data.marketRates,
         overrides: data.overrides,

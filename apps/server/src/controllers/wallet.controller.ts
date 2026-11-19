@@ -101,7 +101,8 @@ export class WalletController {
 
         let csv = 'Transaction Code,Date,Type,Amount,Currency,Status,Balance Before,Balance After,Reference,Notes\n';
         for (const t of txs) {
-          csv += `"${t.transactionCode}","${t.createdAt.toISOString()}","${t.type}","${new Decimal(t.amount.toString()).toFixed(2)}","${t.currency}","${t.status}","${new Decimal(t.balanceBefore.toString()).toFixed(2)}","${new Decimal(t.balanceAfter.toString()).toFixed(2)}","${t.settlementReference || ''}","${(t.notes || '').replace(/"/g, '""')}"\n`;
+          const dp = ['BTC', 'ETH'].includes((t.currency || '').toUpperCase()) ? 8 : 2;
+          csv += `"${t.transactionCode}","${t.createdAt.toISOString()}","${t.type}","${new Decimal(t.amount.toString()).toFixed(dp)}","${t.currency}","${t.status}","${new Decimal(t.balanceBefore.toString()).toFixed(dp)}","${new Decimal(t.balanceAfter.toString()).toFixed(dp)}","${t.settlementReference || ''}","${(t.notes || '').replace(/"/g, '""')}"\n`;
         }
 
         res.setHeader('Content-Type', 'text/csv');
@@ -122,20 +123,23 @@ export class WalletController {
         prisma.transaction.count({ where }),
       ]);
 
-      const formattedTransactions = transactions.map((t) => ({
-        id: t.id,
-        transactionCode: t.transactionCode,
-        type: t.type,
-        amount: new Decimal(t.amount.toString()).toFixed(2),
-        currency: t.currency,
-        status: t.status,
-        balanceBefore: new Decimal(t.balanceBefore.toString()).toFixed(2),
-        balanceAfter: new Decimal(t.balanceAfter.toString()).toFixed(2),
-        settlementReference: t.settlementReference,
-        packageCode: t.package?.packageCode || null,
-        notes: t.notes,
-        createdAt: t.createdAt,
-      }));
+      const formattedTransactions = transactions.map((t) => {
+        const dp = ['BTC', 'ETH'].includes((t.currency || '').toUpperCase()) ? 8 : 2;
+        return {
+          id: t.id,
+          transactionCode: t.transactionCode,
+          type: t.type,
+          amount: new Decimal(t.amount.toString()).toFixed(dp),
+          currency: t.currency,
+          status: t.status,
+          balanceBefore: new Decimal(t.balanceBefore.toString()).toFixed(dp),
+          balanceAfter: new Decimal(t.balanceAfter.toString()).toFixed(dp),
+          settlementReference: t.settlementReference,
+          packageCode: t.package?.packageCode || null,
+          notes: t.notes,
+          createdAt: t.createdAt,
+        };
+      });
 
       res.json({
         success: true,

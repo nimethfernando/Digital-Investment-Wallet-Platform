@@ -916,9 +916,10 @@ export class LedgerService {
         accumulatedReturns: accumulatedReturns.toFixed(2),
       },
       balances: balances.map((b) => {
-        const availStr = new Decimal(b.availableBalance.toString()).toFixed(2);
-        const lockedStr = new Decimal(b.lockedPrincipal.toString()).toFixed(2);
-        const pendingStr = new Decimal(b.pendingSettlement.toString()).toFixed(2);
+        const dp = ['BTC', 'ETH'].includes((b.currency || '').toUpperCase()) ? 8 : 2;
+        const availStr = new Decimal(b.availableBalance.toString()).toFixed(dp);
+        const lockedStr = new Decimal(b.lockedPrincipal.toString()).toFixed(dp);
+        const pendingStr = new Decimal(b.pendingSettlement.toString()).toFixed(dp);
         return {
           currency: b.currency,
           available: availStr,
@@ -1013,7 +1014,7 @@ export class LedgerService {
         const fromAvail = new Decimal(fromLocked.availableBalance.toString());
         if (fromAvail.lessThan(fromAmtFixed)) {
           throw new Error(
-            `Insufficient ${fromCur} balance. Available: ${fromAvail.toFixed(2)} ${fromCur}, Required: ${fromAmtFixed.toFixed(2)}`
+            `Insufficient ${fromCur} balance. Available: ${fromAvail.toFixed(fromDecimals)} ${fromCur}, Required: ${fromAmtFixed.toFixed(fromDecimals)}`
           );
         }
 
