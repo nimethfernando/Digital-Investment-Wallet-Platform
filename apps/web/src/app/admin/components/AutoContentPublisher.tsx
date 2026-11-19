@@ -206,13 +206,19 @@ export default function AutoContentPublisher({
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
 
-  // Optional AI & News Keys Config
+  // Optional AI, News Keys & Autonomous Freshness Config
   const [showAiConfig, setShowAiConfig] = useState(false);
   const [aiStatus, setAiStatus] = useState<any | null>(null);
   const [openaiKey, setOpenaiKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
   const [finnhubKey, setFinnhubKey] = useState('');
   const [alphaVantageKey, setAlphaVantageKey] = useState('');
+  const [autoPublishEnabled, setAutoPublishEnabled] = useState(true);
+  const [autoPublishIntervalHours, setAutoPublishIntervalHours] = useState(6);
+  const [autoPublishTopics, setAutoPublishTopics] = useState(
+    'Apple Inc., NVDA, Bitcoin, Tesla, MSFT, Gold, Ethereum, AMZN'
+  );
+  const [publishingNextFresh, setPublishingNextFresh] = useState(false);
   const [savingKeys, setSavingKeys] = useState(false);
 
   const loadPostsAndStatus = async () => {
@@ -228,6 +234,15 @@ export default function AutoContentPublisher({
       }
       if (aiRes.data?.status) {
         setAiStatus(aiRes.data.status);
+        if (typeof aiRes.data.status.autoPublishEnabled === 'boolean') {
+          setAutoPublishEnabled(aiRes.data.status.autoPublishEnabled);
+        }
+        if (aiRes.data.status.autoPublishIntervalHours) {
+          setAutoPublishIntervalHours(Number(aiRes.data.status.autoPublishIntervalHours) || 6);
+        }
+        if (aiRes.data.status.autoPublishTopics) {
+          setAutoPublishTopics(String(aiRes.data.status.autoPublishTopics));
+        }
       }
       if (varsRes.data?.variables) {
         setLiveVars(varsRes.data.variables);
@@ -471,10 +486,10 @@ export default function AutoContentPublisher({
   const handleSyncAll = async () => {
     setSyncingAll(true);
     try {
-      const res = await api.get('/cms/blogs/cron-sync');
+      const res = await api.get('/cms/blogs/cron-sync?force=true');
       if (res.data?.success) {
         onFeedback?.(
-          `Synced ${res.data.syncedPosts} tracked topic(s), added ${res.data.addedStories} new headline(s).`,
+          `Synced ${res.data.syncedPosts} tracked topic(s), regenerated ${res.data.regeneratedCount ?? res.data.syncedPosts}, added ${res.data.addedStories} new headline(s).`,
           'success'
         );
         await loadPostsAndStatus();
@@ -483,6 +498,24 @@ export default function AutoContentPublisher({
       onFeedback?.(extractErrorMessage(err, 'Global news sync failed'), 'error');
     } finally {
       setSyncingAll(false);
+    }
+  };
+
+  const handlePublishNextFreshTopic = async () => {
+    if (publishingNextFresh || publishing) return;
+    setPublishingNextFresh(true);
+    setLastResult(null);
+    try {
+      const res = await api.post('/cms/admin/blogs/auto-publish-fresh');
+      if (res.data?.success) {
+        setLastResult(res.data);
+        onFeedback?.(res.data.message || 'Published fresh announcement from watchlist!', 'success');
+        await loadPostsAndStatus();
+      }
+    } catch (err: any) {
+      onFeedback?.(extractErrorMessage(err, 'Failed to publish next fresh topic'), 'error');
+    } finally {
+      setPublishingNextFresh(false);
     }
   };
 
@@ -525,7 +558,11 @@ export default function AutoContentPublisher({
     e.preventDefault();
     setSavingKeys(true);
     try {
-      const payload: Record<string, string> = {};
+      const payload: Record<string, any> = {
+        autoPublishEnabled,
+        autoPublishIntervalHours,
+        autoPublishTopics,
+      };
       if (openaiKey.trim()) payload.openaiApiKey = openaiKey.trim();
       if (geminiKey.trim()) payload.geminiApiKey = geminiKey.trim();
       if (finnhubKey.trim()) payload.finnhubApiKey = finnhubKey.trim();
@@ -538,10 +575,10 @@ export default function AutoContentPublisher({
         setGeminiKey('');
         setFinnhubKey('');
         setAlphaVantageKey('');
-        onFeedback?.('Market Data & AI API keys saved and activated.', 'success');
+        onFeedback?.('AI Engine, News API & Auto-Freshness schedule saved and activated.', 'success');
       }
     } catch (err: any) {
-      onFeedback?.(extractErrorMessage(err, 'Failed to save API keys'), 'error');
+      onFeedback?.(extractErrorMessage(err, 'Failed to save configuration'), 'error');
     } finally {
       setSavingKeys(false);
     }
@@ -655,6 +692,12 @@ export default function AutoContentPublisher({
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-300">
+                  Auto-Feed:{' '}
+                  <span className={autoPublishEnabled ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                    {autoPublishEnabled ? `ON · Every ${autoPublishIntervalHours}h` : 'PAUSED'}
+                  </span>
+                </span>
+                <span className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-300">
                   Engine: <span className="text-emerald-400 font-bold">{aiStatus?.engineMode || 'Live Market OHLCV + RSS Engine'}</span>
                 </span>
                 <button
@@ -663,7 +706,7 @@ export default function AutoContentPublisher({
                   className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-xs font-bold text-amber-300 flex items-center gap-1.5 cursor-pointer transition-colors"
                 >
                   <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{showAiConfig ? 'Hide API Keys' : 'Configure Market & AI API Keys'}</span>
+                  <span>{showAiConfig ? 'Hide Keys & Schedule' : 'AI Keys & Auto-Freshness'}</span>
                 </button>
               </div>
             </div>
@@ -723,13 +766,58 @@ export default function AutoContentPublisher({
                     />
                   </div>
                 </div>
-                <div className="flex justify-end">
+
+                {/* Autonomous Fresh AI Publishing Schedule */}
+                <div className="pt-3 border-t border-slate-800 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                  <div className="md:col-span-4">
+                    <label className="inline-flex items-center gap-2 text-slate-200 font-bold cursor-pointer py-2">
+                      <input
+                        type="checkbox"
+                        checked={autoPublishEnabled}
+                        onChange={(e) => setAutoPublishEnabled(e.target.checked)}
+                        className="rounded border-slate-600 bg-slate-800 text-emerald-500"
+                      />
+                      <span>Auto-Publish New AI Announcements</span>
+                    </label>
+                  </div>
+                  <div className="md:col-span-3">
+                    <label className="block text-slate-300 font-bold mb-1">New Edition Cadence</label>
+                    <select
+                      value={autoPublishIntervalHours}
+                      onChange={(e) => setAutoPublishIntervalHours(Number(e.target.value))}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
+                    >
+                      <option value={1}>Every 1 Hour</option>
+                      <option value={3}>Every 3 Hours</option>
+                      <option value={6}>Every 6 Hours</option>
+                      <option value={12}>Every 12 Hours</option>
+                      <option value={24}>Every 24 Hours</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-5">
+                    <label className="block text-slate-300 font-bold mb-1">Rotating Watchlist Topics (comma-separated)</label>
+                    <input
+                      type="text"
+                      value={autoPublishTopics}
+                      onChange={(e) => setAutoPublishTopics(e.target.value)}
+                      placeholder="Apple Inc., NVDA, Bitcoin, Tesla, MSFT, Gold"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] text-slate-400">
+                    {aiStatus?.lastAutoPublishAt
+                      ? `Last auto-published: ${new Date(aiStatus.lastAutoPublishAt).toLocaleString()}`
+                      : 'Tracked articles also refresh live quotes & breaking wires hourly.'}
+                  </span>
                   <button
                     type="submit"
                     disabled={savingKeys}
                     className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer disabled:opacity-50"
                   >
-                    {savingKeys ? 'Saving...' : 'Save & Activate API Keys'}
+                    {savingKeys ? 'Saving...' : 'Save Configuration & Schedule'}
                   </button>
                 </div>
               </form>
@@ -765,7 +853,7 @@ export default function AutoContentPublisher({
                 />
                 <button
                   type="submit"
-                  disabled={publishing || !topic.trim()}
+                  disabled={publishing || publishingNextFresh || !topic.trim()}
                   className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
                 >
                   {publishing ? (
@@ -777,6 +865,25 @@ export default function AutoContentPublisher({
                     <>
                       <Rocket className="w-4 h-4" />
                       <span>Auto-Generate &amp; Publish</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePublishNextFreshTopic}
+                  disabled={publishingNextFresh || publishing}
+                  className="px-4 py-3 rounded-2xl bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+                  title="Automatically pick the next rotating watchlist topic and publish a fresh edition now"
+                >
+                  {publishingNextFresh ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Publishing Next...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Publish Next Fresh Topic</span>
                     </>
                   )}
                 </button>

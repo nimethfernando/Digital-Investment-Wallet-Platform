@@ -16,6 +16,7 @@ import {
   getBlogBannerMedia,
   getBlogMemeMedia,
   autoPublishBlog,
+  triggerAutonomousFreshPublish,
   syncBlogNewsAdmin,
   syncAllTrackedBlogs,
   getAdminBlogPosts,
@@ -55,6 +56,7 @@ router.post('/admin/blogs', authenticateToken, requireAdmin, createAdminBlogPost
 router.post('/admin/blogs/seed-defaults', authenticateToken, requireAdmin, seedDefaultBlogPostsAdmin);
 router.post('/admin/blogs/sync-tokens', authenticateToken, requireAdmin, syncBlogTokensAdmin);
 router.post('/admin/blogs/auto-publish', authenticateToken, requireAdmin, autoPublishBlog);
+router.post('/admin/blogs/auto-publish-fresh', authenticateToken, requireAdmin, triggerAutonomousFreshPublish);
 router.post('/admin/blogs/:id/sync-news', authenticateToken, requireAdmin, syncBlogNewsAdmin);
 router.put('/admin/blogs/:id', authenticateToken, requireAdmin, updateAdminBlogPost);
 router.patch('/admin/blogs/:id', authenticateToken, requireAdmin, updateAdminBlogPost);

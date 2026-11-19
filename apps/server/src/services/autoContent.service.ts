@@ -42,6 +42,7 @@ export interface MarketQuote {
   changeFormatted: string;
   sparkline: number[];
   isCrypto: boolean;
+  quoteTimestamp?: string;
   technicals: TechnicalMetrics;
   fundamentals: MarketFundamentals;
 }
@@ -221,9 +222,58 @@ function classifySentiment(text: string): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {
   return 'NEUTRAL';
 }
 
+function normalizeTitleWords(text: string): Set<string> {
+  return new Set(
+    String(text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+  );
+}
+
+function isTitleTooSimilar(candidate: string, priorTitles: string[]): boolean {
+  const cleanCandidate = candidate.trim().toLowerCase();
+  if (!cleanCandidate) return true;
+  const candWords = normalizeTitleWords(candidate);
+  for (const prev of priorTitles) {
+    const cleanPrev = String(prev || '').trim().toLowerCase();
+    if (!cleanPrev) continue;
+    if (cleanCandidate === cleanPrev) return true;
+    const prevWords = normalizeTitleWords(prev);
+    if (candWords.size === 0 || prevWords.size === 0) continue;
+    let intersection = 0;
+    for (const w of candWords) {
+      if (prevWords.has(w)) intersection += 1;
+    }
+    const union = new Set([...candWords, ...prevWords]).size;
+    if (union > 0 && intersection / union >= 0.72) return true;
+  }
+  return false;
+}
+
 function hashNewsKey(headline: string, url: string): string {
   const normalized = headline.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 72) || url;
   return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 48);
+}
+
+const DEFAULT_AUTO_PUBLISH_TOPICS = [
+  'Apple Inc.',
+  'NVDA',
+  'Bitcoin',
+  'Tesla',
+  'MSFT',
+  'Gold',
+  'Ethereum',
+  'AMZN',
+];
+
+function parseTopicsList(raw?: string | null): string[] {
+  const parsed = String(raw || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return parsed.length > 0 ? parsed : DEFAULT_AUTO_PUBLISH_TOPICS;
 }
 
 function slugify(title: string): string {
@@ -232,12 +282,13 @@ function slugify(title: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
-  const suffix = Date.now().toString(36).slice(-5);
+  const suffix = `${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 5)}`;
   return `${base || 'market-brief'}-${suffix}`;
 }
 
 export class AutoContentService {
   private schemaReady = false;
+  private freshnessInFlight: Promise<any> | null = null;
 
   async ensureSchema(): Promise<void> {
     if (this.schemaReady) return;
@@ -301,18 +352,36 @@ export class AutoContentService {
     const keys = await prisma.cmsSetting.findMany({
       where: {
         key: {
-          in: ['ai_openai_api_key', 'ai_gemini_api_key', 'ai_finnhub_api_key', 'ai_alphavantage_api_key'],
+          in: [
+            'ai_openai_api_key',
+            'ai_gemini_api_key',
+            'ai_finnhub_api_key',
+            'ai_alphavantage_api_key',
+            'ai_auto_publish_enabled',
+            'ai_auto_publish_interval_hours',
+            'ai_auto_publish_topics',
+            'ai_last_auto_publish_at',
+          ],
         },
       },
     });
     const map: Record<string, string> = {};
     for (const k of keys) map[k.key] = k.value;
 
+    const rawInterval = Number(map.ai_auto_publish_interval_hours || '6');
+    const autoPublishIntervalHours = Number.isFinite(rawInterval)
+      ? Math.max(1, Math.min(72, Math.round(rawInterval)))
+      : 6;
+
     return {
       openaiApiKey: (map.ai_openai_api_key || process.env.OPENAI_API_KEY || '').trim(),
       geminiApiKey: (map.ai_gemini_api_key || process.env.GEMINI_API_KEY || '').trim(),
       finnhubApiKey: (map.ai_finnhub_api_key || process.env.FINNHUB_API_KEY || '').trim(),
       alphaVantageApiKey: (map.ai_alphavantage_api_key || process.env.ALPHAVANTAGE_API_KEY || '').trim(),
+      autoPublishEnabled: map.ai_auto_publish_enabled !== 'false',
+      autoPublishIntervalHours,
+      autoPublishTopics: parseTopicsList(map.ai_auto_publish_topics).join(', '),
+      lastAutoPublishAt: map.ai_last_auto_publish_at || null,
     };
   }
 
@@ -330,6 +399,10 @@ export class AutoContentService {
       geminiConfigured: Boolean(cfg.geminiApiKey),
       finnhubConfigured: Boolean(cfg.finnhubApiKey),
       alphaVantageConfigured: Boolean(cfg.alphaVantageApiKey),
+      autoPublishEnabled: cfg.autoPublishEnabled,
+      autoPublishIntervalHours: cfg.autoPublishIntervalHours,
+      autoPublishTopics: cfg.autoPublishTopics,
+      lastAutoPublishAt: cfg.lastAutoPublishAt,
       engineMode: providers.join(' + '),
     };
   }
@@ -339,6 +412,9 @@ export class AutoContentService {
     geminiApiKey?: string;
     finnhubApiKey?: string;
     alphaVantageApiKey?: string;
+    autoPublishEnabled?: boolean;
+    autoPublishIntervalHours?: number;
+    autoPublishTopics?: string;
   }) {
     const updates: Array<{ key: string; value: string }> = [];
     if (typeof data.openaiApiKey === 'string') updates.push({ key: 'ai_openai_api_key', value: data.openaiApiKey.trim() });
@@ -346,6 +422,19 @@ export class AutoContentService {
     if (typeof data.finnhubApiKey === 'string') updates.push({ key: 'ai_finnhub_api_key', value: data.finnhubApiKey.trim() });
     if (typeof data.alphaVantageApiKey === 'string') {
       updates.push({ key: 'ai_alphavantage_api_key', value: data.alphaVantageApiKey.trim() });
+    }
+    if (typeof data.autoPublishEnabled === 'boolean') {
+      updates.push({ key: 'ai_auto_publish_enabled', value: data.autoPublishEnabled ? 'true' : 'false' });
+    }
+    if (data.autoPublishIntervalHours !== undefined) {
+      const hrs = Math.max(1, Math.min(72, Math.round(Number(data.autoPublishIntervalHours) || 6)));
+      updates.push({ key: 'ai_auto_publish_interval_hours', value: String(hrs) });
+    }
+    if (typeof data.autoPublishTopics === 'string' && data.autoPublishTopics.trim()) {
+      updates.push({
+        key: 'ai_auto_publish_topics',
+        value: parseTopicsList(data.autoPublishTopics).join(', '),
+      });
     }
 
     for (const u of updates) {
@@ -372,6 +461,8 @@ export class AutoContentService {
     let isCrypto = false;
 
     const direct = KNOWN_ENTITIES[key] || KNOWN_ENTITIES[cleaned.toLowerCase()];
+    const cacheBust = Date.now();
+
     if (direct) {
       symbol = direct.symbol;
       companyName = direct.companyName;
@@ -382,8 +473,8 @@ export class AutoContentService {
     } else {
       try {
         const res = await fetch(
-          `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(cleaned)}&quotesCount=3&newsCount=0`,
-          { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(4500) }
+          `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(cleaned)}&quotesCount=3&newsCount=0&_ts=${cacheBust}`,
+          { headers: { 'User-Agent': USER_AGENT, 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(4500) }
         );
         if (res.ok) {
           const json: any = await res.json();
@@ -407,6 +498,7 @@ export class AutoContentService {
     let changePct: number | null = null;
     let changeAbs: number | null = null;
     let currency = 'USD';
+    let quoteTimestamp = new Date().toISOString();
     let sparkline: number[] = [];
 
     const technicals: TechnicalMetrics = {
@@ -425,8 +517,8 @@ export class AutoContentService {
 
     try {
       const chartRes = await fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=3mo`,
-        { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(5500) }
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=3mo&_ts=${cacheBust}`,
+        { headers: { 'User-Agent': USER_AGENT, 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5500) }
       );
       if (chartRes.ok) {
         const chartJson: any = await chartRes.json();
@@ -442,6 +534,9 @@ export class AutoContentService {
 
         if (meta) {
           if (typeof meta.regularMarketPrice === 'number') price = meta.regularMarketPrice;
+          if (typeof meta.regularMarketTime === 'number' && meta.regularMarketTime > 0) {
+            quoteTimestamp = new Date(meta.regularMarketTime * 1000).toISOString();
+          }
           if (meta.currency) currency = meta.currency;
           if (meta.fullExchangeName || meta.exchangeName) {
             exchange = meta.fullExchangeName || meta.exchangeName;
@@ -616,22 +711,39 @@ export class AutoContentService {
       changeFormatted,
       sparkline: sparkline.length >= 4 ? sparkline : [100, 102, 101, 104, 103, 106, 108, 107, 111],
       isCrypto,
+      quoteTimestamp,
       technicals,
       fundamentals,
     };
   }
 
   /**
-   * Gather verified market news from Finnhub API, Alpha Vantage News API, Yahoo Finance RSS, and Google News RSS
+   * Gather verified market news from Finnhub API, Alpha Vantage News API, Yahoo Finance RSS, and Google News RSS.
+   * Prioritizes breaking <24h/48h stories and ranks headlines not already featured ahead of repeated wire stories.
    */
-  async fetchReliableNews(quote: MarketQuote, originalTopic: string, finnhubKey?: string): Promise<RawNewsItem[]> {
+  async fetchReliableNews(
+    quote: MarketQuote,
+    originalTopic: string,
+    finnhubKey?: string,
+    excludeHeadlineKeys?: Set<string>
+  ): Promise<RawNewsItem[]> {
     const aiCfg = await this.getAiConfig();
     const activeFinnhub = finnhubKey || aiCfg.finnhubApiKey;
     const items: RawNewsItem[] = [];
+    const cacheBust = Date.now();
     const queryTerm =
       quote.companyName && quote.companyName !== quote.symbol
         ? `${quote.companyName} ${quote.symbol}`
         : originalTopic;
+
+    const parseAlphaVantageTime = (raw?: string): Date => {
+      if (!raw || typeof raw !== 'string') return new Date();
+      // Format: YYYYMMDDTHHMMSS
+      const m = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/);
+      if (!m) return new Date();
+      const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
+      return Number.isNaN(d.getTime()) ? new Date() : d;
+    };
 
     const parseRss = (xml: string, fallbackSource: string) => {
       const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
@@ -671,9 +783,10 @@ export class AutoContentService {
     };
 
     const tasks: Promise<void>[] = [
+      // Pull breaking last-24h stories first, plus 7d fallback pool
       fetch(
-        `https://news.google.com/rss/search?q=${encodeURIComponent(`${queryTerm} when:7d`)}&hl=en-US&gl=US&ceid=US:en`,
-        { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(5500) }
+        `https://news.google.com/rss/search?q=${encodeURIComponent(`${queryTerm} when:1d`)}&hl=en-US&gl=US&ceid=US:en&_ts=${cacheBust}`,
+        { headers: { 'User-Agent': USER_AGENT, 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5500) }
       )
         .then(async (r) => {
           if (r.ok) parseRss(await r.text(), 'Google News');
@@ -681,8 +794,17 @@ export class AutoContentService {
         .catch(() => {}),
 
       fetch(
-        `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(quote.isCrypto ? `${quote.symbol}-USD` : quote.symbol)}&region=US&lang=en-US`,
-        { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(5500) }
+        `https://news.google.com/rss/search?q=${encodeURIComponent(`${queryTerm} when:7d`)}&hl=en-US&gl=US&ceid=US:en&_ts=${cacheBust}`,
+        { headers: { 'User-Agent': USER_AGENT, 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5500) }
+      )
+        .then(async (r) => {
+          if (r.ok) parseRss(await r.text(), 'Google News');
+        })
+        .catch(() => {}),
+
+      fetch(
+        `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(quote.isCrypto ? `${quote.symbol}-USD` : quote.symbol)}&region=US&lang=en-US&_ts=${cacheBust}`,
+        { headers: { 'User-Agent': USER_AGENT, 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5500) }
       )
         .then(async (r) => {
           if (r.ok) parseRss(await r.text(), 'Yahoo Finance');
@@ -692,17 +814,17 @@ export class AutoContentService {
 
     if (activeFinnhub && !quote.isCrypto) {
       const to = new Date().toISOString().slice(0, 10);
-      const from = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      const from = new Date(Date.now() - 4 * 86400000).toISOString().slice(0, 10);
       tasks.push(
         fetch(
           `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(quote.symbol)}&from=${from}&to=${to}&token=${encodeURIComponent(activeFinnhub)}`,
-          { signal: AbortSignal.timeout(5000) }
+          { headers: { 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5000) }
         )
           .then(async (r) => {
             if (!r.ok) return;
             const arr: any = await r.json();
             if (Array.isArray(arr)) {
-              for (const n of arr.slice(0, 12)) {
+              for (const n of arr.slice(0, 15)) {
                 if (!n?.headline || !n?.url) continue;
                 items.push({
                   headline: String(n.headline).slice(0, 380),
@@ -723,14 +845,14 @@ export class AutoContentService {
     if (aiCfg.alphaVantageApiKey && !quote.isCrypto) {
       tasks.push(
         fetch(
-          `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${encodeURIComponent(quote.symbol)}&limit=10&apikey=${encodeURIComponent(aiCfg.alphaVantageApiKey)}`,
-          { signal: AbortSignal.timeout(5000) }
+          `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${encodeURIComponent(quote.symbol)}&sort=LATEST&limit=15&apikey=${encodeURIComponent(aiCfg.alphaVantageApiKey)}`,
+          { headers: { 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5000) }
         )
           .then(async (r) => {
             if (!r.ok) return;
             const j: any = await r.json();
             if (Array.isArray(j?.feed)) {
-              for (const f of j.feed.slice(0, 10)) {
+              for (const f of j.feed.slice(0, 15)) {
                 if (!f?.title || !f?.url) continue;
                 const label = String(f.overall_sentiment_label || '').toUpperCase();
                 const sent: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = label.includes('BULLISH')
@@ -744,7 +866,7 @@ export class AutoContentService {
                   sourceName: String(f.source || 'Alpha Vantage Wire').slice(0, 90),
                   sourceUrl: String(f.url).slice(0, 580),
                   sentiment: sent,
-                  publishedAt: new Date(),
+                  publishedAt: parseAlphaVantageTime(f.time_published),
                   urlHash: hashNewsKey(f.title, f.url),
                 });
               }
@@ -765,7 +887,13 @@ export class AutoContentService {
       }
     }
 
-    return deduped.slice(0, 15);
+    if (excludeHeadlineKeys && excludeHeadlineKeys.size > 0) {
+      const freshUnseen = deduped.filter((item) => !excludeHeadlineKeys.has(item.urlHash));
+      const previouslyUsed = deduped.filter((item) => excludeHeadlineKeys.has(item.urlHash));
+      return [...freshUnseen, ...previouslyUsed].slice(0, 18);
+    }
+
+    return deduped.slice(0, 18);
   }
 
   /**
@@ -778,8 +906,11 @@ export class AutoContentService {
     categoryOverride?: string;
     includeMeme?: boolean;
     priorTitles?: string[];
+    priorSummaries?: string[];
+    usedHeadlineKeys?: Set<string>;
     editionNumber?: number;
     visualVariant?: string;
+    forceFreshHeading?: boolean;
   }) {
     const {
       topic,
@@ -788,12 +919,16 @@ export class AutoContentService {
       categoryOverride,
       includeMeme = true,
       priorTitles = [],
+      priorSummaries = [],
+      usedHeadlineKeys,
       editionNumber = 1,
       visualVariant,
     } = opts;
     const aiCfg = await this.getAiConfig();
     const t = quote.technicals;
     const f = quote.fundamentals;
+    const now = new Date();
+    const nowUtc = `${now.toISOString().replace('T', ' ').slice(0, 16)} UTC`;
 
     const EDITORIAL_ANGLES = [
       {
@@ -810,7 +945,7 @@ export class AutoContentService {
       },
       {
         name: 'Breaking Catalysts & Institutional News Sentiment',
-        instruction: 'Lead with breaking media wires, headline sentiment divergence, and near-term fundamental catalysts.',
+        instruction: 'Lead with breaking media wires from the last 24-48h, headline sentiment divergence, and near-term fundamental catalysts.',
         titleSuffix: 'Catalyst Wire & Sentiment Shift Dispatch',
         headlineTag: 'CATALYST DISPATCH',
       },
@@ -832,6 +967,30 @@ export class AutoContentService {
         titleSuffix: '3-Month Trajectory & Allocation Outlook',
         headlineTag: 'STRATEGIC OUTLOOK',
       },
+      {
+        name: 'Institutional Earnings & Analyst Target Convergence',
+        instruction: 'Lead with Wall Street consensus positioning, diluted EPS trajectory, and dispersion around analyst price targets.',
+        titleSuffix: 'Analyst Target Convergence & Consensus Pulse',
+        headlineTag: 'CONSENSUS PULSE',
+      },
+      {
+        name: 'Intraday Volatility Band & Order-Book Liquidity Surge',
+        instruction: 'Lead with intraday high-low spread compression, relative session volume vs 20-day baseline, and tactical execution zones.',
+        titleSuffix: 'Session Liquidity & Intraday Spread Dispatch',
+        headlineTag: 'LIQUIDITY & SPREAD',
+      },
+      {
+        name: 'Macro Sensitivity & Cross-Market Regime Positioning',
+        instruction: 'Lead with beta risk sensitivity, global yield regime effects, and institutional hedging demand.',
+        titleSuffix: 'Macro Regime & Cross-Asset Sensitivity Brief',
+        headlineTag: 'MACRO REGIME',
+      },
+      {
+        name: 'Trend Reversal Thresholds & Smart-Money Accumulation Watch',
+        instruction: 'Lead with key moving-average crossover triggers, institutional accumulation shelves, and upside confirmation levels.',
+        titleSuffix: 'Accumulation Shelves & Breakout Thresholds',
+        headlineTag: 'ACCUMULATION WATCH',
+      },
     ];
 
     const BANNER_VARIANTS = [
@@ -844,7 +1003,24 @@ export class AutoContentService {
     ];
     const CHART_STYLES: Array<'area' | 'bars' | 'dots'> = ['area', 'bars', 'dots'];
 
-    const angleIndex = (Math.max(1, editionNumber) - 1) % EDITORIAL_ANGLES.length;
+    const recentTitleBlob = priorTitles.slice(0, 3).join(' ').toLowerCase();
+    let angleIndex = (Math.max(1, editionNumber) - 1) % EDITORIAL_ANGLES.length;
+    for (let step = 0; step < EDITORIAL_ANGLES.length; step++) {
+      const candIdx = (Math.max(1, editionNumber) - 1 + step) % EDITORIAL_ANGLES.length;
+      const candTag = EDITORIAL_ANGLES[candIdx].headlineTag.toLowerCase();
+      const candKeyWords = EDITORIAL_ANGLES[candIdx].titleSuffix
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => w.length > 4)
+        .slice(0, 2);
+      const collides =
+        recentTitleBlob.includes(candTag) ||
+        (candKeyWords.length > 0 && candKeyWords.every((kw) => recentTitleBlob.includes(kw)));
+      if (!collides) {
+        angleIndex = candIdx;
+        break;
+      }
+    }
     const angle = EDITORIAL_ANGLES[angleIndex];
     const chosenVariant =
       visualVariant && BANNER_VARIANTS.includes(visualVariant)
@@ -853,14 +1029,20 @@ export class AutoContentService {
     const chosenChartStyle = CHART_STYLES[(Math.max(1, editionNumber) - 1) % CHART_STYLES.length];
     const editionLabel = `DISPATCH #${editionNumber} • ${angle.headlineTag}`;
 
-    // Rotate news starting offset across editions so repeated runs highlight fresh wire stories first
+    // Prioritize breaking unseen news headlines first so repeated dispatches highlight fresh stories
+    let orderedNews = news;
+    if (usedHeadlineKeys && usedHeadlineKeys.size > 0) {
+      const unseen = news.filter((n) => !usedHeadlineKeys.has(hashNewsKey(n.headline, n.sourceUrl)));
+      const seen = news.filter((n) => usedHeadlineKeys.has(hashNewsKey(n.headline, n.sourceUrl)));
+      orderedNews = [...unseen, ...seen];
+    }
     const rotatedNews =
-      news.length > 1
+      orderedNews.length > 1 && (!usedHeadlineKeys || usedHeadlineKeys.size === 0)
         ? [
-            ...news.slice((editionNumber - 1) % news.length),
-            ...news.slice(0, (editionNumber - 1) % news.length),
+            ...orderedNews.slice((editionNumber - 1) % orderedNews.length),
+            ...orderedNews.slice(0, (editionNumber - 1) % orderedNews.length),
           ]
-        : news;
+        : orderedNews;
 
     const dayRangeStr =
       t.dayLow !== null && t.dayHigh !== null
@@ -880,6 +1062,7 @@ export class AutoContentService {
     const metricsSummary = [
       `Asset: ${quote.companyName} (${quote.symbol}) on ${quote.exchange}`,
       `Live Price: ${quote.priceFormatted} (${quote.changeFormatted} 1D change, Prev Close: ${quote.prevClose ? `$${quote.prevClose.toFixed(2)}` : 'N/A'})`,
+      `Latest Feed Timestamp: ${quote.quoteTimestamp || nowUtc}`,
       `Intraday Range: ${dayRangeStr}`,
       `52-Week Range: ${w52Str}`,
       `3-Month Performance: ${t.return3mPct !== null ? `${t.return3mPct >= 0 ? '+' : ''}${t.return3mPct}%` : 'N/A'}`,
@@ -895,40 +1078,58 @@ export class AutoContentService {
 
     const newsContext = rotatedNews
       .slice(0, 8)
-      .map((n, i) => `${i + 1}. [${n.sourceName} | ${n.sentiment}] "${n.headline}" — ${n.summary.slice(0, 220)}`)
+      .map((n, i) => {
+        const ageHrs = Math.max(0, Math.round((now.getTime() - new Date(n.publishedAt).getTime()) / 3600000));
+        return `${i + 1}. [${n.sourceName} | ${n.sentiment} | ${ageHrs}h ago] "${n.headline}" — ${n.summary.slice(0, 220)}`;
+      })
       .join('\n');
 
-    const avoidanceBlock =
-      priorTitles.length > 0
-        ? `\n\nPREVIOUSLY PUBLISHED ANNOUNCEMENTS ON THIS TOPIC (YOU MUST NOT REPEAT OR CLOSELY PARAPHRASE THESE TITLES, ANGLES, OR PHRASING):\n${priorTitles
-            .map((pt, idx) => `- (${idx + 1}) ${pt}`)
-            .join('\n')}`
-        : '';
+    const avoidanceBlockParts: string[] = [];
+    if (priorTitles.length > 0) {
+      avoidanceBlockParts.push(
+        `PREVIOUSLY PUBLISHED HEADLINES (STRICTLY DO NOT REPEAT OR CLOSELY PARAPHRASE):\n${priorTitles
+          .slice(0, 14)
+          .map((pt, idx) => `- (${idx + 1}) ${pt}`)
+          .join('\n')}`
+      );
+    }
+    if (priorSummaries.length > 0) {
+      avoidanceBlockParts.push(
+        `RECENT SUMMARY ANGLES ALREADY COVERED (WRITE A COMPLETELY DIFFERENT OPENING & INSIGHT):\n${priorSummaries
+          .slice(0, 6)
+          .map((ps, idx) => `- (${idx + 1}) ${ps.slice(0, 180)}`)
+          .join('\n')}`
+      );
+    }
+    const avoidanceBlock = avoidanceBlockParts.length > 0 ? `\n\n${avoidanceBlockParts.join('\n\n')}` : '';
 
     const systemPrompt = `You are a Managing Director of Equity & Digital Asset Research at Avora Bank.
-Write a COMPLETELY FRESH, UNIQUE announcement & institutional research note (Edition #${editionNumber}, Date: ${new Date().toISOString().slice(0, 10)}) grounded 100% in the real quantitative metrics and verified news headlines provided.
+Write a COMPLETELY FRESH, LATEST, NEVER-BEFORE-SEEN announcement & institutional research note (Edition #${editionNumber}, Timestamp: ${nowUtc}) grounded 100% in the real-time quantitative metrics and latest breaking wire stories provided.
 MANDATORY EDITORIAL LENS FOR THIS EDITION: "${angle.name}" — ${angle.instruction}
-Do not reuse boilerplate phrasing, identical section names, or repeated headlines from prior dispatches.
+FRESHNESS RULES:
+1. Prioritize the newest (<24h-48h) news headlines and latest live market levels first.
+2. Never reuse boilerplate phrasing, identical section titles, recycled summaries, or repeated headlines from previous announcements.
+3. Explicitly reflect today's date/session context naturally without sounding robotic.
 Return ONLY valid JSON matching this schema:
 {
-  "title": "Distinct, fresh announcement headline citing ${quote.symbol} and ${angle.name} (max 95 chars, unique vs prior titles)",
-  "summary": "2-sentence unique executive announcement with exact live price, angle insight, and fresh wire context",
+  "title": "Distinct, breaking announcement headline citing ${quote.symbol} and ${angle.name} (max 95 chars, completely new vs prior titles)",
+  "summary": "2-sentence unique executive announcement with exact live price, fresh lens insight, and latest wire catalyst",
   "category": "Equities & Markets | Digital Assets | Macro & Commodities",
   "tags": ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"],
   "keyTakeaways": ["4-5 original data-rich bullet takeaways tailored to this edition's angle"],
   "contentParagraphs": [
     "## 1. Fresh Angle Heading\\nDetailed original paragraph focused on the selected editorial lens with real numbers.",
-    "## 2. Wire & Catalyst Synthesis\\nDetailed synthesis of the provided news stories, naming sources and fresh takeaways.",
+    "## 2. Wire & Catalyst Synthesis\\nDetailed synthesis of the latest news stories, naming sources and fresh takeaways.",
     "## 3. Quantitative & Technical Deep Dive\\nQuantitative breakdown of RSI-14, SMA-20/50, volume, and support/resistance zones.",
     "## 4. Strategic Desk Outlook & Risk Notes\\nBalanced institutional outlook and specific upside/downside risk triggers."
   ],
-  "todayHighlights": [{"text": "Crisp 1-2 sentence factual highlight with real numbers/events", "source": "Exact source name"}],
+  "todayHighlights": [{"text": "Crisp 1-2 sentence factual highlight with latest numbers/events", "source": "Exact source name"}],
   "bullPoints": ["3 concrete data-backed bullish drivers (max 65 chars each)"],
   "bearPoints": ["3 concrete data-backed risk/bearish factors (max 65 chars each)"],
   "deskTakeaway": "Sharp 1-line institutional trading desk verdict (max 75 chars)"
 }`;
 
-    const userPrompt = `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nTOPIC: ${topic}\n\nREAL-TIME QUANTITATIVE DATA:\n${metricsSummary}\n\nVERIFIED BREAKING NEWS WIRES:\n${newsContext || 'No breaking wire stories in the last 24h.'}${avoidanceBlock}`;
+    const userPrompt = `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nGENERATED AT: ${nowUtc}\nTOPIC: ${topic}\n\nREAL-TIME QUANTITATIVE DATA:\n${metricsSummary}\n\nLATEST VERIFIED NEWS WIRES (NEWEST & UNUSED FIRST):\n${newsContext || 'No breaking wire stories in the last 24h.'}${avoidanceBlock}`;
 
     let aiParsed: any = null;
 
@@ -1057,17 +1258,45 @@ Return ONLY valid JSON matching this schema:
         `## 3. Quantitative Health Check\nTechnicals show RSI(14) = ${rsiStr}, ${smaStr}, and volume at ${volStr}, situating ${quote.symbol} at ${t.fiftyTwoWeekPct ?? 50}% of its 52-week band.`,
         `## 4. Medium-Term Levels & Summary Verdict\nConstructive structure persists above $${supportNum.toFixed(2)} with upside checkpoint at $${resistNum.toFixed(2)}${f.analystTarget ? ` and mean street target near ${f.analystTarget}` : ''}.`,
       ],
+      [
+        `## 1. Analyst Consensus & Target Convergence (${dateStamp})\nStreet positioning on ${quote.companyName} (${quote.symbol}) centers around ${f.analystConsensus || 'balanced institutional ratings'}${f.analystTarget ? ` with a consensus target near ${f.analystTarget}` : ''}, as spot trading prints ${quote.priceFormatted} (${quote.changeFormatted}).`,
+        `## 2. Earnings Efficiency & Wire Coverage\n${f.peRatio ? `Valuation checks track a ${f.peRatio} multiple${f.eps ? ` alongside ${f.eps} EPS` : ''}. ` : ''}${topNews1 ? `${topNews1.sourceName} highlights: "${topNews1.headline}".` : `Real-time desk monitoring captures ongoing sector repricing.`}`,
+        `## 3. Moving Average Dispersion\nPrice action remains ${vsSmaText} with ${smaStr} and RSI-14 measuring ${rsiStr}, keeping medium-term risk anchored near $${supportNum.toFixed(2)}.`,
+        `## 4. Forward Conviction Levels\nClosing stability above $${resistNum.toFixed(2)} reinforces institutional upside revisions while maintaining downside defense along $${supportNum.toFixed(2)}.`,
+      ],
+      [
+        `## 1. Session Liquidity & Intraday Spread Monitor (${dateStamp})\nActive ${quote.exchange} tape for ${quote.companyName} (${quote.symbol}) spans ${dayRangeStr} with ${volStr} volume changing hands at ${quote.priceFormatted} (${quote.changeFormatted}).`,
+        `## 2. Microstructure & Breaking Wire Drivers\n${topNews1 ? `Order-flow catalysts follow ${topNews1.sourceName}: "${topNews1.headline}". ` : ''}${topNews2 ? `Secondary headline pulse via ${topNews2.sourceName} notes "${topNews2.headline}".` : ''}`,
+        `## 3. Volatility & 52-Week Percentile Standing\nSituated at ${t.fiftyTwoWeekPct ?? 50}% of its 52-week envelope (${w52Str}), ${quote.symbol} carries a quantitative sentiment score of ${rawSentScore}/100 (${sentimentLabel}).`,
+        `## 4. Institutional Execution Thresholds\nLiquidity providers cluster bids near $${supportNum.toFixed(2)} and monitor breakouts above $${resistNum.toFixed(2)} backed by sustained turnover.`,
+      ],
+      [
+        `## 1. Macro Regime & Cross-Asset Positioning (${dateStamp})\nAcross broader ${quote.exchange} risk regimes, ${quote.companyName} (${quote.symbol}) trades at ${quote.priceFormatted} (${quote.changeFormatted})${f.beta ? ` carrying a ${f.beta} historical beta` : ''}.`,
+        `## 2. External Policy & Media Tape Signals\n${topNews1 ? `Macro and sector reporting via ${topNews1.sourceName} centers on "${topNews1.headline}". ` : ''}${topNews3 ? `Further analysis from ${topNews3.sourceName} explores "${topNews3.headline}".` : ''}`,
+        `## 3. Quantitative Trend Benchmarking\nAgainst 20-day and 50-day trend references (${smaStr}), RSI(14) registers ${rsiStr} over a ${dayRangeStr} intraday corridor.`,
+        `## 4. Institutional Allocation Strategy\nCross-asset desks align sizing around $${supportNum.toFixed(2)} floor support and $${resistNum.toFixed(2)} resistance ahead of upcoming macro prints.`,
+      ],
+      [
+        `## 1. Accumulation Shelves & Breakout Triggers (${dateStamp})\nDesk telemetry for ${quote.companyName} (${quote.symbol}) maps institutional support around $${supportNum.toFixed(2)} versus upper supply at $${resistNum.toFixed(2)}, with spot quoting ${quote.priceFormatted} (${quote.changeFormatted}).`,
+        `## 2. Fresh News Catalyst Integration\n${topNews1 ? `Latest headlines led by ${topNews1.sourceName} examine "${topNews1.headline}". ` : ''}${topNews2 ? `${topNews2.sourceName} adds "${topNews2.headline}".` : ''}`,
+        `## 3. Momentum & Participation Confirmation\nWith ${volStr} volume and ${t.return3mPct !== null ? `${t.return3mPct >= 0 ? '+' : ''}${t.return3mPct}% 3-month return` : 'steady quarterly cadence'}, ${quote.symbol} sits ${vsSmaText}.`,
+        `## 4. Tactical Breakout Verdict\nComposite desk posture stands at ${sentimentLabel} (${rawSentScore}/100), awaiting volume-backed confirmation past $${resistNum.toFixed(2)}.`,
+      ],
     ];
 
     const fallbackTitles = [
       `${quote.companyName} (${quote.symbol}) at ${quote.priceFormatted}: ${angle.titleSuffix}`,
       `${quote.symbol} Technical Briefing (${dateStamp}): ${quote.priceFormatted} (${quote.changeFormatted}) & Trend Structure`,
       topNews1
-        ? `${quote.symbol} Catalyst Watch: ${topNews1.headline.slice(0, 58)}`
+        ? `${quote.symbol} Breaking Wire: ${topNews1.headline.slice(0, 62)}`
         : `${quote.companyName} (${quote.symbol}) Institutional News & Wire Brief (#${editionNumber})`,
       `${quote.symbol} at ${t.fiftyTwoWeekPct ?? 50}% of 52-Week Range — Liquidity & Depth Report`,
       `${quote.companyName} (${quote.symbol}) Bull vs. Bear Risk Matrix at ${quote.priceFormatted}`,
       `${quote.symbol} 3-Month Allocation Outlook (${dateStamp}): ${quote.changeFormatted} Move & Key Levels`,
+      `${quote.symbol} Analyst Consensus & Valuation Check (${dateStamp}): ${quote.priceFormatted}`,
+      `${quote.symbol} Session Liquidity & Volatility Dispatch: ${dayRangeStr} Band`,
+      `${quote.companyName} (${quote.symbol}) Macro Regime Note — ${quote.changeFormatted} Session Update`,
+      `${quote.symbol} Accumulation Watch (${dateStamp}): Support $${supportNum.toFixed(0)} vs $${resistNum.toFixed(0)}`,
     ];
 
     const fallbackSummaries = [
@@ -1077,14 +1306,22 @@ Return ONLY valid JSON matching this schema:
       `Range & liquidity structure review (#${editionNumber}) placing ${quote.symbol} at the ${t.fiftyTwoWeekPct ?? 50}th percentile of its 52W corridor (${w52Str}) on ${formatCompactNumber(t.volume)} volume.`,
       `Risk-reward matrix (#${editionNumber}) evaluating ${quote.companyName} support at $${supportNum.toFixed(2)} vs $${resistNum.toFixed(2)} resistance at spot ${quote.priceFormatted} (${sentimentLabel}).`,
       `Strategic multi-month update (#${editionNumber}) on ${quote.symbol} covering ${t.return3mPct !== null ? `${t.return3mPct >= 0 ? '+' : ''}${t.return3mPct}%` : quote.changeFormatted} quarterly performance and ${f.dataSource} signals.`,
+      `Analyst consensus note (#${editionNumber}) for ${quote.symbol} at ${quote.priceFormatted} contrasting ${f.analystTarget ? `${f.analystTarget} target` : 'street expectations'} with latest wire sentiment.`,
+      `Liquidity & spread dispatch (#${editionNumber}) monitoring ${volStr} volume and ${dayRangeStr} intraday swings on ${quote.exchange}.`,
+      `Macro sensitivity brief (#${editionNumber}) tracking ${quote.companyName} (${quote.symbol}) at ${quote.priceFormatted} against ${smaStr} and cross-market flows.`,
+      `Breakout & accumulation watch (#${editionNumber}) mapping ${quote.symbol} demand at $${supportNum.toFixed(2)} and supply at $${resistNum.toFixed(2)} (${sentimentLabel}).`,
     ];
 
     const dataDrivenParagraphs = fallbackParagraphSets[angleIndex] || fallbackParagraphSets[0];
 
     let title = String(aiParsed?.title || '').trim() || fallbackTitles[angleIndex] || fallbackTitles[0];
-    // Guard against exact title duplication even if LLM repeats a prior headline
-    if (priorTitles.some((pt) => pt.trim().toLowerCase() === title.trim().toLowerCase())) {
-      title = `${title.slice(0, 74)} — Edition #${editionNumber} (${dateStamp})`;
+    // Guard against exact or near-duplicate titles even if LLM or templates overlap prior headlines
+    if (isTitleTooSimilar(title, priorTitles)) {
+      if (topNews1 && !isTitleTooSimilar(`${quote.symbol} Update: ${topNews1.headline.slice(0, 68)}`, priorTitles)) {
+        title = `${quote.symbol} Update (${dateStamp}): ${topNews1.headline.slice(0, 64)}`;
+      } else {
+        title = `${quote.symbol} ${angle.headlineTag} (${dateStamp} · #${editionNumber}): ${quote.priceFormatted} (${quote.changeFormatted})`;
+      }
     }
 
     const summary = String(aiParsed?.summary || '').trim() || fallbackSummaries[angleIndex] || fallbackSummaries[0];
@@ -1101,6 +1338,10 @@ Return ONLY valid JSON matching this schema:
       [quote.symbol, '52-Week Range', 'Liquidity Depth', 'Order Flow', quote.exchange],
       [quote.symbol, 'Bull vs Bear Matrix', 'Risk Assessment', 'Key Levels', quote.exchange],
       [quote.symbol, '3-Month Outlook', 'Capital Allocation', 'Macro Flows', quote.exchange],
+      [quote.symbol, 'Analyst Consensus', 'Earnings Check', 'Price Targets', quote.exchange],
+      [quote.symbol, 'Session Liquidity', 'Intraday Spreads', 'Order Book', quote.exchange],
+      [quote.symbol, 'Macro Regime', 'Cross-Asset Flows', 'Institutional Beta', quote.exchange],
+      [quote.symbol, 'Accumulation Shelves', 'Breakout Watch', 'Key Levels', quote.exchange],
     ];
 
     const tags: string[] =
@@ -1116,7 +1357,7 @@ Return ONLY valid JSON matching this schema:
             `52-Week & 3M Positioning: Trading at ${t.fiftyTwoWeekPct ?? 50}% of its 52W range ($${t.fiftyTwoWeekLow?.toFixed(2) ?? 'N/A'} – $${t.fiftyTwoWeekHigh?.toFixed(2) ?? 'N/A'}) with a 3-month return of ${t.return3mPct !== null ? `${t.return3mPct >= 0 ? '+' : ''}${t.return3mPct}%` : quote.changeFormatted}.`,
             `Quantitative Indicators: RSI(14) at ${rsiStr}; ${smaStr}; Support $${supportNum.toFixed(2)} / Resistance $${resistNum.toFixed(2)}.`,
             topNews1
-              ? `Primary News Catalyst (${topNews1.sourceName}): "${topNews1.headline}"`
+              ? `Latest News Catalyst (${topNews1.sourceName}): "${topNews1.headline}"`
               : `Data Feeds Active: ${f.dataSource}.`,
           ];
 
@@ -1129,10 +1370,10 @@ Return ONLY valid JSON matching this schema:
       Array.isArray(aiParsed?.todayHighlights) && aiParsed.todayHighlights.length > 0
         ? aiParsed.todayHighlights.slice(0, 5).map((h: any, idx: number) => ({
             text: String(h.text || h),
-            source: String(h.source || news[idx]?.sourceName || 'Market Wire'),
-            url: news[idx]?.sourceUrl,
+            source: String(h.source || rotatedNews[idx]?.sourceName || 'Market Wire'),
+            url: rotatedNews[idx]?.sourceUrl,
           }))
-        : news.slice(0, 4).map((n) => ({
+        : rotatedNews.slice(0, 4).map((n) => ({
             text: n.headline,
             source: n.sourceName,
             url: n.sourceUrl,
@@ -1244,8 +1485,12 @@ Return ONLY valid JSON matching this schema:
         'sleek ultra-modern private bank vault atrium with warm amber and slate reflections',
         'abstract high-frequency market telemetry ribbons in teal and violet neon on dark matte steel',
         'editorial financial magazine cover photography style, dark marble desk with subtle holographic chart reflections',
+        'dramatic glass skyscraper trading atrium at dawn with warm horizon glow and reflections',
+        'precision Swiss mechanical chronometer macro inspired fintech aesthetic in silver and slate',
+        'global sunlit fiber-optic capital flow sculpture against deep midnight indigo gradient',
+        'architectural minimalist trading desk hologram with crisp cyan wireframe planes',
       ];
-      const motif = styleMotifs[(params.editionNumber - 1) % styleMotifs.length];
+      const motif = styleMotifs[(params.editionNumber - 1 + Math.floor(Date.now() / 60000)) % styleMotifs.length];
       const prompt = `Create a clean, ultra-sharp editorial hero image for an official financial announcement about ${params.companyName} (${params.ticker}). Visual direction: ${motif}. Theme focus: ${params.title}. Strictly NO text, NO letters, NO numbers, NO watermarks, widescreen cinematic dark fintech aesthetic.`;
 
       const res = await fetch('https://api.openai.com/v1/images/generations', {
@@ -1285,6 +1530,36 @@ Return ONLY valid JSON matching this schema:
     }
   }
 
+  private extractUsedHeadlineKeys(posts: Array<{ highlights?: string | null }>): Set<string> {
+    const used = new Set<string>();
+    for (const p of posts) {
+      if (!p.highlights) continue;
+      try {
+        const arr = JSON.parse(p.highlights);
+        if (Array.isArray(arr)) {
+          for (const h of arr) {
+            const text = String(h?.text || h || '').trim();
+            if (text.length >= 10) {
+              used.add(hashNewsKey(text, String(h?.url || text)));
+            }
+          }
+        }
+      } catch {}
+    }
+    return used;
+  }
+
+  private parseEditionNumberFromBanner(bannerData?: string | null): number {
+    if (!bannerData) return 0;
+    try {
+      const parsed = JSON.parse(bannerData);
+      const match = String(parsed?.editionLabel || '').match(/DISPATCH\s*#(\d+)/i);
+      return match ? Number(match[1]) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  }
+
   /**
    * End-to-End 1-Click Automated Post & Publisher
    */
@@ -1301,24 +1576,49 @@ Return ONLY valid JSON matching this schema:
     const aiCfg = await this.getAiConfig();
     const quote = await this.resolveTopicAndQuote(topic);
 
-    // Inspect prior posts on the same ticker/topic so every announcement gets a fresh angle, title, and picture
-    const priorPosts = await prisma.blogPost
-      .findMany({
-        where: {
-          OR: [{ ticker: quote.symbol }, { topicQuery: topic }],
-        },
-        orderBy: { publishedAt: 'desc' },
-        take: 12,
-        select: { title: true, bannerData: true },
-      })
-      .catch(() => []);
+    // Inspect prior posts on the same ticker/topic AND overall recent AI posts so every announcement stays distinct & non-repetitive
+    const [topicPriorPosts, globalRecentAiPosts] = await Promise.all([
+      prisma.blogPost
+        .findMany({
+          where: {
+            OR: [{ ticker: quote.symbol }, { topicQuery: topic }],
+          },
+          orderBy: { publishedAt: 'desc' },
+          take: 15,
+          select: { id: true, title: true, summary: true, bannerData: true, highlights: true },
+        })
+        .catch(() => []),
+      prisma.blogPost
+        .findMany({
+          where: { ticker: { not: null } },
+          orderBy: { publishedAt: 'desc' },
+          take: 12,
+          select: { id: true, title: true, summary: true, bannerData: true, highlights: true },
+        })
+        .catch(() => []),
+    ]);
 
-    const priorCount = priorPosts.length;
-    const priorTitles = priorPosts.map((p) => p.title).filter(Boolean);
+    const seenIds = new Set<string>();
+    const combinedPrior = [...topicPriorPosts, ...globalRecentAiPosts].filter((p) => {
+      if (seenIds.has(p.id)) return false;
+      seenIds.add(p.id);
+      return true;
+    });
+
+    const priorCount = topicPriorPosts.length;
+    const priorMaxEdition = topicPriorPosts.reduce(
+      (max, p) => Math.max(max, this.parseEditionNumberFromBanner(p.bannerData)),
+      0
+    );
+    const editionNumber = Math.max(priorCount + 1, priorMaxEdition + 1);
+    const priorTitles = combinedPrior.map((p) => p.title).filter(Boolean);
+    const priorSummaries = combinedPrior.map((p) => p.summary).filter(Boolean);
+    const usedHeadlineKeys = this.extractUsedHeadlineKeys(combinedPrior);
+
     let lastVariant = '';
     try {
-      if (priorPosts[0]?.bannerData) {
-        const parsed = JSON.parse(priorPosts[0].bannerData);
+      if (combinedPrior[0]?.bannerData) {
+        const parsed = JSON.parse(combinedPrior[0].bannerData);
         lastVariant = String(parsed?.variant || '');
       }
     } catch {}
@@ -1331,13 +1631,12 @@ Return ONLY valid JSON matching this schema:
       'cyan-horizon',
       'crimson-brief',
     ];
-    let nextVariant = variantPool[priorCount % variantPool.length];
+    let nextVariant = variantPool[(editionNumber - 1) % variantPool.length];
     if (nextVariant === lastVariant) {
-      nextVariant = variantPool[(priorCount + 1) % variantPool.length];
+      nextVariant = variantPool[editionNumber % variantPool.length];
     }
 
-    const news = await this.fetchReliableNews(quote, topic, aiCfg.finnhubApiKey);
-    const editionNumber = priorCount + 1;
+    const news = await this.fetchReliableNews(quote, topic, aiCfg.finnhubApiKey, usedHeadlineKeys);
     const pkg = await this.generateEditorialPackage({
       topic,
       quote,
@@ -1345,6 +1644,8 @@ Return ONLY valid JSON matching this schema:
       categoryOverride: params.categoryOverride,
       includeMeme: params.includeMeme !== false,
       priorTitles,
+      priorSummaries,
+      usedHeadlineKeys,
       editionNumber,
       visualVariant: nextVariant,
     });
@@ -1433,7 +1734,8 @@ Return ONLY valid JSON matching this schema:
   }
 
   /**
-   * Refresh live quote, quantitative article/banner/sentiment data, and latest news for an existing tracked post
+   * Refresh live quote, quantitative article/banner/sentiment data, and latest news for an existing tracked post.
+   * When regenerateReport=true, advances edition & publishedAt so refreshed AI announcements never stay stuck on an old headline/date.
    */
   async syncPostNews(postId: string, regenerateReport = false) {
     await this.ensureSchema();
@@ -1441,8 +1743,30 @@ Return ONLY valid JSON matching this schema:
     if (!post || (!post.ticker && !post.topicQuery)) return null;
 
     const aiCfg = await this.getAiConfig();
+    const siblingPosts = await prisma.blogPost
+      .findMany({
+        where: {
+          OR: [
+            ...(post.ticker ? [{ ticker: post.ticker }] : []),
+            ...(post.topicQuery ? [{ topicQuery: post.topicQuery }] : []),
+          ],
+        },
+        orderBy: { publishedAt: 'asc' },
+        select: { id: true, title: true, summary: true, highlights: true, bannerData: true },
+      })
+      .catch(() => []);
+
+    const usedHeadlineKeys = this.extractUsedHeadlineKeys(
+      regenerateReport ? siblingPosts : siblingPosts.filter((s) => s.id !== post.id)
+    );
+
     const quote = await this.resolveTopicAndQuote(post.ticker || post.topicQuery || post.title);
-    const news = await this.fetchReliableNews(quote, post.topicQuery || post.ticker || post.title, aiCfg.finnhubApiKey);
+    const news = await this.fetchReliableNews(
+      quote,
+      post.topicQuery || post.ticker || post.title,
+      aiCfg.finnhubApiKey,
+      usedHeadlineKeys
+    );
 
     let addedCount = 0;
     if (news.length > 0) {
@@ -1465,27 +1789,23 @@ Return ONLY valid JSON matching this schema:
     const latestNews = await prisma.blogNewsUpdate.findMany({
       where: { postId: post.id },
       orderBy: { publishedAt: 'desc' },
-      take: 15,
+      take: 18,
     });
 
-    // Determine deterministic distinct edition index among sibling posts on the same ticker/topic
-    // so auto-sync NEVER overwrites multiple posts into clones.
-    const siblingPosts = await prisma.blogPost
-      .findMany({
-        where: {
-          OR: [
-            ...(post.ticker ? [{ ticker: post.ticker }] : []),
-            ...(post.topicQuery ? [{ topicQuery: post.topicQuery }] : []),
-          ],
-        },
-        orderBy: { publishedAt: 'asc' },
-        select: { id: true, title: true },
-      })
-      .catch(() => []);
-
     const siblingIdx = Math.max(0, siblingPosts.findIndex((s) => s.id === post.id));
-    const editionNumber = siblingIdx + 1;
-    const siblingPriorTitles = siblingPosts.filter((s) => s.id !== post.id).map((s) => s.title);
+    const currentEdition = this.parseEditionNumberFromBanner(post.bannerData) || siblingIdx + 1;
+    const editionNumber = regenerateReport ? currentEdition + 1 : currentEdition;
+
+    const priorTitles = (
+      regenerateReport ? siblingPosts : siblingPosts.filter((s) => s.id !== post.id)
+    )
+      .map((s) => s.title)
+      .filter(Boolean);
+    const priorSummaries = (
+      regenerateReport ? siblingPosts : siblingPosts.filter((s) => s.id !== post.id)
+    )
+      .map((s) => s.summary)
+      .filter(Boolean);
 
     const variantPool = [
       'emerald-grid',
@@ -1504,21 +1824,30 @@ Return ONLY valid JSON matching this schema:
         }
       }
     } catch {}
-    // If two sibling posts still had the default same variant, ensure distinct per-index palette
-    if (siblingIdx > 0 && existingVariant === variantPool[0]) {
+    if (regenerateReport) {
+      const currentVarIdx = variantPool.indexOf(existingVariant);
+      existingVariant = variantPool[(Math.max(0, currentVarIdx) + 1) % variantPool.length];
+    } else if (siblingIdx > 0 && existingVariant === variantPool[0]) {
       existingVariant = variantPool[siblingIdx % variantPool.length];
     }
 
     const pkg = await this.generateEditorialPackage({
       topic: post.topicQuery || post.ticker || post.title,
       quote,
-      news: latestNews.length > 0 ? (latestNews as any) : news,
+      news: news.length > 0 ? news : (latestNews as any),
       categoryOverride: post.category,
       includeMeme: Boolean(post.memeUrl),
-      priorTitles: siblingPriorTitles,
+      priorTitles,
+      priorSummaries,
+      usedHeadlineKeys,
       editionNumber,
       visualVariant: existingVariant,
     });
+
+    if (!regenerateReport) {
+      // Preserve current headline on background live-metric/wire refresh so URL readers don't see title jump mid-read
+      pkg.banner.headline = post.title.slice(0, 62);
+    }
 
     const updatedPost = await prisma.blogPost.update({
       where: { id: post.id },
@@ -1530,6 +1859,8 @@ Return ONLY valid JSON matching this schema:
               content: pkg.content,
               tags: pkg.tags.join(', '),
               keyTakeaways: JSON.stringify(pkg.keyTakeaways),
+              readTime: pkg.readTime,
+              publishedAt: new Date(),
             }
           : {}),
         lastPrice: quote.priceFormatted,
@@ -1545,7 +1876,7 @@ Return ONLY valid JSON matching this schema:
     return { post: updatedPost, addedCount };
   }
 
-  async syncAllTrackedPosts() {
+  async syncAllTrackedPosts(forceRegenerate = false) {
     await this.ensureSchema();
     const posts = await prisma.blogPost.findMany({
       where: { autoTrackNews: true, isPublished: true, ticker: { not: null } },
@@ -1553,16 +1884,128 @@ Return ONLY valid JSON matching this schema:
       take: 15,
     });
 
+    const regenerateCutoffMs = Date.now() - 55 * 60 * 1000;
     let totalAdded = 0;
+    let regeneratedCount = 0;
     for (const p of posts) {
       try {
-        const res = await this.syncPostNews(p.id, true);
-        if (res) totalAdded += res.addedCount;
+        const shouldRegenerate =
+          forceRegenerate ||
+          !p.lastNewsSync ||
+          new Date(p.lastNewsSync).getTime() < regenerateCutoffMs;
+        const res = await this.syncPostNews(p.id, shouldRegenerate);
+        if (res) {
+          totalAdded += res.addedCount;
+          if (shouldRegenerate) regeneratedCount += 1;
+        }
       } catch (err) {
         console.warn(`[AutoContent] Sync failed for ${p.slug}:`, err);
       }
     }
-    return { syncedPosts: posts.length, addedStories: totalAdded };
+    return { syncedPosts: posts.length, regeneratedCount, addedStories: totalAdded };
+  }
+
+  /**
+   * Autonomous Fresh AI Announcement Publisher:
+   * Rotates through institutional watchlist topics and publishes a completely fresh, non-repeating
+   * AI market announcement whenever the configured interval has elapsed (or force=true).
+   */
+  async runAutonomousFreshPublisher(force = false) {
+    await this.ensureSchema();
+    const cfg = await this.getAiConfig();
+    if (!force && !cfg.autoPublishEnabled) {
+      return { published: false, reason: 'autonomous_disabled' };
+    }
+
+    const recentAiPosts = await prisma.blogPost
+      .findMany({
+        where: { ticker: { not: null }, isPublished: true },
+        orderBy: { publishedAt: 'desc' },
+        take: 15,
+        select: { ticker: true, topicQuery: true, publishedAt: true },
+      })
+      .catch(() => []);
+
+    const latestPublishedAt =
+      recentAiPosts[0]?.publishedAt ||
+      (cfg.lastAutoPublishAt ? new Date(cfg.lastAutoPublishAt) : null);
+
+    const intervalMs = cfg.autoPublishIntervalHours * 3600 * 1000;
+    if (!force && latestPublishedAt && Date.now() - new Date(latestPublishedAt).getTime() < intervalMs) {
+      return { published: false, reason: 'interval_not_elapsed' };
+    }
+
+    const watchlist = parseTopicsList(cfg.autoPublishTopics);
+    // Pick topic in watchlist least recently published (never repeat the most recent topic consecutively)
+    const lastTopic = (recentAiPosts[0]?.topicQuery || '').toLowerCase();
+    const lastTicker = (recentAiPosts[0]?.ticker || '').toLowerCase();
+
+    const scoreTopicRecency = (candidate: string): number => {
+      const lc = candidate.toLowerCase();
+      const idx = recentAiPosts.findIndex((p) => {
+        const pTopic = (p.topicQuery || '').toLowerCase();
+        const pTicker = (p.ticker || '').toLowerCase();
+        return pTopic === lc || pTicker === lc || (KNOWN_ENTITIES[lc]?.symbol.toLowerCase() === pTicker);
+      });
+      return idx === -1 ? 999 : idx;
+    };
+
+    const nonConsecutivePool = watchlist.filter((t) => {
+      const lc = t.toLowerCase();
+      const knownSym = KNOWN_ENTITIES[lc]?.symbol.toLowerCase();
+      return lc !== lastTopic && lc !== lastTicker && (!knownSym || knownSym !== lastTicker);
+    });
+    const candidates = nonConsecutivePool.length > 0 ? nonConsecutivePool : watchlist;
+    const chosenTopic = candidates.sort((a, b) => scoreTopicRecency(b) - scoreTopicRecency(a))[0];
+
+    const result = await this.publishAutomatedPost({
+      topic: chosenTopic,
+      includeMeme: true,
+      autoTrackNews: true,
+    });
+
+    await prisma.cmsSetting.upsert({
+      where: { key: 'ai_last_auto_publish_at' },
+      update: { value: new Date().toISOString(), group: 'AI_CONTENT' },
+      create: { key: 'ai_last_auto_publish_at', value: new Date().toISOString(), group: 'AI_CONTENT' },
+    });
+
+    return {
+      published: true,
+      topic: chosenTopic,
+      post: result.post,
+      stats: result.stats,
+    };
+  }
+
+  /**
+   * Single-flight non-blocking freshness guard triggered when public pages query /announcements
+   */
+  async runScheduledFreshnessIfDue() {
+    if (this.freshnessInFlight) return this.freshnessInFlight;
+    this.freshnessInFlight = (async () => {
+      try {
+        await this.runAutonomousFreshPublisher(false);
+        const staleCutoff = new Date(Date.now() - 45 * 60 * 1000);
+        const hasStale = await prisma.blogPost.findFirst({
+          where: {
+            autoTrackNews: true,
+            isPublished: true,
+            ticker: { not: null },
+            OR: [{ lastNewsSync: null }, { lastNewsSync: { lt: staleCutoff } }],
+          },
+          select: { id: true },
+        });
+        if (hasStale) {
+          await this.syncAllTrackedPosts(false);
+        }
+      } catch (err) {
+        console.warn('[AutoContent] Scheduled freshness pass note:', err);
+      } finally {
+        this.freshnessInFlight = null;
+      }
+    })();
+    return this.freshnessInFlight;
   }
 
   /**
