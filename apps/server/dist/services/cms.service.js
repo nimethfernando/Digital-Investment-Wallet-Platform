@@ -35,6 +35,7 @@ exports.PUBLIC_PLATFORM_CONFIG_DEFAULTS = {
     p2p_security_deposit_usd: '50',
     p2p_daily_limit_usd: '5000',
     p2p_fee_percent: '0.0',
+    enable_virtual_cards: 'false',
     virtual_card_issuance_fee: '10.00',
     avr_token_price_usd: '0.10',
     avr_lockin_days: '180',

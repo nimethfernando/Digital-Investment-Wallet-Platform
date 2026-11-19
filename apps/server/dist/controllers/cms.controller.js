@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.saveAiPublisherConfig = exports.getAiPublisherConfig = exports.syncBlogTokensAdmin = exports.seedDefaultBlogPostsAdmin = exports.deleteAdminBlogPost = exports.updateAdminBlogPost = exports.createAdminBlogPost = exports.getAdminBlogPosts = exports.syncAllTrackedBlogs = exports.syncBlogNewsAdmin = exports.autoPublishBlog = exports.getBlogMemeMedia = exports.getBlogBannerMedia = exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getPlatformVariables = exports.getSettings = exports.subscribeNewsletter = void 0;
+exports.saveAiPublisherConfig = exports.getAiPublisherConfig = exports.syncBlogTokensAdmin = exports.seedDefaultBlogPostsAdmin = exports.deleteAdminBlogPost = exports.updateAdminBlogPost = exports.createAdminBlogPost = exports.getAdminBlogPosts = exports.triggerAutonomousFreshPublish = exports.syncAllTrackedBlogs = exports.syncBlogNewsAdmin = exports.autoPublishBlog = exports.getBlogMemeMedia = exports.getBlogBannerMedia = exports.getBlogPost = exports.getBlogPosts = exports.updateInquiryStatus = exports.getMyInquiries = exports.getInquiries = exports.submitInquiry = exports.updateSection = exports.getAllSections = exports.getPageSections = exports.updateSetting = exports.getPlatformVariables = exports.getSettings = exports.subscribeNewsletter = void 0;
 const zod_1 = require("zod");
 const cms_service_1 = require("../services/cms.service");
 const autoContent_service_1 = require("../services/autoContent.service");
@@ -157,6 +157,9 @@ const updateInquiryStatus = async (req, res, next) => {
 exports.updateInquiryStatus = updateInquiryStatus;
 const getBlogPosts = async (req, res, next) => {
     try {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        // Trigger background freshness & autonomous publishing check without blocking page render
+        autoContent_service_1.autoContentService.runScheduledFreshnessIfDue().catch(() => { });
         const blogs = await cms_service_1.cmsService.getBlogPosts();
         res.json({ success: true, blogs });
     }
@@ -167,17 +170,18 @@ const getBlogPosts = async (req, res, next) => {
 exports.getBlogPosts = getBlogPosts;
 const getBlogPost = async (req, res, next) => {
     try {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
         const slug = req.params.slug;
         const includeDrafts = req.query.preview === 'true';
         const raw = req.query.raw === 'true';
         let blog = await cms_service_1.cmsService.getBlogPostBySlug(slug, includeDrafts, raw);
         if (!blog)
             return res.status(404).json({ success: false, message: 'Blog post not found' });
-        // Stale auto-refresh if auto-tracked and last sync was > 30 mins ago (keeps continuous news fresh even on serverless)
-        const thirtyMinsAgo = Date.now() - 30 * 60 * 1000;
+        // Stale auto-refresh if auto-tracked and last sync was > 15 mins ago (keeps continuous news & quotes fresh)
+        const fifteenMinsAgo = Date.now() - 15 * 60 * 1000;
         if (blog.autoTrackNews &&
             blog.ticker &&
-            (!blog.lastNewsSync || new Date(blog.lastNewsSync).getTime() < thirtyMinsAgo)) {
+            (!blog.lastNewsSync || new Date(blog.lastNewsSync).getTime() < fifteenMinsAgo)) {
             try {
                 const synced = await autoContent_service_1.autoContentService.syncPostNews(blog.id);
                 if (synced?.post)
@@ -271,7 +275,8 @@ const syncBlogNewsAdmin = async (req, res, next) => {
 exports.syncBlogNewsAdmin = syncBlogNewsAdmin;
 const syncAllTrackedBlogs = async (req, res, next) => {
     try {
-        const summary = await autoContent_service_1.autoContentService.syncAllTrackedPosts();
+        const forceRegen = req.query.force === 'true';
+        const summary = await autoContent_service_1.autoContentService.syncAllTrackedPosts(forceRegen);
         res.json({ success: true, ...summary });
     }
     catch (err) {
@@ -279,6 +284,22 @@ const syncAllTrackedBlogs = async (req, res, next) => {
     }
 };
 exports.syncAllTrackedBlogs = syncAllTrackedBlogs;
+const triggerAutonomousFreshPublish = async (req, res, next) => {
+    try {
+        const result = await autoContent_service_1.autoContentService.runAutonomousFreshPublisher(true);
+        res.status(201).json({
+            success: true,
+            message: result.published
+                ? `Published fresh AI announcement for ${result.stats?.companyName || result.topic} (${result.stats?.tickerResolved || result.topic}).`
+                : 'Autonomous publisher skipped.',
+            ...result,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.triggerAutonomousFreshPublish = triggerAutonomousFreshPublish;
 const getAdminBlogPosts = async (req, res, next) => {
     try {
         const blogs = await cms_service_1.cmsService.getBlogPosts(true);
@@ -385,12 +406,15 @@ const getAiPublisherConfig = async (req, res, next) => {
 exports.getAiPublisherConfig = getAiPublisherConfig;
 const saveAiPublisherConfig = async (req, res, next) => {
     try {
-        const { openaiApiKey, geminiApiKey, finnhubApiKey, alphaVantageApiKey } = req.body;
+        const { openaiApiKey, geminiApiKey, finnhubApiKey, alphaVantageApiKey, autoPublishEnabled, autoPublishIntervalHours, autoPublishTopics, } = req.body;
         const status = await autoContent_service_1.autoContentService.saveAiConfig({
             openaiApiKey,
             geminiApiKey,
             finnhubApiKey,
             alphaVantageApiKey,
+            autoPublishEnabled,
+            autoPublishIntervalHours,
+            autoPublishTopics,
         });
         res.json({ success: true, status });
     }

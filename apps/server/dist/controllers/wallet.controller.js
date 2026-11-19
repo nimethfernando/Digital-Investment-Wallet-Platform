@@ -14,6 +14,17 @@ const package_service_1 = require("../services/package.service");
 const p2p_service_1 = require("../services/p2p.service");
 const otc_service_1 = require("../services/otc.service");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
+async function ensureVirtualCardsEnabled(res) {
+    const flag = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'enable_virtual_cards' } });
+    if (flag?.value === 'true')
+        return true;
+    res.status(403).json({
+        success: false,
+        code: 'VIRTUAL_CARDS_COMING_SOON',
+        message: 'Virtual Cards are coming soon while Avora Bank finalizes integration with our regulated card-issuing partner.',
+    });
+    return false;
+}
 function fmtAmountDisplay(value, currency = 'USD') {
     const num = Number(value || 0);
     const formatted = num.toLocaleString('en-US', {
@@ -290,6 +301,8 @@ class WalletController {
      */
     async getCard(req, res, next) {
         try {
+            if (!(await ensureVirtualCardsEnabled(res)))
+                return;
             const userId = req.user.id;
             const card = await card_service_1.cardService.getOrCreateCard(userId);
             res.json({ success: true, data: card });
@@ -303,6 +316,8 @@ class WalletController {
      */
     async toggleCardFreeze(req, res, next) {
         try {
+            if (!(await ensureVirtualCardsEnabled(res)))
+                return;
             const userId = req.user.id;
             const result = await card_service_1.cardService.toggleFreeze(userId);
             res.json({ success: true, data: result });
@@ -316,6 +331,8 @@ class WalletController {
      */
     async updateCardLimits(req, res, next) {
         try {
+            if (!(await ensureVirtualCardsEnabled(res)))
+                return;
             const userId = req.user.id;
             const { dailyLimit, monthlyLimit } = req.body;
             const result = await card_service_1.cardService.updateLimits(userId, dailyLimit, monthlyLimit);
@@ -330,6 +347,8 @@ class WalletController {
      */
     async updateCardSettings(req, res, next) {
         try {
+            if (!(await ensureVirtualCardsEnabled(res)))
+                return;
             const userId = req.user.id;
             const result = await card_service_1.cardService.updateSettings(userId, req.body);
             res.json({ success: true, data: result });
@@ -343,6 +362,8 @@ class WalletController {
      */
     async getCardTransactions(req, res, next) {
         try {
+            if (!(await ensureVirtualCardsEnabled(res)))
+                return;
             const userId = req.user.id;
             const transactions = await card_service_1.cardService.getCardTransactions(userId);
             res.json({ success: true, data: transactions });
@@ -356,6 +377,8 @@ class WalletController {
      */
     async createCardRevealSession(req, res, next) {
         try {
+            if (!(await ensureVirtualCardsEnabled(res)))
+                return;
             const userId = req.user.id;
             const { nonce } = req.body || {};
             const session = await card_service_1.cardService.createRevealSession(userId, nonce);

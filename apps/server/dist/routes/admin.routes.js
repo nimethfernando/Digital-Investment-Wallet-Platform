@@ -71,6 +71,10 @@ router.patch('/remittance/transfers/:id', (0, auth_1.requireRole)([client_1.Role
 router.post('/investments/listings', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.createStartupListing(req, res, next));
 router.put('/investments/listings/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateStartupListing(req, res, next));
 router.delete('/investments/listings/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.deleteStartupListing(req, res, next));
+router.post('/investments/listings/:id/sync-metrics', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.syncStartupListingMetrics(req, res, next));
+router.post('/investments/commitments', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.createManualInvestmentCommitment(req, res, next));
+router.delete('/investments/commitments/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.deleteMockInvestmentCommitment(req, res, next));
+router.post('/investments/inquiries/:id/reply', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.replyStartupInquiry(req, res, next));
 // P2P Escrow, Onboarding Applications & Dispute Resolution
 router.get('/p2p/applications', (req, res, next) => admin_controller_1.adminController.getP2PApplications(req, res, next));
 router.post('/p2p/applications/:id/review', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.reviewP2PApplication(req, res, next));
@@ -83,7 +87,8 @@ router.patch('/otc/desks/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), a
 router.get('/otc/trades', (req, res, next) => admin_controller_1.adminController.getOtcTrades(req, res, next));
 router.post('/otc/trades/:id/resolve', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.resolveOtcTrade(req, res, next));
 router.get('/otc/inquiries', (req, res, next) => admin_controller_1.adminController.getOtcInquiries(req, res, next));
-// Institutional Audit Logs
+// Institutional Audit Logs & Unified Transaction Lookup
+router.get('/transactions/lookup', (req, res, next) => admin_controller_1.adminController.lookupTransaction(req, res, next));
 router.get('/audit-logs', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.getAdminAuditLogs(req, res, next));
 // System Controls & Announcement Broadcast
 router.get('/system/status', (req, res, next) => admin_controller_1.adminController.getSystemStatus(req, res, next));

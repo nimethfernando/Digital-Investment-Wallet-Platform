@@ -410,17 +410,18 @@ class ReturnsJobService {
             }
         });
         console.log('✅ Monthly Returns Cron Scheduler registered (00:05 on 1st of every month)');
-        // Automated Content & News Tracker Cron (every 2 hours)
-        node_cron_1.default.schedule('0 */2 * * *', async () => {
+        // Automated Content, Live News Sync & Autonomous Fresh Announcement Cron (every 1 hour)
+        node_cron_1.default.schedule('0 * * * *', async () => {
             try {
                 const { autoContentService } = await Promise.resolve().then(() => __importStar(require('./autoContent.service')));
-                await autoContentService.syncAllTrackedPosts();
+                await autoContentService.syncAllTrackedPosts(false);
+                await autoContentService.runAutonomousFreshPublisher(false);
             }
             catch (err) {
-                console.error('[AutoContent Cron] News sync error:', err);
+                console.error('[AutoContent Cron] Freshness sync error:', err);
             }
         });
-        console.log('✅ Automated Market News Sync Cron registered (every 2 hours)');
+        console.log('✅ Automated Market News Sync & Fresh AI Publisher Cron registered (every 1 hour)');
         // Non-destructive P2P & Token schema warm-up + automated timeout cron (every minute)
         Promise.resolve().then(() => __importStar(require('./p2p.service'))).then(({ p2pService }) => p2pService.ensureP2PReady()).catch(() => { });
         Promise.resolve().then(() => __importStar(require('./token.service'))).then(({ tokenService }) => tokenService.ensureTokenReady()).catch(() => { });

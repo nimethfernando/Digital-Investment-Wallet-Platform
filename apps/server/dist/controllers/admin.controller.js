@@ -324,6 +324,7 @@ class AdminController {
         ]);
         const [invAgg, gmtTransfers, settledWithdrawals, approvedRazorpay] = await Promise.all([
             prisma_1.prisma.investmentCommitment.aggregate({
+                where: { sourceType: { not: 'ADMIN_DISPLAY_MOCK' } },
                 _sum: { allocationFeeAmount: true, profitShareFeeAmount: true },
             }),
             prisma_1.prisma.globalTransfer.findMany({
@@ -917,7 +918,7 @@ class AdminController {
     async getInvestments(req, res, next) {
         try {
             await investments_service_1.investmentsService.ensureVentureSchema();
-            const [commitments, listings] = await Promise.all([
+            const [commitments, listings, inquiries] = await Promise.all([
                 prisma_1.prisma.investmentCommitment.findMany({
                     include: {
                         investor: {
@@ -927,6 +928,7 @@ class AdminController {
                                 firstName: true,
                                 lastName: true,
                                 phone: true,
+                                country: true,
                             },
                         },
                         listing: {
@@ -957,11 +959,82 @@ class AdminController {
                 prisma_1.prisma.startupListing.findMany({
                     orderBy: { createdAt: 'desc' },
                 }),
+                prisma_1.prisma.investmentInquiry
+                    .findMany({
+                    include: {
+                        investor: {
+                            select: { id: true, email: true, firstName: true, lastName: true, phone: true },
+                        },
+                        listing: {
+                            select: { id: true, companyName: true, slug: true },
+                        },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                })
+                    .catch(() => []),
             ]);
+            const invCodes = commitments.map((c) => c.investmentCode).filter(Boolean);
+            const matchingLedgerTxs = invCodes.length > 0
+                ? await prisma_1.prisma.transaction
+                    .findMany({
+                    where: {
+                        settlementReference: { in: invCodes },
+                        type: client_1.TransactionType.INVESTMENT_ALLOCATION,
+                        status: client_1.TransactionStatus.COMPLETED,
+                    },
+                    select: {
+                        transactionCode: true,
+                        settlementReference: true,
+                        amount: true,
+                        currency: true,
+                        createdAt: true,
+                    },
+                })
+                    .catch(() => [])
+                : [];
+            const txByInvCode = new Map(matchingLedgerTxs.map((t) => [String(t.settlementReference), t]));
+            const resolveSourceType = (c) => {
+                if (c.sourceType === 'ADMIN_DISPLAY_MOCK')
+                    return 'ADMIN_DISPLAY_MOCK';
+                const matchedTx = txByInvCode.get(String(c.investmentCode));
+                if (matchedTx)
+                    return 'REAL_WALLET';
+                if (c.sourceType === 'ADMIN_EXTERNAL_VERIFIED')
+                    return 'ADMIN_EXTERNAL_VERIFIED';
+                if (String(c.notes || '').includes('External/Nominee Settled'))
+                    return 'ADMIN_EXTERNAL_VERIFIED';
+                return c.sourceType === 'REAL_WALLET' ? 'REAL_WALLET' : 'ADMIN_EXTERNAL_VERIFIED';
+            };
+            const now = new Date();
             const formattedListings = listings.map((l) => {
                 const listingCommitments = commitments.filter((c) => c.listingId === l.id);
-                const actualCollectedFromUsersUsd = listingCommitments.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
-                const actualDistributedToUsersUsd = listingCommitments.reduce((s, c) => s + Number(c.realizedProceeds || 0), 0);
+                const realWalletRows = listingCommitments.filter((c) => resolveSourceType(c) === 'REAL_WALLET');
+                const externalRows = listingCommitments.filter((c) => resolveSourceType(c) === 'ADMIN_EXTERNAL_VERIFIED');
+                const mockRows = listingCommitments.filter((c) => resolveSourceType(c) === 'ADMIN_DISPLAY_MOCK');
+                const realAndExternalRows = [...realWalletRows, ...externalRows];
+                const realWalletCollectedUsd = realWalletRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+                const realWalletInvestorsCount = new Set(realWalletRows.map((c) => c.investorUserId)).size;
+                const externalVerifiedCollectedUsd = externalRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+                const displayMockCollectedUsd = mockRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+                const actualCollectedFromUsersUsd = realAndExternalRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+                const actualGrossCollectedUsd = realAndExternalRows.reduce((s, c) => s + Number(c.grossAmount || 0), 0);
+                const actualAllocationFeesUsd = realAndExternalRows.reduce((s, c) => s + Number(c.allocationFeeAmount || 0), 0);
+                const actualDistributedToUsersUsd = realAndExternalRows.reduce((s, c) => s + Number(c.realizedProceeds || 0), 0);
+                const actualDistinctInvestorsCount = new Set(realAndExternalRows.map((c) => c.investorUserId)).size;
+                const actualCurrentPortfolioValueUsd = realAndExternalRows.reduce((s, c) => {
+                    const netNum = Number(c.netInvestedAmount || 0);
+                    const rawCurVal = c.currentValuation ? Number(c.currentValuation) : netNum;
+                    const rawRetPct = c.unrealizedReturnPct ? Number(c.unrealizedReturnPct) : 0;
+                    const listingVal = l.valuation ? Number(l.valuation) : 0;
+                    const normVal = rawRetPct === 0 && listingVal > 0 && rawCurVal === listingVal && netNum < listingVal
+                        ? netNum
+                        : rawCurVal;
+                    return s + normVal;
+                }, 0);
+                const headlineRaisedUsd = Number(l.verifiedFundsRaised || 0);
+                const headlineInvestorsCount = Number(l.investorCount || 0);
+                const fundingDiscrepancyUsd = Number((headlineRaisedUsd - actualCollectedFromUsersUsd).toFixed(2));
+                const investorCountDiscrepancy = headlineInvestorsCount - actualDistinctInvestorsCount;
                 const provInvested = Number(l.providerInvestedAmount || 0);
                 const provReceived = Number(l.providerActualReceivedAmount || 0);
                 const providerProfitLossUsd = provReceived - provInvested;
@@ -972,16 +1045,67 @@ class AdminController {
                 catch {
                     parsedDocs = [];
                 }
+                let parsedLinks = {};
+                try {
+                    parsedLinks = l.officialLinks ? JSON.parse(l.officialLinks) : {};
+                }
+                catch {
+                    parsedLinks = {};
+                }
+                let parsedContact = {};
+                try {
+                    parsedContact = l.contactInfo ? JSON.parse(l.contactInfo) : {};
+                }
+                catch {
+                    parsedContact = {};
+                }
                 return {
                     ...l,
                     supportingDocuments: Array.isArray(parsedDocs) ? parsedDocs : [],
+                    officialLinks: parsedLinks && typeof parsedLinks === 'object' ? parsedLinks : {},
+                    contactInfo: parsedContact && typeof parsedContact === 'object' ? parsedContact : {},
+                    realWalletCollectedUsd: Number(realWalletCollectedUsd.toFixed(2)),
+                    realWalletCommitmentsCount: realWalletRows.length,
+                    realWalletInvestorsCount,
+                    externalVerifiedCollectedUsd: Number(externalVerifiedCollectedUsd.toFixed(2)),
+                    externalVerifiedCount: externalRows.length,
+                    displayMockCollectedUsd: Number(displayMockCollectedUsd.toFixed(2)),
+                    displayMockCount: mockRows.length,
                     actualCollectedFromUsersUsd: Number(actualCollectedFromUsersUsd.toFixed(2)),
+                    actualGrossCollectedUsd: Number(actualGrossCollectedUsd.toFixed(2)),
+                    actualAllocationFeesUsd: Number(actualAllocationFeesUsd.toFixed(2)),
                     actualDistributedToUsersUsd: Number(actualDistributedToUsersUsd.toFixed(2)),
-                    actualCommitmentsCount: listingCommitments.length,
+                    actualCurrentPortfolioValueUsd: Number(actualCurrentPortfolioValueUsd.toFixed(2)),
+                    actualCommitmentsCount: realAndExternalRows.length,
+                    actualDistinctInvestorsCount,
+                    fundingDiscrepancyUsd,
+                    investorCountDiscrepancy,
                     providerProfitLossUsd: Number(providerProfitLossUsd.toFixed(2)),
                 };
             });
             const formattedCommitments = commitments.map((c) => {
+                const effectiveSourceType = resolveSourceType(c);
+                const matchedTx = txByInvCode.get(String(c.investmentCode)) || null;
+                const isRealLedgerVerified = Boolean(matchedTx) && effectiveSourceType === 'REAL_WALLET';
+                const netNum = Number(c.netInvestedAmount || 0);
+                const rawCurVal = c.currentValuation ? Number(c.currentValuation) : netNum;
+                const rawRetPct = c.unrealizedReturnPct ? Number(c.unrealizedReturnPct) : 0;
+                const listingVal = c.listing?.valuation ? Number(c.listing.valuation) : 0;
+                const normalizedHoldingVal = rawRetPct === 0 && listingVal > 0 && rawCurVal === listingVal && netNum < listingVal
+                    ? netNum
+                    : rawCurVal;
+                const lockMonths = Number(c.listing?.lockInMonths ?? 12);
+                const lockEnd = c.lockInEnd ||
+                    c.listing?.maturityDate ||
+                    (lockMonths > 0
+                        ? new Date(new Date(c.createdAt).setMonth(new Date(c.createdAt).getMonth() + lockMonths))
+                        : null);
+                const isLockInEnded = c.status === 'EXITED' ? true : lockEnd ? now >= new Date(lockEnd) : true;
+                const daysRemaining = c.status !== 'EXITED' && lockEnd && !isLockInEnded
+                    ? Math.max(0, Math.ceil((new Date(lockEnd).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+                    : 0;
+                const profitLossUsd = Number((normalizedHoldingVal - netNum).toFixed(2));
+                const returnPctNormalized = netNum > 0 ? Number((((normalizedHoldingVal - netNum) / netNum) * 100).toFixed(2)) : rawRetPct;
                 let docs = [];
                 try {
                     docs = c.listing?.supportingDocuments ? JSON.parse(c.listing.supportingDocuments) : [];
@@ -991,6 +1115,17 @@ class AdminController {
                 }
                 return {
                     ...c,
+                    sourceType: effectiveSourceType,
+                    isRealLedgerVerified,
+                    ledgerTxCode: matchedTx?.transactionCode || null,
+                    currentValuation: normalizedHoldingVal,
+                    unrealizedReturnPct: returnPctNormalized,
+                    profitLossUsd,
+                    lockInMonths: lockMonths,
+                    lockInEnd: lockEnd,
+                    expectedMaturityDate: c.listing?.maturityDate || lockEnd,
+                    isLockInEnded,
+                    daysRemaining,
                     listing: c.listing
                         ? {
                             ...c.listing,
@@ -999,7 +1134,14 @@ class AdminController {
                         : null,
                 };
             });
-            res.json({ success: true, data: { commitments: formattedCommitments, listings: formattedListings } });
+            res.json({
+                success: true,
+                data: {
+                    commitments: formattedCommitments,
+                    listings: formattedListings,
+                    inquiries,
+                },
+            });
         }
         catch (err) {
             next(err);
@@ -1132,7 +1274,7 @@ class AdminController {
             await investments_service_1.investmentsService.ensureVentureSchema();
             const adminUserId = req.user.id;
             const listingId = req.params.id;
-            const { companyName, tagline, pitchOverview, logoUrl, valuation, stage, instrument, growthNotes, verifiedFundsRaised, fundingTarget, minInvestment, investorCount, status, startDate, deadline, lockInMonths, maturityDate, expectedReturnPct, performancePct, termsAndNotes, dueDiligenceSummary, supportingDocuments, providerName, providerInvestedAmount, providerTransferredAt, providerExpectedReturnAmount, providerExpectedReturnDate, providerActualReceivedAmount, providerReceivedAt, providerNotes, } = req.body;
+            const { companyName, tagline, country, countryCode, city, industry, dueDiligenceStatus, pitchOverview, logoUrl, valuation, stage, instrument, growthNotes, verifiedFundsRaised, fundingTarget, minInvestment, investorCount, status, startDate, deadline, lockInMonths, maturityDate, expectedReturnPct, performancePct, termsAndNotes, dueDiligenceSummary, supportingDocuments, registrationDetails, officialLinks, contactInfo, riskFactors, problemSolution, businessModel, marketOpportunity, financialHighlights, pitchDeckUrl, providerName, providerInvestedAmount, providerTransferredAt, providerExpectedReturnAmount, providerExpectedReturnDate, providerActualReceivedAmount, providerReceivedAt, providerNotes, } = req.body;
             const listing = await prisma_1.prisma.startupListing.findUnique({
                 where: { id: listingId },
                 include: { investments: true },
@@ -1160,11 +1302,21 @@ class AdminController {
                     ? `${listing.financialHighlights || ''}\n[${new Date().toISOString()}] ${growthNotes}`
                     : listing.financialHighlights,
             };
-            if (companyName)
+            if (companyName !== undefined && String(companyName).trim())
                 updateData.companyName = String(companyName).trim();
-            if (tagline)
+            if (tagline !== undefined)
                 updateData.tagline = String(tagline).trim();
-            if (pitchOverview)
+            if (country !== undefined && String(country).trim())
+                updateData.country = String(country).trim();
+            if (countryCode !== undefined && String(countryCode).trim())
+                updateData.countryCode = String(countryCode).trim().toUpperCase();
+            if (city !== undefined && String(city).trim())
+                updateData.city = String(city).trim();
+            if (industry !== undefined && String(industry).trim())
+                updateData.industry = String(industry).trim();
+            if (dueDiligenceStatus !== undefined && String(dueDiligenceStatus).trim())
+                updateData.dueDiligenceStatus = String(dueDiligenceStatus).trim().toUpperCase();
+            if (pitchOverview !== undefined)
                 updateData.pitchOverview = String(pitchOverview).trim();
             if (logoUrl !== undefined)
                 updateData.logoUrl = logoUrl || listing.logoUrl;
@@ -1174,6 +1326,38 @@ class AdminController {
                 updateData.dueDiligenceSummary = dueDiligenceSummary || null;
             if (termsAndNotes !== undefined)
                 updateData.termsAndNotes = termsAndNotes || null;
+            if (registrationDetails !== undefined)
+                updateData.registrationDetails = registrationDetails || null;
+            if (riskFactors !== undefined)
+                updateData.riskFactors = riskFactors || null;
+            if (problemSolution !== undefined)
+                updateData.problemSolution = problemSolution || null;
+            if (businessModel !== undefined)
+                updateData.businessModel = businessModel || null;
+            if (marketOpportunity !== undefined)
+                updateData.marketOpportunity = marketOpportunity || null;
+            if (financialHighlights !== undefined && !growthNotes) {
+                updateData.financialHighlights =
+                    typeof financialHighlights === 'string'
+                        ? financialHighlights || null
+                        : financialHighlights
+                            ? JSON.stringify(financialHighlights)
+                            : null;
+            }
+            if (pitchDeckUrl !== undefined)
+                updateData.pitchDeckUrl = pitchDeckUrl || null;
+            if (officialLinks !== undefined) {
+                updateData.officialLinks =
+                    typeof officialLinks === 'string'
+                        ? officialLinks
+                        : JSON.stringify(officialLinks && typeof officialLinks === 'object' ? officialLinks : {});
+            }
+            if (contactInfo !== undefined) {
+                updateData.contactInfo =
+                    typeof contactInfo === 'string'
+                        ? contactInfo
+                        : JSON.stringify(contactInfo && typeof contactInfo === 'object' ? contactInfo : {});
+            }
             if (supportingDocuments !== undefined) {
                 updateData.supportingDocuments =
                     typeof supportingDocuments === 'string'
@@ -1263,7 +1447,7 @@ class AdminController {
                 }
                 updateData.investorCount = invNum;
             }
-            if (status && ['DRAFT', 'PUBLISHED', 'CLOSED', 'SUSPENDED'].includes(String(status).toUpperCase())) {
+            if (status && ['DRAFT', 'UNDER_REVIEW', 'PUBLISHED', 'CLOSED', 'SUSPENDED'].includes(String(status).toUpperCase())) {
                 updateData.status = String(status).toUpperCase();
             }
             // Update Listing
@@ -1273,9 +1457,11 @@ class AdminController {
             });
             const lockChanged = (maturityDate !== undefined && String(maturityDate) !== String(listing.maturityDate || '')) ||
                 (lockInMonths !== undefined && lockInMonths !== '' && Number(lockInMonths) !== Number(listing.lockInMonths));
-            // Recalculate investor commitment values automatically when performancePct, valuation, or lock-in changes
+            // Recalculate active/open investor commitment values automatically when performancePct, valuation, or lock-in changes
             if (perfChanged || valuationChanged || lockChanged) {
                 for (const commitment of listing.investments) {
+                    if (commitment.status === 'EXITED')
+                        continue;
                     const netInvested = new decimal_js_1.default(commitment.netInvestedAmount.toString());
                     const prevHold = commitment.currentValuation ? new decimal_js_1.default(commitment.currentValuation.toString()) : netInvested;
                     let updatedHoldingValue = prevHold;
@@ -1356,7 +1542,10 @@ class AdminController {
                 where: { id: listingId },
                 include: {
                     investments: {
-                        where: { status: { in: ['CLEARED_FUNDS', 'ACTIVE', 'DOCUMENT_SIGNED'] } },
+                        where: {
+                            status: { in: ['CLEARED_FUNDS', 'ACTIVE', 'DOCUMENT_SIGNED'] },
+                            sourceType: { not: 'ADMIN_DISPLAY_MOCK' },
+                        },
                         include: { investor: true },
                     },
                 },
@@ -1395,9 +1584,11 @@ class AdminController {
                 const netInvested = new decimal_js_1.default(inv.netInvestedAmount.toString());
                 const investorShareFraction = netInvested.dividedBy(totalRaised);
                 const grossInvestorProceeds = new decimal_js_1.default(totalPool.times(investorShareFraction).toFixed(8));
-                // Principal returned 100% fee-free
-                const capitalReturn = decimal_js_1.default.min(grossInvestorProceeds, netInvested);
-                const eligibleProfit = decimal_js_1.default.max(grossInvestorProceeds.minus(netInvested), new decimal_js_1.default(0));
+                // Principal returned 100% fee-free (accounts for any earlier partial dividend returns of capital)
+                const priorReturnedCapital = new decimal_js_1.default(inv.returnOfCapital?.toString() || '0');
+                const remainingPrincipal = decimal_js_1.default.max(netInvested.minus(priorReturnedCapital), new decimal_js_1.default(0));
+                const capitalReturn = decimal_js_1.default.min(grossInvestorProceeds, remainingPrincipal);
+                const eligibleProfit = decimal_js_1.default.max(grossInvestorProceeds.minus(remainingPrincipal), new decimal_js_1.default(0));
                 // Admin-configurable profit-share fee strictly on net profit
                 const profitFeePct = configuredProfitFeePct;
                 const platformFeeAmount = new decimal_js_1.default(eligibleProfit.times(profitFeePct.dividedBy(100)).toFixed(8));
@@ -1491,6 +1682,7 @@ class AdminController {
                             profitShareFeeAmount: { increment: platformFeeAmount.toFixed(8) },
                             netDistributedProfit: { increment: netProfitGain.toFixed(8) },
                             status: distributionType === 'DIVIDEND' ? 'ACTIVE' : 'EXITED',
+                            ...(distributionType !== 'DIVIDEND' ? { maturedAt: new Date() } : {}),
                             settlementReference: txCode,
                             notes: notes ? `${inv.notes || ''}\n[${new Date().toISOString()}] ${notes}` : inv.notes,
                         },
@@ -2492,7 +2684,7 @@ class AdminController {
         try {
             await investments_service_1.investmentsService.ensureVentureSchema();
             const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
-            const { companyName, tagline, country = 'United States', countryCode = 'US', city = 'San Francisco', industry = 'Fintech', stage = 'SEED', instrument = 'SAFE', valuation, fundingTarget, verifiedFundsRaised = 0, investorCount = 0, minInvestment = 250, pitchOverview, startDate, deadline, lockInMonths = 12, maturityDate, expectedReturnPct = 0, performancePct = 0, termsAndNotes, dueDiligenceSummary, supportingDocuments, logoUrl, coverImageUrl, pitchDeckUrl, providerName, providerInvestedAmount = 0, providerTransferredAt, providerExpectedReturnAmount = 0, providerExpectedReturnDate, providerNotes, } = req.body;
+            const { companyName, tagline, country = 'United States', countryCode = 'US', city = 'San Francisco', industry = 'Fintech', stage = 'SEED', instrument = 'SAFE', valuation, fundingTarget, verifiedFundsRaised = 0, investorCount = 0, minInvestment = 250, pitchOverview, startDate, deadline, lockInMonths = 12, maturityDate, expectedReturnPct = 0, performancePct = 0, termsAndNotes, dueDiligenceSummary, supportingDocuments, registrationDetails, officialLinks, contactInfo, riskFactors, problemSolution, businessModel, marketOpportunity, financialHighlights, logoUrl, coverImageUrl, pitchDeckUrl, providerName, providerInvestedAmount = 0, providerTransferredAt, providerExpectedReturnAmount = 0, providerExpectedReturnDate, providerNotes, } = req.body;
             if (!companyName || !tagline || !valuation || !fundingTarget || !pitchOverview) {
                 return res.status(400).json({ success: false, message: 'Required fields: companyName, tagline, valuation, fundingTarget, pitchOverview' });
             }
@@ -2529,6 +2721,26 @@ class AdminController {
                     performancePct: new decimal_js_1.default((performancePct || 0).toString()),
                     termsAndNotes: termsAndNotes || null,
                     dueDiligenceSummary: dueDiligenceSummary || null,
+                    registrationDetails: registrationDetails || null,
+                    officialLinks: officialLinks
+                        ? typeof officialLinks === 'string'
+                            ? officialLinks
+                            : JSON.stringify(officialLinks)
+                        : null,
+                    contactInfo: contactInfo
+                        ? typeof contactInfo === 'string'
+                            ? contactInfo
+                            : JSON.stringify(contactInfo)
+                        : null,
+                    riskFactors: riskFactors || null,
+                    problemSolution: problemSolution || null,
+                    businessModel: businessModel || null,
+                    marketOpportunity: marketOpportunity || null,
+                    financialHighlights: financialHighlights
+                        ? typeof financialHighlights === 'string'
+                            ? financialHighlights
+                            : JSON.stringify(financialHighlights)
+                        : null,
                     supportingDocuments: supportingDocuments
                         ? typeof supportingDocuments === 'string'
                             ? supportingDocuments
@@ -2574,12 +2786,24 @@ class AdminController {
             await investments_service_1.investmentsService.ensureVentureSchema();
             const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
             const id = String(req.params.id);
-            const { status, valuation, fundingTarget, verifiedFundsRaised, minInvestment, investorCount, stage, dueDiligenceStatus, dueDiligenceSummary, pitchOverview, tagline, logoUrl, lockInMonths, maturityDate, startDate, deadline, expectedReturnPct, performancePct, termsAndNotes, supportingDocuments, } = req.body;
+            const { companyName, status, valuation, fundingTarget, verifiedFundsRaised, minInvestment, investorCount, stage, instrument, country, countryCode, city, industry, dueDiligenceStatus, dueDiligenceSummary, pitchOverview, tagline, logoUrl, lockInMonths, maturityDate, startDate, deadline, expectedReturnPct, performancePct, termsAndNotes, supportingDocuments, registrationDetails, officialLinks, contactInfo, financialHighlights, riskFactors, problemSolution, businessModel, marketOpportunity, pitchDeckUrl, } = req.body;
             const updateData = {};
+            if (companyName !== undefined && companyName !== '')
+                updateData.companyName = String(companyName).trim();
             if (status)
                 updateData.status = status;
             if (stage)
                 updateData.stage = stage;
+            if (instrument)
+                updateData.instrument = instrument;
+            if (country !== undefined)
+                updateData.country = country;
+            if (countryCode !== undefined)
+                updateData.countryCode = countryCode;
+            if (city !== undefined)
+                updateData.city = city;
+            if (industry !== undefined)
+                updateData.industry = industry;
             if (valuation !== undefined && valuation !== '')
                 updateData.valuation = new decimal_js_1.default(valuation.toString());
             if (fundingTarget !== undefined && fundingTarget !== '')
@@ -2594,9 +2818,9 @@ class AdminController {
                 updateData.dueDiligenceStatus = dueDiligenceStatus;
             if (dueDiligenceSummary !== undefined)
                 updateData.dueDiligenceSummary = dueDiligenceSummary;
-            if (pitchOverview)
+            if (pitchOverview !== undefined)
                 updateData.pitchOverview = pitchOverview;
-            if (tagline)
+            if (tagline !== undefined)
                 updateData.tagline = tagline;
             if (logoUrl !== undefined)
                 updateData.logoUrl = logoUrl;
@@ -2614,6 +2838,30 @@ class AdminController {
                 updateData.performancePct = new decimal_js_1.default(performancePct.toString());
             if (termsAndNotes !== undefined)
                 updateData.termsAndNotes = termsAndNotes;
+            if (registrationDetails !== undefined)
+                updateData.registrationDetails = registrationDetails;
+            if (riskFactors !== undefined)
+                updateData.riskFactors = riskFactors;
+            if (problemSolution !== undefined)
+                updateData.problemSolution = problemSolution;
+            if (businessModel !== undefined)
+                updateData.businessModel = businessModel;
+            if (marketOpportunity !== undefined)
+                updateData.marketOpportunity = marketOpportunity;
+            if (pitchDeckUrl !== undefined)
+                updateData.pitchDeckUrl = pitchDeckUrl;
+            if (officialLinks !== undefined) {
+                updateData.officialLinks =
+                    typeof officialLinks === 'string' ? officialLinks : JSON.stringify(officialLinks);
+            }
+            if (contactInfo !== undefined) {
+                updateData.contactInfo =
+                    typeof contactInfo === 'string' ? contactInfo : JSON.stringify(contactInfo);
+            }
+            if (financialHighlights !== undefined) {
+                updateData.financialHighlights =
+                    typeof financialHighlights === 'string' ? financialHighlights : JSON.stringify(financialHighlights);
+            }
             if (supportingDocuments !== undefined) {
                 updateData.supportingDocuments =
                     typeof supportingDocuments === 'string' ? supportingDocuments : JSON.stringify(supportingDocuments);
@@ -2664,6 +2912,344 @@ class AdminController {
             res.json({
                 success: true,
                 message: `Startup listing ${listing.companyName} suspended successfully`,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Synchronize a startup listing's headline verifiedFundsRaised & investorCount from actual InvestmentCommitment rows
+     */
+    async syncStartupListingMetrics(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const id = String(req.params.id);
+            const listing = await prisma_1.prisma.startupListing.findUnique({
+                where: { id },
+                include: { investments: true },
+            });
+            if (!listing) {
+                return res.status(404).json({ success: false, message: 'Startup listing not found' });
+            }
+            const realEligible = listing.investments.filter((c) => c.sourceType !== 'ADMIN_DISPLAY_MOCK');
+            const totalNet = realEligible.reduce((sum, c) => sum.plus(new decimal_js_1.default(c.netInvestedAmount.toString())), new decimal_js_1.default(0));
+            const distinctInvestors = new Set(realEligible.map((c) => c.investorUserId)).size;
+            const updated = await prisma_1.prisma.startupListing.update({
+                where: { id },
+                data: {
+                    verifiedFundsRaised: new decimal_js_1.default(totalNet.toFixed(2)),
+                    investorCount: distinctInvestors,
+                },
+            });
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'SYNC_STARTUP_METRICS',
+                    entity: 'StartupListing',
+                    entityId: id,
+                    details: `Synchronized ${listing.companyName} metrics to match real/verified commitments only (display/mock entries stripped): $${totalNet.toFixed(2)} USD across ${distinctInvestors} distinct investors (${realEligible.length} real commitments).`,
+                },
+            });
+            res.json({
+                success: true,
+                message: `Synced ${listing.companyName} to verified ledger only: $${totalNet.toFixed(2)} USD raised from ${distinctInvestors} distinct investors (${realEligible.length} commitments).`,
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Record a verified investor commitment manually (with optional wallet debit or external/nominee settlement)
+     */
+    async createManualInvestmentCommitment(req, res, next) {
+        try {
+            await investments_service_1.investmentsService.ensureVentureSchema();
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const { listingId, investorUserId, netAmount, sourceType: requestedSourceType, debitWallet = false, applyAllocationFee = true, addToCardDisplay = true, investmentDate, status = 'CLEARED_FUNDS', notes, } = req.body || {};
+            const resolvedSourceType = requestedSourceType === 'ADMIN_DISPLAY_MOCK'
+                ? 'ADMIN_DISPLAY_MOCK'
+                : requestedSourceType === 'REAL_WALLET' || debitWallet === true
+                    ? 'REAL_WALLET'
+                    : 'ADMIN_EXTERNAL_VERIFIED';
+            const effectiveDebitWallet = resolvedSourceType === 'REAL_WALLET';
+            const effectiveApplyFee = resolvedSourceType === 'ADMIN_DISPLAY_MOCK' ? false : Boolean(applyAllocationFee);
+            if (!listingId || !investorUserId) {
+                return res.status(400).json({ success: false, message: 'Startup listing and investor user are required' });
+            }
+            const amtNum = parseFloat(String(netAmount || '0'));
+            if (!Number.isFinite(amtNum) || amtNum <= 0) {
+                return res.status(400).json({ success: false, message: 'Valid net invested amount (> 0) is required' });
+            }
+            const [investor, listing, feeCfg] = await Promise.all([
+                prisma_1.prisma.user.findUnique({ where: { id: String(investorUserId) } }),
+                prisma_1.prisma.startupListing.findUnique({ where: { id: String(listingId) } }),
+                investments_service_1.investmentsService.getStartupFeeConfig(),
+            ]);
+            if (!investor) {
+                return res.status(404).json({ success: false, message: 'Investor user not found' });
+            }
+            if (!listing) {
+                return res.status(404).json({ success: false, message: 'Startup listing not found' });
+            }
+            const netDec = new decimal_js_1.default(amtNum.toFixed(2));
+            const feePct = effectiveApplyFee ? new decimal_js_1.default(feeCfg.allocationFeePct) : new decimal_js_1.default(0);
+            const feeDec = new decimal_js_1.default(netDec.times(feePct.div(100)).toFixed(2));
+            const grossDec = netDec.plus(feeDec);
+            const createdAtDate = investmentDate ? new Date(investmentDate) : new Date();
+            if (isNaN(createdAtDate.getTime())) {
+                return res.status(400).json({ success: false, message: 'Invalid investment date' });
+            }
+            const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
+            const prefix = resolvedSourceType === 'ADMIN_DISPLAY_MOCK' ? 'MOCK' : 'INV';
+            const investmentCode = `${prefix}-${Date.now().toString().slice(-6)}-${rand}`;
+            const wallet = await ledger_service_1.ledgerService.ensureWallet(investor.id);
+            const commitment = await prisma_1.prisma.$transaction(async (tx) => {
+                if (effectiveDebitWallet) {
+                    const usdRow = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
+                    const avail = new decimal_js_1.default(usdRow.availableBalance.toString());
+                    if (avail.lessThan(grossDec)) {
+                        throw new Error(`Investor ${investor.email} has insufficient USD available balance ($${avail.toFixed(2)}) for $${grossDec.toFixed(2)} gross commitment.`);
+                    }
+                    const balAfterNet = avail.minus(netDec);
+                    const balAfterTotal = avail.minus(grossDec);
+                    await tx.walletBalance.update({
+                        where: { id: usdRow.id },
+                        data: { availableBalance: balAfterTotal.toFixed(8) },
+                    });
+                    const entries = [
+                        {
+                            accountId: 'USER_AVAILABLE_USD',
+                            userId: investor.id,
+                            direction: 'DEBIT',
+                            amount: grossDec.toFixed(8),
+                            currency: 'USD',
+                        },
+                        {
+                            accountId: 'USER_VENTURE_ESCROW_USD',
+                            userId: investor.id,
+                            direction: 'CREDIT',
+                            amount: netDec.toFixed(8),
+                            currency: 'USD',
+                        },
+                    ];
+                    if (feeDec.greaterThan(0)) {
+                        entries.push({
+                            accountId: 'PLATFORM_FEE_REVENUE_USD',
+                            direction: 'CREDIT',
+                            amount: feeDec.toFixed(8),
+                            currency: 'USD',
+                        });
+                    }
+                    await ledger_service_1.ledgerService.recordJournal(tx, {
+                        idempotencyKey: `INV-JRN-${investmentCode}`,
+                        referenceType: client_1.JournalReferenceType.INVESTMENT_ALLOCATION,
+                        referenceId: investmentCode,
+                        notes: `Admin-recorded wallet venture allocation in ${listing.companyName}`,
+                        createdBy: adminUserId,
+                        entries,
+                    });
+                    await tx.transaction.create({
+                        data: {
+                            transactionCode: `TX-${investmentCode}`,
+                            userId: investor.id,
+                            type: client_1.TransactionType.INVESTMENT_ALLOCATION,
+                            amount: netDec.toFixed(8),
+                            currency: 'USD',
+                            status: client_1.TransactionStatus.COMPLETED,
+                            balanceBefore: avail.toFixed(8),
+                            balanceAfter: balAfterNet.toFixed(8),
+                            idempotencyKey: `INV-ALLOC-${investmentCode}`,
+                            notes: notes || `Admin-recorded investment in ${listing.companyName} ($${netDec.toFixed(2)} net)`,
+                            settlementReference: investmentCode,
+                            createdBy: adminUserId,
+                        },
+                    });
+                    if (feeDec.greaterThan(0)) {
+                        await tx.transaction.create({
+                            data: {
+                                transactionCode: `TX-INVF-${investmentCode.replace(`${prefix}-`, '')}`,
+                                userId: investor.id,
+                                type: client_1.TransactionType.INVESTMENT_FEE,
+                                amount: feeDec.toFixed(8),
+                                currency: 'USD',
+                                status: client_1.TransactionStatus.COMPLETED,
+                                balanceBefore: balAfterNet.toFixed(8),
+                                balanceAfter: balAfterTotal.toFixed(8),
+                                idempotencyKey: `INV-FEE-${investmentCode}`,
+                                notes: `${feePct.toFixed(1)}% Allocation Fee for ${listing.companyName} (${investmentCode})`,
+                                settlementReference: investmentCode,
+                                createdBy: adminUserId,
+                            },
+                        });
+                    }
+                }
+                const shouldUpdateCard = resolvedSourceType !== 'ADMIN_DISPLAY_MOCK' || Boolean(addToCardDisplay);
+                if (shouldUpdateCard) {
+                    const priorCount = await tx.investmentCommitment.count({
+                        where: { listingId: listing.id, investorUserId: investor.id },
+                    });
+                    await tx.startupListing.update({
+                        where: { id: listing.id },
+                        data: {
+                            verifiedFundsRaised: { increment: Number(netDec.toFixed(2)) },
+                            ...(priorCount === 0 ? { investorCount: { increment: 1 } } : {}),
+                        },
+                    });
+                }
+                const lockMonths = Math.max(0, Number(listing.lockInMonths ?? 12));
+                const lockEnd = listing.maturityDate && new Date(listing.maturityDate) > createdAtDate
+                    ? new Date(listing.maturityDate)
+                    : lockMonths > 0
+                        ? new Date(new Date(createdAtDate).setMonth(createdAtDate.getMonth() + lockMonths))
+                        : null;
+                const perfPct = Number(listing.performancePct || 0);
+                const curVal = perfPct !== 0
+                    ? new decimal_js_1.default(netDec.times(new decimal_js_1.default(1).plus(new decimal_js_1.default(perfPct).div(100))).toFixed(2))
+                    : netDec;
+                return tx.investmentCommitment.create({
+                    data: {
+                        investmentCode,
+                        listingId: listing.id,
+                        investorUserId: investor.id,
+                        grossAmount: grossDec,
+                        allocationFeePct: feePct,
+                        allocationFeeAmount: feeDec,
+                        netInvestedAmount: netDec,
+                        instrument: listing.instrument,
+                        sourceType: resolvedSourceType,
+                        status: ['CLEARED_FUNDS', 'ACTIVE', 'DOCUMENT_SIGNED'].includes(String(status)) ? String(status) : 'CLEARED_FUNDS',
+                        currentValuation: curVal,
+                        unrealizedReturnPct: new decimal_js_1.default(perfPct.toFixed(2)),
+                        lockInEnd: lockEnd,
+                        realizedProceeds: new decimal_js_1.default('0.00'),
+                        returnOfCapital: new decimal_js_1.default('0.00'),
+                        eligibleNetProfit: new decimal_js_1.default('0.00'),
+                        profitShareFeePct: resolvedSourceType === 'ADMIN_DISPLAY_MOCK' ? new decimal_js_1.default('0.00') : new decimal_js_1.default(feeCfg.profitSharePct),
+                        profitShareFeeAmount: new decimal_js_1.default('0.00'),
+                        netDistributedProfit: new decimal_js_1.default('0.00'),
+                        settlementReference: investmentCode,
+                        createdAt: createdAtDate,
+                        notes: notes ||
+                            (resolvedSourceType === 'REAL_WALLET'
+                                ? `Recorded by Admin (Real Wallet Debited) for ${listing.companyName}`
+                                : resolvedSourceType === 'ADMIN_DISPLAY_MOCK'
+                                    ? `Admin Showcase / Demo Display Entry (Unbacked — Excluded from Real Ledger & Exits)`
+                                    : `Recorded by Admin (External Wire / SPV Settled — No Platform Wallet Debit) for ${listing.companyName}`),
+                    },
+                });
+            });
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'CREATE_MANUAL_INVESTMENT_COMMITMENT',
+                    entity: 'InvestmentCommitment',
+                    entityId: commitment.id,
+                    details: `Recorded commitment ${investmentCode} [${resolvedSourceType}] for ${investor.email} in ${listing.companyName}: $${netDec.toFixed(2)} net.`,
+                },
+            });
+            res.status(201).json({
+                success: true,
+                message: `Recorded [${resolvedSourceType.replace(/_/g, ' ')}] ${investmentCode} for ${investor.email} ($${netDec.toFixed(2)} USD).`,
+                data: commitment,
+            });
+        }
+        catch (err) {
+            if (err?.message?.includes('insufficient USD')) {
+                return res.status(400).json({ success: false, message: err.message });
+            }
+            next(err);
+        }
+    }
+    /**
+     * Admin: Remove a Display/Mock commitment safely (strictly blocks deleting real ledger-verified commitments)
+     */
+    async deleteMockInvestmentCommitment(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const id = String(req.params.id);
+            const inv = await prisma_1.prisma.investmentCommitment.findUnique({
+                where: { id },
+                include: { listing: { select: { id: true, companyName: true, verifiedFundsRaised: true, investorCount: true } } },
+            });
+            if (!inv) {
+                return res.status(404).json({ success: false, message: 'Commitment not found' });
+            }
+            const linkedTx = await prisma_1.prisma.transaction.findFirst({
+                where: {
+                    settlementReference: inv.investmentCode,
+                    type: client_1.TransactionType.INVESTMENT_ALLOCATION,
+                    status: client_1.TransactionStatus.COMPLETED,
+                },
+            });
+            if (linkedTx || inv.sourceType === 'REAL_WALLET') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Real wallet-debited commitments backed by immutable ledger transactions cannot be deleted. Only ADMIN_DISPLAY_MOCK entries can be removed.',
+                });
+            }
+            if (inv.sourceType !== 'ADMIN_DISPLAY_MOCK') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Only Display/Mock entries can be deleted via this action.',
+                });
+            }
+            await prisma_1.prisma.investmentCommitment.delete({ where: { id } });
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'DELETE_MOCK_INVESTMENT_COMMITMENT',
+                    entity: 'InvestmentCommitment',
+                    entityId: id,
+                    details: `Removed display/mock commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) from ${inv.listing?.companyName || inv.listingId}.`,
+                },
+            });
+            res.json({
+                success: true,
+                message: `Removed display/mock commitment ${inv.investmentCode}. Click Sync Card to Real Ledger if card headline totals still reflect display offsets.`,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Respond to a Startup Investor Inquiry
+     */
+    async replyStartupInquiry(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const id = String(req.params.id);
+            const { response, status = 'ANSWERED' } = req.body || {};
+            if (!response || !String(response).trim()) {
+                return res.status(400).json({ success: false, message: 'Reply message is required' });
+            }
+            const updated = await prisma_1.prisma.investmentInquiry.update({
+                where: { id },
+                data: {
+                    response: String(response).trim(),
+                    status: status === 'CLOSED' ? 'CLOSED' : 'ANSWERED',
+                },
+                include: {
+                    listing: { select: { companyName: true } },
+                    investor: { select: { email: true } },
+                },
+            });
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'REPLY_STARTUP_INQUIRY',
+                    entity: 'InvestmentInquiry',
+                    entityId: id,
+                    details: `Replied to inquiry from ${updated.investor?.email || 'investor'} regarding ${updated.listing?.companyName || 'startup'}.`,
+                },
+            });
+            res.json({
+                success: true,
+                message: 'Inquiry reply saved and delivered to investor account.',
+                data: updated,
             });
         }
         catch (err) {
@@ -3960,9 +4546,12 @@ class AdminController {
                 prisma_1.prisma.p2POrder.count({ where: { status: client_1.P2POrderStatus.DISPUTED } }),
                 prisma_1.prisma.user.count({ where: { isP2pMerchant: true } }),
             ]);
-            const [ventureStatsRows, fdYieldsPaidAgg, fdDistinctUsers, tokenRecords] = await Promise.all([
+            const [ventureStatsRows, startupHeadlineRows, fdYieldsPaidAgg, fdDistinctUsers, tokenRecords] = await Promise.all([
                 prisma_1.prisma.investmentCommitment.findMany({
-                    select: { investorUserId: true, netInvestedAmount: true },
+                    select: { investorUserId: true, netInvestedAmount: true, sourceType: true },
+                }),
+                prisma_1.prisma.startupListing.findMany({
+                    select: { verifiedFundsRaised: true },
                 }),
                 prisma_1.prisma.packageReturn.aggregate({
                     where: { status: 'CREDITED' },
@@ -3980,8 +4569,13 @@ class AdminController {
             const platformRevenueSummary = await this.buildPlatformRevenueData(req.user?.id ? String(req.user.id) : undefined).catch(() => null);
             const activeCapital = activePackages.reduce((acc, p) => acc + parseFloat(p.amount.toString()), 0);
             const revMod = platformRevenueSummary?.moduleBreakdown;
-            const uniqueVentureInvestors = new Set(ventureStatsRows.map((c) => c.investorUserId)).size;
-            const totalVentureCommittedUsd = ventureStatsRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+            const realVentureRows = ventureStatsRows.filter((c) => c.sourceType !== 'ADMIN_DISPLAY_MOCK');
+            const mockVentureRows = ventureStatsRows.filter((c) => c.sourceType === 'ADMIN_DISPLAY_MOCK');
+            const uniqueVentureInvestors = new Set(realVentureRows.map((c) => c.investorUserId)).size;
+            const totalVentureCommittedUsd = realVentureRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+            const mockVentureVolumeUsd = mockVentureRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+            const totalCardHeadlineUsd = startupHeadlineRows.reduce((s, l) => s + Number(l.verifiedFundsRaised || 0), 0);
+            const headlineDisplayDeltaUsd = Number((totalCardHeadlineUsd - totalVentureCommittedUsd).toFixed(2));
             let tokenPaidHolders = 0;
             let tokenWhitelistOnly = 0;
             let totalTokensAllocated = 0;
@@ -4029,9 +4623,12 @@ class AdminController {
                 },
                 venture: {
                     publishedCampaigns: totalStartups,
-                    totalCommitments: ventureStatsRows.length,
+                    totalCommitments: realVentureRows.length,
                     uniqueInvestorsCount: uniqueVentureInvestors,
                     totalNetInvestedUsd: totalVentureCommittedUsd.toFixed(2),
+                    mockDisplayCommitmentsCount: mockVentureRows.length,
+                    mockDisplayVolumeUsd: mockVentureVolumeUsd.toFixed(2),
+                    headlineDisplayDeltaUsd: headlineDisplayDeltaUsd.toFixed(2),
                     allocationFeeUsd: revMod?.ventureAllocationFeeUsd || '0.00',
                     profitShareFeeUsd: revMod?.ventureProfitShareFeeUsd || '0.00',
                 },
@@ -4515,6 +5112,575 @@ class AdminController {
                 success: true,
                 message: 'Live upstream market exchange rates refreshed.',
                 data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Unified Transaction ID & Reference Search / Investigation
+     * Searches Ledger Transactions, Deposits, Withdrawals, FD Packages,
+     * Startup Commitments, P2P Orders, OTC Trades, Remittances & Audit Logs.
+     */
+    async lookupTransaction(req, res, next) {
+        try {
+            const q = String(req.query.q || '').trim();
+            if (q.length < 2) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Please enter at least 2 characters of a Transaction ID, Reference, or Order Code.',
+                });
+            }
+            const userSelect = {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                displayName: true,
+                country: true,
+                kycStatus: true,
+                status: true,
+            };
+            const [ledgerTxs, deposits, withdrawals, packages, commitments, p2pOrders, otcTrades, remittances,] = await Promise.all([
+                prisma_1.prisma.transaction.findMany({
+                    where: {
+                        OR: [
+                            { transactionCode: { contains: q } },
+                            { settlementReference: { contains: q } },
+                            { id: q },
+                        ],
+                    },
+                    include: {
+                        user: { select: userSelect },
+                        package: {
+                            select: {
+                                id: true,
+                                packageCode: true,
+                                amount: true,
+                                currency: true,
+                                status: true,
+                                lockInStart: true,
+                                lockInEnd: true,
+                                depositMethod: true,
+                            },
+                        },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 25,
+                }),
+                prisma_1.prisma.depositRequest.findMany({
+                    where: {
+                        OR: [
+                            { depositCode: { contains: q } },
+                            { txHashOrRef: { contains: q } },
+                            { id: q },
+                        ],
+                    },
+                    include: { user: { select: userSelect } },
+                    orderBy: { createdAt: 'desc' },
+                    take: 25,
+                }),
+                prisma_1.prisma.withdrawalRequest.findMany({
+                    where: {
+                        OR: [
+                            { requestCode: { contains: q } },
+                            { settlementReference: { contains: q } },
+                            { id: q },
+                        ],
+                    },
+                    include: {
+                        user: { select: userSelect },
+                        package: { select: { id: true, packageCode: true, status: true } },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 25,
+                }),
+                prisma_1.prisma.investmentPackage.findMany({
+                    where: {
+                        OR: [{ packageCode: { contains: q } }, { id: q }],
+                    },
+                    include: {
+                        user: { select: userSelect },
+                        returns: { orderBy: { periodIndex: 'asc' } },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 15,
+                }),
+                prisma_1.prisma.investmentCommitment.findMany({
+                    where: {
+                        OR: [
+                            { investmentCode: { contains: q } },
+                            { settlementReference: { contains: q } },
+                            { id: q },
+                        ],
+                    },
+                    include: {
+                        investor: { select: userSelect },
+                        listing: {
+                            select: {
+                                id: true,
+                                slug: true,
+                                companyName: true,
+                                industry: true,
+                                stage: true,
+                                country: true,
+                                lockInMonths: true,
+                                maturityDate: true,
+                            },
+                        },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 15,
+                }),
+                prisma_1.prisma.p2POrder.findMany({
+                    where: {
+                        OR: [
+                            { orderCode: { contains: q } },
+                            { paymentReference: { contains: q } },
+                            { id: q },
+                        ],
+                    },
+                    include: {
+                        buyer: { select: userSelect },
+                        seller: { select: userSelect },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 15,
+                }),
+                prisma_1.prisma.otcTrade.findMany({
+                    where: {
+                        OR: [{ tradeCode: { contains: q } }, { id: q }],
+                    },
+                    include: {
+                        customer: { select: userSelect },
+                        operator: { select: userSelect },
+                        desk: { select: { id: true, deskCode: true, deskName: true, city: true, country: true } },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 15,
+                }),
+                prisma_1.prisma.globalTransfer.findMany({
+                    where: {
+                        OR: [{ transferCode: { contains: q } }, { id: q }],
+                    },
+                    include: { user: { select: userSelect } },
+                    orderBy: { createdAt: 'desc' },
+                    take: 15,
+                }),
+            ]);
+            // Cross-link INV-* references found inside matched Ledger Transactions
+            const linkedInvCodes = Array.from(new Set(ledgerTxs
+                .map((t) => t.settlementReference)
+                .filter((r) => Boolean(r && /^INV-/i.test(r)))));
+            const linkedCommitments = linkedInvCodes.length > 0
+                ? await prisma_1.prisma.investmentCommitment.findMany({
+                    where: { investmentCode: { in: linkedInvCodes } },
+                    include: {
+                        listing: { select: { id: true, companyName: true, industry: true, stage: true, maturityDate: true } },
+                    },
+                })
+                : [];
+            const invByCode = new Map(linkedCommitments.map((c) => [c.investmentCode, c]));
+            // Cross-check if ledgerTxs have sibling entries with same settlementReference
+            const allRefs = Array.from(new Set([
+                q,
+                ...ledgerTxs.map((t) => t.transactionCode),
+                ...ledgerTxs.map((t) => t.settlementReference).filter((x) => Boolean(x)),
+                ...deposits.map((d) => d.depositCode),
+                ...withdrawals.map((w) => w.requestCode),
+                ...packages.map((p) => p.packageCode),
+                ...commitments.map((c) => c.investmentCode),
+                ...p2pOrders.map((o) => o.orderCode),
+                ...otcTrades.map((t) => t.tradeCode),
+                ...remittances.map((r) => r.transferCode),
+            ]));
+            const allEntityIds = Array.from(new Set([
+                ...ledgerTxs.map((t) => t.id),
+                ...deposits.map((d) => d.id),
+                ...withdrawals.map((w) => w.id),
+                ...packages.map((p) => p.id),
+                ...commitments.map((c) => c.id),
+                ...p2pOrders.map((o) => o.id),
+                ...otcTrades.map((t) => t.id),
+                ...remittances.map((r) => r.id),
+            ]));
+            const relatedAuditLogs = await prisma_1.prisma.adminAuditLog.findMany({
+                where: {
+                    OR: [
+                        ...(allEntityIds.length > 0 ? [{ entityId: { in: allEntityIds } }] : []),
+                        ...allRefs.slice(0, 8).map((ref) => ({ details: { contains: ref } })),
+                    ],
+                },
+                include: {
+                    user: { select: { id: true, email: true, firstName: true, lastName: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 30,
+            });
+            const formatUser = (u) => u
+                ? {
+                    id: u.id,
+                    name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email,
+                    email: u.email,
+                    phone: u.phone || null,
+                    accountNumber: (0, p2p_service_1.generateAvoraAccountNumber)(u.id),
+                    country: u.country || null,
+                    kycStatus: u.kycStatus,
+                    status: u.status,
+                }
+                : null;
+            const results = [];
+            for (const tx of ledgerTxs) {
+                const linkedInv = tx.settlementReference ? invByCode.get(tx.settlementReference) : undefined;
+                const isCompleted = tx.status === 'COMPLETED';
+                const isPending = tx.status === 'PENDING';
+                results.push({
+                    recordKind: 'LEDGER_TRANSACTION',
+                    recordLabel: 'Double-Entry Ledger Transaction',
+                    id: tx.id,
+                    primaryCode: tx.transactionCode,
+                    secondaryRef: tx.settlementReference || tx.package?.packageCode || null,
+                    title: `${tx.type.replace(/_/g, ' ')}${linkedInv?.listing?.companyName ? ` — ${linkedInv.listing.companyName}` : tx.package ? ` — ${tx.package.packageCode}` : ''}`,
+                    currentStatus: tx.status,
+                    paymentStatus: isCompleted
+                        ? 'Payment & Double-Entry Ledger Completed'
+                        : isPending
+                            ? 'Ledger Entry Pending Final Settlement'
+                            : `Transaction ${tx.status}`,
+                    pendingReason: isPending
+                        ? 'Double-entry posting is awaiting upstream confirmation or clearing.'
+                        : isCompleted
+                            ? 'No hold — funds movement was posted to user wallet balances.'
+                            : `Marked as ${tx.status}.`,
+                    adminActionRequired: isPending,
+                    adminActionSummary: isPending
+                        ? 'Verify underlying deposit/withdrawal/escrow record before manual intervention.'
+                        : 'No Admin action required — transaction already completed and reconciled in ledger.',
+                    targetTab: linkedInv
+                        ? 'investments'
+                        : tx.package
+                            ? 'packages'
+                            : tx.type.includes('DEPOSIT')
+                                ? 'deposits'
+                                : tx.type.includes('WITHDRAWAL')
+                                    ? 'withdrawals'
+                                    : 'users',
+                    amount: Number(tx.amount),
+                    currency: tx.currency,
+                    balanceBefore: Number(tx.balanceBefore),
+                    balanceAfter: Number(tx.balanceAfter),
+                    notes: tx.notes || null,
+                    createdAt: tx.createdAt,
+                    user: formatUser(tx.user),
+                    linkedContext: linkedInv
+                        ? {
+                            type: 'STARTUP_INVESTMENT',
+                            investmentCode: linkedInv.investmentCode,
+                            companyName: linkedInv.listing?.companyName,
+                            netInvestedAmount: Number(linkedInv.netInvestedAmount),
+                            allocationFeeAmount: Number(linkedInv.allocationFeeAmount),
+                            currentValuation: linkedInv.currentValuation ? Number(linkedInv.currentValuation) : Number(linkedInv.netInvestedAmount),
+                            status: linkedInv.status,
+                        }
+                        : tx.package
+                            ? {
+                                type: 'FD_PACKAGE',
+                                packageCode: tx.package.packageCode,
+                                amount: Number(tx.package.amount),
+                                status: tx.package.status,
+                                lockInStart: tx.package.lockInStart,
+                                lockInEnd: tx.package.lockInEnd,
+                            }
+                            : null,
+                    timeline: [
+                        { label: 'Created & Posted By', detail: tx.createdBy || 'SYSTEM', at: tx.createdAt },
+                        ...(linkedInv
+                            ? [{ label: 'Linked Startup Commitment', detail: `${linkedInv.investmentCode} • ${linkedInv.listing?.companyName || ''} (${linkedInv.status})`, at: linkedInv.createdAt }]
+                            : []),
+                    ],
+                });
+            }
+            for (const dep of deposits) {
+                const hasProof = Boolean(dep.proofUrl || (dep.txHashOrRef && dep.txHashOrRef.trim() && dep.txHashOrRef.trim().toLowerCase() !== 'none'));
+                const isPending = dep.status === 'PENDING';
+                results.push({
+                    recordKind: 'DEPOSIT',
+                    recordLabel: 'Customer Deposit Request',
+                    id: dep.id,
+                    primaryCode: dep.depositCode,
+                    secondaryRef: dep.txHashOrRef || null,
+                    title: `${Number(dep.amount).toLocaleString()} ${dep.currency} Deposit via ${dep.depositMethod}`,
+                    currentStatus: dep.status,
+                    paymentStatus: dep.status === 'APPROVED'
+                        ? 'Payment Verified & Wallet Credited'
+                        : dep.status === 'REJECTED'
+                            ? 'Deposit Rejected (No Credit)'
+                            : hasProof
+                                ? `Payment Proof / Ref Submitted (${dep.txHashOrRef || 'Screenshot Attached'}) — Awaiting Admin Verification`
+                                : 'No Gateway Capture / Payment Proof Submitted Yet',
+                    pendingReason: isPending
+                        ? hasProof
+                            ? 'Waiting for Admin to inspect the submitted bank wire/crypto hash/Razorpay proof and click Approve.'
+                            : 'User initiated a deposit request without uploading a transaction reference or proof (possible checkout drop-off or unpaid wire).'
+                        : dep.status === 'APPROVED'
+                            ? 'None — deposit approved and credited.'
+                            : `Rejected${dep.reviewedBy ? ` by ${dep.reviewedBy}` : ''}.`,
+                    adminActionRequired: isPending,
+                    adminActionSummary: isPending
+                        ? 'Action Required: Open Deposits tab, verify the gateway/bank reference & proof, and Approve or Reject.'
+                        : `No Admin action pending — already ${dep.status}.`,
+                    targetTab: 'deposits',
+                    amount: Number(dep.amount),
+                    currency: dep.currency,
+                    notes: dep.adminNotes || null,
+                    proofUrl: dep.proofUrl || null,
+                    createdAt: dep.createdAt,
+                    user: formatUser(dep.user),
+                    timeline: [
+                        { label: 'Deposit Requested', detail: `Method: ${dep.depositMethod}${dep.txHashOrRef ? ` • Ref: ${dep.txHashOrRef}` : ''}`, at: dep.createdAt },
+                        ...(dep.reviewedAt
+                            ? [{ label: `Deposit ${dep.status}`, detail: `Reviewed by ${dep.reviewedBy || 'Admin'}`, at: dep.reviewedAt }]
+                            : []),
+                    ],
+                });
+            }
+            for (const w of withdrawals) {
+                const isPending = ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w.status);
+                results.push({
+                    recordKind: 'WITHDRAWAL',
+                    recordLabel: 'Withdrawal Settlement Request',
+                    id: w.id,
+                    primaryCode: w.requestCode,
+                    secondaryRef: w.settlementReference || w.package?.packageCode || null,
+                    title: `${Number(w.amount).toLocaleString()} ${w.currency} Withdrawal (${w.payoutMethod.replace(/_/g, ' ')})`,
+                    currentStatus: w.status,
+                    paymentStatus: w.status === 'SETTLED'
+                        ? `Payout Settled (Ref: ${w.settlementReference || 'Recorded'})`
+                        : w.status === 'REJECTED'
+                            ? 'Rejected & Balance Refunded to User Wallet'
+                            : 'Funds Reserved in Pending Settlement Queue (Awaiting Admin Payout Execution)',
+                    pendingReason: isPending
+                        ? `Withdrawal is in ${w.status} stage within the 15-day settlement queue awaiting Admin bank/crypto transfer & settlement reference entry.`
+                        : w.status === 'SETTLED'
+                            ? 'None — payout completed.'
+                            : 'Rejected and refunded to user wallet.',
+                    adminActionRequired: isPending,
+                    adminActionSummary: isPending
+                        ? 'Action Required: Open Settlement Queue (Withdrawals tab), execute payout, and click Settle & Record Payout (or Reject).'
+                        : `No Admin action pending — ${w.status}.`,
+                    targetTab: 'withdrawals',
+                    amount: Number(w.amount),
+                    currency: w.currency,
+                    notes: w.adminNotes || null,
+                    createdAt: w.createdAt,
+                    user: formatUser(w.user),
+                    timeline: [
+                        { label: 'Withdrawal Requested', detail: `Type: ${w.withdrawalType} • Queue Window: ${new Date(w.requestWindowDate).toLocaleDateString()}`, at: w.createdAt },
+                        ...(w.settledAt
+                            ? [{ label: 'Payout Settled', detail: `Settlement Ref: ${w.settlementReference || 'N/A'}`, at: w.settledAt }]
+                            : []),
+                    ],
+                });
+            }
+            for (const pkg of packages) {
+                const isPending = pkg.status === 'PENDING_PAYMENT';
+                results.push({
+                    recordKind: 'FD_PACKAGE',
+                    recordLabel: 'Fixed Deposit Package',
+                    id: pkg.id,
+                    primaryCode: pkg.packageCode,
+                    secondaryRef: pkg.depositMethod || null,
+                    title: `${Number(pkg.amount).toLocaleString()} ${pkg.currency} Fixed Deposit (${pkg.lockInMonths}m Lock)`,
+                    currentStatus: pkg.status,
+                    paymentStatus: isPending
+                        ? 'Awaiting Admin Payment Confirmation & FD Activation'
+                        : 'Funded & Active / Matured Contract',
+                    pendingReason: isPending
+                        ? 'Package purchase awaiting Admin verification of funding.'
+                        : pkg.status === 'ACTIVE'
+                            ? `Active ${pkg.lockInMonths}-month lock-in; monthly yields Paid: ${pkg.returns?.length || 0}/${pkg.lockInMonths}.`
+                            : `Contract status is ${pkg.status}.`,
+                    adminActionRequired: isPending || pkg.status === 'MATURED',
+                    adminActionSummary: isPending
+                        ? 'Action Required: Verify payment and Approve & Activate in Packages & Yields tab.'
+                        : 'Manage monthly yield credits or full settlement in Packages & Yields tab.',
+                    targetTab: 'packages',
+                    amount: Number(pkg.amount),
+                    currency: pkg.currency,
+                    notes: pkg.adminNotes || null,
+                    createdAt: pkg.createdAt,
+                    user: formatUser(pkg.user),
+                    timeline: [
+                        { label: 'Package Created', detail: `${Number(pkg.amount).toLocaleString()} ${pkg.currency} • ${pkg.lockInMonths} Months`, at: pkg.createdAt },
+                        ...(pkg.lockInStart ? [{ label: 'Lock-In Activated', detail: `Ends ${pkg.lockInEnd ? new Date(pkg.lockInEnd).toLocaleDateString() : '6m'}`, at: pkg.lockInStart }] : []),
+                    ],
+                });
+            }
+            for (const inv of commitments) {
+                const srcTag = inv.sourceType === 'ADMIN_DISPLAY_MOCK'
+                    ? 'ADMIN DISPLAY / MOCK (Unbacked)'
+                    : inv.sourceType === 'ADMIN_EXTERNAL_VERIFIED'
+                        ? 'EXTERNAL SETTLED (No Wallet Debit)'
+                        : 'REAL WALLET LEDGER';
+                results.push({
+                    recordKind: 'STARTUP_INVESTMENT',
+                    recordLabel: `Startup Crowdfunding Commitment · ${srcTag}`,
+                    id: inv.id,
+                    primaryCode: inv.investmentCode,
+                    secondaryRef: inv.settlementReference || inv.listing?.companyName || null,
+                    title: `${inv.listing?.companyName || 'Startup Round'} (${inv.instrument}) [${srcTag}]`,
+                    currentStatus: inv.status,
+                    paymentStatus: inv.sourceType === 'ADMIN_DISPLAY_MOCK'
+                        ? `Display / Mock Only ($${Number(inv.netInvestedAmount).toFixed(2)}) — Not Debited From Any Wallet`
+                        : inv.sourceType === 'ADMIN_EXTERNAL_VERIFIED'
+                            ? `External Bank / SPV Settled ($${Number(inv.netInvestedAmount).toFixed(2)} Net) — No Platform Wallet Debit`
+                            : `Paid From Available USD Wallet ($${Number(inv.netInvestedAmount).toFixed(2)} Net + $${Number(inv.allocationFeeAmount).toFixed(2)} Fee = $${Number(inv.grossAmount).toFixed(2)} Gross)`,
+                    pendingReason: inv.status === 'EXITED'
+                        ? `Exited & distributed $${Number(inv.realizedProceeds).toFixed(2)} USD back to investor.`
+                        : `Active nominee holding in ${inv.listing?.companyName || 'round'} (Realized proceeds so far: $${Number(inv.realizedProceeds).toFixed(2)}).`,
+                    adminActionRequired: false,
+                    adminActionSummary: 'No pending collection action — valuation updates or exit distributions can be executed in Startup Portfolios.',
+                    targetTab: 'investments',
+                    amount: Number(inv.netInvestedAmount),
+                    currency: 'USD',
+                    notes: inv.notes || null,
+                    createdAt: inv.createdAt,
+                    user: formatUser(inv.investor),
+                    timeline: [
+                        { label: 'Commitment Allocated', detail: `${inv.listing?.companyName || ''} • $${Number(inv.netInvestedAmount).toFixed(2)} net`, at: inv.createdAt },
+                        ...(inv.maturedAt ? [{ label: 'Exited / Distributed', detail: `Proceeds: $${Number(inv.realizedProceeds).toFixed(2)}`, at: inv.maturedAt }] : []),
+                    ],
+                });
+            }
+            for (const o of p2pOrders) {
+                const needsRuling = ['DISPUTED', 'FROZEN'].includes(o.status) || o.isFrozen;
+                const inProgress = ['PENDING', 'ACCEPTED', 'PENDING_PAYMENT', 'PAYMENT_SENT', 'SELLER_CONFIRMING'].includes(o.status);
+                results.push({
+                    recordKind: 'P2P_ORDER',
+                    recordLabel: 'P2P Marketplace Escrow Order',
+                    id: o.id,
+                    primaryCode: o.orderCode,
+                    secondaryRef: o.paymentReference || null,
+                    title: `${Number(o.cryptoAmount).toFixed(2)} ${o.cryptoCurrency} ↔ ${Number(o.fiatAmount).toLocaleString()} ${o.fiatCurrency}`,
+                    currentStatus: o.status,
+                    paymentStatus: o.status === 'COMPLETED'
+                        ? 'Fiat Confirmed & Escrow Crypto Released'
+                        : o.paidAt
+                            ? `Buyer Marked Paid (${o.selectedPaymentMethod || 'Rail'}) — Awaiting Seller Release / Ruling`
+                            : 'Awaiting Counterparty Acceptance / Fiat Payment',
+                    pendingReason: needsRuling
+                        ? `Order is ${o.status}${o.disputeReason ? `: ${o.disputeReason}` : ' — requires Admin Dispute Resolution.'}`
+                        : inProgress
+                            ? 'Live escrow order awaiting buyer payment or seller confirmation.'
+                            : `Order finalized as ${o.status}.`,
+                    adminActionRequired: needsRuling,
+                    adminActionSummary: needsRuling
+                        ? 'Action Required: Review payment proof & chat in P2P Escrow tab and issue a dispute ruling.'
+                        : 'No Admin action needed unless escalated to dispute.',
+                    targetTab: 'p2p',
+                    amount: Number(o.cryptoAmount),
+                    currency: o.cryptoCurrency,
+                    createdAt: o.createdAt,
+                    user: formatUser(o.buyer),
+                    counterparty: formatUser(o.seller),
+                    timeline: [
+                        { label: 'Order Opened', detail: `Buyer: ${o.buyer?.email} • Seller: ${o.seller?.email}`, at: o.createdAt },
+                        ...(o.acceptedAt ? [{ label: 'Accepted by Counterparty', detail: o.status, at: o.acceptedAt }] : []),
+                        ...(o.paidAt ? [{ label: 'Buyer Marked Payment Sent', detail: o.paymentReference || 'Proof uploaded', at: o.paidAt }] : []),
+                        ...(o.completedAt ? [{ label: 'Escrow Released / Closed', detail: o.status, at: o.completedAt }] : []),
+                    ],
+                });
+            }
+            for (const t of otcTrades) {
+                const needsRuling = t.status === 'DISPUTED';
+                results.push({
+                    recordKind: 'OTC_TRADE',
+                    recordLabel: 'OTC Desk Escrow Trade',
+                    id: t.id,
+                    primaryCode: t.tradeCode,
+                    secondaryRef: t.desk?.deskCode || null,
+                    title: `${t.tradeType} • ${Number(t.cryptoAmount).toFixed(2)} USDT @ ${t.desk?.deskName || 'OTC Desk'}`,
+                    currentStatus: t.status,
+                    paymentStatus: t.status === 'COMPLETED'
+                        ? 'OTC Trade Settled & Commissions Posted'
+                        : t.escrowLocked
+                            ? 'USDT Locked in OTC Desk Escrow'
+                            : `Trade ${t.status}`,
+                    pendingReason: needsRuling
+                        ? `Disputed OTC trade${t.disputeReason ? `: ${t.disputeReason}` : ''}.`
+                        : t.status === 'IN_PROGRESS'
+                            ? 'In-person/desk settlement in progress with OTC operator.'
+                            : `Trade finalized (${t.status}).`,
+                    adminActionRequired: needsRuling,
+                    adminActionSummary: needsRuling
+                        ? 'Action Required: Resolve OTC Escrow Dispute in OTC Desks & Trades tab.'
+                        : 'Managed between Customer and Desk Operator unless disputed.',
+                    targetTab: 'otc',
+                    amount: Number(t.cryptoAmount),
+                    currency: 'USDT',
+                    createdAt: t.createdAt,
+                    user: formatUser(t.customer),
+                    counterparty: formatUser(t.operator),
+                    timeline: [
+                        { label: 'OTC Trade Initiated', detail: `${t.desk?.deskName || ''} (${t.desk?.city || ''})`, at: t.createdAt },
+                        ...(t.completedAt ? [{ label: 'Trade Settled', detail: t.status, at: t.completedAt }] : []),
+                    ],
+                });
+            }
+            for (const r of remittances) {
+                const isPending = ['SUBMITTED', 'COMPLIANCE_SCREENED', 'PROCESSING'].includes(r.status);
+                results.push({
+                    recordKind: 'REMITTANCE',
+                    recordLabel: 'Global Remittance Transfer',
+                    id: r.id,
+                    primaryCode: r.transferCode,
+                    secondaryRef: r.recipientBankName || null,
+                    title: `${Number(r.sendingAmount).toLocaleString()} ${r.sendingCurrency} → ${Number(r.recipientAmount).toLocaleString()} ${r.recipientCurrency} (${r.destinationCountry})`,
+                    currentStatus: r.status,
+                    paymentStatus: r.status === 'COMPLETED'
+                        ? 'Sender Debited & Remittance Wire Completed'
+                        : isPending
+                            ? 'Sender Balance Debited — Awaiting Bank/Corridor Dispatch by Admin'
+                            : `Remittance ${r.status}`,
+                    pendingReason: isPending
+                        ? `Transfer is ${r.status} awaiting Admin corridor processing and completion.`
+                        : r.status === 'REJECTED'
+                            ? `Rejected: ${r.rejectionReason || 'Compliance / bank detail issue'}.`
+                            : 'Completed.',
+                    adminActionRequired: isPending,
+                    adminActionSummary: isPending
+                        ? 'Action Required: Process / Update Remittance Transfer status in Remittance Transfers tab.'
+                        : 'No Admin action pending.',
+                    targetTab: 'remittance',
+                    amount: Number(r.totalPaidAmount),
+                    currency: r.sendingCurrency,
+                    notes: r.complianceNotes || r.rejectionReason || null,
+                    createdAt: r.createdAt,
+                    user: formatUser(r.user),
+                    timeline: [
+                        { label: 'Transfer Submitted', detail: `Recipient: ${r.recipientName} • ${r.recipientBankName}`, at: r.createdAt },
+                        ...(r.completedAt ? [{ label: 'Wire Completed', detail: r.status, at: r.completedAt }] : []),
+                    ],
+                });
+            }
+            res.json({
+                success: true,
+                data: {
+                    query: q,
+                    totalMatches: results.length,
+                    results,
+                    auditLogs: relatedAuditLogs.map((l) => ({
+                        id: l.id,
+                        action: l.action,
+                        entity: l.entity,
+                        entityId: l.entityId,
+                        details: l.details,
+                        adminEmail: l.user?.email || 'SYSTEM',
+                        createdAt: l.createdAt,
+                    })),
+                },
             });
         }
         catch (err) {

@@ -27,6 +27,7 @@ router.post('/admin/blogs', auth_1.authenticateToken, auth_1.requireAdmin, cms_c
 router.post('/admin/blogs/seed-defaults', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.seedDefaultBlogPostsAdmin);
 router.post('/admin/blogs/sync-tokens', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.syncBlogTokensAdmin);
 router.post('/admin/blogs/auto-publish', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.autoPublishBlog);
+router.post('/admin/blogs/auto-publish-fresh', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.triggerAutonomousFreshPublish);
 router.post('/admin/blogs/:id/sync-news', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.syncBlogNewsAdmin);
 router.put('/admin/blogs/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateAdminBlogPost);
 router.patch('/admin/blogs/:id', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.updateAdminBlogPost);
