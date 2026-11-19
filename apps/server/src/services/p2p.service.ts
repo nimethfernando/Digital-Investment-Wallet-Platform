@@ -2098,8 +2098,11 @@ export class P2PService {
 
         const sellerAvail = new Decimal(sellerBal.availableBalance.toString());
         if (sellerAvail.lessThan(cryptoAmountDec)) {
+          const isTakerSelling = sellerId === takerUserId;
           throw new Error(
-            `Seller has insufficient ${cryptoCur} available for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required)`
+            isTakerSelling
+              ? `Insufficient ${cryptoCur} in your wallet for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required). Convert USD to ${cryptoCur} via Instant Swap (/exchange) or deposit ${cryptoCur} before selling.`
+              : `This merchant currently has insufficient ${cryptoCur} available for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required). Please try another trader or a smaller amount.`
           );
         }
 

@@ -3945,6 +3945,13 @@ function P2PPageContent() {
               </div>
             )}
 
+            {user && selectedOfferForTrade.trader?.id === user.id && (
+              <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-[11px] leading-relaxed">
+                <strong>Your Own Advertisement:</strong> P2P trades on your own offer route the counterparty to the Avora Treasury Desk. Your{' '}
+                {marketSide === 'SELL' ? `${selectedOfferForTrade.cryptoCurrency} wallet` : 'fiat payment'} must still satisfy the trade requirements.
+              </div>
+            )}
+
             {user && merchantStatus && !merchantStatus.isP2pTradingApproved && (
               <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs space-y-2">
                 <div className="font-bold flex items-center gap-1.5 text-amber-300">
@@ -4042,7 +4049,9 @@ function P2PPageContent() {
 
               <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-500/20 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Total Payable:</span>
+                  <span className="text-slate-400">
+                    {marketSide === 'SELL' ? 'You Receive:' : 'Total Payable:'}
+                  </span>
                   <span className="text-base font-black text-emerald-400 font-mono">
                     {(parseFloat(tradeCryptoAmount || '0') * parseFloat(selectedOfferForTrade.price)).toFixed(2)} {selectedOfferForTrade.fiatCurrency}
                   </span>
@@ -4067,7 +4076,11 @@ function P2PPageContent() {
 
               <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-amber-300 flex items-center gap-2">
                 <Lock className="w-3.5 h-3.5 shrink-0" />
-                <span>Seller settlement account details unlock inside the Trade Room once seller accepts your order.</span>
+                <span>
+                  {marketSide === 'SELL'
+                    ? `Your ${selectedOfferForTrade.cryptoCurrency} is locked in escrow when you confirm; merchant ${selectedOfferForTrade.fiatCurrency} payout details unlock once accepted.`
+                    : 'Seller settlement account details unlock inside the Trade Room once seller accepts your order.'}
+                </span>
               </div>
 
               <button
