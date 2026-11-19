@@ -2853,6 +2853,9 @@ export class AdminController {
           { senderName: { contains: query } },
           { recipientName: { contains: query } },
           { recipientAccount: { contains: query } },
+          { recipientBankName: { contains: query } },
+          { recipientBicSwift: { contains: query } },
+          { transferReason: { contains: query } },
           { destinationCountry: { contains: query } },
         ];
       }
@@ -2862,7 +2865,15 @@ export class AdminController {
           where,
           include: {
             user: {
-              select: { id: true, email: true, firstName: true, lastName: true },
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                kycStatus: true,
+                phone: true,
+                country: true,
+              },
             },
           },
           orderBy: { createdAt: 'desc' },

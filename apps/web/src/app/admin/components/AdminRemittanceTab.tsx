@@ -16,6 +16,11 @@ import {
   Loader2,
   X,
   Check,
+  Copy,
+  User,
+  Building2,
+  Mail,
+  MapPin,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
@@ -27,6 +32,29 @@ interface RemittanceTabProps {
   onFeedback: (feedback: { text: string; type: 'success' | 'error' } | null) => void;
 }
 
+function parseRecipientAddressAndEmail(raw?: string | null): { address: string | null; trackingEmail: string | null } {
+  const s = String(raw || '').trim();
+  if (!s) return { address: null, trackingEmail: null };
+  const idx = s.indexOf('Tracking Email:');
+  if (idx === -1) return { address: s, trackingEmail: null };
+  const addrPart = s.slice(0, idx).replace(/\|\s*$/, '').trim() || null;
+  const emailPart = s.slice(idx + 'Tracking Email:'.length).trim() || null;
+  return { address: addrPart, trackingEmail: emailPart };
+}
+
+function parseTrackingTimeline(raw: any): Array<{ stage?: string; title?: string; timestamp?: string | null; status?: string; notes?: string }> {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export default function AdminRemittanceTab({
   transfers,
   transfersLoading,
@@ -35,6 +63,16 @@ export default function AdminRemittanceTab({
 }: RemittanceTabProps) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopyValue = (key: string, value?: string | null) => {
+    const val = String(value || '').trim();
+    if (!val || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    navigator.clipboard.writeText(val).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((prev) => (prev === key ? null : prev)), 1800);
+    }).catch(() => {});
+  };
 
   // Update Status Modal
   const [selectedTransfer, setSelectedTransfer] = useState<any | null>(null);
@@ -84,6 +122,11 @@ export default function AdminRemittanceTab({
       t.senderName?.toLowerCase().includes(q) ||
       t.senderEmail?.toLowerCase().includes(q) ||
       t.recipientName?.toLowerCase().includes(q) ||
+      t.recipientAccount?.toLowerCase().includes(q) ||
+      t.recipientBankName?.toLowerCase().includes(q) ||
+      t.recipientBicSwift?.toLowerCase().includes(q) ||
+      t.recipientAddress?.toLowerCase().includes(q) ||
+      t.transferReason?.toLowerCase().includes(q) ||
       t.destinationCountry?.toLowerCase().includes(q);
 
     const matchStatus = !statusFilter || t.status === statusFilter;
@@ -190,39 +233,80 @@ export default function AdminRemittanceTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {pagedTransfers.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-800/40 transition-colors">
+                {pagedTransfers.map((t) => {
+                  const { address, trackingEmail } = parseRecipientAddressAndEmail(t.recipientAddress);
+                  return (
+                  <tr key={t.id} className="hover:bg-slate-800/40 transition-colors align-top">
                     <td className="py-3.5 px-4 font-mono font-bold text-white text-xs">
                       {t.transferCode}
-                      <div className="text-[10px] text-slate-500 font-sans mt-0.5">
-                        {new Date(t.createdAt).toLocaleDateString()}
+                      <div className="text-[10px] text-slate-400 font-sans mt-0.5">
+                        {new Date(t.createdAt).toLocaleString()}
                       </div>
+                      {t.estimatedDeliveryDate && (
+                        <div className="text-[10px] text-slate-500 font-sans">
+                          ETA: {new Date(t.estimatedDeliveryDate).toLocaleDateString()}
+                        </div>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 space-y-0.5">
                       <div className="font-bold text-white">{t.senderName}</div>
                       <div className="text-slate-400 text-[11px]">{t.senderEmail}</div>
+                      {(t.user?.wallet?.accountNumber || t.user?.kycStatus) && (
+                        <div className="text-[10px] font-mono text-slate-500">
+                          {t.user?.wallet?.accountNumber || ''} {t.user?.kycStatus ? `• KYC: ${t.user.kycStatus}` : ''}
+                        </div>
+                      )}
                     </td>
 
-                    <td className="py-3.5 px-4 space-y-0.5">
-                      <div className="font-bold text-white">{t.recipientName}</div>
+                    <td className="py-3.5 px-4 space-y-1 max-w-sm">
+                      <div className="font-bold text-white flex flex-wrap items-center gap-1.5">
+                        <span>{t.recipientName}</span>
+                        {t.destinationCountryCode && (
+                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
+                            {t.destinationCountryCode}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-slate-300 text-[11px]">
                         {t.recipientBankName} • {t.destinationCountry}
                       </div>
-                      <div className="text-slate-500 text-[10px] font-mono">
-                        Acc: {t.recipientAccount} {t.recipientBicSwift ? `| SWIFT: ${t.recipientBicSwift}` : ''}
+                      <div className="text-slate-400 text-[10px] font-mono break-all">
+                        Acc/IBAN: <span className="text-slate-200">{t.recipientAccount}</span>
+                        {t.recipientBicSwift ? (
+                          <> | SWIFT/IFSC: <span className="text-teal-300">{t.recipientBicSwift}</span></>
+                        ) : null}
                       </div>
+                      {(address || trackingEmail) && (
+                        <div className="text-[10px] text-slate-400 space-y-0.5">
+                          {address && <div className="truncate max-w-xs" title={address}>Addr: {address}</div>}
+                          {trackingEmail && <div className="truncate max-w-xs text-cyan-400" title={trackingEmail}>Email: {trackingEmail}</div>}
+                        </div>
+                      )}
+                      {t.transferReason && (
+                        <div className="inline-block px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[10px] text-slate-300">
+                          Purpose: {t.transferReason}
+                        </div>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 space-y-0.5">
                       <div className="font-mono font-bold text-white text-xs">
                         {parseFloat(t.sendingAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })} {t.sendingCurrency}
+                        {t.totalPaidAmount ? (
+                          <span className="text-[10px] font-normal text-slate-400 ml-1">
+                            (Paid: ${parseFloat(t.totalPaidAmount).toFixed(2)})
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="text-[11px] text-teal-400 font-mono font-semibold">
-                        &rarr; {parseFloat(t.recipientAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })} {t.recipientCurrency}
+                      <div className="text-[11px] text-teal-400 font-mono font-bold">
+                        &rarr; Payout: {parseFloat(t.recipientAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })} {t.recipientCurrency}
                       </div>
                       <div className="text-[10px] text-slate-500 font-mono">
-                        Fee: ${parseFloat(t.transferFeeAmount || '0').toFixed(2)} | FX: {parseFloat(t.effectiveRate || '0').toFixed(4)}
+                        Fee ({parseFloat(t.transferFeePct || '0').toFixed(1)}%): ${parseFloat(t.transferFeeAmount || '0').toFixed(2)} | Margin: -{parseFloat(t.rateAdjustmentPct || '0').toFixed(2)}%
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono">
+                        Ref FX: {parseFloat(t.referenceRate || '0').toFixed(4)} &rarr; Locked: {parseFloat(t.effectiveRate || '0').toFixed(4)}
                       </div>
                     </td>
 
@@ -239,8 +323,13 @@ export default function AdminRemittanceTab({
                         {t.status}
                       </span>
                       {t.complianceNotes && (
-                        <div className="text-[10px] text-slate-400 truncate max-w-xs">
+                        <div className="text-[10px] text-slate-400 truncate max-w-xs" title={t.complianceNotes}>
                           {t.complianceNotes}
+                        </div>
+                      )}
+                      {t.rejectionReason && (
+                        <div className="text-[10px] text-rose-400 truncate max-w-xs" title={t.rejectionReason}>
+                          Rejected: {t.rejectionReason}
                         </div>
                       )}
                     </td>
@@ -250,11 +339,12 @@ export default function AdminRemittanceTab({
                         onClick={() => handleOpenModal(t)}
                         className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-teal-950/60 text-slate-200 hover:text-teal-300 text-xs font-bold transition-all border border-slate-700 cursor-pointer"
                       >
-                        Manage
+                        Inspect &amp; Manage
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -272,21 +362,40 @@ export default function AdminRemittanceTab({
         </div>
       )}
 
-      {/* UPDATE STATUS MODAL */}
-      {modalOpen && selectedTransfer && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      {/* FULL WIRE EXECUTION & STATUS MODAL */}
+      {modalOpen && selectedTransfer && (() => {
+        const { address: modalAddr, trackingEmail: modalTrackEmail } = parseRecipientAddressAndEmail(selectedTransfer.recipientAddress);
+        const timeline = parseTrackingTimeline(selectedTransfer.trackingTimeline);
+        const copyBtn = (copyId: string, val?: string | null) => (
+          <button
+            type="button"
+            onClick={() => handleCopyValue(copyId, val)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 hover:text-white cursor-pointer shrink-0"
+            title="Copy to clipboard"
+          >
+            {copiedKey === copyId ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            <span>{copiedKey === copyId ? 'Copied' : 'Copy'}</span>
+          </button>
+        );
+        return (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
           <form
             onSubmit={handleSaveStatus}
-            className="bg-slate-950 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95"
+            className="bg-slate-950 border border-slate-800 rounded-3xl max-w-2xl w-full max-h-[92dvh] overflow-y-auto overscroll-contain p-5 sm:p-6 space-y-5 shadow-2xl animate-in zoom-in-95"
           >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 sticky top-0 bg-slate-950 z-10">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center font-black">
                   <Globe className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-extrabold text-white">Process Remittance Order</h3>
-                  <p className="text-xs text-slate-400 font-mono">{selectedTransfer.transferCode}</p>
+                  <h3 className="text-base font-extrabold text-white">Complete Beneficiary &amp; Wire Order Dossier</h3>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono">
+                    <span>{selectedTransfer.transferCode}</span>
+                    {copyBtn('code', selectedTransfer.transferCode)}
+                    <span className="text-slate-600">•</span>
+                    <span className="font-sans">Submitted {new Date(selectedTransfer.createdAt).toLocaleString()}</span>
+                  </div>
                 </div>
               </div>
               <button type="button" onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
@@ -294,65 +403,239 @@ export default function AdminRemittanceTab({
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl space-y-1 text-xs">
-                <div className="text-slate-400">
-                  <strong className="text-white">{selectedTransfer.senderName}</strong> sending{' '}
-                  <strong className="text-white">{parseFloat(selectedTransfer.sendingAmount).toFixed(2)} {selectedTransfer.sendingCurrency}</strong>
+            <div className="space-y-4 text-xs">
+              {/* 1. EXACT PAYOUT & CONVERSION SUMMARY */}
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-teal-950/30 border border-teal-500/30 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-teal-400 font-mono">
+                      Exact Wire Payout to Beneficiary
+                    </div>
+                    <div className="text-xl font-black font-mono text-white flex items-center gap-2 mt-0.5">
+                      <span>
+                        {parseFloat(selectedTransfer.recipientAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}{' '}
+                        {selectedTransfer.recipientCurrency}
+                      </span>
+                      {copyBtn('payout', parseFloat(selectedTransfer.recipientAmount).toFixed(2))}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] text-slate-400 uppercase font-mono">Estimated Delivery</div>
+                    <div className="font-bold text-slate-200">
+                      {selectedTransfer.estimatedDeliveryDate
+                        ? new Date(selectedTransfer.estimatedDeliveryDate).toLocaleDateString()
+                        : 'Up to 2 Business Days'}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-slate-400">
-                  Recipient:{' '}
-                  <strong className="text-teal-300">
-                    {selectedTransfer.recipientName} ({parseFloat(selectedTransfer.recipientAmount).toFixed(2)} {selectedTransfer.recipientCurrency})
-                  </strong>
-                </div>
-                <div className="text-slate-500 font-mono text-[11px]">
-                  Bank: {selectedTransfer.recipientBankName} • {selectedTransfer.recipientAccount}
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-[11px]">
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <div className="text-slate-500">Sent Principal</div>
+                    <div className="font-mono font-bold text-white mt-0.5">
+                      {parseFloat(selectedTransfer.sendingAmount).toFixed(2)} {selectedTransfer.sendingCurrency}
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <div className="text-slate-500">Fee ({parseFloat(selectedTransfer.transferFeePct || '0').toFixed(2)}%)</div>
+                    <div className="font-mono font-bold text-amber-300 mt-0.5">
+                      +${parseFloat(selectedTransfer.transferFeeAmount || '0').toFixed(2)} {selectedTransfer.sendingCurrency}
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <div className="text-slate-500">Total Wallet Debited</div>
+                    <div className="font-mono font-bold text-emerald-300 mt-0.5">
+                      {parseFloat(selectedTransfer.totalPaidAmount || selectedTransfer.sendingAmount).toFixed(2)} {selectedTransfer.sendingCurrency}
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <div className="text-slate-500">Locked Client Rate</div>
+                    <div className="font-mono font-bold text-teal-300 mt-0.5">
+                      1 = {parseFloat(selectedTransfer.effectiveRate || '0').toFixed(4)} {selectedTransfer.recipientCurrency}
+                    </div>
+                    <div className="text-[9px] text-slate-500 font-mono">
+                      Ref {parseFloat(selectedTransfer.referenceRate || '0').toFixed(4)} (-{parseFloat(selectedTransfer.rateAdjustmentPct || '0').toFixed(2)}%)
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Update Order Status</label>
-                <select
-                  value={newStatus}
-                  onChange={(e) => setNewStatus(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-teal-500"
-                >
-                  <option value="SUBMITTED">SUBMITTED (Awaiting Review)</option>
-                  <option value="PROCESSING">PROCESSING (Executing Bank Wire)</option>
-                  <option value="COMPLETED">COMPLETED (Funds Settled)</option>
-                  <option value="REJECTED">REJECTED (Decline &amp; Refund)</option>
-                </select>
+              {/* 2. COMPLETE BENEFICIARY BANK & ROUTING DETAILS */}
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl space-y-3">
+                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-300 font-mono">
+                  <Building2 className="w-4 h-4 text-teal-400" />
+                  <span>Beneficiary &amp; Bank Wire Instructions</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
+                      <span>Recipient Legal Full Name</span>
+                      {copyBtn('recName', selectedTransfer.recipientName)}
+                    </div>
+                    <div className="font-bold text-white break-words">{selectedTransfer.recipientName}</div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="text-[10px] text-slate-500 uppercase">Destination Country &amp; Currency</div>
+                    <div className="font-bold text-white">
+                      {selectedTransfer.destinationCountry} ({selectedTransfer.destinationCountryCode || 'N/A'}) · {selectedTransfer.recipientCurrency}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
+                      <span>Receiving Bank Name</span>
+                      {copyBtn('bank', selectedTransfer.recipientBankName)}
+                    </div>
+                    <div className="font-bold text-white break-words">{selectedTransfer.recipientBankName}</div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
+                      <span>Account Number / IBAN</span>
+                      {copyBtn('acct', selectedTransfer.recipientAccount)}
+                    </div>
+                    <div className="font-mono font-bold text-white break-all">{selectedTransfer.recipientAccount}</div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
+                      <span>SWIFT / BIC / IFSC / Routing Code</span>
+                      {selectedTransfer.recipientBicSwift && copyBtn('swift', selectedTransfer.recipientBicSwift)}
+                    </div>
+                    <div className="font-mono font-bold text-teal-300 break-all">
+                      {selectedTransfer.recipientBicSwift || 'Not provided'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="text-[10px] text-slate-500 uppercase">Transfer Purpose / Source Reason</div>
+                    <div className="font-semibold text-amber-200 break-words">
+                      {selectedTransfer.transferReason || 'Family Support / Trade Remittance'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="flex items-center gap-1 text-[10px] text-slate-500 uppercase">
+                      <MapPin className="w-3 h-3" />
+                      <span>Recipient Address</span>
+                    </div>
+                    <div className="text-slate-200 break-words">{modalAddr || 'Not provided'}</div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
+                      <span className="flex items-center gap-1">
+                        <Mail className="w-3 h-3" />
+                        <span>Recipient Tracking Email</span>
+                      </span>
+                      {modalTrackEmail && copyBtn('recEmail', modalTrackEmail)}
+                    </div>
+                    <div className="text-cyan-300 break-all">{modalTrackEmail || 'Not provided'}</div>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
-                  Bank Reference / MT103 Tracking Code
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. SWIFT MT103 Ref #AVR-WIRE-94812"
-                  value={complianceNotes}
-                  onChange={(e) => setComplianceNotes(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-teal-500 font-mono"
-                />
+              {/* 3. SENDER KYC & ACCOUNT DETAILS */}
+              <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-slate-400 font-mono">
+                    <User className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Originating Client</span>
+                  </div>
+                  <div className="font-bold text-white">
+                    {selectedTransfer.senderName}{' '}
+                    <span className="font-normal text-slate-400">({selectedTransfer.senderEmail})</span>
+                  </div>
+                  {(selectedTransfer.user?.wallet?.accountNumber || selectedTransfer.user?.phone || selectedTransfer.user?.country) && (
+                    <div className="text-[11px] font-mono text-slate-400">
+                      {selectedTransfer.user?.wallet?.accountNumber ? `Account: ${selectedTransfer.user.wallet.accountNumber}` : ''}{' '}
+                      {selectedTransfer.user?.phone ? `• Phone: ${selectedTransfer.user.phone}` : ''}{' '}
+                      {selectedTransfer.user?.country ? `• Country: ${selectedTransfer.user.country}` : ''}
+                    </div>
+                  )}
+                </div>
+                {selectedTransfer.user?.kycStatus && (
+                  <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono ${
+                    selectedTransfer.user.kycStatus === 'APPROVED' || selectedTransfer.user.kycStatus === 'VERIFIED'
+                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                  }`}>
+                    KYC: {selectedTransfer.user.kycStatus}
+                  </span>
+                )}
               </div>
 
-              {newStatus === 'REJECTED' && (
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-rose-400 uppercase font-mono">
-                    Mandatory Rejection Reason
-                  </label>
-                  <textarea
-                    placeholder="e.g. Incorrect IBAN provided, or beneficiary compliance block"
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    rows={2}
-                    required
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-rose-500 resize-none"
-                  />
+              {/* 4. TRACKING TIMELINE */}
+              {timeline.length > 0 && (
+                <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl space-y-2">
+                  <div className="text-[10px] font-bold uppercase text-slate-400 font-mono">Transfer Stage Timeline</div>
+                  <div className="space-y-1.5">
+                    {timeline.map((step, i) => (
+                      <div key={i} className="flex items-start justify-between gap-3 text-[11px]">
+                        <div className="flex items-start gap-2">
+                          <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${
+                            step.status === 'COMPLETED' ? 'bg-emerald-400' : step.status === 'IN_PROGRESS' ? 'bg-blue-400' : 'bg-slate-600'
+                          }`} />
+                          <div>
+                            <span className="font-bold text-slate-200">{step.title || step.stage}</span>
+                            {step.notes && <span className="text-slate-400"> — {step.notes}</span>}
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                          {step.timestamp ? new Date(step.timestamp).toLocaleDateString() : step.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
+
+              {/* 5. ADMIN ACTION CONTROLS */}
+              <div className="space-y-3 pt-2 border-t border-slate-800">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Update Order Status</label>
+                  <select
+                    value={newStatus}
+                    onChange={(e) => setNewStatus(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-teal-500"
+                  >
+                    <option value="SUBMITTED">SUBMITTED (Awaiting Review)</option>
+                    <option value="PROCESSING">PROCESSING (Executing Bank Wire)</option>
+                    <option value="COMPLETED">COMPLETED (Funds Settled)</option>
+                    <option value="REJECTED">REJECTED (Decline &amp; Refund)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                    Bank Reference / MT103 Tracking Code
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. SWIFT MT103 Ref #AVR-WIRE-94812"
+                    value={complianceNotes}
+                    onChange={(e) => setComplianceNotes(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-teal-500 font-mono"
+                  />
+                </div>
+
+                {newStatus === 'REJECTED' && (
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-rose-400 uppercase font-mono">
+                      Mandatory Rejection Reason
+                    </label>
+                    <textarea
+                      placeholder="e.g. Incorrect IBAN provided, or beneficiary compliance block"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      rows={2}
+                      required
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-rose-500 resize-none"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-2">
@@ -374,7 +657,8 @@ export default function AdminRemittanceTab({
             </div>
           </form>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
