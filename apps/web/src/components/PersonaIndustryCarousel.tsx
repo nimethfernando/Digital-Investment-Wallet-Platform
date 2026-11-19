@@ -130,7 +130,7 @@ export const PERSONA_DATA: PersonaCard[] = [
     title: 'E-Commerce Brands & Media Agencies',
     subtitle: 'High-velocity daily merchant settlements, instant multi-currency FX swaps, and automated P2P & OTC supplier escrow protection across global corridors.',
     actionText: 'Explore Treasury & Swap',
-    actionHref: '/dashboard?tab=redotpay',
+    actionHref: '/dashboard?tab=swap',
     image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=900&q=80',
     accentColor: 'text-rose-400',
     accentBorder: 'hover:border-rose-400/60',
@@ -162,13 +162,13 @@ export function PersonaIndustryCarousel() {
       return '/transfer';
     }
     if (persona.id === 'entrepreneurs') {
-      return user ? '/dashboard?tab=redotpay' : '/register';
+      return user ? '/dashboard?tab=swap' : '/register';
     }
     if (persona.id === 'startups') {
       return '/investments';
     }
     if (persona.id === 'ecommerce') {
-      return user ? '/dashboard?tab=redotpay' : '/exchange';
+      return user ? '/dashboard?tab=swap' : '/exchange';
     }
     return persona.actionHref;
   };

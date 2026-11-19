@@ -278,7 +278,7 @@ function DashboardContent() {
   const [inspectedUser, setInspectedUser] = useState<any | null>(null);
   const viewedUser: any = isInspectMode && inspectedUser ? inspectedUser : user;
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'notifications' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'redotpay' | 'bank_details'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'notifications' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'swap' | 'bank_details'>('overview');
   const [virtualCardsEnabled, setVirtualCardsEnabled] = useState(false);
 
   useEffect(() => {
@@ -513,7 +513,7 @@ function DashboardContent() {
     } else if (tab === 'security') {
       setActiveTab('security');
     } else if (tab === 'redotpay' || tab === 'swap' || tab === 'fx') {
-      setActiveTab('redotpay');
+      setActiveTab('swap');
     } else if (tab === 'bank' || tab === 'bank_details' || tab === 'bank-details' || tab === 'accounts' || tab === 'bankdetails' || tab === 'linked-accounts') {
       setActiveTab('bank_details');
     }
@@ -813,7 +813,7 @@ function DashboardContent() {
         tab === 'transfers' ||
         tab === 'support' ||
         tab === 'security' ||
-        tab === 'redotpay' ||
+        tab === 'swap' ||
         tab === 'bank_details'
       ) {
         setActiveTab(tab);
@@ -1533,7 +1533,7 @@ function DashboardContent() {
 
               <button
                 onClick={() => {
-                  setActiveTab('redotpay');
+                  setActiveTab('swap');
                   window.scrollTo({ top: 320, behavior: 'smooth' });
                 }}
                 className="px-4 py-2.5 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
@@ -1582,7 +1582,7 @@ function DashboardContent() {
               {[
                 { key: 'overview', label: 'Overview', icon: Wallet },
                 { key: 'notifications', label: 'Notifications', icon: Bell, badgeCount: notifSummary.unreadCount },
-                { key: 'redotpay', label: 'Instant Swap & FX', icon: ArrowLeftRight },
+                { key: 'swap', label: 'Instant Swap & FX', icon: ArrowLeftRight },
                 { key: 'transfers', label: 'Account & QR Transfers', icon: QrCode },
                 { key: 'bank_details', label: 'Bank Details', icon: Landmark },
                 ...(virtualCardsEnabled ? [{ key: 'card', label: 'Virtual Cards', icon: CreditCard }] : []),
@@ -1633,8 +1633,8 @@ function DashboardContent() {
       {/* MAIN CONTENT AREA */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
 
-        {/* REDOTPAY APP MODE TAB */}
-        {activeTab === 'redotpay' && (
+        {/* INSTANT SWAP & FX MODE TAB */}
+        {activeTab === 'swap' && (
           <div className="py-2 animate-in fade-in duration-300">
             <RedotPayAppModule
               user={user}
@@ -1862,7 +1862,7 @@ function DashboardContent() {
               
               {/* Card 1: Available Balance */}
               <div
-                onClick={() => setActiveTab('redotpay')}
+                onClick={() => setActiveTab('swap')}
                 className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2 cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group"
                 title="Click to view full Multi-Currency Balances & Instant Swap"
               >

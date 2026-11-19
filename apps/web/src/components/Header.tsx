@@ -141,7 +141,7 @@ export const Header: React.FC = () => {
             ]
           : []),
         {
-          href: '/dashboard?tab=redotpay',
+          href: '/dashboard?tab=swap',
           label: 'Avora Pay & Instant Swap',
           description: 'Multi-currency treasury wallet & real-time FX swap',
           icon: Wallet,
