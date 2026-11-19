@@ -344,7 +344,14 @@ export default function AdminOtcTab({
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+        <button
+          type="button"
+          onClick={() => {
+            setSubTab('DESKS');
+            setDeskStatusFilter('ACTIVE');
+          }}
+          className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border border-slate-800 hover:border-emerald-500/40 text-left space-y-1 transition-all cursor-pointer group"
+        >
           <div className="flex items-center justify-between text-[11px] font-bold uppercase text-emerald-400">
             <span>OTC Desks</span>
             <Building2 className="w-4 h-4" />
@@ -353,12 +360,19 @@ export default function AdminOtcTab({
             {summary?.activeDesks ?? desks.filter((d) => d.status === 'ACTIVE').length}{' '}
             <span className="text-xs font-normal text-slate-400">/ {summary?.totalDesks ?? desks.length} total</span>
           </div>
-          <p className="text-[11px] text-slate-400">
-            {summary?.onlineDesks ?? desks.filter((d) => d.isOnline).length} online now
+          <p className="text-[11px] text-slate-400 group-hover:text-emerald-300">
+            {summary?.onlineDesks ?? desks.filter((d) => d.isOnline).length} online now · View Active →
           </p>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1">
+        <button
+          type="button"
+          onClick={() => {
+            setSubTab('DESKS');
+            setDeskStatusFilter('ALL');
+          }}
+          className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border border-emerald-500/30 hover:border-emerald-400 text-left space-y-1 transition-all cursor-pointer group"
+        >
           <div className="flex items-center justify-between text-[11px] font-bold uppercase text-emerald-400">
             <span>Security Deposits</span>
             <Lock className="w-4 h-4" />
@@ -366,10 +380,19 @@ export default function AdminOtcTab({
           <div className="text-2xl font-black font-mono text-white">
             ${parseFloat(summary?.totalSecurityDepositsLocked || '0').toLocaleString()}
           </div>
-          <p className="text-[11px] text-slate-400">Custody collateral ($1,000/desk)</p>
-        </div>
+          <p className="text-[11px] text-slate-400 group-hover:text-emerald-300">
+            Custody collateral ($1,000/desk) · All Desks →
+          </p>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-sky-500/30 space-y-1">
+        <button
+          type="button"
+          onClick={() => {
+            setSubTab('TRADES');
+            setTradeStatusFilter('IN_PROGRESS');
+          }}
+          className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border border-sky-500/30 hover:border-sky-400 text-left space-y-1 transition-all cursor-pointer group"
+        >
           <div className="flex items-center justify-between text-[11px] font-bold uppercase text-sky-400">
             <span>Active Escrows</span>
             <Landmark className="w-4 h-4" />
@@ -377,16 +400,21 @@ export default function AdminOtcTab({
           <div className="text-2xl font-black font-mono text-white">
             {summary?.activeTrades ?? trades.filter((t) => t.status === 'IN_PROGRESS').length}
           </div>
-          <p className="text-[11px] text-slate-400">
-            {summary?.totalTrades ?? trades.length} lifetime trades
+          <p className="text-[11px] text-slate-400 group-hover:text-sky-300">
+            {summary?.totalTrades ?? trades.length} lifetime trades · Inspect →
           </p>
-        </div>
+        </button>
 
-        <div
-          className={`p-4 rounded-2xl border space-y-1 ${
+        <button
+          type="button"
+          onClick={() => {
+            setSubTab('TRADES');
+            setTradeStatusFilter('DISPUTED');
+          }}
+          className={`p-4 rounded-2xl border text-left space-y-1 transition-all cursor-pointer group ${
             (summary?.disputedTrades ?? trades.filter((t) => t.status === 'DISPUTED').length) > 0
-              ? 'bg-rose-950/35 border-rose-500/50'
-              : 'bg-slate-900 border-slate-800'
+              ? 'bg-rose-950/35 border-rose-500/50 hover:border-rose-400'
+              : 'bg-slate-900 border-slate-800 hover:border-rose-500/40'
           }`}
         >
           <div className="flex items-center justify-between text-[11px] font-bold uppercase text-rose-400">
@@ -396,10 +424,24 @@ export default function AdminOtcTab({
           <div className="text-2xl font-black font-mono text-white">
             {summary?.disputedTrades ?? trades.filter((t) => t.status === 'DISPUTED').length}
           </div>
-          <p className="text-[11px] text-slate-400">Requires compliance ruling</p>
-        </div>
+          <p className="text-[11px] text-slate-400 group-hover:text-rose-300">Requires compliance ruling →</p>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-amber-500/30 space-y-1">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setSubTab('TRADES');
+            setTradeStatusFilter('COMPLETED');
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              setSubTab('TRADES');
+              setTradeStatusFilter('COMPLETED');
+            }
+          }}
+          className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border border-amber-500/30 hover:border-amber-400 space-y-1 transition-all cursor-pointer"
+        >
           <div className="flex items-center justify-between text-[11px] font-bold uppercase text-amber-400">
             <span>Settled Vol &amp; Split ({otcCommission.totalFeePct}%)</span>
             <DollarSign className="w-4 h-4" />
@@ -420,7 +462,10 @@ export default function AdminOtcTab({
             {onOpenRatesConfig && (
               <button
                 type="button"
-                onClick={onOpenRatesConfig}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenRatesConfig();
+                }}
                 className="text-cyan-400 hover:underline font-bold cursor-pointer"
               >
                 Edit FX &amp; Fees ({otcCommission.operatorFeePct}% / {otcCommission.platformFeePct}%) →

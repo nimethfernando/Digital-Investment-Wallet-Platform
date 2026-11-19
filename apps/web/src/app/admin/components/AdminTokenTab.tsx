@@ -138,34 +138,79 @@ export default function AdminTokenTab({
 
       {/* KPI Summary Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-400 uppercase font-mono">Paid $AVR Investors</span>
+        <button
+          type="button"
+          onClick={() => {
+            setFilterMode('PAID');
+            setPage(1);
+          }}
+          className={`p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border text-left space-y-1 transition-all cursor-pointer group ${
+            filterMode === 'PAID' ? 'border-purple-500/60' : 'border-slate-800 hover:border-purple-500/40'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-400 uppercase font-mono">Paid $AVR Investors</span>
+            <span className="text-[10px] font-bold text-purple-400 group-hover:underline">Filter →</span>
+          </div>
           <div className="text-2xl font-black text-white font-mono">{summary.paidHoldersCount}</div>
           <p className="text-[11px] text-slate-500">
             {summary.whitelistOnlyCount} whitelist-only · {summary.totalRecords} total
           </p>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-400 uppercase font-mono">Total $AVR Held</span>
+        <button
+          type="button"
+          onClick={() => {
+            setFilterMode(filterMode === 'LOCKED' ? 'UNLOCKED' : 'LOCKED');
+            setPage(1);
+          }}
+          className={`p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border text-left space-y-1 transition-all cursor-pointer group ${
+            filterMode === 'LOCKED' || filterMode === 'UNLOCKED'
+              ? 'border-purple-500/60'
+              : 'border-slate-800 hover:border-purple-500/40'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-400 uppercase font-mono">Total $AVR Held</span>
+            <span className="text-[10px] font-bold text-purple-400 group-hover:underline">Toggle Lock →</span>
+          </div>
           <div className="text-2xl font-black text-purple-400 font-mono">
             {summary.totalTokensAllocated.toLocaleString('en-US', { maximumFractionDigits: 2 })} AVR
           </div>
           <p className="text-[11px] text-slate-500">
             {summary.unlockedHoldersCount} unlocked · {summary.lockedHoldersCount} locked
           </p>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-400 uppercase font-mono">Total Capital Paid</span>
+        <button
+          type="button"
+          onClick={() => {
+            setFilterMode('ALL');
+            setPage(1);
+          }}
+          className={`p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border text-left space-y-1 transition-all cursor-pointer group ${
+            filterMode === 'ALL' ? 'border-slate-600' : 'border-slate-800 hover:border-slate-600'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-400 uppercase font-mono">Total Capital Paid</span>
+            <span className="text-[10px] font-bold text-slate-300 group-hover:underline">Show All →</span>
+          </div>
           <div className="text-2xl font-black text-white font-mono">
             ${summary.totalPaidUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <p className="text-[11px] text-slate-500">Cost basis across $AVR buyers</p>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1">
-          <span className="text-[10px] text-emerald-400 uppercase font-mono">Live Redemption Value</span>
+        <button
+          type="button"
+          onClick={() => onNavigateTab('config')}
+          className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border border-emerald-500/30 hover:border-emerald-400 text-left space-y-1 transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-emerald-400 uppercase font-mono">Live Redemption Value</span>
+            <span className="text-[10px] font-bold text-emerald-400 group-hover:underline">Edit Policy →</span>
+          </div>
           <div className="text-2xl font-black text-emerald-400 font-mono">
             ${summary.currentLiabilityUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
@@ -173,7 +218,7 @@ export default function AdminTokenTab({
             Holder PnL: {summary.totalUnrealizedProfitUsd >= 0 ? '+' : '-'}$
             {Math.abs(summary.totalUnrealizedProfitUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-        </div>
+        </button>
       </div>
 
       {/* Filters & Search */}

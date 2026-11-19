@@ -129,7 +129,11 @@ export default function AdminRemittanceTab({
       t.transferReason?.toLowerCase().includes(q) ||
       t.destinationCountry?.toLowerCase().includes(q);
 
-    const matchStatus = !statusFilter || t.status === statusFilter;
+    const matchStatus =
+      !statusFilter ||
+      (statusFilter === 'AWAITING_CLEARANCE'
+        ? ['SUBMITTED', 'PROCESSING'].includes(t.status)
+        : t.status === statusFilter);
     return matchSearch && matchStatus;
   });
 
@@ -163,10 +167,14 @@ export default function AdminRemittanceTab({
 
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
             className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 outline-none focus:border-teal-500"
           >
             <option value="">All Statuses</option>
+            <option value="AWAITING_CLEARANCE">AWAITING CLEARANCE</option>
             <option value="SUBMITTED">SUBMITTED</option>
             <option value="PROCESSING">PROCESSING</option>
             <option value="COMPLETED">COMPLETED</option>
@@ -185,26 +193,74 @@ export default function AdminRemittanceTab({
 
       {/* Corridors Quick Stats Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-400 uppercase font-mono">Total Remittance Orders</span>
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter('');
+            setPage(1);
+          }}
+          className={`p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border text-left space-y-1 transition-all cursor-pointer group ${
+            statusFilter === '' ? 'border-teal-500/50' : 'border-slate-800 hover:border-slate-700'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-400 uppercase font-mono">Total Remittance Orders</span>
+            <span className="text-[10px] font-bold text-teal-400 group-hover:underline">Show All →</span>
+          </div>
           <div className="text-xl font-black text-white font-mono">{transfers.length}</div>
-        </div>
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-400 uppercase font-mono">Awaiting Clearance</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter('AWAITING_CLEARANCE');
+            setPage(1);
+          }}
+          className={`p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border text-left space-y-1 transition-all cursor-pointer group ${
+            statusFilter === 'AWAITING_CLEARANCE' ? 'border-amber-500/60' : 'border-slate-800 hover:border-amber-500/40'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-400 uppercase font-mono">Awaiting Clearance</span>
+            <span className="text-[10px] font-bold text-amber-400 group-hover:underline">Filter →</span>
+          </div>
           <div className="text-xl font-black text-amber-400 font-mono">
             {transfers.filter((t) => ['SUBMITTED', 'PROCESSING'].includes(t.status)).length}
           </div>
-        </div>
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-400 uppercase font-mono">Completed Transfers</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter('COMPLETED');
+            setPage(1);
+          }}
+          className={`p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border text-left space-y-1 transition-all cursor-pointer group ${
+            statusFilter === 'COMPLETED' ? 'border-emerald-500/60' : 'border-slate-800 hover:border-emerald-500/40'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-400 uppercase font-mono">Completed Transfers</span>
+            <span className="text-[10px] font-bold text-emerald-400 group-hover:underline">Filter →</span>
+          </div>
           <div className="text-xl font-black text-emerald-400 font-mono">
             {transfers.filter((t) => t.status === 'COMPLETED').length}
           </div>
-        </div>
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-400 uppercase font-mono">Corridor Protocol Take</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter('');
+            setSearch('');
+            setPage(1);
+          }}
+          className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/70 border border-slate-800 hover:border-teal-500/40 text-left space-y-1 transition-all cursor-pointer group"
+          title="Click to reset filters and view fee & FX conversion breakdown across all transfers"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-400 uppercase font-mono">Corridor Protocol Take</span>
+            <span className="text-[10px] font-bold text-teal-400 group-hover:underline">Reset →</span>
+          </div>
           <div className="text-xl font-black text-teal-400 font-mono">3.0% Fee + 2.0% Margin</div>
-        </div>
+        </button>
       </div>
 
       {/* Transfers Table */}

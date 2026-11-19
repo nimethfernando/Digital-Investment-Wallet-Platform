@@ -89,6 +89,7 @@ export default function AdminStartupsTab({
   const [commitmentPage, setCommitmentPage] = useState(1);
   const [commitmentPageSize, setCommitmentPageSize] = useState(50);
   const [selectedCommitment, setSelectedCommitment] = useState<any | null>(null);
+  const [startupKpiModal, setStartupKpiModal] = useState<'REAL_LEDGER' | 'OFFSETS' | 'FEES_PIPELINE' | null>(null);
   const commitmentsSectionRef = useRef<HTMLDivElement | null>(null);
   const [local2FaCode, setLocal2FaCode] = useState('');
   const [modalError, setModalError] = useState<string | null>(null);
@@ -796,8 +797,15 @@ export default function AdminStartupsTab({
         const reviewCnt = listings.filter((l) => l.status === 'UNDER_REVIEW').length;
         return (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/35 space-y-1">
-              <span className="text-[10px] text-emerald-400 uppercase font-mono font-bold">Real Ledger-Backed Raised</span>
+            <button
+              type="button"
+              onClick={() => setStartupKpiModal('REAL_LEDGER')}
+              className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/80 border border-emerald-500/35 hover:border-emerald-400 text-left space-y-1 transition-all cursor-pointer group"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-emerald-400 uppercase font-mono font-bold">Real Ledger-Backed Raised</span>
+                <span className="text-[10px] font-bold text-emerald-400 group-hover:underline">Inspect →</span>
+              </div>
               <div className="text-2xl font-black text-emerald-400 font-mono">
                 ${realWalletNetUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
               </div>
@@ -809,14 +817,21 @@ export default function AdminStartupsTab({
                   + ${externalNetUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} External Bank/SPV Settled ({externalRows.length})
                 </p>
               )}
-            </div>
+            </button>
 
-            <div className={`p-4 rounded-2xl bg-slate-900 border space-y-1 ${
-              Math.abs(displayOffsetUsd) > 0.01 || mockRows.length > 0
-                ? 'border-amber-500/40'
-                : 'border-slate-800'
-            }`}>
-              <span className="text-[10px] text-amber-300 uppercase font-mono font-bold">Admin Showcase / Unbacked Offsets</span>
+            <button
+              type="button"
+              onClick={() => setStartupKpiModal('OFFSETS')}
+              className={`p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/80 border text-left space-y-1 transition-all cursor-pointer group ${
+                Math.abs(displayOffsetUsd) > 0.01 || mockRows.length > 0
+                  ? 'border-amber-500/40 hover:border-amber-400'
+                  : 'border-slate-800 hover:border-amber-500/40'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-amber-300 uppercase font-mono font-bold">Admin Showcase / Unbacked Offsets</span>
+                <span className="text-[10px] font-bold text-amber-400 group-hover:underline">Inspect →</span>
+              </div>
               <div className="text-2xl font-black text-amber-300 font-mono">
                 ${(displayOffsetUsd + mockCommitmentsUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
               </div>
@@ -826,17 +841,24 @@ export default function AdminStartupsTab({
               <p className="text-[10px] text-amber-400/90 font-semibold">
                 Strictly excluded from real wallet totals, vault fees &amp; exits
               </p>
-            </div>
+            </button>
 
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-[10px] text-slate-400 uppercase font-mono">Real Protocol Fees · Pipeline</span>
+            <button
+              type="button"
+              onClick={() => setStartupKpiModal('FEES_PIPELINE')}
+              className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-purple-500/40 text-left space-y-1 transition-all cursor-pointer group"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-slate-400 uppercase font-mono">Real Protocol Fees · Pipeline</span>
+                <span className="text-[10px] font-bold text-purple-400 group-hover:underline">Inspect →</span>
+              </div>
               <div className="text-2xl font-black text-white font-mono">
                 ${totalFeesCollected.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
               </div>
               <p className="text-[10px] text-slate-400">
                 {publishedCnt} Published · {reviewCnt} Under Review · {inquiries.filter((q) => !q.response).length} Open Inquiries
               </p>
-            </div>
+            </button>
           </div>
         );
       })()}
@@ -3455,6 +3477,275 @@ export default function AdminStartupsTab({
           </form>
         </div>
       )}
+
+      {/* Startup Portfolios KPI Drill-Down Modal */}
+      {startupKpiModal && (() => {
+        const realRows = commitments.filter((c) => (c.sourceType || 'REAL_WALLET') === 'REAL_WALLET');
+        const extRows = commitments.filter((c) => c.sourceType === 'ADMIN_EXTERNAL_VERIFIED');
+        const mockRowsList = commitments.filter((c) => c.sourceType === 'ADMIN_DISPLAY_MOCK');
+        const realAndExtRows = [...realRows, ...extRows];
+        const realNetSum = realRows.reduce((s, c) => s + parseFloat(c.netInvestedAmount || '0'), 0);
+        const extNetSum = extRows.reduce((s, c) => s + parseFloat(c.netInvestedAmount || '0'), 0);
+        const totalHeadline = listings.reduce((s, l) => s + parseFloat(l.verifiedFundsRaised || '0'), 0);
+        const totalOffset = totalHeadline - (realNetSum + extNetSum) + mockRowsList.reduce((s, c) => s + parseFloat(c.netInvestedAmount || '0'), 0);
+        const totalFees = realAndExtRows.reduce(
+          (s, c) => s + parseFloat(c.allocationFeeAmount || '0') + parseFloat(c.profitShareFeeAmount || '0'),
+          0
+        );
+
+        const offsetCampaigns = listings.filter((l) => {
+          const headline = parseFloat(l.verifiedFundsRaised || '0');
+          const actual = parseFloat(l.actualCollectedFromUsersUsd ?? '0');
+          return Math.abs(headline - actual) > 0.01;
+        });
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={() => setStartupKpiModal(null)}
+          >
+            <div
+              className="w-full max-w-4xl max-h-[88vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-6 py-4 border-b border-slate-800 bg-slate-950/70 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-extrabold text-white">
+                    {startupKpiModal === 'REAL_LEDGER'
+                      ? 'Real Ledger-Backed Raised — Itemized Commitments'
+                      : startupKpiModal === 'OFFSETS'
+                      ? 'Admin Showcase / Unbacked Offsets — Campaign Breakdown'
+                      : 'Real Protocol Fees & Venture Pipeline Breakdown'}
+                  </h3>
+                  <div
+                    className={`text-2xl font-black font-mono mt-1 ${
+                      startupKpiModal === 'REAL_LEDGER'
+                        ? 'text-emerald-400'
+                        : startupKpiModal === 'OFFSETS'
+                        ? 'text-amber-300'
+                        : 'text-white'
+                    }`}
+                  >
+                    {startupKpiModal === 'REAL_LEDGER'
+                      ? `$${realNetSum.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD (+$${extNetSum.toLocaleString('en-US', { minimumFractionDigits: 2 })} external)`
+                      : startupKpiModal === 'OFFSETS'
+                      ? `$${totalOffset.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD Unbacked Offset`
+                      : `$${totalFees.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD Protocol Fees`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStartupKpiModal(null)}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                  aria-label="Close startup KPI breakdown"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="px-6 py-3 border-b border-slate-800/80 bg-slate-900 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-slate-400">
+                  {startupKpiModal === 'REAL_LEDGER'
+                    ? 'Click any commitment row below to inspect investor equity dossier or filter the main table.'
+                    : startupKpiModal === 'OFFSETS'
+                    ? 'Campaigns whose displayed Card Headline differs from actual Real Wallet + External SPV ledger funds.'
+                    : `${listings.filter((l) => l.status === 'PUBLISHED').length} Published · ${listings.filter((l) => l.status === 'UNDER_REVIEW').length} Under Review · ${inquiries.filter((q) => !q.response).length} Open Inquiries`}
+                </span>
+                {startupKpiModal !== 'OFFSETS' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommitmentSourceFilter('REAL_WALLET');
+                      setCommitmentPage(1);
+                      setStartupKpiModal(null);
+                      setTimeout(() => {
+                        commitmentsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 50);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 font-bold cursor-pointer"
+                  >
+                    Filter Table: Real Wallet Only ({realRows.length}) →
+                  </button>
+                )}
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-2.5">
+                {startupKpiModal === 'REAL_LEDGER' && (
+                  realAndExtRows.length === 0 ? (
+                    <div className="py-10 text-center text-sm text-slate-500">
+                      No real or externally verified investor commitments recorded yet.
+                    </div>
+                  ) : (
+                    realAndExtRows.map((c) => {
+                      const invName =
+                        `${c.investor?.firstName || ''} ${c.investor?.lastName || ''}`.trim() ||
+                        c.investor?.email ||
+                        'Investor';
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setStartupKpiModal(null);
+                            setSelectedCommitment(c);
+                          }}
+                          className="w-full p-3.5 rounded-2xl bg-slate-950/70 hover:bg-slate-800/80 border border-slate-800 hover:border-emerald-500/40 flex flex-wrap items-center justify-between gap-3 text-left transition-all cursor-pointer group"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-xs text-purple-300 group-hover:underline">
+                                {c.investmentCode}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-emerald-300">
+                                {c.sourceType || 'REAL_WALLET'}
+                              </span>
+                              {c.ledgerTxCode && (
+                                <span className="text-[10px] font-mono text-slate-500">{c.ledgerTxCode}</span>
+                              )}
+                            </div>
+                            <div className="text-xs font-bold text-white mt-0.5">
+                              {c.listing?.companyName || 'Campaign'} — {invName}
+                            </div>
+                            <div className="text-[11px] text-slate-400">{c.investor?.email}</div>
+                          </div>
+                          <div className="flex items-center gap-5 text-xs font-mono">
+                            <div>
+                              <div className="text-[10px] text-slate-500 font-sans">Net Invested</div>
+                              <div className="font-bold text-emerald-400">
+                                ${parseFloat(c.netInvestedAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] text-slate-500 font-sans">Status</div>
+                              <div className="font-bold text-slate-200">{c.status}</div>
+                            </div>
+                            <span className="text-[11px] font-sans font-bold text-slate-400 group-hover:text-emerald-400">
+                              Inspect →
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )
+                )}
+
+                {startupKpiModal === 'OFFSETS' && (
+                  <>
+                    {offsetCampaigns.length === 0 && mockRowsList.length === 0 ? (
+                      <div className="py-10 text-center text-sm text-slate-500">
+                        All startup card headlines match the verified real ledger 100% (zero unbacked offsets).
+                      </div>
+                    ) : (
+                      <>
+                        {offsetCampaigns.map((l) => {
+                          const headline = parseFloat(l.verifiedFundsRaised || '0');
+                          const actual = parseFloat(l.actualCollectedFromUsersUsd ?? '0');
+                          const diff = headline - actual;
+                          return (
+                            <div
+                              key={l.id}
+                              className="p-4 rounded-2xl bg-slate-950/70 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs"
+                            >
+                              <div>
+                                <div className="font-bold text-white text-sm">{l.companyName}</div>
+                                <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                                  Card Headline: ${headline.toLocaleString('en-US', { minimumFractionDigits: 2 })} · Real Ledger: $
+                                  {actual.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="font-mono font-bold text-amber-300">
+                                  Offset: {diff >= 0 ? '+' : '-'}${Math.abs(diff).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSyncListingMetrics(l.id)}
+                                  disabled={syncingId === l.id}
+                                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/40 font-bold cursor-pointer disabled:opacity-50"
+                                >
+                                  {syncingId === l.id ? 'Syncing...' : 'Reset Card to Real Ledger'}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {mockRowsList.map((m) => (
+                          <div
+                            key={m.id}
+                            className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 flex items-center justify-between text-xs"
+                          >
+                            <div>
+                              <span className="font-mono font-bold text-amber-300">{m.investmentCode}</span>{' '}
+                              <span className="text-white font-semibold">· {m.listing?.companyName}</span>
+                              <div className="text-[11px] text-slate-400">ADMIN_DISPLAY_MOCK entry</div>
+                            </div>
+                            <span className="font-mono font-bold text-amber-300">
+                              ${parseFloat(m.netInvestedAmount || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </>
+                )}
+
+                {startupKpiModal === 'FEES_PIPELINE' && (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-2">
+                      <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
+                        <div className="text-[10px] uppercase text-slate-400 font-bold">Published Campaigns</div>
+                        <div className="text-xl font-black font-mono text-emerald-400">
+                          {listings.filter((l) => l.status === 'PUBLISHED').length}
+                        </div>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
+                        <div className="text-[10px] uppercase text-slate-400 font-bold">Under Review / Suspended</div>
+                        <div className="text-xl font-black font-mono text-amber-300">
+                          {listings.filter((l) => l.status !== 'PUBLISHED').length}
+                        </div>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
+                        <div className="text-[10px] uppercase text-slate-400 font-bold">Open Investor Inquiries</div>
+                        <div className="text-xl font-black font-mono text-sky-400">
+                          {inquiries.filter((q) => !q.response).length}
+                        </div>
+                      </div>
+                    </div>
+                    {realAndExtRows
+                      .filter((c) => parseFloat(c.allocationFeeAmount || '0') + parseFloat(c.profitShareFeeAmount || '0') > 0)
+                      .map((c) => {
+                        const allocFee = parseFloat(c.allocationFeeAmount || '0');
+                        const profitFee = parseFloat(c.profitShareFeeAmount || '0');
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setStartupKpiModal(null);
+                              setSelectedCommitment(c);
+                            }}
+                            className="w-full p-3.5 rounded-2xl bg-slate-950/70 hover:bg-slate-800/80 border border-slate-800 hover:border-purple-500/40 flex flex-wrap items-center justify-between gap-3 text-left text-xs cursor-pointer"
+                          >
+                            <div>
+                              <span className="font-mono font-bold text-purple-300">{c.investmentCode}</span>{' '}
+                              <span className="font-bold text-white">· {c.listing?.companyName || 'Campaign'}</span>
+                              <div className="text-[11px] text-slate-400">{c.investor?.email}</div>
+                            </div>
+                            <div className="flex items-center gap-4 font-mono">
+                              <span className="text-slate-300">Alloc Fee: ${allocFee.toFixed(2)}</span>
+                              <span className="text-slate-300">Profit Fee: ${profitFee.toFixed(2)}</span>
+                              <span className="font-bold text-emerald-400">Total: ${(allocFee + profitFee).toFixed(2)}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

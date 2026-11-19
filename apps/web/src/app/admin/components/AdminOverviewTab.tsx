@@ -296,9 +296,16 @@ export default function AdminOverviewTab({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <div className="p-4 rounded-2xl bg-slate-950/80 border border-emerald-500/30 space-y-1">
-              <div className="text-[10px] text-emerald-400 uppercase font-mono font-bold">
-                Available in Vault (Ready to Claim)
+            <button
+              type="button"
+              onClick={() => onNavigateTab('treasury')}
+              className="p-4 rounded-2xl bg-slate-950/80 hover:bg-slate-900 border border-emerald-500/30 hover:border-emerald-400 text-left space-y-1 transition-all cursor-pointer group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-emerald-400 uppercase font-mono font-bold">
+                  Available in Vault (Ready to Claim)
+                </div>
+                <span className="text-[10px] font-bold text-emerald-400 group-hover:underline">Ledger →</span>
               </div>
               <div className="text-2xl font-black text-emerald-400 font-mono">
                 ${formatMoney(revVault?.unclaimedVaultTotalUsd || '0')}
@@ -313,27 +320,41 @@ export default function AdminOverviewTab({
                   </span>
                 ))}
               </div>
-            </div>
+            </button>
 
-            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-400 uppercase font-mono font-bold">
-                Claimed to Admin Wallet
+            <button
+              type="button"
+              onClick={() => onNavigateTab('treasury')}
+              className="p-4 rounded-2xl bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-600 text-left space-y-1 transition-all cursor-pointer group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-slate-400 uppercase font-mono font-bold">
+                  Claimed to Admin Wallet
+                </div>
+                <span className="text-[10px] font-bold text-slate-300 group-hover:underline">Payouts →</span>
               </div>
               <div className="text-2xl font-black text-white font-mono">
                 ${formatMoney(revVault?.claimedToAdminWalletTotalUsd || '0')}
               </div>
               <p className="text-[10px] text-slate-500">Transferred via double-entry payout into spendable Admin balances</p>
-            </div>
+            </button>
 
-            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-400 uppercase font-mono font-bold">
-                Total All-Module Fee Revenue
+            <button
+              type="button"
+              onClick={() => onNavigateTab('treasury')}
+              className="p-4 rounded-2xl bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-left space-y-1 transition-all cursor-pointer group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-slate-400 uppercase font-mono font-bold">
+                  Total All-Module Fee Revenue
+                </div>
+                <span className="text-[10px] font-bold text-amber-400 group-hover:underline">Breakdown →</span>
               </div>
               <div className="text-2xl font-black text-amber-400 font-mono">
                 ${formatMoney(revBreakdown?.grandTotalEarningsUsd || '0')}
               </div>
               <p className="text-[10px] text-slate-500">Includes historical Razorpay margin &amp; GMT FX corridor estimates</p>
-            </div>
+            </button>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-[11px]">
