@@ -714,6 +714,7 @@ function P2PPageContent() {
   const [loadingOffers, setLoadingOffers] = useState(false);
   const [myOffers, setMyOffers] = useState<any[]>([]);
   const [loadingMyOffers, setLoadingMyOffers] = useState(false);
+  const [walletBalances, setWalletBalances] = useState<Record<string, number>>({});
 
   // Orders State
   const [ordersMainTab, setOrdersMainTab] = useState<'ongoing' | 'fulfilled'>('ongoing');
@@ -919,7 +920,15 @@ function P2PPageContent() {
   // Express exchange calculations
   const expressSpotRaw = getCryptoFiatSpotRate(expressCrypto, expressCurrency);
   const expressRate = Number(expressSpotRaw.toFixed(expressSpotRaw >= 20 ? 2 : 4));
-  const expressMinLimit = (175.94).toFixed(2);
+  const expressCorridorMinMap: Record<string, number> = {
+    INR: 100,
+    LKR: 300,
+    AED: 10,
+    GEL: 15,
+    EUR: 5,
+    USD: 5,
+  };
+  const expressMinLimit = (expressCorridorMinMap[expressCurrency] ?? 5).toFixed(2);
   const expressMaxLimit = (500000.0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const expressDecimals = expressCrypto === 'USDT' || expressCrypto === 'USDC' ? 2 : 6;
   const expressCryptoCalculated =
@@ -1072,6 +1081,7 @@ function P2PPageContent() {
           setActiveNav('orders');
           setActiveChatOrder(res.data.data);
           fetchOrders();
+          fetchWalletBalances();
           window.dispatchEvent(new Event('avora-notifications-refresh'));
           return;
         }
@@ -1113,14 +1123,33 @@ function P2PPageContent() {
     }
   };
 
+  const fetchWalletBalances = async () => {
+    try {
+      const res = await api.get('/wallet/portfolio');
+      const rawBals = res.data?.data?.balances || res.data?.balances || [];
+      if (Array.isArray(rawBals)) {
+        const mapped: Record<string, number> = {};
+        for (const b of rawBals) {
+          const cur = String(b.currency || '').toUpperCase();
+          if (cur) mapped[cur] = parseFloat(String(b.availableBalance ?? b.available ?? '0')) || 0;
+        }
+        setWalletBalances(mapped);
+      }
+    } catch {
+      // Ignore if unauthenticated
+    }
+  };
+
   useEffect(() => {
     if (user) {
       setMerchantMsg(null);
       fetchMerchantStatus();
+      fetchWalletBalances();
       fetchOrders();
       fetchMyOffers();
     } else {
       setMerchantStatus(null);
+      setWalletBalances({});
       setOrdersList([]);
       setMyOffers([]);
     }
@@ -1529,6 +1558,7 @@ function P2PPageContent() {
         setActiveNav('orders');
         setActiveChatOrder(res.data.data);
         fetchOrders();
+        fetchWalletBalances();
         window.dispatchEvent(new Event('avora-notifications-refresh'));
       }
     } catch (err: any) {
@@ -2329,6 +2359,35 @@ function P2PPageContent() {
         </Link>
       </div>
 
+      {/* Glanceable Wallet Balance Bar for Signed-In Users */}
+      {user && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Your Wallet:
+            </span>
+            {(['USDT', 'USDC', 'BTC', 'ETH', 'USD'] as const).map((cur) => {
+              const val = walletBalances[cur] ?? 0;
+              const decimals = cur === 'BTC' || cur === 'ETH' ? 4 : 2;
+              return (
+                <span key={cur} className="font-mono font-bold text-slate-900 dark:text-white">
+                  <span className="text-slate-500 dark:text-slate-400">{cur}:</span>{' '}
+                  <span className={val > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}>
+                    {cur === 'USD' ? `$${val.toFixed(2)}` : val.toFixed(decimals)}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+          <Link
+            href="/exchange"
+            className="text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400 hover:underline whitespace-nowrap"
+          >
+            Convert USD ↔ USDT (Instant Swap) →
+          </Link>
+        </div>
+      )}
+
       {/* -------------------------------------------------------------------- */}
       {/* PILLAR 1: EXPRESS VIEW (Direct Match to Screenshot 3177171f) */}
       {/* -------------------------------------------------------------------- */}
@@ -2398,11 +2457,23 @@ function P2PPageContent() {
             </select>
           </div>
 
-          {/* Big Amount Display */}
+          {/* Big Editable Amount Display */}
           <div className="space-y-1">
-            <div className="text-4xl sm:text-5xl font-extrabold text-white tracking-tight font-mono flex items-baseline gap-2">
-              <span>{expressAmount === '0' || !expressAmount ? '0' : Number(expressAmount).toLocaleString()}</span>
-              <span className="text-xl sm:text-2xl text-zinc-400 font-sans font-bold">{expressCurrency}</span>
+            <div className="flex items-baseline gap-2 border-b border-zinc-800/80 pb-2">
+              <input
+                type="number"
+                step="any"
+                min="0"
+                value={expressAmount === '0' ? '' : expressAmount}
+                placeholder="0"
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setExpressAmount(raw === '' ? '0' : raw);
+                }}
+                aria-label="Express Trade Amount"
+                className="w-full bg-transparent text-4xl sm:text-5xl font-extrabold text-white placeholder:text-zinc-600 tracking-tight font-mono outline-none"
+              />
+              <span className="text-xl sm:text-2xl text-zinc-400 font-sans font-bold shrink-0">{expressCurrency}</span>
             </div>
 
             {/* Real-time Exchange Rate & Limits */}
@@ -3460,32 +3531,37 @@ function P2PPageContent() {
             <form onSubmit={handleCreateAd} className="space-y-4 text-xs">
               {/* Side & Crypto Asset */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Marketplace Side</label>
+                <div className="sm:col-span-2 space-y-1.5">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold">What do you want to do?</label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setNewAdSide('SELL')}
-                      className={`py-2.5 rounded-xl font-bold transition-all cursor-pointer ${
+                      className={`py-2.5 px-2 rounded-xl font-bold transition-all cursor-pointer text-[11px] leading-tight ${
                         newAdSide === 'SELL'
                           ? 'bg-rose-600 text-white shadow-sm'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
                       }`}
                     >
-                      Taker Sells {newAdCrypto} (You Pay)
+                      Buy {newAdCrypto} from Users (Pay {newAdCurrency})
                     </button>
                     <button
                       type="button"
                       onClick={() => setNewAdSide('BUY')}
-                      className={`py-2.5 rounded-xl font-bold transition-all cursor-pointer ${
+                      className={`py-2.5 px-2 rounded-xl font-bold transition-all cursor-pointer text-[11px] leading-tight ${
                         newAdSide === 'BUY'
                           ? 'bg-emerald-600 text-white shadow-sm'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
                       }`}
                     >
-                      Taker Buys {newAdCrypto} (You Receive)
+                      Sell {newAdCrypto} to Users (Earn {newAdCurrency})
                     </button>
                   </div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    {newAdSide === 'BUY'
+                      ? `Listed under Buy ${newAdCrypto}: buyers lock fiat and your ${newAdCrypto} wallet (Available: ${(walletBalances[newAdCrypto] ?? 0).toFixed(2)} ${newAdCrypto}) fills orders.`
+                      : `Listed under Sell ${newAdCrypto}: sellers lock their ${newAdCrypto} in escrow and you pay ${newAdCurrency}.`}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Crypto Asset</label>
@@ -4048,7 +4124,17 @@ function P2PPageContent() {
               </div>
 
               <div>
-                <label className="block text-slate-300 font-bold mb-1">{selectedOfferForTrade.cryptoCurrency} to Trade</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-300 font-bold">{selectedOfferForTrade.cryptoCurrency} to Trade</label>
+                  {marketSide === 'SELL' && user && (
+                    <span className="text-[11px] font-mono text-slate-400">
+                      Available:{' '}
+                      <strong className={(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0) >= (parseFloat(tradeCryptoAmount || '0') || 0) ? 'text-emerald-400' : 'text-rose-400'}>
+                        {(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0).toFixed(2)} {selectedOfferForTrade.cryptoCurrency}
+                      </strong>
+                    </span>
+                  )}
+                </div>
                 <input
                   type="number"
                   step="any"
@@ -4057,6 +4143,17 @@ function P2PPageContent() {
                   onChange={(e) => setTradeCryptoAmount(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 font-mono font-bold text-white outline-none"
                 />
+                {marketSide === 'SELL' &&
+                  user &&
+                  (walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0) < (parseFloat(tradeCryptoAmount || '0') || 0) && (
+                    <p className="mt-1.5 text-[11px] text-amber-300 leading-snug">
+                      Insufficient {selectedOfferForTrade.cryptoCurrency} in your wallet (USD: $
+                      {(walletBalances['USD'] ?? 0).toFixed(2)}).{' '}
+                      <Link href="/exchange" className="underline font-bold text-emerald-400 hover:text-emerald-300">
+                        Swap USD → {selectedOfferForTrade.cryptoCurrency} first →
+                      </Link>
+                    </p>
+                  )}
               </div>
 
               <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-500/20 space-y-1.5">
@@ -4335,17 +4432,33 @@ function P2PPageContent() {
 
             <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">Total {expressSide === 'BUY' ? 'Payment' : 'Sale'}:</span>
+                <span className="text-slate-400">{expressSide === 'BUY' ? 'You Pay:' : 'Estimated Payout:'}</span>
                 <span className="font-mono font-bold text-white text-base">
                   {Number(expressAmount).toLocaleString()} {expressCurrency}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">You Receive:</span>
+                <span className="text-slate-400">{expressSide === 'BUY' ? 'You Receive:' : 'You Sell:'}</span>
                 <span className="font-mono font-black text-emerald-400 text-lg">
                   {expressCryptoCalculated} {expressCrypto}
                 </span>
               </div>
+              {expressSide === 'SELL' && user && (
+                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-zinc-800/70">
+                  <span className="text-slate-400">Your {expressCrypto} Wallet:</span>
+                  <span className={(walletBalances[expressCrypto] ?? 0) >= (parseFloat(expressCryptoCalculated || '0') || 0) ? 'font-mono font-bold text-emerald-400' : 'font-mono font-bold text-rose-400'}>
+                    {(walletBalances[expressCrypto] ?? 0).toFixed(2)} {expressCrypto}
+                    {(walletBalances[expressCrypto] ?? 0) < (parseFloat(expressCryptoCalculated || '0') || 0) && (
+                      <>
+                        {' · '}
+                        <Link href="/exchange" className="underline text-amber-300">
+                          Swap USD → {expressCrypto}
+                        </Link>
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between border-t border-zinc-800/80 pt-2 text-[11px]">
                 <span className="text-slate-400">Unit Rate:</span>
                 <span className="font-mono text-zinc-300">1 {expressCrypto} ≈ {expressRate} {expressCurrency}</span>
