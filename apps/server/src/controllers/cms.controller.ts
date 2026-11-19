@@ -376,6 +376,7 @@ export const syncBlogTokensAdmin = async (req: Request, res: Response, next: Nex
 
 export const getAiPublisherConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const status = await autoContentService.getPublicAiStatus();
     res.json({ success: true, status });
   } catch (err) {
@@ -385,11 +386,16 @@ export const getAiPublisherConfig = async (req: Request, res: Response, next: Ne
 
 export const saveAiPublisherConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const {
       openaiApiKey,
       geminiApiKey,
       finnhubApiKey,
       alphaVantageApiKey,
+      clearOpenaiKey,
+      clearGeminiKey,
+      clearFinnhubKey,
+      clearAlphaVantageKey,
       autoPublishEnabled,
       autoPublishIntervalHours,
       autoPublishTopics,
@@ -399,11 +405,15 @@ export const saveAiPublisherConfig = async (req: Request, res: Response, next: N
       geminiApiKey,
       finnhubApiKey,
       alphaVantageApiKey,
+      clearOpenaiKey: Boolean(clearOpenaiKey),
+      clearGeminiKey: Boolean(clearGeminiKey),
+      clearFinnhubKey: Boolean(clearFinnhubKey),
+      clearAlphaVantageKey: Boolean(clearAlphaVantageKey),
       autoPublishEnabled,
       autoPublishIntervalHours,
       autoPublishTopics,
     });
-    res.json({ success: true, status });
+    res.json({ success: true, status, message: `Saved configuration. Active Engine: ${status.engineMode}` });
   } catch (err) {
     next(err);
   }

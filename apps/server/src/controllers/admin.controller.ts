@@ -2527,6 +2527,7 @@ export class AdminController {
         p2p_fee_percent: configMap['p2p_fee_percent'] || '0.0',
         p2p_security_deposit_usd: configMap['p2p_security_deposit_usd'] || '50',
         p2p_daily_limit_usd: configMap['p2p_daily_limit_usd'] || '5000',
+        enable_virtual_cards: configMap['enable_virtual_cards'] || 'false',
         virtual_card_issuance_fee: configMap['virtual_card_issuance_fee'] || '10.00',
         avr_token_price_usd: configMap['avr_token_price_usd'] || '0.10',
         avr_lockin_days: configMap['avr_lockin_days'] || '180',
@@ -2589,6 +2590,7 @@ export class AdminController {
         'p2p_fee_percent',
         'p2p_security_deposit_usd',
         'p2p_daily_limit_usd',
+        'enable_virtual_cards',
         'virtual_card_issuance_fee',
         'avr_token_price_usd',
         'avr_lockin_days',
@@ -2608,6 +2610,7 @@ export class AdminController {
           if (key.startsWith('remittance_') || key === 'show_remittance_spread_controls') group = 'REMITTANCE';
           if (key.startsWith('otc_')) group = 'OTC';
           if (key.startsWith('p2p_')) group = 'P2P';
+          if (key === 'enable_virtual_cards' || key.startsWith('virtual_card_')) group = 'CARDS';
           if (key.startsWith('avr_')) group = 'TOKEN';
 
           await prisma.cmsSetting.upsert({

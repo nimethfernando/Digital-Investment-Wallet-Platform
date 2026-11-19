@@ -399,6 +399,10 @@ export class AutoContentService {
       geminiConfigured: Boolean(cfg.geminiApiKey),
       finnhubConfigured: Boolean(cfg.finnhubApiKey),
       alphaVantageConfigured: Boolean(cfg.alphaVantageApiKey),
+      openaiKeyMask: this.maskSecretKey(cfg.openaiApiKey),
+      geminiKeyMask: this.maskSecretKey(cfg.geminiApiKey),
+      finnhubKeyMask: this.maskSecretKey(cfg.finnhubApiKey),
+      alphaVantageKeyMask: this.maskSecretKey(cfg.alphaVantageApiKey),
       autoPublishEnabled: cfg.autoPublishEnabled,
       autoPublishIntervalHours: cfg.autoPublishIntervalHours,
       autoPublishTopics: cfg.autoPublishTopics,
@@ -407,21 +411,53 @@ export class AutoContentService {
     };
   }
 
+  private maskSecretKey(raw?: string | null): string | null {
+    const k = String(raw || '').trim();
+    if (!k) return null;
+    if (k.length <= 8) return `${k.slice(0, 2)}••••${k.slice(-2)}`;
+    return `${k.slice(0, 5)}••••••${k.slice(-4)}`;
+  }
+
+  private sanitizeApiKeyInput(raw?: string): string {
+    return String(raw || '')
+      .trim()
+      .replace(/^["']|["']$/g, '')
+      .trim();
+  }
+
   async saveAiConfig(data: {
     openaiApiKey?: string;
     geminiApiKey?: string;
     finnhubApiKey?: string;
     alphaVantageApiKey?: string;
+    clearOpenaiKey?: boolean;
+    clearGeminiKey?: boolean;
+    clearFinnhubKey?: boolean;
+    clearAlphaVantageKey?: boolean;
     autoPublishEnabled?: boolean;
     autoPublishIntervalHours?: number;
     autoPublishTopics?: string;
   }) {
     const updates: Array<{ key: string; value: string }> = [];
-    if (typeof data.openaiApiKey === 'string') updates.push({ key: 'ai_openai_api_key', value: data.openaiApiKey.trim() });
-    if (typeof data.geminiApiKey === 'string') updates.push({ key: 'ai_gemini_api_key', value: data.geminiApiKey.trim() });
-    if (typeof data.finnhubApiKey === 'string') updates.push({ key: 'ai_finnhub_api_key', value: data.finnhubApiKey.trim() });
-    if (typeof data.alphaVantageApiKey === 'string') {
-      updates.push({ key: 'ai_alphavantage_api_key', value: data.alphaVantageApiKey.trim() });
+    if (data.clearOpenaiKey) {
+      updates.push({ key: 'ai_openai_api_key', value: '' });
+    } else if (typeof data.openaiApiKey === 'string' && this.sanitizeApiKeyInput(data.openaiApiKey)) {
+      updates.push({ key: 'ai_openai_api_key', value: this.sanitizeApiKeyInput(data.openaiApiKey) });
+    }
+    if (data.clearGeminiKey) {
+      updates.push({ key: 'ai_gemini_api_key', value: '' });
+    } else if (typeof data.geminiApiKey === 'string' && this.sanitizeApiKeyInput(data.geminiApiKey)) {
+      updates.push({ key: 'ai_gemini_api_key', value: this.sanitizeApiKeyInput(data.geminiApiKey) });
+    }
+    if (data.clearFinnhubKey) {
+      updates.push({ key: 'ai_finnhub_api_key', value: '' });
+    } else if (typeof data.finnhubApiKey === 'string' && this.sanitizeApiKeyInput(data.finnhubApiKey)) {
+      updates.push({ key: 'ai_finnhub_api_key', value: this.sanitizeApiKeyInput(data.finnhubApiKey) });
+    }
+    if (data.clearAlphaVantageKey) {
+      updates.push({ key: 'ai_alphavantage_api_key', value: '' });
+    } else if (typeof data.alphaVantageApiKey === 'string' && this.sanitizeApiKeyInput(data.alphaVantageApiKey)) {
+      updates.push({ key: 'ai_alphavantage_api_key', value: this.sanitizeApiKeyInput(data.alphaVantageApiKey) });
     }
     if (typeof data.autoPublishEnabled === 'boolean') {
       updates.push({ key: 'ai_auto_publish_enabled', value: data.autoPublishEnabled ? 'true' : 'false' });

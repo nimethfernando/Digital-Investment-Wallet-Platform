@@ -220,13 +220,20 @@ export default function AutoContentPublisher({
   );
   const [publishingNextFresh, setPublishingNextFresh] = useState(false);
   const [savingKeys, setSavingKeys] = useState(false);
+  const [aiConfigFeedback, setAiConfigFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [revealKeyInput, setRevealKeyInput] = useState<Record<'finnhub' | 'alpha' | 'openai' | 'gemini', boolean>>({
+    finnhub: false,
+    alpha: false,
+    openai: false,
+    gemini: false,
+  });
 
   const loadPostsAndStatus = async () => {
     setLoadingPosts(true);
     try {
       const [blogsRes, aiRes, varsRes] = await Promise.all([
         api.get('/cms/admin/blogs'),
-        api.get('/cms/admin/ai-config'),
+        api.get('/cms/admin/ai-config', { timeout: 60000 }),
         api.get('/cms/variables').catch(() => ({ data: null })),
       ]);
       if (Array.isArray(blogsRes.data?.blogs)) {
@@ -250,8 +257,9 @@ export default function AutoContentPublisher({
       if (Array.isArray(varsRes.data?.catalog)) {
         setTokenCatalog(varsRes.data.catalog);
       }
-    } catch {
-      // ignore initial load hiccup
+    } catch (err: any) {
+      const msg = extractErrorMessage(err, 'Could not load AI configuration from server.');
+      setAiConfigFeedback({ text: msg, type: 'error' });
     } finally {
       setLoadingPosts(false);
     }
@@ -557,6 +565,7 @@ export default function AutoContentPublisher({
   const handleSaveAiKeys = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingKeys(true);
+    setAiConfigFeedback(null);
     try {
       const payload: Record<string, any> = {
         autoPublishEnabled,
@@ -568,17 +577,50 @@ export default function AutoContentPublisher({
       if (finnhubKey.trim()) payload.finnhubApiKey = finnhubKey.trim();
       if (alphaVantageKey.trim()) payload.alphaVantageApiKey = alphaVantageKey.trim();
 
-      const res = await api.post('/cms/admin/ai-config', payload);
-      if (res.data?.success) {
+      const res = await api.post('/cms/admin/ai-config', payload, { timeout: 60000 });
+      if (res.data?.success && res.data?.status) {
         setAiStatus(res.data.status);
         setOpenaiKey('');
         setGeminiKey('');
         setFinnhubKey('');
         setAlphaVantageKey('');
-        onFeedback?.('AI Engine, News API & Auto-Freshness schedule saved and activated.', 'success');
+        const msg =
+          res.data.message ||
+          `Saved & activated! Active Engine: ${res.data.status.engineMode || 'Live Market OHLCV + Wires'}`;
+        setAiConfigFeedback({ text: msg, type: 'success' });
+        onFeedback?.(msg, 'success');
+      } else {
+        const errMsg = res.data?.message || 'Server did not confirm configuration save.';
+        setAiConfigFeedback({ text: errMsg, type: 'error' });
+        onFeedback?.(errMsg, 'error');
       }
     } catch (err: any) {
-      onFeedback?.(extractErrorMessage(err, 'Failed to save configuration'), 'error');
+      const errMsg = extractErrorMessage(err, 'Failed to save configuration. Please try again.');
+      setAiConfigFeedback({ text: errMsg, type: 'error' });
+      onFeedback?.(errMsg, 'error');
+    } finally {
+      setSavingKeys(false);
+    }
+  };
+
+  const handleClearAiKey = async (
+    clearFlag: 'clearOpenaiKey' | 'clearGeminiKey' | 'clearFinnhubKey' | 'clearAlphaVantageKey',
+    label: string
+  ) => {
+    setSavingKeys(true);
+    setAiConfigFeedback(null);
+    try {
+      const res = await api.post('/cms/admin/ai-config', { [clearFlag]: true }, { timeout: 60000 });
+      if (res.data?.success && res.data?.status) {
+        setAiStatus(res.data.status);
+        const msg = `${label} removed from database settings.`;
+        setAiConfigFeedback({ text: msg, type: 'success' });
+        onFeedback?.(msg, 'success');
+      }
+    } catch (err: any) {
+      const errMsg = extractErrorMessage(err, `Failed to remove ${label}`);
+      setAiConfigFeedback({ text: errMsg, type: 'error' });
+      onFeedback?.(errMsg, 'error');
     } finally {
       setSavingKeys(false);
     }
@@ -718,52 +760,183 @@ export default function AutoContentPublisher({
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-slate-300 font-bold mb-1">
-                      Finnhub Market API Key {aiStatus?.finnhubConfigured && <span className="text-emerald-400">(Active)</span>}
-                    </label>
-                    <input
-                      type="password"
-                      value={finnhubKey}
-                      onChange={(e) => setFinnhubKey(e.target.value)}
-                      placeholder="Quotes, P/E, Analyst Ratings..."
-                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
-                    />
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <label className="text-slate-300 font-bold">
+                        Finnhub Market API Key{' '}
+                        {aiStatus?.finnhubConfigured && <span className="text-emerald-400">(Saved)</span>}
+                      </label>
+                      {aiStatus?.finnhubConfigured && (
+                        <button
+                          type="button"
+                          onClick={() => handleClearAiKey('clearFinnhubKey', 'Finnhub API Key')}
+                          disabled={savingKeys}
+                          className="text-[10px] text-rose-400 hover:underline font-semibold cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={revealKeyInput.finnhub ? 'text' : 'password'}
+                        value={finnhubKey}
+                        onChange={(e) => setFinnhubKey(e.target.value)}
+                        placeholder={
+                          aiStatus?.finnhubKeyMask
+                            ? `Saved: ${aiStatus.finnhubKeyMask} (leave blank to keep)`
+                            : 'Quotes, P/E, Analyst Ratings...'
+                        }
+                        className="w-full pl-3 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setRevealKeyInput((p) => ({ ...p, finnhub: !p.finnhub }))}
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-white cursor-pointer"
+                        title="Show/Hide key"
+                      >
+                        {revealKeyInput.finnhub ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    {aiStatus?.finnhubKeyMask && (
+                      <div className="mt-1 text-[10px] font-mono text-emerald-400">
+                        Active in DB: {aiStatus.finnhubKeyMask}
+                      </div>
+                    )}
                   </div>
+
                   <div>
-                    <label className="block text-slate-300 font-bold mb-1">
-                      Alpha Vantage API Key {aiStatus?.alphaVantageConfigured && <span className="text-emerald-400">(Active)</span>}
-                    </label>
-                    <input
-                      type="password"
-                      value={alphaVantageKey}
-                      onChange={(e) => setAlphaVantageKey(e.target.value)}
-                      placeholder="Fundamentals, EPS & Sentiment..."
-                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
-                    />
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <label className="text-slate-300 font-bold">
+                        Alpha Vantage API Key{' '}
+                        {aiStatus?.alphaVantageConfigured && <span className="text-emerald-400">(Saved)</span>}
+                      </label>
+                      {aiStatus?.alphaVantageConfigured && (
+                        <button
+                          type="button"
+                          onClick={() => handleClearAiKey('clearAlphaVantageKey', 'Alpha Vantage API Key')}
+                          disabled={savingKeys}
+                          className="text-[10px] text-rose-400 hover:underline font-semibold cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={revealKeyInput.alpha ? 'text' : 'password'}
+                        value={alphaVantageKey}
+                        onChange={(e) => setAlphaVantageKey(e.target.value)}
+                        placeholder={
+                          aiStatus?.alphaVantageKeyMask
+                            ? `Saved: ${aiStatus.alphaVantageKeyMask} (leave blank to keep)`
+                            : 'Fundamentals, EPS & Sentiment...'
+                        }
+                        className="w-full pl-3 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setRevealKeyInput((p) => ({ ...p, alpha: !p.alpha }))}
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-white cursor-pointer"
+                        title="Show/Hide key"
+                      >
+                        {revealKeyInput.alpha ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    {aiStatus?.alphaVantageKeyMask && (
+                      <div className="mt-1 text-[10px] font-mono text-emerald-400">
+                        Active in DB: {aiStatus.alphaVantageKeyMask}
+                      </div>
+                    )}
                   </div>
+
                   <div>
-                    <label className="block text-slate-300 font-bold mb-1">
-                      OpenAI API Key {aiStatus?.openaiConfigured && <span className="text-emerald-400">(Active)</span>}
-                    </label>
-                    <input
-                      type="password"
-                      value={openaiKey}
-                      onChange={(e) => setOpenaiKey(e.target.value)}
-                      placeholder="sk-... (GPT-4o Research)"
-                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
-                    />
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <label className="text-slate-300 font-bold">
+                        OpenAI API Key{' '}
+                        {aiStatus?.openaiConfigured && <span className="text-emerald-400">(Saved)</span>}
+                      </label>
+                      {aiStatus?.openaiConfigured && (
+                        <button
+                          type="button"
+                          onClick={() => handleClearAiKey('clearOpenaiKey', 'OpenAI API Key')}
+                          disabled={savingKeys}
+                          className="text-[10px] text-rose-400 hover:underline font-semibold cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={revealKeyInput.openai ? 'text' : 'password'}
+                        value={openaiKey}
+                        onChange={(e) => setOpenaiKey(e.target.value)}
+                        placeholder={
+                          aiStatus?.openaiKeyMask
+                            ? `Saved: ${aiStatus.openaiKeyMask} (leave blank to keep)`
+                            : 'sk-... (GPT-4o Research)'
+                        }
+                        className="w-full pl-3 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setRevealKeyInput((p) => ({ ...p, openai: !p.openai }))}
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-white cursor-pointer"
+                        title="Show/Hide key"
+                      >
+                        {revealKeyInput.openai ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    {aiStatus?.openaiKeyMask && (
+                      <div className="mt-1 text-[10px] font-mono text-emerald-400">
+                        Active in DB: {aiStatus.openaiKeyMask}
+                      </div>
+                    )}
                   </div>
+
                   <div>
-                    <label className="block text-slate-300 font-bold mb-1">
-                      Google Gemini Key {aiStatus?.geminiConfigured && <span className="text-emerald-400">(Active)</span>}
-                    </label>
-                    <input
-                      type="password"
-                      value={geminiKey}
-                      onChange={(e) => setGeminiKey(e.target.value)}
-                      placeholder="AIza... (Gemini Flash)"
-                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
-                    />
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <label className="text-slate-300 font-bold">
+                        Google Gemini Key{' '}
+                        {aiStatus?.geminiConfigured && <span className="text-emerald-400">(Saved)</span>}
+                      </label>
+                      {aiStatus?.geminiConfigured && (
+                        <button
+                          type="button"
+                          onClick={() => handleClearAiKey('clearGeminiKey', 'Google Gemini Key')}
+                          disabled={savingKeys}
+                          className="text-[10px] text-rose-400 hover:underline font-semibold cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={revealKeyInput.gemini ? 'text' : 'password'}
+                        value={geminiKey}
+                        onChange={(e) => setGeminiKey(e.target.value)}
+                        placeholder={
+                          aiStatus?.geminiKeyMask
+                            ? `Saved: ${aiStatus.geminiKeyMask} (leave blank to keep)`
+                            : 'AIza... (Gemini Flash)'
+                        }
+                        className="w-full pl-3 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setRevealKeyInput((p) => ({ ...p, gemini: !p.gemini }))}
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-white cursor-pointer"
+                        title="Show/Hide key"
+                      >
+                        {revealKeyInput.gemini ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    {aiStatus?.geminiKeyMask && (
+                      <div className="mt-1 text-[10px] font-mono text-emerald-400">
+                        Active in DB: {aiStatus.geminiKeyMask}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -805,6 +978,25 @@ export default function AutoContentPublisher({
                     />
                   </div>
                 </div>
+
+                {aiConfigFeedback && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-between gap-2 ${
+                      aiConfigFeedback.type === 'success'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                    }`}
+                  >
+                    <span>{aiConfigFeedback.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAiConfigFeedback(null)}
+                      className="text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] text-slate-400">
