@@ -202,14 +202,16 @@ export const Header: React.FC = () => {
       ],
     },
     {
-      id: 'blogs',
-      label: t('nav.blog', 'Announcements'),
-      href: '/announcements',
-    },
-    {
       id: 'company',
-      label: 'Institution',
+      label: 'Company',
       items: [
+        {
+          href: '/announcements',
+          label: t('nav.blog', 'Announcements & News'),
+          description: 'Market briefings, platform updates & AI financial news',
+          badge: 'Latest',
+          icon: BookOpen,
+        },
         {
           href: '/strategy',
           label: t('nav.strategy', 'Institutional Strategy'),
