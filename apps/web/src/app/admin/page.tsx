@@ -1868,7 +1868,7 @@ export default function AdminPortalPage() {
       </header>
 
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <main className="max-w-[1480px] mx-auto px-4 sm:px-6 py-8 space-y-6">
         
         {/* Toast Alert */}
         {feedback && (
@@ -4341,14 +4341,14 @@ export default function AdminPortalPage() {
                   No investment packages match your selected maturity horizon or filter criteria.
                 </div>
               ) : (
+                <>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead className="border-b border-slate-800 text-slate-400 uppercase font-bold text-[10px]">
                       <tr>
                         <th className="pb-3 pr-3">Package &amp; Client</th>
-                        <th className="pb-3 pr-3">Principal &amp; Monthly Yield</th>
-                        <th className="pb-3 pr-3">Start Date</th>
-                        <th className="pb-3 pr-3">End / Maturity Date</th>
+                        <th className="pb-3 pr-3">Principal &amp; Yield</th>
+                        <th className="pb-3 pr-3">Start &amp; Maturity</th>
                         <th className="pb-3 pr-3">Tenure &amp; Countdown</th>
                         <th className="pb-3 pr-3">Yield Paid &amp; Liability</th>
                         <th className="pb-3 pr-3">Status</th>
@@ -4380,14 +4380,14 @@ export default function AdminPortalPage() {
 
                         return (
                           <tr key={pkg.id} className="hover:bg-slate-800/40 transition-colors align-top">
-                            <td className="py-3.5 pr-3">
+                            <td className="py-3.5 pr-3 max-w-[205px]">
                               <div className="font-mono font-bold text-rose-400">{pkg.packageCode}</div>
-                              <div className="font-semibold text-slate-200 mt-0.5">
+                              <div className="font-semibold text-slate-200 mt-0.5 truncate" title={pkg.user?.firstName || pkg.user?.email}>
                                 {pkg.user?.firstName || pkg.user?.lastName
                                   ? `${pkg.user?.firstName || ''} ${pkg.user?.lastName || ''}`.trim()
                                   : pkg.user?.email || 'investor@avorabank.com'}
                               </div>
-                              <div className="text-[11px] text-slate-400">
+                              <div className="text-[11px] text-slate-400 truncate" title={pkg.user?.email || 'investor@avorabank.com'}>
                                 {pkg.user?.email || 'investor@avorabank.com'}
                               </div>
                               {pkg.depositMethod && (
@@ -4397,7 +4397,7 @@ export default function AdminPortalPage() {
                               )}
                             </td>
 
-                            <td className="py-3.5 pr-3">
+                            <td className="py-3.5 pr-3 whitespace-nowrap">
                               <div className="font-mono font-black text-white">
                                 ${parseFloat(pkg.amount).toLocaleString()} USD
                               </div>
@@ -4408,68 +4408,56 @@ export default function AdminPortalPage() {
 
                             <td className="py-3.5 pr-3 whitespace-nowrap">
                               {!isPending && startRaw ? (
-                                <div>
-                                  <div className="font-mono font-bold text-slate-200">
+                                <div className="space-y-1">
+                                  <div className="text-[11px] font-mono text-slate-300">
+                                    <span className="text-slate-500">Start:</span>{' '}
                                     {new Date(startRaw).toLocaleDateString('en-GB', {
                                       day: '2-digit',
                                       month: 'short',
                                       year: 'numeric',
                                     })}
                                   </div>
-                                  <div className="text-[10px] font-mono text-slate-500">
-                                    {new Date(startRaw).toLocaleTimeString('en-GB', {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                    })}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div>
-                                  <div className="text-[11px] font-bold text-amber-400">Not Started</div>
-                                  <div className="text-[10px] font-mono text-slate-500">
-                                    Req: {new Date(pkg.createdAt).toLocaleDateString('en-GB', {
-                                      day: '2-digit',
-                                      month: 'short',
-                                      year: 'numeric',
-                                    })}
-                                  </div>
-                                </div>
-                              )}
-                            </td>
-
-                            <td className="py-3.5 pr-3 whitespace-nowrap">
-                              {!isPending && pkg.lockInEnd ? (
-                                <div>
-                                  <div
-                                    className={`font-mono font-bold ${
-                                      isDueNow
-                                        ? 'text-rose-400'
-                                        : isUrgent
-                                        ? 'text-amber-400'
-                                        : 'text-white'
-                                    }`}
-                                  >
-                                    {new Date(pkg.lockInEnd).toLocaleDateString('en-GB', {
-                                      day: '2-digit',
-                                      month: 'short',
-                                      year: 'numeric',
-                                    })}
-                                  </div>
+                                  {pkg.lockInEnd && (
+                                    <div
+                                      className={`text-[11px] font-mono font-bold ${
+                                        isDueNow
+                                          ? 'text-rose-400'
+                                          : isUrgent
+                                          ? 'text-amber-400'
+                                          : 'text-white'
+                                      }`}
+                                    >
+                                      <span className="text-slate-500 font-normal">End:</span>{' '}
+                                      {new Date(pkg.lockInEnd).toLocaleDateString('en-GB', {
+                                        day: '2-digit',
+                                        month: 'short',
+                                        year: 'numeric',
+                                      })}
+                                    </div>
+                                  )}
                                   <div className="text-[10px] text-slate-500">
                                     {isSettled ? 'Settled' : 'Contract Maturity'}
                                   </div>
                                 </div>
                               ) : (
                                 <div>
-                                  <div className="text-[11px] text-slate-400 font-semibold">
+                                  <div className="text-[11px] font-bold text-amber-400">Not Started</div>
+                                  <div className="text-[10px] font-mono text-slate-500">
+                                    Req:{' '}
+                                    {new Date(pkg.createdAt).toLocaleDateString('en-GB', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric',
+                                    })}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500">
                                     +{pkg.lockInMonths || 6}m on Approval
                                   </div>
-                                  <div className="text-[10px] text-slate-500">Clock starts when activated</div>
                                 </div>
                               )}
                             </td>
 
-                            <td className="py-3.5 pr-3 min-w-[140px]">
+                            <td className="py-3.5 pr-3 min-w-[125px]">
                               <div className="font-semibold text-slate-200">
                                 {pkg.lockInMonths || 6} Months FD
                               </div>
@@ -4510,7 +4498,7 @@ export default function AdminPortalPage() {
                               )}
                             </td>
 
-                            <td className="py-3.5 pr-3 whitespace-nowrap">
+                            <td className="py-3.5 pr-3 max-w-[235px]">
                               <div className="font-mono text-slate-200 font-bold">
                                 {pkg.returnsCount ?? 0} / {pkg.lockInMonths || 6} mos
                               </div>
@@ -4518,8 +4506,8 @@ export default function AdminPortalPage() {
                                 Paid: ${parseFloat(pkg.totalYieldPaid || 0).toFixed(2)}
                               </div>
                               {!isSettled && (
-                                <div className="text-[10px] font-mono text-rose-400">
-                                  Rem. Yield: ${parseFloat(pkg.remainingYieldLiability || 0).toFixed(2)} · Total Due: $
+                                <div className="text-[10px] font-mono text-rose-400 leading-snug">
+                                  Rem. Yield: ${parseFloat(pkg.remainingYieldLiability || 0).toFixed(2)} · Due: $
                                   {parseFloat(pkg.outstandingLiability ?? pkg.amount ?? 0).toLocaleString('en-US', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
@@ -4542,8 +4530,8 @@ export default function AdminPortalPage() {
                                         : ''}
                                     </span>
                                   ) : pkg.nextYieldDueDate ? (
-                                    <span className="text-[10px] font-mono text-slate-400">
-                                      🗓️ Next Yield (Mo {pkg.nextPeriodIndex ?? Number(pkg.returnsCount || 0) + 1}):{' '}
+                                    <span className="text-[10px] font-mono text-slate-400 block leading-snug">
+                                      🗓️ Next Mo {pkg.nextPeriodIndex ?? Number(pkg.returnsCount || 0) + 1}:{' '}
                                       {new Date(pkg.nextYieldDueDate).toLocaleDateString()} ({pkg.daysUntilNextYield ?? 0}d left)
                                     </span>
                                   ) : null}
@@ -4573,7 +4561,7 @@ export default function AdminPortalPage() {
                             </td>
 
                             <td className="py-3.5 text-right">
-                              <div className="flex items-center justify-end gap-2 flex-wrap">
+                              <div className="flex flex-col items-end gap-1.5">
                                 {pkg.status === 'ACTIVE' && pkg.isYieldDue && (
                                   <button
                                     onClick={() => handleCreditSinglePackageYield(pkg.id, pkg.packageCode)}
@@ -4616,7 +4604,7 @@ export default function AdminPortalPage() {
                                 {pkg.status === 'PENDING_PAYMENT' && (
                                   <button
                                     onClick={() => handleApprovePackage(pkg.id)}
-                                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow-sm transition-all cursor-pointer whitespace-nowrap"
+                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow-sm transition-all cursor-pointer whitespace-nowrap"
                                   >
                                     Approve &amp; Activate
                                   </button>
@@ -4625,10 +4613,10 @@ export default function AdminPortalPage() {
                                 {pkg.status === 'ACTIVE' && (
                                   <button
                                     onClick={() => handleSettleFullPackage(pkg.id, pkg.packageCode)}
-                                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/90 text-white font-bold text-[11px] border border-slate-700 hover:border-rose-500 transition-all cursor-pointer whitespace-nowrap"
-                                    title="Calculates all remaining monthly returns and releases the principal together"
+                                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/90 text-white font-bold text-[11px] border border-slate-700 hover:border-rose-500 transition-all cursor-pointer whitespace-nowrap"
+                                    title="Process Full Settlement: Calculates all remaining monthly returns and releases the principal together"
                                   >
-                                    Process Full Settlement (Returns + Principal)
+                                    Settle Full (Returns + Principal)
                                   </button>
                                 )}
 
@@ -4644,16 +4632,17 @@ export default function AdminPortalPage() {
                       })}
                     </tbody>
                   </table>
-                  <PaginationControls
-                    currentPage={packagesPagination.page}
-                    totalItems={filteredPackages.length}
-                    pageSize={packagesPagination.pageSize}
-                    onPageChange={packagesPagination.setPage}
-                    onPageSizeChange={packagesPagination.setPageSize}
-                    itemLabel="packages"
-                    theme="dark"
-                  />
                 </div>
+                <PaginationControls
+                  currentPage={packagesPagination.page}
+                  totalItems={filteredPackages.length}
+                  pageSize={packagesPagination.pageSize}
+                  onPageChange={packagesPagination.setPage}
+                  onPageSizeChange={packagesPagination.setPageSize}
+                  itemLabel="packages"
+                  theme="dark"
+                />
+                </>
               )}
             </div>
           </div>
