@@ -978,42 +978,10 @@ export class AdminController {
   async getInvestments(req: Request, res: Response, next: NextFunction) {
     try {
       await investmentsService.ensureVentureSchema();
-      const [commitments, listings, inquiries] = await Promise.all([
+      // Fetch raw commitments & inquiries without non-nullable Prisma relation includes so an orphaned
+      // foreign key (e.g. a removed StartupListing or User) never triggers Prisma P2025/inconsistent-null errors.
+      const [rawCommitments, listings, rawInquiries] = await Promise.all([
         prisma.investmentCommitment.findMany({
-          include: {
-            investor: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-                phone: true,
-                country: true,
-              },
-            },
-            listing: {
-              select: {
-                id: true,
-                slug: true,
-                companyName: true,
-                logoUrl: true,
-                industry: true,
-                stage: true,
-                country: true,
-                valuation: true,
-                fundingTarget: true,
-                expectedReturnPct: true,
-                lockInMonths: true,
-                startDate: true,
-                deadline: true,
-                maturityDate: true,
-                performancePct: true,
-                providerName: true,
-                termsAndNotes: true,
-                supportingDocuments: true,
-              },
-            },
-          },
           orderBy: { createdAt: 'desc' },
         }),
         prisma.startupListing.findMany({
@@ -1021,18 +989,76 @@ export class AdminController {
         }),
         prisma.investmentInquiry
           .findMany({
-            include: {
-              investor: {
-                select: { id: true, email: true, firstName: true, lastName: true, phone: true },
-              },
-              listing: {
-                select: { id: true, companyName: true, slug: true },
-              },
-            },
             orderBy: { createdAt: 'desc' },
           })
           .catch(() => []),
       ]);
+
+      const investorIds = Array.from(
+        new Set([
+          ...rawCommitments.map((c) => c.investorUserId),
+          ...rawInquiries.map((inq) => inq.investorUserId),
+        ].filter(Boolean))
+      );
+
+      const investors =
+        investorIds.length > 0
+          ? await prisma.user
+              .findMany({
+                where: { id: { in: investorIds } },
+                select: {
+                  id: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  country: true,
+                },
+              })
+              .catch(() => [])
+          : [];
+
+      const investorById = new Map(investors.map((u) => [u.id, u]));
+      const listingById = new Map(listings.map((l) => [l.id, l]));
+
+      const pickListingSummary = (l: any) =>
+        l
+          ? {
+              id: l.id,
+              slug: l.slug,
+              companyName: l.companyName,
+              logoUrl: l.logoUrl,
+              industry: l.industry,
+              stage: l.stage,
+              country: l.country,
+              valuation: l.valuation,
+              fundingTarget: l.fundingTarget,
+              expectedReturnPct: l.expectedReturnPct,
+              lockInMonths: l.lockInMonths,
+              startDate: l.startDate,
+              deadline: l.deadline,
+              maturityDate: l.maturityDate,
+              performancePct: l.performancePct,
+              providerName: l.providerName,
+              termsAndNotes: l.termsAndNotes,
+              supportingDocuments: l.supportingDocuments,
+            }
+          : null;
+
+      const commitments = rawCommitments.map((c) => ({
+        ...c,
+        investor: investorById.get(c.investorUserId) || null,
+        listing: pickListingSummary(listingById.get(c.listingId)),
+      }));
+
+      const inquiries = rawInquiries.map((inq) => {
+        const l = listingById.get(inq.listingId);
+        return {
+          ...inq,
+          investor: investorById.get(inq.investorUserId) || null,
+          listing: l ? { id: l.id, companyName: l.companyName, slug: l.slug } : null,
+        };
+      });
 
       const invCodes = commitments.map((c) => c.investmentCode).filter(Boolean);
       const matchingLedgerTxs =
@@ -3537,11 +3563,16 @@ export class AdminController {
       const id = String(req.params.id);
       const inv = await prisma.investmentCommitment.findUnique({
         where: { id },
-        include: { listing: { select: { id: true, companyName: true, verifiedFundsRaised: true, investorCount: true } } },
       });
       if (!inv) {
         return res.status(404).json({ success: false, message: 'Commitment not found' });
       }
+      const invListing = await prisma.startupListing
+        .findUnique({
+          where: { id: inv.listingId },
+          select: { id: true, companyName: true },
+        })
+        .catch(() => null);
       const linkedTx = await prisma.transaction.findFirst({
         where: {
           settlementReference: inv.investmentCode,
@@ -3571,7 +3602,7 @@ export class AdminController {
           action: 'DELETE_MOCK_INVESTMENT_COMMITMENT',
           entity: 'InvestmentCommitment',
           entityId: id,
-          details: `Removed display/mock commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) from ${inv.listing?.companyName || inv.listingId}.`,
+          details: `Removed display/mock commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) from ${invListing?.companyName || inv.listingId}.`,
         },
       });
 
@@ -5685,7 +5716,7 @@ export class AdminController {
         deposits,
         withdrawals,
         packages,
-        commitments,
+        rawCommitments,
         p2pOrders,
         otcTrades,
         remittances,
@@ -5762,21 +5793,6 @@ export class AdminController {
               { id: q },
             ],
           },
-          include: {
-            investor: { select: userSelect },
-            listing: {
-              select: {
-                id: true,
-                slug: true,
-                companyName: true,
-                industry: true,
-                stage: true,
-                country: true,
-                lockInMonths: true,
-                maturityDate: true,
-              },
-            },
-          },
           orderBy: { createdAt: 'desc' },
           take: 15,
         }),
@@ -5825,15 +5841,66 @@ export class AdminController {
             .filter((r): r is string => Boolean(r && /^INV-/i.test(r)))
         )
       );
-      const linkedCommitments =
+      const rawLinkedCommitments =
         linkedInvCodes.length > 0
-          ? await prisma.investmentCommitment.findMany({
-              where: { investmentCode: { in: linkedInvCodes } },
-              include: {
-                listing: { select: { id: true, companyName: true, industry: true, stage: true, maturityDate: true } },
-              },
-            })
+          ? await prisma.investmentCommitment
+              .findMany({
+                where: { investmentCode: { in: linkedInvCodes } },
+              })
+              .catch(() => [])
           : [];
+
+      const searchListingIds = Array.from(
+        new Set(
+          [...rawCommitments, ...rawLinkedCommitments]
+            .map((c) => c.listingId)
+            .filter(Boolean)
+        )
+      );
+      const searchInvestorIds = Array.from(
+        new Set(rawCommitments.map((c) => c.investorUserId).filter(Boolean))
+      );
+
+      const [searchListings, searchInvestors] = await Promise.all([
+        searchListingIds.length > 0
+          ? prisma.startupListing
+              .findMany({
+                where: { id: { in: searchListingIds } },
+                select: {
+                  id: true,
+                  slug: true,
+                  companyName: true,
+                  industry: true,
+                  stage: true,
+                  country: true,
+                  lockInMonths: true,
+                  maturityDate: true,
+                },
+              })
+              .catch(() => [])
+          : Promise.resolve([]),
+        searchInvestorIds.length > 0
+          ? prisma.user
+              .findMany({
+                where: { id: { in: searchInvestorIds } },
+                select: userSelect,
+              })
+              .catch(() => [])
+          : Promise.resolve([]),
+      ]);
+
+      const searchListingMap = new Map(searchListings.map((l) => [l.id, l]));
+      const searchInvestorMap = new Map(searchInvestors.map((u) => [u.id, u]));
+
+      const commitments = rawCommitments.map((c) => ({
+        ...c,
+        investor: searchInvestorMap.get(c.investorUserId) || null,
+        listing: searchListingMap.get(c.listingId) || null,
+      }));
+      const linkedCommitments = rawLinkedCommitments.map((c) => ({
+        ...c,
+        listing: searchListingMap.get(c.listingId) || null,
+      }));
       const invByCode = new Map(linkedCommitments.map((c) => [c.investmentCode, c]));
 
       // Cross-check if ledgerTxs have sibling entries with same settlementReference

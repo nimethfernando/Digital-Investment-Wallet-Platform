@@ -574,14 +574,16 @@ export class WalletController {
         orderBy: { updatedAt: 'desc' },
         take: 15,
       }),
-      prisma.investmentInquiry.findMany({
-        where: { investorUserId: userId },
-        include: {
-          listing: { select: { companyName: true, slug: true } },
-        },
-        orderBy: { updatedAt: 'desc' },
-        take: 15,
-      }),
+      prisma.investmentInquiry
+        .findMany({
+          where: { investorUserId: userId },
+          include: {
+            listing: { select: { companyName: true, slug: true } },
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 15,
+        })
+        .catch(() => []),
       prisma.investmentPackage.findMany({
         where: { userId },
         include: {

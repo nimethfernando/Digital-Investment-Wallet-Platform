@@ -740,54 +740,63 @@ export class InvestmentsService {
    */
   async getInvestorDashboard(userId: string) {
     await this.ensureVentureSchema();
-    // 1. Confirmed real investments (strictly excludes ADMIN_DISPLAY_MOCK test/showcase entries)
-    const commitments = await prisma.investmentCommitment.findMany({
-      where: {
-        investorUserId: userId,
-        sourceType: { not: 'ADMIN_DISPLAY_MOCK' },
-      },
-      include: {
-        listing: {
-          select: {
-            id: true,
-            slug: true,
-            companyName: true,
-            logoUrl: true,
-            industry: true,
-            country: true,
-            stage: true,
-            valuation: true,
-            lockInMonths: true,
-            maturityDate: true,
-            startDate: true,
-            deadline: true,
-            expectedReturnPct: true,
-            performancePct: true,
-            providerName: true,
-            termsAndNotes: true,
-            supportingDocuments: true,
-          },
+    // Fetch raw rows without required Prisma listing includes so orphaned listingId records cannot crash the dashboard.
+    const [rawCommitments, rawWatchlist, rawInquiries] = await Promise.all([
+      prisma.investmentCommitment.findMany({
+        where: {
+          investorUserId: userId,
+          sourceType: { not: 'ADMIN_DISPLAY_MOCK' },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.investmentWatchlist.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.investmentInquiry.findMany({
+        where: { investorUserId: userId },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
 
-    // 2. Watchlist
-    const watchlist = await prisma.investmentWatchlist.findMany({
-      where: { userId },
-      include: {
-        listing: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const referencedListingIds = Array.from(
+      new Set(
+        [
+          ...rawCommitments.map((c) => c.listingId),
+          ...rawWatchlist.map((w) => w.listingId),
+          ...rawInquiries.map((i) => i.listingId),
+        ].filter(Boolean)
+      )
+    );
 
-    // 3. Inquiries
-    const inquiries = await prisma.investmentInquiry.findMany({
-      where: { investorUserId: userId },
-      include: {
-        listing: { select: { id: true, companyName: true, slug: true } },
-      },
-      orderBy: { createdAt: 'desc' },
+    const referencedListings =
+      referencedListingIds.length > 0
+        ? await prisma.startupListing
+            .findMany({
+              where: { id: { in: referencedListingIds } },
+            })
+            .catch(() => [])
+        : [];
+    const listingById = new Map(referencedListings.map((l) => [l.id, l]));
+
+    const commitments = rawCommitments.map((c) => ({
+      ...c,
+      listing: listingById.get(c.listingId) || null,
+    }));
+
+    const watchlist = rawWatchlist
+      .map((w) => ({
+        ...w,
+        listing: listingById.get(w.listingId) || null,
+      }))
+      .filter((w): w is typeof w & { listing: NonNullable<typeof w.listing> } => Boolean(w.listing));
+
+    const inquiries = rawInquiries.map((inq) => {
+      const l = listingById.get(inq.listingId);
+      return {
+        ...inq,
+        listing: l ? { id: l.id, companyName: l.companyName, slug: l.slug } : null,
+      };
     });
 
     // Ledger Totals
@@ -856,28 +865,30 @@ export class InvestmentsService {
         return {
           id: c.id,
           investmentCode: c.investmentCode,
-          companyName: c.listing.companyName,
-          slug: c.listing.slug,
-          industry: c.listing.industry,
-          country: c.listing.country,
-          listing: {
-            id: c.listing.id,
-            slug: c.listing.slug,
-            companyName: c.listing.companyName,
-            logoUrl: c.listing.logoUrl,
-            industry: c.listing.industry,
-            country: c.listing.country,
-            stage: c.listing.stage,
-            valuation: listingVal,
-            lockInMonths: lockMonths,
-            maturityDate: c.listing.maturityDate,
-            expectedReturnPct: Number(c.listing.expectedReturnPct ?? 0),
-            performancePct: Number(c.listing.performancePct ?? 0),
-            providerName: c.listing.providerName || null,
-            startDate: c.listing.startDate || null,
-            termsAndNotes: c.listing.termsAndNotes || null,
-            supportingDocuments: Array.isArray(docs) ? docs : [],
-          },
+          companyName: c.listing?.companyName || 'Archived Campaign',
+          slug: c.listing?.slug || '',
+          industry: c.listing?.industry || 'Venture',
+          country: c.listing?.country || 'Global',
+          listing: c.listing
+            ? {
+                id: c.listing.id,
+                slug: c.listing.slug,
+                companyName: c.listing.companyName,
+                logoUrl: c.listing.logoUrl,
+                industry: c.listing.industry,
+                country: c.listing.country,
+                stage: c.listing.stage,
+                valuation: listingVal,
+                lockInMonths: lockMonths,
+                maturityDate: c.listing.maturityDate,
+                expectedReturnPct: Number(c.listing.expectedReturnPct ?? 0),
+                performancePct: Number(c.listing.performancePct ?? 0),
+                providerName: c.listing.providerName || null,
+                startDate: c.listing.startDate || null,
+                termsAndNotes: c.listing.termsAndNotes || null,
+                supportingDocuments: Array.isArray(docs) ? docs : [],
+              }
+            : null,
           instrument: c.instrument,
           ownershipPct: c.ownershipPct ? Number(c.ownershipPct) : null,
           grossAmount: Number(c.grossAmount),
