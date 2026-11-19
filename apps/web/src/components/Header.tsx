@@ -8,6 +8,7 @@ import { useLanguage, languageNames, Language } from '../context/LanguageContext
 import { useAuth } from '../context/AuthContext';
 import { AvoraBankLogo } from './AvoraBankLogo';
 import { CustomerNotificationBell } from './CustomerNotificationBell';
+import { api } from '../lib/api';
 import {
   Sun,
   Moon,
@@ -60,6 +61,18 @@ export const Header: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [virtualCardsEnabled, setVirtualCardsEnabled] = useState(false);
+
+  useEffect(() => {
+    api
+      .get('/cms/settings')
+      .then((res) => {
+        if (res.data?.settings?.enable_virtual_cards === 'true') {
+          setVirtualCardsEnabled(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Authenticated home destination: Admin goes to /admin, clients to /dashboard, guests to /
   const homeHref = user ? (isAdmin ? '/admin' : '/dashboard') : '/';
@@ -117,12 +130,16 @@ export const Header: React.FC = () => {
           badge: 'Instant',
           icon: QrCode,
         },
-        {
-          href: '/dashboard?tab=card',
-          label: 'Virtual Visa / Mastercard',
-          description: 'Private BaaS card with live spending controls',
-          icon: CreditCard,
-        },
+        ...(virtualCardsEnabled
+          ? [
+              {
+                href: '/dashboard?tab=card',
+                label: 'Virtual Visa / Mastercard',
+                description: 'Private BaaS card with live spending controls',
+                icon: CreditCard,
+              },
+            ]
+          : []),
         {
           href: '/dashboard?tab=redotpay',
           label: 'Avora Pay & Instant Swap',
@@ -538,13 +555,15 @@ export const Header: React.FC = () => {
                     Account & QR Transfers
                   </Link>
 
-                  <Link
-                    href="/dashboard?tab=card"
-                    className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
-                    Virtual Card Module
-                  </Link>
+                  {virtualCardsEnabled && (
+                    <Link
+                      href="/dashboard?tab=card"
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
+                      Virtual Card Module
+                    </Link>
+                  )}
 
                   <Link
                     href="/dashboard?tab=support"

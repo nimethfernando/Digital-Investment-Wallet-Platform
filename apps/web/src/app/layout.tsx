@@ -8,8 +8,8 @@ import { Footer } from '../components/Footer';
 
 export const metadata: Metadata = {
   title: 'Avora Bank | Digital Wealth, Private Wallet & Institutional OTC Desk',
-  description: 'Fixed-term digital investment packages with 1% monthly returns, immutable double-entry ledger security, virtual cards, and institutional OTC settlement across global rails.',
-  keywords: ['Avora Bank', 'digital investment', 'private wallet', 'crypto exchange', 'global OTC desk', 'virtual visa mastercard', 'double entry ledger'],
+  description: 'Fixed-term digital investment packages with 1% monthly returns, immutable double-entry ledger security, global remittance corridors, and institutional OTC settlement across global rails.',
+  keywords: ['Avora Bank', 'digital investment', 'private wallet', 'crypto exchange', 'global OTC desk', 'global remittance', 'double entry ledger'],
   icons: {
     icon: [
       { url: '/favicon.ico?v=4' },

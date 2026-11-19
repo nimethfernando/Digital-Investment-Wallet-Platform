@@ -43,7 +43,7 @@ export const PERSONA_DATA: PersonaCard[] = [
     badge: 'VENTURE TREASURY',
     targetRole: 'Startups & Scaleups',
     title: 'High-Growth Tech Startups',
-    subtitle: 'Multi-currency corporate treasury with 1% monthly package return on operating reserves and instant BaaS virtual cards for AWS, OpenAI & SaaS subscriptions.',
+    subtitle: 'Multi-currency corporate treasury with 1% monthly package return on operating reserves, venture equity fundraising rails, and cross-border vendor wire settlements.',
     actionText: 'Explore Venture Treasury',
     actionHref: '/investments',
     image: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=900&q=80',
@@ -51,7 +51,7 @@ export const PERSONA_DATA: PersonaCard[] = [
     accentBorder: 'hover:border-cyan-400/60',
     accentBg: 'from-cyan-500/20',
     icon: Rocket,
-    specs: ['BaaS Card Issuance', '1% Monthly Fixed Yield', 'Multi-Currency Rails'],
+    specs: ['Corporate Treasury', '1% Monthly Fixed Yield', 'Multi-Currency Rails'],
   },
   {
     id: 'entrepreneurs',
@@ -77,15 +77,15 @@ export const PERSONA_DATA: PersonaCard[] = [
     badge: 'REMOTE BILLING',
     targetRole: 'Freelancers & Contractors',
     title: 'Freelancers & Global Nomads',
-    subtitle: 'Invoice US, EU, and UK clients with dedicated multi-currency accounts. Spend worldwide via Apple Pay & Google Wallet tokenized virtual Visa cards with 0 FX markup.',
-    actionText: 'Activate Nomad Card',
-    actionHref: '/dashboard?tab=card',
+    subtitle: 'Receive international client payments across US, EU, UK, and GCC corridors with live mid-market FX conversion, QR transfers, and instant multi-currency settlement.',
+    actionText: 'Open Global Transfer',
+    actionHref: '/transfer',
     image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=900&q=80',
     accentColor: 'text-amber-400',
     accentBorder: 'hover:border-amber-400/60',
     accentBg: 'from-amber-500/20',
     icon: Globe,
-    specs: ['0% FX Foreign Markup', 'Apple & Google Pay', 'Direct Client Invoicing'],
+    specs: ['Transparent FX Corridors', 'Instant Swap & QR Pay', 'Direct Client Invoicing'],
   },
   {
     id: 'businesses',
@@ -111,7 +111,7 @@ export const PERSONA_DATA: PersonaCard[] = [
     badge: 'HEALTHCARE FINANCE',
     targetRole: 'Medical Clinics & Practices',
     title: 'Healthcare Clinics & Medical Practices',
-    subtitle: 'Compliant patient billing and escrow settlement, medical equipment leasing and financing, and high-limit procurement virtual cards for pharmacy and hardware supplies.',
+    subtitle: 'Compliant patient billing and escrow settlement, cross-border medical supplier wire clearance, and multi-currency procurement treasury tracking.',
     actionText: 'Discover Clinic Accounts',
     actionHref: '/transfer',
     image: 'https://images.unsplash.com/photo-1629909613654-28e377c37b09?auto=format&fit=crop&w=900&q=80',
@@ -119,24 +119,24 @@ export const PERSONA_DATA: PersonaCard[] = [
     accentBorder: 'hover:border-teal-400/60',
     accentBg: 'from-teal-500/20',
     icon: Stethoscope,
-    specs: ['Compliant Escrow Vault', 'High-Limit Hardware Cards', 'Automated Receipts'],
+    specs: ['Compliant Escrow Vault', 'Supplier Wire Rails', 'Automated Receipts'],
   },
   {
     id: 'ecommerce',
     categoryKey: 'ecommerce',
     tag: '06 // E-COMM & AGENCIES',
-    badge: 'AD-SPEND ENGINE',
+    badge: 'GLOBAL TREASURY',
     targetRole: 'E-Commerce & Digital Media',
     title: 'E-Commerce Brands & Media Agencies',
-    subtitle: 'High-velocity daily merchant payouts, dynamic virtual ad-spend cards for Meta and Google Ads with custom daily limits, and automated supplier escrow protection.',
-    actionText: 'Scale Merchant Payouts',
-    actionHref: '/dashboard?tab=card',
+    subtitle: 'High-velocity daily merchant settlements, instant multi-currency FX swaps, and automated P2P & OTC supplier escrow protection across global corridors.',
+    actionText: 'Explore Treasury & Swap',
+    actionHref: '/dashboard?tab=redotpay',
     image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=900&q=80',
     accentColor: 'text-rose-400',
     accentBorder: 'hover:border-rose-400/60',
     accentBg: 'from-rose-500/20',
     icon: ShoppingBag,
-    specs: ['Dynamic Ad Cards', 'Instant Merchant Payouts', 'P2P Supplier Escrow'],
+    specs: ['Instant FX Swap', 'Global Merchant Payouts', 'P2P Supplier Escrow'],
   },
 ];
 
@@ -159,16 +159,16 @@ export function PersonaIndustryCarousel() {
 
   const resolvePersonaHref = (persona: PersonaCard) => {
     if (persona.id === 'freelancers') {
-      return user ? '/dashboard?tab=card' : '/login?redirect=/dashboard?tab=card';
+      return '/transfer';
     }
     if (persona.id === 'entrepreneurs') {
       return user ? '/dashboard?tab=redotpay' : '/register';
     }
     if (persona.id === 'startups') {
-      return user ? '/investments' : '/investments';
+      return '/investments';
     }
     if (persona.id === 'ecommerce') {
-      return user ? '/dashboard?tab=card' : '/dashboard?tab=card';
+      return user ? '/dashboard?tab=redotpay' : '/exchange';
     }
     return persona.actionHref;
   };
@@ -283,7 +283,7 @@ export function PersonaIndustryCarousel() {
             </h2>
 
             <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
-              A simpler way to receive global client payments, manage corporate treasury with 1% monthly package return, and deploy BaaS virtual cards from one sovereign institution.
+              A simpler way to receive global client payments, manage corporate treasury with 1% monthly package return, and settle institutional OTC flows from one sovereign institution.
             </p>
           </div>
 

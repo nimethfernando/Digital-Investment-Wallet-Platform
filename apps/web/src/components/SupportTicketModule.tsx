@@ -392,7 +392,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
             </div>
             <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">No Inquiries Found</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-              Have a question about transfers, bank deposits, virtual cards, or AVR tokens? Open an inquiry to chat directly with our administration team.
+              Have a question about transfers, bank deposits, investments, or AVR tokens? Open an inquiry to chat directly with our administration team.
             </p>
             <button
               onClick={() => setCreateModalOpen(true)}
@@ -554,7 +554,7 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Question about corporate wire clearance or virtual card limit"
+                  placeholder="e.g. Question about corporate wire clearance or withdrawal timing"
                   value={newSubject}
                   onChange={(e) => setNewSubject(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white outline-none focus:border-emerald-500"

@@ -11,6 +11,17 @@ import { otcService } from '../services/otc.service';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
+async function ensureVirtualCardsEnabled(res: Response): Promise<boolean> {
+  const flag = await prisma.cmsSetting.findUnique({ where: { key: 'enable_virtual_cards' } });
+  if (flag?.value === 'true') return true;
+  res.status(403).json({
+    success: false,
+    code: 'VIRTUAL_CARDS_COMING_SOON',
+    message: 'Virtual Cards are coming soon while Avora Bank finalizes integration with our regulated card-issuing partner.',
+  });
+  return false;
+}
+
 export interface CustomerNotificationItem {
   id: string;
   category: 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT' | 'OTC';
@@ -325,6 +336,7 @@ export class WalletController {
    */
   async getCard(req: Request, res: Response, next: NextFunction) {
     try {
+      if (!(await ensureVirtualCardsEnabled(res))) return;
       const userId = (req as any).user.id;
       const card = await cardService.getOrCreateCard(userId);
       res.json({ success: true, data: card });
@@ -338,6 +350,7 @@ export class WalletController {
    */
   async toggleCardFreeze(req: Request, res: Response, next: NextFunction) {
     try {
+      if (!(await ensureVirtualCardsEnabled(res))) return;
       const userId = (req as any).user.id;
       const result = await cardService.toggleFreeze(userId);
       res.json({ success: true, data: result });
@@ -351,6 +364,7 @@ export class WalletController {
    */
   async updateCardLimits(req: Request, res: Response, next: NextFunction) {
     try {
+      if (!(await ensureVirtualCardsEnabled(res))) return;
       const userId = (req as any).user.id;
       const { dailyLimit, monthlyLimit } = req.body;
       const result = await cardService.updateLimits(userId, dailyLimit, monthlyLimit);
@@ -365,6 +379,7 @@ export class WalletController {
    */
   async updateCardSettings(req: Request, res: Response, next: NextFunction) {
     try {
+      if (!(await ensureVirtualCardsEnabled(res))) return;
       const userId = (req as any).user.id;
       const result = await cardService.updateSettings(userId, req.body);
       res.json({ success: true, data: result });
@@ -378,6 +393,7 @@ export class WalletController {
    */
   async getCardTransactions(req: Request, res: Response, next: NextFunction) {
     try {
+      if (!(await ensureVirtualCardsEnabled(res))) return;
       const userId = (req as any).user.id;
       const transactions = await cardService.getCardTransactions(userId);
       res.json({ success: true, data: transactions });
@@ -391,6 +407,7 @@ export class WalletController {
    */
   async createCardRevealSession(req: Request, res: Response, next: NextFunction) {
     try {
+      if (!(await ensureVirtualCardsEnabled(res))) return;
       const userId = (req as any).user.id;
       const { nonce } = req.body || {};
       const session = await cardService.createRevealSession(userId, nonce);

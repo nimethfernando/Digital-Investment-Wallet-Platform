@@ -325,8 +325,8 @@ export default function AvoraTokenPage() {
                 desc: 'Access ultra-tight institutional benchmark spreads and zero slippage on high-volume OTC desk conversions.',
               },
               {
-                title: 'BaaS Virtual Card Rewards',
-                desc: 'Tier upgrades and up to 3.5% automated cashback on corporate ad-spend and tokenized virtual Visa/Mastercard purchases.',
+                title: 'Partner Card Rewards (Coming Soon)',
+                desc: 'Planned tier upgrades and automated cashback rewards once our upcoming regulated virtual Visa/Mastercard issuing facility launches.',
               },
             ].map((item, idx) => (
               <div key={idx} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-start gap-3">

@@ -163,6 +163,7 @@ export default function AdminPortalPage() {
     p2p_fee_percent: '0.0',
     p2p_security_deposit_usd: '50',
     p2p_daily_limit_usd: '5000',
+    enable_virtual_cards: 'false',
     virtual_card_issuance_fee: '10.00',
     avr_token_price_usd: '0.10',
     avr_lockin_days: '180',
@@ -3081,6 +3082,23 @@ export default function AdminPortalPage() {
                       </div>
                       <p className="text-[10px] text-slate-400">
                         Real-time withdrawal fee and cross-currency payout FX spread applied during bank wire settlements.
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
+                        Virtual Card Module Availability
+                      </label>
+                      <select
+                        value={platformConfig.enable_virtual_cards === 'true' ? 'true' : 'false'}
+                        onChange={(e) => setPlatformConfig({ ...platformConfig, enable_virtual_cards: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-amber-500"
+                      >
+                        <option value="false">Hidden — Coming Soon (Recommended until partner integrated)</option>
+                        <option value="true">Active — Live Virtual Card Issuance</option>
+                      </select>
+                      <p className="text-[10px] text-slate-500">
+                        When hidden, Virtual Card nav/hero/tabs show Coming Soon and issuance APIs stay locked.
                       </p>
                     </div>
 

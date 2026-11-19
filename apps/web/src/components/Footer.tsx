@@ -94,7 +94,7 @@ export const Footer: React.FC = () => {
             <AvoraBankLogo variant="emerald" size="md" />
             
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-sm">
-              {t('footer.description', 'Avora Bank provides institutional-grade digital asset packages, virtual cards, OTC exchange services, and P2P trading with immutable double-entry ledger accounting.')}
+              {t('footer.description', 'Avora Bank provides institutional-grade digital asset packages, global remittance rails, OTC exchange services, and P2P trading with immutable double-entry ledger accounting.')}
             </p>
 
             <div className="pt-2 space-y-2 text-xs text-slate-600 dark:text-slate-400">

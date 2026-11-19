@@ -73,8 +73,9 @@ export default function HomePage() {
   const midPresetAmt = Math.round((pkgMinNum + pkgMaxNum) / 2);
   
   // Hero Interactive Visual State
-  const [heroVisualTab, setHeroVisualTab] = useState<'card' | 'otc'>('card');
+  const [heroVisualTab, setHeroVisualTab] = useState<'card' | 'otc'>('otc');
   const [cardRevealed, setCardRevealed] = useState(false);
+  const virtualCardsEnabled = settings.enable_virtual_cards === 'true';
 
   // Split FAQ State
   const [faqCategory, setFaqCategory] = useState<'all' | 'yield' | 'cards' | 'otc' | 'security'>('all');
@@ -162,19 +163,27 @@ export default function HomePage() {
     {
       id: '04',
       category: 'cards' as const,
-      badge: 'Virtual Visa & BaaS',
-      q: 'How does the Virtual Visa / Mastercard module work?',
-      a: 'Every Avora Bank account includes an integrated Virtual Card module from day one. Designed with enterprise Banking-as-a-Service (BaaS) architecture compatible with Wallester and Marqeta, you can set granular spending limits, freeze or unfreeze instantly, and spend across millions of merchants globally.',
-      highlights: ['Instant card generation & activation', 'Real-time multi-currency settlement (USD/EUR)', 'Freeze/unfreeze switch & spend limits'],
+      badge: 'Coming Soon · Virtual Cards',
+      q: 'When will Avora Bank Virtual Visa / Mastercard issuance launch?',
+      a: virtualCardsEnabled
+        ? 'Every Avora Bank account includes an integrated Virtual Card module with spending limits, freeze toggles, and global merchant acceptance.'
+        : 'Our Virtual Card facility is currently Coming Soon. Avora Bank is finalizing integration with a regulated Banking-as-a-Service (BaaS) card-issuing partner so clients can generate multi-currency virtual Visa and Mastercard wallets with spend controls and mobile wallet support in an upcoming release.',
+      highlights: virtualCardsEnabled
+        ? ['Instant card generation & activation', 'Real-time multi-currency settlement (USD/EUR)', 'Freeze/unfreeze switch & spend limits']
+        : ['Partner integration currently in progress', 'Planned multi-currency USD & EUR virtual cards', 'Planned instant freeze/unfreeze & spend limits'],
     },
-    {
-      id: '05',
-      category: 'cards' as const,
-      badge: 'Mobile Wallets',
-      q: 'Can I connect my Avora virtual card to Apple Pay & Google Wallet?',
-      a: 'Yes. The cards support standard EMV tokenization protocols for frictionless 1-tap addition to Apple Pay and Google Wallet, enabling tap-to-pay at POS terminals, contactless transit systems, and online checkout with biometric Face ID authentication.',
-      highlights: ['Instant tokenization via Apple Wallet & Google Pay', 'Contactless NFC POS compatibility worldwide', 'Biometric protection & token masking'],
-    },
+    ...(virtualCardsEnabled
+      ? [
+          {
+            id: '05',
+            category: 'cards' as const,
+            badge: 'Mobile Wallets',
+            q: 'Can I connect my Avora virtual card to Apple Pay & Google Wallet?',
+            a: 'Yes. The cards support standard EMV tokenization protocols for frictionless 1-tap addition to Apple Pay and Google Wallet, enabling tap-to-pay at POS terminals, contactless transit systems, and online checkout with biometric Face ID authentication.',
+            highlights: ['Instant tokenization via Apple Wallet & Google Pay', 'Contactless NFC POS compatibility worldwide', 'Biometric protection & token masking'],
+          },
+        ]
+      : []),
     {
       id: '06',
       category: 'otc' as const,
@@ -255,7 +264,7 @@ export default function HomePage() {
               </h1>
 
               <p className="text-sm sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
-                Fixed-term digital investment packages ({platformVars.package_min}–{platformVars.package_max}) with {platformVars.monthly_return} target monthly return, {platformVars.lock_in_months}-month lock-in, virtual cards, and institutional OTC settlement operating daily until 21:00 GCC time.
+                Fixed-term digital investment packages ({platformVars.package_min}–{platformVars.package_max}) with {platformVars.monthly_return} target monthly return, {platformVars.lock_in_months}-month lock-in, {virtualCardsEnabled ? 'virtual cards, ' : 'global remittance corridors, '}and institutional OTC settlement operating daily until 21:00 GCC time.
               </p>
 
               <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 pt-2">
@@ -320,41 +329,43 @@ export default function HomePage() {
 
               <div className="relative rounded-3xl p-5 sm:p-7 corum-glass border border-slate-200/80 dark:border-slate-700/80 shadow-2xl space-y-4">
                 
-                {/* Visual Mode Switcher (Wallester 3D Card vs Live OTC Quotes) */}
-                <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-inner">
-                  <button
-                    type="button"
-                    onClick={() => setHeroVisualTab('card')}
-                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                      heroVisualTab === 'card'
-                        ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <CreditCard className="w-3.5 h-3.5" />
-                    <span>3D Virtual Visa Card</span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-950/20 text-slate-950 uppercase font-mono font-black">
-                      BaaS
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHeroVisualTab('otc')}
-                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                      heroVisualTab === 'otc'
-                        ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <ArrowRightLeft className="w-3.5 h-3.5" />
-                    <span>OTC Quotes</span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 uppercase font-mono font-bold">
-                      Live
-                    </span>
-                  </button>
-                </div>
+                {/* Visual Mode Switcher (3D Card shown only when Virtual Cards are enabled) */}
+                {virtualCardsEnabled && (
+                  <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-inner">
+                    <button
+                      type="button"
+                      onClick={() => setHeroVisualTab('card')}
+                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        heroVisualTab === 'card'
+                          ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>3D Virtual Visa Card</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-950/20 text-slate-950 uppercase font-mono font-black">
+                        BaaS
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHeroVisualTab('otc')}
+                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        heroVisualTab === 'otc'
+                          ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                      <span>OTC Quotes</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 uppercase font-mono font-bold">
+                        Live
+                      </span>
+                    </button>
+                  </div>
+                )}
 
-                {heroVisualTab === 'card' ? (
+                {virtualCardsEnabled && heroVisualTab === 'card' ? (
                   /* WALLESTER 3D VIRTUAL VISA CARD PRESENTATION */
                   <div className="space-y-4 animate-in fade-in zoom-in-95 duration-300">
                     <div className="relative pt-3 pb-3">
@@ -596,7 +607,7 @@ export default function HomePage() {
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> INSTANT OTC LIQUIDITY DESKS</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> WALLESTER BaaS VIRTUAL CARDS</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> {virtualCardsEnabled ? 'VIRTUAL VISA CARDS ACTIVE' : 'VIRTUAL CARDS COMING SOON'}</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-400" /> STARTENGINE-GRADE VENTURE EQUITY</div>
@@ -606,7 +617,7 @@ export default function HomePage() {
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> INSTANT OTC LIQUIDITY DESKS</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> WALLESTER BaaS VIRTUAL CARDS</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> {virtualCardsEnabled ? 'VIRTUAL VISA CARDS ACTIVE' : 'VIRTUAL CARDS COMING SOON'}</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-400" /> STARTENGINE-GRADE VENTURE EQUITY</div>
@@ -853,35 +864,56 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Facility 6: Virtual Cards (Electric Indigo) */}
+          {/* Facility 6: Virtual Cards (Coming Soon unless enabled by Admin) */}
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-indigo-500/40 hover:shadow-[0_0_30px_rgba(99,102,241,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-500/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-md shadow-indigo-500/10 dark:shadow-[0_0_20px_rgba(99,102,241,0.18)] transition-transform group-hover:scale-105">
                   <CreditCard className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                  VISA / MC
-                </span>
+                {virtualCardsEnabled ? (
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                    VISA / MC
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                    COMING SOON
+                  </span>
+                )}
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                Virtual Cards & BaaS Wallet
+                Virtual Cards &amp; BaaS Wallet
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Multi-currency virtual debit cards with instant provisioning, spending limit sliders, freeze toggles, Apple/Google Pay readiness, and sandbox ledger simulation.
+                {virtualCardsEnabled
+                  ? 'Multi-currency virtual debit cards with instant provisioning, spending limit sliders, freeze toggles, and Apple/Google Pay readiness.'
+                  : 'Avora Bank is finalizing our partnership with a regulated card-issuing provider to bring multi-currency virtual Visa & Mastercard wallets soon.'}
               </p>
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-              <Link
-                href={user ? '/dashboard?tab=card' : '/login?redirect=/dashboard%3Ftab%3Dcard'}
-                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-              >
-                {user ? 'Manage Cards' : 'Sign In for Cards'}
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-              <Link href="/dashboard" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
-                features
-              </Link>
+              {virtualCardsEnabled ? (
+                <>
+                  <Link
+                    href={user ? '/dashboard?tab=card' : '/login?redirect=/dashboard%3Ftab%3Dcard'}
+                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                  >
+                    {user ? 'Manage Cards' : 'Sign In for Cards'}
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                  <Link href="/dashboard" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                    features
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                    Coming Soon · Partner Integration
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    roadmap
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -1217,7 +1249,7 @@ export default function HomePage() {
               </h2>
 
               <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                Explore our core infrastructure, yield mechanics, and virtual card specs. Need immediate assistance? Talk directly with our global treasury desk.
+                Explore our core infrastructure, yield mechanics, and settlement rails. Need immediate assistance? Talk directly with our global treasury desk.
               </p>
             </div>
 
@@ -1268,7 +1300,7 @@ export default function HomePage() {
                 {[
                   { key: 'all', label: 'All Questions', count: faqs.length },
                   { key: 'yield', label: 'Yield & FD Packages', count: faqs.filter(f => f.category === 'yield').length },
-                  { key: 'cards', label: 'Virtual Visa Cards', count: faqs.filter(f => f.category === 'cards').length },
+                  { key: 'cards', label: virtualCardsEnabled ? 'Virtual Visa Cards' : 'Virtual Cards (Coming Soon)', count: faqs.filter(f => f.category === 'cards').length },
                   { key: 'otc', label: 'OTC & Remittance', count: faqs.filter(f => f.category === 'otc').length },
                   { key: 'security', label: 'Ledger Security', count: faqs.filter(f => f.category === 'security').length },
                 ].map((cat) => (
@@ -1389,7 +1421,7 @@ export default function HomePage() {
             </h3>
 
             <p className="text-slate-300 text-sm leading-relaxed max-w-xl mx-auto">
-              Get weekly updates on fixed package yields, multi-currency virtual card limits, OTC liquidity spreads, and verified startup allocations directly in your inbox.
+              Get weekly updates on fixed package yields, global remittance corridors, OTC liquidity spreads, and verified startup allocations directly in your inbox.
             </p>
 
             <form onSubmit={handleHomeNewsletter} className="max-w-lg mx-auto flex flex-col sm:flex-row gap-3 pt-2">
