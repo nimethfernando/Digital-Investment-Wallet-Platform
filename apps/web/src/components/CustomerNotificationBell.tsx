@@ -109,7 +109,7 @@ export function getNotificationVisuals(item: CustomerNotificationItem) {
 }
 
 export const CustomerNotificationBell: React.FC = () => {
-  const { user, token } = useAuth();
+  const { user, token, isAdmin } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -144,20 +144,72 @@ export const CustomerNotificationBell: React.FC = () => {
     if (!token || !user) return;
     setLoading(true);
     try {
-      const res = await api.get('/wallet/notifications');
-      const data = res.data?.data || res.data;
-      const list: CustomerNotificationItem[] = Array.isArray(data?.notifications)
-        ? data.notifications
-        : [];
-      const sum: CustomerNotificationSummary = data?.summary || {
-        totalCount: list.length,
-        unreadCount: list.filter((n) => !n.isRead).length,
+      let list: CustomerNotificationItem[] = [];
+      let sum: CustomerNotificationSummary = {
+        totalCount: 0,
+        unreadCount: 0,
         supportCount: 0,
         fdCount: 0,
         depositWithdrawalCount: 0,
         transactionCount: 0,
         accountCount: 0,
       };
+
+      if (isAdmin) {
+        const res = await api.get('/admin/notifications');
+        const adminData = res.data?.data || res.data;
+        const rawAlerts: any[] = Array.isArray(adminData?.alerts) ? adminData.alerts : [];
+        list = rawAlerts.slice(0, 60).map((al: any) => {
+          const catMap = (c: string): CustomerNotificationItem['category'] => {
+            if (c === 'DEPOSIT') return 'DEPOSIT';
+            if (c === 'WITHDRAWAL') return 'WITHDRAWAL';
+            if (c === 'SUPPORT_TICKET' || c === 'INQUIRY' || c === 'VENTURE_INQUIRY') return 'SUPPORT';
+            if (String(c).startsWith('FD_')) return 'FD_PACKAGE';
+            if (String(c).startsWith('OTC_')) return 'OTC';
+            if (c === 'KYC_VERIFICATION' || c === 'P2P_APPLICATION') return 'ACCOUNT';
+            return 'TRANSACTION';
+          };
+          return {
+            id: String(al.id),
+            category: catMap(al.category || ''),
+            type: al.category || 'ADMIN_ALERT',
+            severity: al.isOverdue ? 'CRITICAL' : al.urgency === 'HIGH' || al.urgency === 'DUE_TODAY' ? 'WARNING' : 'INFO',
+            title: al.title || al.typeLabel || 'Admin Alert',
+            message: `${al.customerName || 'Client'}${al.customerEmail ? ` (${al.customerEmail})` : ''} — ${al.description || ''}`,
+            referenceCode: al.code || null,
+            amount: al.amount || null,
+            currency: al.currency || null,
+            status: al.status || null,
+            actionUrl: `/admin?tab=${encodeURIComponent(al.targetTab || 'alerts')}`,
+            actionLabel: 'Open in Admin',
+            createdAt: al.requestDate || al.createdDate || new Date().toISOString(),
+            isRead: false,
+          };
+        });
+        sum = {
+          totalCount: rawAlerts.length,
+          unreadCount: rawAlerts.length,
+          supportCount: list.filter((n) => n.category === 'SUPPORT').length,
+          fdCount: list.filter((n) => n.category === 'FD_PACKAGE').length,
+          depositWithdrawalCount: list.filter((n) => n.category === 'DEPOSIT' || n.category === 'WITHDRAWAL').length,
+          transactionCount: list.filter((n) => n.category === 'TRANSACTION').length,
+          accountCount: list.filter((n) => n.category === 'ACCOUNT').length,
+          otcCount: list.filter((n) => n.category === 'OTC').length,
+        };
+      } else {
+        const res = await api.get('/wallet/notifications');
+        const data = res.data?.data || res.data;
+        list = Array.isArray(data?.notifications) ? data.notifications : [];
+        sum = data?.summary || {
+          totalCount: list.length,
+          unreadCount: list.filter((n) => !n.isRead).length,
+          supportCount: 0,
+          fdCount: 0,
+          depositWithdrawalCount: 0,
+          transactionCount: 0,
+          accountCount: 0,
+        };
+      }
 
       if (seenIdsRef.current === null) {
         seenIdsRef.current = new Set(list.map((n) => n.id));
@@ -180,7 +232,7 @@ export const CustomerNotificationBell: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [token, user, showToast]);
+  }, [token, user, isAdmin, showToast]);
 
   useEffect(() => {
     if (!token || !user) {
@@ -222,6 +274,7 @@ export const CustomerNotificationBell: React.FC = () => {
   const handleMarkAllRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     setSummary((prev) => ({ ...prev, unreadCount: 0 }));
+    if (isAdmin) return;
     try {
       await api.post('/wallet/notifications/read', { markAll: true });
       window.dispatchEvent(new Event('avora-bell-read-sync'));
@@ -239,16 +292,18 @@ export const CustomerNotificationBell: React.FC = () => {
         ...prev,
         unreadCount: Math.max(0, prev.unreadCount - 1),
       }));
-      api
-        .post('/wallet/notifications/read', { notificationIds: [item.id] })
-        .then(() => {
-          window.dispatchEvent(new Event('avora-bell-read-sync'));
-        })
-        .catch(() => {});
+      if (!isAdmin) {
+        api
+          .post('/wallet/notifications/read', { notificationIds: [item.id] })
+          .then(() => {
+            window.dispatchEvent(new Event('avora-bell-read-sync'));
+          })
+          .catch(() => {});
+      }
     }
     setPopoverOpen(false);
     setLiveToast(null);
-    const targetUrl = item.actionUrl || '/dashboard?tab=notifications';
+    const targetUrl = item.actionUrl || (isAdmin ? '/admin?tab=alerts' : '/dashboard?tab=notifications');
     window.dispatchEvent(
       new CustomEvent('avora-notification-navigate', {
         detail: { actionUrl: targetUrl },
@@ -438,11 +493,11 @@ export const CustomerNotificationBell: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setPopoverOpen(false);
-                  router.push('/dashboard?tab=notifications');
+                  router.push(isAdmin ? '/admin?tab=alerts' : '/dashboard?tab=notifications');
                 }}
                 className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                <span>Open Full Notification Center ({summary.totalCount})</span>
+                <span>{isAdmin ? `Open Admin Alerts & Pending Queue (${summary.totalCount})` : `Open Full Notification Center (${summary.totalCount})`}</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>

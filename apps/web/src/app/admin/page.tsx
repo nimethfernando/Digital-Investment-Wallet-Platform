@@ -377,6 +377,18 @@ export default function AdminPortalPage() {
           }
         })
         .catch(() => {});
+
+      const pollAlerts = setInterval(() => {
+        api.get('/admin/notifications')
+          .then((res) => {
+            if (res.data?.success && res.data?.data) {
+              setCommandCenter(res.data.data);
+              setLastSyncedTime(new Date().toLocaleTimeString());
+            }
+          })
+          .catch(() => {});
+      }, 20000);
+      return () => clearInterval(pollAlerts);
     }
   }, [token, isAdmin]);
 
@@ -2268,7 +2280,13 @@ export default function AdminPortalPage() {
                     <option value="REMITTANCE">Global Remittance</option>
                     <option value="KYC_VERIFICATION">KYC Verification</option>
                     <option value="SUPPORT_TICKET">Support Ticket</option>
+                    <option value="P2P_ORDER">Active / New P2P Order</option>
                     <option value="P2P_DISPUTE">P2P Dispute</option>
+                    <option value="P2P_APPLICATION">P2P Verification App</option>
+                    <option value="P2P_OFFER">New P2P Offer</option>
+                    <option value="P2P_TRANSFER">Avora P2P Transfer</option>
+                    <option value="CURRENCY_SWAP">Instant Currency Swap</option>
+                    <option value="VENTURE_INQUIRY">Venture Investor Inquiry</option>
                     <option value="OTC_DISPUTE">OTC Dispute</option>
                     <option value="OTC_TRADE">Active OTC Escrow</option>
                     <option value="OTC_DESK_REVIEW">OTC Desk Review</option>

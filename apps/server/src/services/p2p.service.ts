@@ -459,7 +459,8 @@ export class P2PService {
         });
 
         const wallet = await ledgerService.ensureWallet(upserted.id);
-        for (const currency of ['USDT', 'USD']) {
+        for (const currency of ['USDT', 'USD', 'USDC', 'BTC', 'ETH']) {
+          const targetAmt = currency === 'BTC' ? '10.00000000' : currency === 'ETH' ? '250.00000000' : '500000.00000000';
           const bal = await prisma.walletBalance.findUnique({
             where: { walletId_currency: { walletId: wallet.id, currency } },
           });
@@ -468,15 +469,15 @@ export class P2PService {
               data: {
                 walletId: wallet.id,
                 currency,
-                availableBalance: '500000.00000000',
+                availableBalance: targetAmt,
                 lockedPrincipal: '0.00000000',
                 pendingSettlement: '0.00000000',
               },
             });
-          } else if (new Decimal(bal.availableBalance.toString()).lessThan('500000')) {
+          } else if (new Decimal(bal.availableBalance.toString()).lessThan(targetAmt)) {
             await prisma.walletBalance.update({
               where: { id: bal.id },
-              data: { availableBalance: '500000.00000000' },
+              data: { availableBalance: targetAmt },
             });
           }
         }
@@ -643,11 +644,18 @@ export class P2PService {
       );
     }
 
-    // 4. Enforce Daily Velocity Limit (Default: $5,000 USD / 24 hours)
-    const dailyLimitSetting = await prisma.cmsSetting.findUnique({
-      where: { key: 'p2p_daily_limit_usd' },
-    });
+    // 4. Enforce Daily Velocity Limit (Default: $5,000 USD equivalent / 24 hours)
+    const [dailyLimitSetting, liveRates] = await Promise.all([
+      prisma.cmsSetting.findUnique({ where: { key: 'p2p_daily_limit_usd' } }),
+      rateService.getLiveRates().catch(() => ({ rates: { USD: 1, USDT: 1, USDC: 1 } as Record<string, number> })),
+    ]);
     const maxDailyLimit = new Decimal(dailyLimitSetting?.value || '5000');
+    const toUsdDec = (amt: Decimal, cur: string) => {
+      const upper = (cur || 'USD').toUpperCase();
+      if (upper === 'USD' || upper === 'USDT' || upper === 'USDC') return amt;
+      const rate = liveRates.rates[upper];
+      return rate && rate > 0 ? amt.dividedBy(new Decimal(rate)) : amt;
+    };
 
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const recentTransfers = await prisma.transaction.findMany({
@@ -657,18 +665,19 @@ export class P2PService {
         status: TransactionStatus.COMPLETED,
         createdAt: { gte: oneDayAgo },
       },
-      select: { amount: true },
+      select: { amount: true, currency: true },
     });
 
     const dailyTransferred = recentTransfers.reduce(
-      (sum, tx) => sum.plus(new Decimal(tx.amount.toString())),
+      (sum, tx) => sum.plus(toUsdDec(new Decimal(tx.amount.toString()), tx.currency)),
       new Decimal(0)
     );
+    const amountUsdDec = toUsdDec(amountDec, currency);
 
-    if (dailyTransferred.plus(amountDec).greaterThan(maxDailyLimit)) {
+    if (dailyTransferred.plus(amountUsdDec).greaterThan(maxDailyLimit)) {
       const remainingLimit = Decimal.max(0, maxDailyLimit.minus(dailyTransferred));
       throw new Error(
-        `Daily P2P transfer velocity limit ($${maxDailyLimit.toFixed(2)} USD) exceeded. You have transferred $${dailyTransferred.toFixed(2)} in the last 24 hours. Remaining limit: $${remainingLimit.toFixed(2)}.`
+        `Daily P2P transfer velocity limit ($${maxDailyLimit.toFixed(2)} USD) exceeded. You have transferred $${dailyTransferred.toFixed(2)} USD equivalent in the last 24 hours. Remaining limit: $${remainingLimit.toFixed(2)} USD.`
       );
     }
 
@@ -777,25 +786,27 @@ export class P2PService {
           },
         });
 
+        const dp = ['BTC', 'ETH'].includes(currency.toUpperCase()) ? 8 : 2;
         return {
           referenceCode,
-          amount: amountDec.toFixed(2),
+          amount: amountDec.toFixed(dp),
           currency,
           recipient: recipientLookup,
-          balanceAfter: newSenderAvail.toFixed(2),
+          balanceAfter: newSenderAvail.toFixed(dp),
         };
       },
       { timeout: 30000, maxWait: 10000 }
     );
 
     // 6. Asynchronous email notifications (non-blocking)
+    const dpFmt = ['BTC', 'ETH'].includes(currency.toUpperCase()) ? 6 : 2;
     notificationService.sendEmail({
       to: sender.email,
       subject: `P2P Transfer Sent - ${referenceCode}`,
       html: `
         <div style="font-family: sans-serif; padding: 20px;">
           <h3>Transfer Sent</h3>
-          <p>You have sent <strong>$${amountDec.toFixed(2)} ${currency}</strong> to <strong>${recipientLookup.fullName}</strong> (${recipientLookup.emailMasked}).</p>
+          <p>You have sent <strong>${amountDec.toFixed(dpFmt)} ${currency}</strong> to <strong>${recipientLookup.fullName}</strong> (${recipientLookup.emailMasked}).</p>
           <p>Reference: <strong>${referenceCode}</strong></p>
         </div>
       `,
@@ -807,11 +818,17 @@ export class P2PService {
       html: `
         <div style="font-family: sans-serif; padding: 20px;">
           <h3>Funds Received</h3>
-          <p>You received <strong>$${amountDec.toFixed(2)} ${currency}</strong> in your platform wallet.</p>
+          <p>You received <strong>${amountDec.toFixed(dpFmt)} ${currency}</strong> in your platform wallet.</p>
           <p>Reference: <strong>${referenceCode}</strong></p>
         </div>
       `,
     }).catch(() => {});
+
+    notificationService.sendAdminAlert(
+      `Avora User P2P Transfer [${referenceCode}]`,
+      `${sender.email} sent ${amountDec.toFixed(dpFmt)} ${currency} to ${recipient.email} (${recipientLookup.fullName}).`,
+      { referenceCode, senderEmail: sender.email, recipientEmail: recipient.email, amount: amountDec.toFixed(dpFmt), currency }
+    ).catch(() => {});
 
     return result;
   }
@@ -1915,6 +1932,14 @@ export class P2PService {
       { timeout: 30000, maxWait: 10000 }
     );
 
+    notificationService
+      .sendAdminAlert(
+        `New P2P Marketplace Offer [${created.offer.offerCode}]`,
+        `${user.email} published a P2P ${input.side} offer (${created.offer.offerCode}) for ${amountNum.toString()} ${cryptoCur} @ ${priceNum.toString()} ${input.fiatCurrency.toUpperCase()}.`,
+        { offerCode: created.offer.offerCode, userId, email: user.email, side: input.side, cryptoCurrency: cryptoCur, fiatCurrency: input.fiatCurrency.toUpperCase() }
+      )
+      .catch(() => {});
+
     return {
       success: true,
       offerCode: created.offer.offerCode,
@@ -2119,7 +2144,7 @@ export class P2PService {
           const isTakerSelling = sellerId === takerUserId;
           throw new Error(
             isTakerSelling
-              ? `Insufficient ${cryptoCur} in your wallet for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required). Convert USD to ${cryptoCur} via Instant Swap (/exchange) or deposit ${cryptoCur} before selling.`
+              ? `Insufficient ${cryptoCur} in your wallet for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required). Convert USD to ${cryptoCur} via Instant Swap (/dashboard?tab=swap) or deposit ${cryptoCur} before selling.`
               : `This merchant currently has insufficient ${cryptoCur} available for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required). Please try another trader or a smaller amount.`
           );
         }
@@ -2251,6 +2276,14 @@ export class P2PService {
         status: order.status,
       }),
     ]);
+
+    notificationService
+      .sendAdminAlert(
+        `New P2P Order Created [${orderCode}]`,
+        `Order ${orderCode} (${formattedCrypto} ${cryptoCur} ↔ ${formatFiatWithCurrency(fiatAmountDec, fiatCur)} via ${chosenMethod}) created.\nBuyer: ${order.buyer.email} | Seller: ${order.seller.email} | Status: ${order.status}.`,
+        { orderId: order.id, orderCode, buyerEmail: order.buyer.email, sellerEmail: order.seller.email, cryptoAmount: formattedCrypto, cryptoCurrency: cryptoCur, fiatCurrency: fiatCur, status: order.status }
+      )
+      .catch(() => {});
 
     const statsMap = await computeUserP2PStatsMap([order.buyerId, order.sellerId]);
     return this.formatOrderForUser(order, takerUserId, statsMap);
@@ -2438,6 +2471,14 @@ export class P2PService {
       status: P2POrderStatus.PENDING_PAYMENT,
     });
 
+    notificationService
+      .sendAdminAlert(
+        `P2P Order Accepted [${order.orderCode}]`,
+        `Order ${order.orderCode} accepted by ${acceptedOrder.seller.email}. Payment window (${P2P_TIMERS.PAYMENT_MINUTES}m) active for buyer ${acceptedOrder.buyer.email}.`,
+        { orderId: order.id, orderCode: order.orderCode, status: P2POrderStatus.PENDING_PAYMENT }
+      )
+      .catch(() => {});
+
     const statsMap = await computeUserP2PStatsMap([acceptedOrder.buyerId, acceptedOrder.sellerId]);
     return this.formatOrderForUser(acceptedOrder, userId, statsMap);
   }
@@ -2532,6 +2573,14 @@ export class P2PService {
       referenceCode: order.orderCode,
       status: P2POrderStatus.DECLINED,
     });
+
+    notificationService
+      .sendAdminAlert(
+        `P2P Order Declined [${order.orderCode}]`,
+        `Order ${order.orderCode} was declined (${cleanReason}). Escrowed crypto unlocked back to seller.`,
+        { orderId: order.id, orderCode: order.orderCode, status: P2POrderStatus.DECLINED }
+      )
+      .catch(() => {});
 
     const statsMap = await computeUserP2PStatsMap([declinedOrder.buyerId, declinedOrder.sellerId]);
     return this.formatOrderForUser(declinedOrder, userId, statsMap);
@@ -2641,6 +2690,14 @@ export class P2PService {
       referenceCode: order.orderCode,
       status: P2POrderStatus.CANCELLED,
     });
+
+    notificationService
+      .sendAdminAlert(
+        `P2P Order Cancelled [${order.orderCode}]`,
+        `Order ${order.orderCode} was cancelled (${cleanReason}). ${cryptoAmountDec.toFixed(4)} ${cryptoCur} unlocked back to seller.`,
+        { orderId: order.id, orderCode: order.orderCode, status: P2POrderStatus.CANCELLED }
+      )
+      .catch(() => {});
 
     const statsMap = await computeUserP2PStatsMap([cancelledOrder.buyerId, cancelledOrder.sellerId]);
     return this.formatOrderForUser(cancelledOrder, userId, statsMap);
@@ -2760,6 +2817,14 @@ export class P2PService {
       }),
     ]);
 
+    notificationService
+      .sendAdminAlert(
+        `P2P Buyer Marked Payment Sent [${order.orderCode}]`,
+        `Buyer ${order.buyer.email} confirmed fiat payment of ${formatFiatWithCurrency(order.fiatAmount.toString(), fiatCur)}${cleanRef ? ` (Ref: ${cleanRef})` : ''} to seller ${order.seller.email}.`,
+        { orderId: order.id, orderCode: order.orderCode, paymentReference: cleanRef || null, status: P2POrderStatus.PAYMENT_SENT }
+      )
+      .catch(() => {});
+
     return updated;
   }
 
@@ -2866,6 +2931,14 @@ export class P2PService {
         status: P2POrderStatus.COMPLETED,
       }),
     ]);
+
+    notificationService
+      .sendAdminAlert(
+        `P2P Order Completed & Escrow Released [${order.orderCode}]`,
+        `Order ${order.orderCode} completed! Seller ${order.seller.email} released ${rel.buyerNetCrypto.toFixed(4)} ${cryptoCur} to buyer ${order.buyer.email}${rel.platformFee.greaterThan(0) ? ` (${rel.feePctStr}% fee: ${rel.platformFee.toFixed(4)} ${cryptoCur})` : ''}.`,
+        { orderId: order.id, orderCode: order.orderCode, status: P2POrderStatus.COMPLETED, netCrypto: rel.buyerNetCrypto.toFixed(4), currency: cryptoCur }
+      )
+      .catch(() => {});
 
     return completedOrder;
   }
@@ -3928,6 +4001,14 @@ export class P2PService {
         },
       });
     }, { timeout: 30000, maxWait: 10000 });
+
+    notificationService
+      .sendAdminAlert(
+        `New P2P Merchant Activated [$50 Security Deposit]`,
+        `User ${userId} locked $50.00 security deposit (${txCode}) and activated P2P Merchant status.`,
+        { userId, transactionCode: txCode }
+      )
+      .catch(() => {});
 
     return {
       success: true,

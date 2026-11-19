@@ -321,6 +321,12 @@ export class PackageService {
         `,
       }).catch((e) => console.warn('[PackageService] Email dispatch notice:', e));
 
+      notificationService.sendAdminAlert(
+        `FD Investment Activated [${pkg.packageCode}]`,
+        `${user.firstName || 'Investor'} (${user.email}) activated a ${termMonths}-month FD package (${pkg.packageCode}) for $${amountNum.toLocaleString()} USD via Wallet Balance.`,
+        { packageCode: pkg.packageCode, userId, email: user.email, amount: amountNum, termMonths, method: 'WALLET_BALANCE' }
+      ).catch(() => {});
+
       return {
         success: true,
         package: pkg,
@@ -379,6 +385,12 @@ export class PackageService {
         <p>Our settlement desk will verify your payment and activate your package shortly.</p>
       `,
     }).catch((e) => console.warn('[PackageService] Email dispatch notice:', e));
+
+    notificationService.sendAdminAlert(
+      `New FD Package Pending Verification [${packageCode}]`,
+      `${user.firstName || 'Investor'} (${user.email}) submitted FD package ${packageCode} ($${amountNum.toLocaleString()} USD, ${termMonths}m) via ${params.depositMethod}.\nDeposit Ref: ${depositCode}\nReview in Admin → FD Packages.`,
+      { packageCode, depositCode, userId, email: user.email, amount: amountNum, termMonths, depositMethod: params.depositMethod }
+    ).catch(() => {});
 
     return {
       success: true,

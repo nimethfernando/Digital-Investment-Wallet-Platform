@@ -479,6 +479,14 @@ export class TokenService {
       })
       .catch(() => {});
 
+    notificationService
+      .sendAdminAlert(
+        `Avora Token ($AVR) Purchase [${result.purchaseCode}]`,
+        `${user.email} purchased ${result.tokensPurchased.toLocaleString()} AVR for ${result.amountUsd} ${result.payCurrency} ($${result.pricePerTokenUsd}/AVR).`,
+        { purchaseCode: result.purchaseCode, userId, email: user.email, tokens: result.tokensPurchased, amountUsd: result.amountUsd, currency: result.payCurrency }
+      )
+      .catch(() => {});
+
     return {
       success: true,
       message: `Successfully purchased ${result.tokensPurchased.toLocaleString()} AVR for ${result.amountUsd} ${result.payCurrency}! Wallet balance updated (${result.balanceBefore} → ${result.balanceAfter} ${result.payCurrency}).`,
@@ -529,6 +537,14 @@ export class TokenService {
     });
 
     const estimatedTokens = Math.round(Number(reqDec) / TOKEN_SPEC.proposedEarlyAccessPriceUsd);
+
+    notificationService
+      .sendAdminAlert(
+        `New Avora Token ($AVR) Whitelist Interest`,
+        `User ${userId} registered $AVR whitelist interest for $${Number(reqDec).toLocaleString()} USD (~${estimatedTokens.toLocaleString()} AVR @ $0.10).`,
+        { userId, requestedAllocationUsd: Number(updated.requestedAllocationUsd), estimatedTokens }
+      )
+      .catch(() => {});
 
     return {
       success: true,
@@ -744,6 +760,14 @@ export class TokenService {
           </div>
         `,
       })
+      .catch(() => {});
+
+    notificationService
+      .sendAdminAlert(
+        `Avora Token ($AVR) Redeemed [${result.redeemCode}]`,
+        `${user.email} redeemed ${result.tokensRedeemed.toLocaleString()} AVR for ${result.payoutAmount} ${result.payoutCurrency}.`,
+        { redeemCode: result.redeemCode, userId, email: user.email, tokensRedeemed: result.tokensRedeemed, payoutAmount: result.payoutAmount, payoutCurrency: result.payoutCurrency }
+      )
       .catch(() => {});
 
     return {

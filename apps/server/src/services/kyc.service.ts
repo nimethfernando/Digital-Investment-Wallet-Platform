@@ -1,5 +1,6 @@
 import { KycStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import { notificationService } from '../adapters/notification/notification.provider';
 
 export interface KycSubmissionInput {
   documentType: 'PASSPORT' | 'NATIONAL_ID' | 'DRIVERS_LICENSE' | 'PROOF_OF_ADDRESS';
@@ -43,6 +44,18 @@ export class KycService {
         kycStatus: KycStatus.PENDING,
       },
     });
+
+    notificationService.sendEmail({
+      to: user.email,
+      subject: `KYC Documents Received - Pending Review`,
+      html: `<p>Hello ${user.firstName || 'Client'},</p><p>We received your <strong>${input.documentType}</strong> verification submission. Our Compliance Team will review your documents shortly.</p>`,
+    }).catch(() => {});
+
+    notificationService.sendAdminAlert(
+      `New KYC Submission [${document.id.slice(0, 8).toUpperCase()}]`,
+      `${user.firstName || 'Client'} (${user.email}) submitted ${input.documentType} documents for KYC identity verification.\nReview in Admin → KYC Approvals.`,
+      { documentId: document.id, userId, email: user.email, documentType: input.documentType }
+    ).catch(() => {});
 
     return {
       documentId: document.id,

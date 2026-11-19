@@ -2,6 +2,7 @@ import { EntryDirection, JournalReferenceType, TransactionType, TransactionStatu
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { rateService } from './rate.service';
+import { notificationService } from '../adapters/notification/notification.provider';
 
 // Configure Decimal.js precision for financial accuracy
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -1005,7 +1006,7 @@ export class LedgerService {
 
     const wallet = await this.ensureWallet(params.userId);
 
-    return await prisma.$transaction(
+    const swapResult = await prisma.$transaction(
       async (tx) => {
         // Lock both balance rows to prevent race conditions
         const fromLocked = await this.lockWalletBalance(tx, wallet.id, fromCur);
@@ -1141,6 +1142,20 @@ export class LedgerService {
         timeout: 60000,
       }
     );
+
+    prisma.user
+      .findUnique({ where: { id: params.userId }, select: { email: true, firstName: true, lastName: true } })
+      .then((u) => {
+        const actor = u ? `${`${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Client'} (${u.email})` : params.userId;
+        return notificationService.sendAdminAlert(
+          `Instant Currency Swap Executed [${swapResult.transactionCode}]`,
+          `${actor} swapped ${swapResult.fromAmount} ${swapResult.fromCurrency} → ${swapResult.toAmount} ${swapResult.toCurrency}.\nRate: 1 ${swapResult.fromCurrency} = ${swapResult.rate} ${swapResult.toCurrency} | Desk Spread (${swapResult.spreadPct}%): ${swapResult.feeAmount} ${swapResult.feeCurrency}.`,
+          { userId: params.userId, ...swapResult }
+        );
+      })
+      .catch(() => {});
+
+    return swapResult;
   }
 
   /**

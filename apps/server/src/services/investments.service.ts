@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
+import { notificationService } from '../adapters/notification/notification.provider';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -618,6 +619,12 @@ export class InvestmentsService {
       { timeout: 45000, maxWait: 15000 }
     );
 
+    notificationService.sendAdminAlert(
+      `New Venture Allocation [${commitment.investmentCode}]`,
+      `User ${userId} committed gross $${new Decimal(commitment.grossAmount.toString()).toFixed(2)} (Net: $${new Decimal(commitment.netInvestedAmount.toString()).toFixed(2)}, Fee: $${new Decimal(commitment.allocationFeeAmount.toString()).toFixed(2)}) into listing ${data.listingId}.`,
+      { investmentCode: commitment.investmentCode, userId, listingId: data.listingId, grossAmount: commitment.grossAmount.toString() }
+    ).catch(() => {});
+
     return commitment;
   }
 
@@ -685,6 +692,12 @@ export class InvestmentsService {
       },
     });
 
+    notificationService.sendAdminAlert(
+      `New Startup Funding Application [${listing.companyName}]`,
+      `Founder user ${userId} submitted ${listing.companyName} (${listing.country}, Target: $${data.fundingTarget.toLocaleString()}) for due-diligence review.`,
+      { listingId: listing.id, slug: listing.slug, companyName: listing.companyName, userId }
+    ).catch(() => {});
+
     return listing;
   }
 
@@ -725,6 +738,13 @@ export class InvestmentsService {
         message: data.message,
       },
     });
+
+    notificationService.sendAdminAlert(
+      `New Venture Investor Inquiry [${data.type || 'QUESTION'}]`,
+      `Investor ${userId} submitted inquiry "${data.subject}" on listing ${data.listingId}: ${data.message.slice(0, 200)}`,
+      { inquiryId: inquiry.id, listingId: data.listingId, investorUserId: userId, subject: data.subject }
+    ).catch(() => {});
+
     return inquiry;
   }
 

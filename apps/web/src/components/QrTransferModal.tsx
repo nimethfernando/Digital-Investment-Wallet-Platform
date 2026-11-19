@@ -59,6 +59,7 @@ export function QrTransferModal({
 
   // Send State
   const [recipientInput, setRecipientInput] = useState<string>('');
+  const [sendCurrency, setSendCurrency] = useState<string>('USD');
   const [sendAmount, setSendAmount] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [twoFactorCode, setTwoFactorCode] = useState<string>('');
@@ -632,13 +633,14 @@ export function QrTransferModal({
       const res = await api.post('/p2p/transfer', {
         recipientIdentifier: verifiedRecipient.accountNumber || verifiedRecipient.recipientId,
         amount: amt,
-        currency: 'USD',
+        currency: sendCurrency,
         notes: notes.trim() || 'Avora Account Transfer',
         twoFactorCode: user?.twoFactorEnabled ? twoFactorCode : undefined,
       });
 
       if (res.data.success) {
-        setSuccessMsg(`Successfully transferred $${amt.toFixed(2)} USD to ${verifiedRecipient.fullName} (${verifiedRecipient.accountNumber})!`);
+        const dp = ['BTC', 'ETH'].includes(sendCurrency) ? 6 : 2;
+        setSuccessMsg(`Successfully transferred ${amt.toFixed(dp)} ${sendCurrency} to ${verifiedRecipient.fullName} (${verifiedRecipient.accountNumber})!`);
         setSendAmount('');
         setNotes('');
         setTwoFactorCode('');
@@ -1181,38 +1183,56 @@ export function QrTransferModal({
               </div>
             )}
 
-            {/* Amount Input */}
-            <div className="space-y-1.5">
+            {/* Currency & Amount Input */}
+            <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Amount to Send (USD)
+                  Currency &amp; Amount to Send
                 </label>
                 <div className="flex items-center gap-1">
-                  {['50', '100', '500', '1000'].map((val) => (
+                  {(['BTC', 'ETH'].includes(sendCurrency) ? ['0.001', '0.01', '0.05'] : ['50', '100', '500', '1000']).map((val) => (
                     <button
                       key={val}
                       type="button"
                       onClick={() => setSendAmount(val)}
                       className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-600 transition-colors cursor-pointer"
                     >
-                      +${val}
+                      +{val}
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-base font-bold text-slate-400">$</span>
-                <input
-                  ref={amountInputRef}
-                  type="number"
-                  step="0.01"
-                  min="1"
-                  placeholder="0.00"
-                  value={sendAmount}
-                  onChange={(e) => setSendAmount(e.target.value)}
-                  required
-                  className="w-full pl-8 pr-4 py-2.5 rounded-2xl text-base font-black font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
-                />
+              <div className="grid grid-cols-3 gap-2">
+                <select
+                  value={sendCurrency}
+                  onChange={(e) => setSendCurrency(e.target.value)}
+                  className="col-span-1 px-3 py-2.5 rounded-2xl text-xs font-black border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none cursor-pointer"
+                >
+                  <option value="USD">USD ($)</option>
+                  <option value="USDT">USDT (₮)</option>
+                  <option value="USDC">USDC ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GEL">GEL (₾)</option>
+                  <option value="INR">INR (₹)</option>
+                  <option value="BTC">BTC (₿)</option>
+                  <option value="ETH">ETH (Ξ)</option>
+                </select>
+                <div className="relative col-span-2">
+                  <span className="absolute left-3.5 top-2.5 text-sm font-bold text-slate-400">
+                    {sendCurrency === 'EUR' ? '€' : sendCurrency === 'GEL' ? '₾' : sendCurrency === 'INR' ? '₹' : sendCurrency === 'BTC' ? '₿' : sendCurrency === 'ETH' ? 'Ξ' : sendCurrency === 'USDT' ? '₮' : '$'}
+                  </span>
+                  <input
+                    ref={amountInputRef}
+                    type="number"
+                    step={['BTC', 'ETH'].includes(sendCurrency) ? '0.000001' : '0.01'}
+                    min={['BTC', 'ETH'].includes(sendCurrency) ? '0.000001' : '1'}
+                    placeholder="0.00"
+                    value={sendAmount}
+                    onChange={(e) => setSendAmount(e.target.value)}
+                    required
+                    className="w-full pl-8 pr-4 py-2.5 rounded-2xl text-base font-black font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
             </div>
 

@@ -28,7 +28,7 @@ export class WithdrawalService {
   async requestWithdrawal(
     userId: string,
     params: {
-      withdrawalType: 'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE';
+      withdrawalType?: 'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE';
       packageId?: string;
       amount: number | string;
       currency?: string;
@@ -68,7 +68,8 @@ export class WithdrawalService {
       );
     }
 
-    let effectiveWithdrawalType: 'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE' = params.withdrawalType;
+    let effectiveWithdrawalType: 'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE' =
+      params.withdrawalType === 'PRINCIPAL_RELEASE' ? 'PRINCIPAL_RELEASE' : 'MONTHLY_RETURNS';
     let effectivePackageId: string | undefined = params.packageId || undefined;
 
     // 4. Validate & Smartly Resolve Principal Release vs Available Balance
@@ -339,6 +340,12 @@ export class WithdrawalService {
         </div>
       `,
     }).catch(() => {});
+
+    notificationService.sendAdminAlert(
+      `New Withdrawal Request [${requestCode}]`,
+      `${user.firstName || 'Client'} (${user.email}) requested withdrawal of ${amountDec.toFixed(4)} ${currency} via ${payoutDesc} (Source: ${normalizedDetails.sourceBalanceLabel}).\nReview & settle in Admin → Withdrawals.`,
+      { requestCode, userId, email: user.email, amount: amountDec.toFixed(4), currency, payoutMethod: params.payoutMethod }
+    ).catch(() => {});
 
     return result;
   }

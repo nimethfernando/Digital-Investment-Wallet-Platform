@@ -411,6 +411,7 @@ function DashboardContent() {
   const [p2pPreview, setP2PPreview] = useState<{ recipientId: string; emailMasked: string; fullName: string; kycStatus: string; accountNumber?: string } | null>(null);
   const [p2pLookupLoading, setP2PLookupLoading] = useState(false);
   const [p2pAmount, setP2PAmount] = useState('');
+  const [p2pCurrency, setP2PCurrency] = useState('USD');
   const [p2pNotes, setP2PNotes] = useState('');
   const [p2p2FACode, setP2P2FACode] = useState('');
   const [p2pTransferLoading, setP2PTransferLoading] = useState(false);
@@ -903,13 +904,13 @@ function DashboardContent() {
       const res = await api.post('/p2p/transfer', {
         recipientIdentifier: p2pRecipientInput.trim(),
         amount: parseFloat(p2pAmount),
-        currency: 'USD',
+        currency: p2pCurrency,
         notes: p2pNotes || undefined,
         twoFactorCode: p2p2FACode || undefined,
       });
 
       if (res.data.success) {
-        setP2PSuccess(`Successfully transferred $${p2pAmount} USD to ${p2pPreview.fullName} (${p2pPreview.emailMasked})!`);
+        setP2PSuccess(`Successfully transferred ${p2pAmount} ${p2pCurrency} to ${p2pPreview.fullName} (${p2pPreview.emailMasked})!`);
         
         // Save payee if selected
         if (savePayeeCheck && !savedPayees.some((p) => p.identifier === p2pRecipientInput.trim())) {
@@ -4387,20 +4388,37 @@ function DashboardContent() {
 
                 <div>
                   <label className="block text-xs font-bold mb-1.5">
-                    Amount to Send (USD)
+                    Currency &amp; Amount to Send
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="1"
-                    max="5000"
-                    placeholder="e.g. 500.00"
-                    value={p2pAmount}
-                    onChange={(e) => setP2PAmount(e.target.value)}
-                    required
-                    className="w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-base font-bold"
-                  />
-                  <span className="text-[10px] text-slate-400">Daily velocity limit: $5,000 USD/24h</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    <select
+                      value={p2pCurrency}
+                      onChange={(e) => setP2PCurrency(e.target.value)}
+                      className="col-span-1 px-3 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 outline-none"
+                    >
+                      <option value="USD">USD</option>
+                      <option value="USDT">USDT</option>
+                      <option value="USDC">USDC</option>
+                      <option value="EUR">EUR</option>
+                      <option value="GEL">GEL</option>
+                      <option value="INR">INR</option>
+                      <option value="BTC">BTC</option>
+                      <option value="ETH">ETH</option>
+                    </select>
+                    <input
+                      type="number"
+                      step={['BTC', 'ETH'].includes(p2pCurrency) ? '0.000001' : '0.01'}
+                      min={['BTC', 'ETH'].includes(p2pCurrency) ? '0.000001' : '1'}
+                      placeholder={['BTC', 'ETH'].includes(p2pCurrency) ? 'e.g. 0.01' : 'e.g. 500.00'}
+                      value={p2pAmount}
+                      onChange={(e) => setP2PAmount(e.target.value)}
+                      required
+                      className="col-span-2 w-full px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-base font-bold"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400">
+                    Available {p2pCurrency}: {parseFloat(wallet?.balances?.find((b) => b.currency === p2pCurrency)?.availableBalance || '0').toFixed(['BTC', 'ETH'].includes(p2pCurrency) ? 6 : 2)} • Daily limit: $5,000 USD equiv/24h
+                  </span>
                 </div>
 
                 {user?.twoFactorEnabled && (
@@ -4438,7 +4456,7 @@ function DashboardContent() {
                   disabled={p2pTransferLoading || !p2pAmount}
                   className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 transition-colors shadow-md"
                 >
-                  {p2pTransferLoading ? 'Executing double-entry transfer...' : `Confirm & Transfer $${p2pAmount || '0'} USD`}
+                  {p2pTransferLoading ? 'Executing double-entry transfer...' : `Confirm & Transfer ${p2pAmount || '0'} ${p2pCurrency}`}
                 </button>
               </form>
             )}

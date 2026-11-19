@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
 import { rateService } from './rate.service';
+import { notificationService } from '../adapters/notification/notification.provider';
 import { TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -560,6 +561,12 @@ export class GlobalMoneyTransferService {
 
       return transfer;
     }, { timeout: 45000, maxWait: 15000 });
+
+    notificationService.sendAdminAlert(
+      `New Global Remittance Order [${result.transferCode}]`,
+      `${user.firstName || 'Client'} (${user.email}) initiated remittance ${result.transferCode}: ${result.sendingAmount} ${result.sendingCurrency} → ${result.recipientAmount} ${result.recipientCurrency} to ${data.recipientName.trim()} (${data.destinationCountry}).\nReview in Admin → Remittance.`,
+      { transferCode: result.transferCode, userId, email: user.email, destinationCountry: data.destinationCountry, sendingAmount: result.sendingAmount.toString(), sendingCurrency: result.sendingCurrency, recipientAmount: result.recipientAmount.toString(), recipientCurrency: result.recipientCurrency }
+    ).catch(() => {});
 
     return {
       ...result,

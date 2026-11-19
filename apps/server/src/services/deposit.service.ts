@@ -457,6 +457,12 @@ export class DepositService {
         `,
       }).catch(() => {});
 
+      notificationService.sendAdminAlert(
+        `Razorpay Deposit Verified & Credited [${deposit.depositCode}]`,
+        `${deposit.user.email} completed a verified Razorpay payment of ${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency} (Payment ID: ${paymentIdClean}).`,
+        { depositCode: deposit.depositCode, userId: deposit.userId, paymentId: paymentIdClean, amount: deposit.amount.toString(), currency: deposit.currency }
+      ).catch(() => {});
+
       return {
         verified: true,
         autoCredited: true,
@@ -487,6 +493,12 @@ export class DepositService {
         <p>Status: <strong>PENDING TREASURY VERIFICATION</strong>.</p>
       `,
     }).catch(() => {});
+
+    notificationService.sendAdminAlert(
+      `New Razorpay Deposit Pending Review [${deposit.depositCode}]`,
+      `${deposit.user.email} submitted Razorpay payment reference ${paymentIdClean} for ${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency}. Review in Admin → Deposits.`,
+      { depositCode: deposit.depositCode, userId: deposit.userId, paymentId: paymentIdClean, amount: deposit.amount.toString(), currency: deposit.currency }
+    ).catch(() => {});
 
     return {
       verified: true,
@@ -701,6 +713,12 @@ export class DepositService {
         <p>Status: <strong>PENDING REVIEW</strong>. Funds will be credited once confirmed on-chain / bank statement.</p>
       `,
     }).catch(() => {});
+
+    notificationService.sendAdminAlert(
+      `New Deposit Request [${depositCode}]`,
+      `${user.firstName || 'Client'} (${user.email}) submitted a deposit request for ${amountNum} ${currency} via ${data.depositMethod}.\nRef/TX: ${normalizedHash || data.txHashOrRef || 'N/A'}\nReview in Admin → Deposits.`,
+      { depositCode, userId, email: user.email, amount: amountNum, currency, depositMethod: data.depositMethod, txHashOrRef: normalizedHash || data.txHashOrRef || null }
+    ).catch(() => {});
 
     return deposit;
   }

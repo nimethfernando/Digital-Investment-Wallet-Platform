@@ -4217,8 +4217,19 @@ export class AdminController {
       }),
     ]);
 
+    const last72Hours = new Date(now.getTime() - 72 * 60 * 60 * 1000);
     await otcService.ensureOtcSchema();
-    const [activeAndDisputedOtcTradesList, underReviewOtcDesksList, pendingP2PAppsList, openOtcInquiriesList] = await Promise.all([
+    const [
+      activeAndDisputedOtcTradesList,
+      underReviewOtcDesksList,
+      pendingP2PAppsList,
+      openOtcInquiriesList,
+      activeP2POrdersList,
+      recentSwapsList,
+      recentP2PTransfersList,
+      recentP2POffersList,
+      pendingVentureInquiriesList,
+    ] = await Promise.all([
       prisma.otcTrade.findMany({
         where: { status: { in: ['DISPUTED', 'IN_PROGRESS'] } },
         include: {
@@ -4251,6 +4262,79 @@ export class AdminController {
             messages: { orderBy: { createdAt: 'desc' }, take: 1 },
           },
           orderBy: { updatedAt: 'desc' },
+        })
+        .catch(() => []),
+      prisma.p2POrder
+        .findMany({
+          where: {
+            status: {
+              in: [
+                P2POrderStatus.PENDING,
+                P2POrderStatus.ACCEPTED,
+                P2POrderStatus.PENDING_PAYMENT,
+                P2POrderStatus.PAYMENT_SENT,
+                P2POrderStatus.SELLER_CONFIRMING,
+              ],
+            },
+          },
+          include: {
+            buyer: { select: { id: true, email: true, firstName: true, lastName: true } },
+            seller: { select: { id: true, email: true, firstName: true, lastName: true } },
+            offer: { select: { fiatCurrency: true, cryptoCurrency: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+        })
+        .catch(() => []),
+      prisma.transaction
+        .findMany({
+          where: {
+            type: TransactionType.EXCHANGE_BUY,
+            transactionCode: { startsWith: 'TX-SWAP-' },
+            createdAt: { gte: last72Hours },
+          },
+          include: {
+            user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 25,
+        })
+        .catch(() => []),
+      prisma.transaction
+        .findMany({
+          where: {
+            type: TransactionType.P2P_TRANSFER_OUT,
+            createdAt: { gte: last72Hours },
+          },
+          include: {
+            user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 25,
+        })
+        .catch(() => []),
+      prisma.p2POffer
+        .findMany({
+          where: {
+            status: P2POfferStatus.OPEN,
+            createdAt: { gte: last72Hours },
+          },
+          include: {
+            user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 25,
+        })
+        .catch(() => []),
+      prisma.investmentInquiry
+        .findMany({
+          where: { status: 'PENDING' },
+          include: {
+            investor: { select: { id: true, email: true, firstName: true, lastName: true } },
+            listing: { select: { companyName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 25,
         })
         .catch(() => []),
     ]);
@@ -4889,6 +4973,176 @@ export class AdminController {
       alerts.push(item);
     }
 
+    // Active & New P2P Orders (PENDING, PENDING_PAYMENT, PAYMENT_SENT, etc.)
+    for (const ord of activeP2POrdersList as any[]) {
+      const buyerName = `${ord.buyer?.firstName || ''} ${ord.buyer?.lastName || ''}`.trim() || ord.buyer?.email || 'Buyer';
+      const cryptoCur = (ord.cryptoCurrency || ord.offer?.cryptoCurrency || 'USDT').toUpperCase();
+      const fiatCur = (ord.fiatCurrency || ord.offer?.fiatCurrency || 'USD').toUpperCase();
+      const decPlaces = ['BTC', 'ETH'].includes(cryptoCur) ? 6 : 2;
+      const amountFixed = new Decimal(ord.cryptoAmount.toString()).toFixed(decPlaces);
+      const age = this.computeAgeInfo(ord.createdAt, now, 2);
+      const item = {
+        id: `P2P_ORD-${ord.id}`,
+        entityId: ord.id,
+        code: ord.orderCode,
+        category: 'P2P_ORDER',
+        typeLabel: 'Active P2P Order',
+        title: `P2P Order (${ord.status}): ${ord.orderCode} (${amountFixed} ${cryptoCur})`,
+        description: `${buyerName} (${ord.buyer?.email || ''}) ↔ ${ord.seller?.email || 'Seller'} (${formatFiatWithCurrency(ord.fiatAmount.toString(), fiatCur)})`,
+        customerId: ord.buyerId,
+        customerName: buyerName,
+        customerEmail: ord.buyer?.email || '',
+        amount: amountFixed,
+        currency: cryptoCur,
+        status: ord.status,
+        targetTab: 'p2p',
+        requestDate: ord.createdAt.toISOString(),
+        createdDate: ord.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: ord.status === 'PAYMENT_SENT' ? 'HIGH' : 'NORMAL',
+        priorityRank: ord.status === 'PAYMENT_SENT' ? 1 : 2,
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    // Pending Venture Inquiries
+    for (const vinq of pendingVentureInquiriesList as any[]) {
+      const invName = `${vinq.investor?.firstName || ''} ${vinq.investor?.lastName || ''}`.trim() || vinq.investor?.email || 'Investor';
+      const age = this.computeAgeInfo(vinq.createdAt, now, 24);
+      const item = {
+        id: `VINQ-${vinq.id}`,
+        entityId: vinq.id,
+        code: `VINQ-${vinq.id.slice(0, 8).toUpperCase()}`,
+        category: 'VENTURE_INQUIRY',
+        typeLabel: 'Venture Inquiry',
+        title: `Startup Inquiry (${vinq.listing?.companyName || 'Venture'}): ${vinq.subject}`,
+        description: `${invName}: "${String(vinq.message || '').slice(0, 120)}"`,
+        customerId: vinq.investorUserId,
+        customerName: invName,
+        customerEmail: vinq.investor?.email || '',
+        amount: null,
+        currency: null,
+        status: vinq.status,
+        targetTab: 'investments',
+        requestDate: vinq.createdAt.toISOString(),
+        createdDate: vinq.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: age.isOverdue ? 'OVERDUE' : 'HIGH',
+        priorityRank: 2,
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
+    // Recent Instant Currency Swaps (72h activity visibility)
+    for (const sw of recentSwapsList as any[]) {
+      const custName = `${sw.user?.firstName || ''} ${sw.user?.lastName || ''}`.trim() || sw.user?.email || 'Client';
+      const cur = (sw.currency || 'USD').toUpperCase();
+      const decPlaces = ['BTC', 'ETH'].includes(cur) ? 6 : 2;
+      const amtFixed = new Decimal(sw.amount.toString()).toFixed(decPlaces);
+      const age = this.computeAgeInfo(sw.createdAt, now, 9999);
+      const item = {
+        id: `SWAP-${sw.id}`,
+        entityId: sw.id,
+        code: sw.transactionCode,
+        category: 'CURRENCY_SWAP',
+        typeLabel: 'Instant Swap',
+        title: `Currency Swap: ${sw.transactionCode} (+${amtFixed} ${cur})`,
+        description: `${custName} • ${sw.notes || 'Instant OTC Currency Swap'}`,
+        customerId: sw.userId,
+        customerName: custName,
+        customerEmail: sw.user?.email || '',
+        amount: amtFixed,
+        currency: cur,
+        status: sw.status,
+        targetTab: 'users',
+        requestDate: sw.createdAt.toISOString(),
+        createdDate: sw.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: false,
+        urgency: 'NORMAL',
+        priorityRank: 3,
+      };
+      alerts.push(item);
+    }
+
+    // Recent Avora P2P Internal Transfers (72h)
+    for (const ptr of recentP2PTransfersList as any[]) {
+      const custName = `${ptr.user?.firstName || ''} ${ptr.user?.lastName || ''}`.trim() || ptr.user?.email || 'Client';
+      const cur = (ptr.currency || 'USD').toUpperCase();
+      const decPlaces = ['BTC', 'ETH'].includes(cur) ? 6 : 2;
+      const amtFixed = new Decimal(ptr.amount.toString()).toFixed(decPlaces);
+      const age = this.computeAgeInfo(ptr.createdAt, now, 9999);
+      alerts.push({
+        id: `P2PX-${ptr.id}`,
+        entityId: ptr.id,
+        code: ptr.transactionCode,
+        category: 'P2P_TRANSFER',
+        typeLabel: 'Avora P2P Transfer',
+        title: `P2P Transfer: ${ptr.transactionCode} (${amtFixed} ${cur})`,
+        description: `${custName} • ${ptr.notes || 'Avora internal transfer'}`,
+        customerId: ptr.userId,
+        customerName: custName,
+        customerEmail: ptr.user?.email || '',
+        amount: amtFixed,
+        currency: cur,
+        status: ptr.status,
+        targetTab: 'p2p',
+        requestDate: ptr.createdAt.toISOString(),
+        createdDate: ptr.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: false,
+        urgency: 'NORMAL',
+        priorityRank: 3,
+      });
+    }
+
+    // Recent New P2P Marketplace Offers (72h)
+    for (const off of recentP2POffersList as any[]) {
+      const merchantName = `${off.user?.firstName || ''} ${off.user?.lastName || ''}`.trim() || off.user?.email || 'Merchant';
+      const age = this.computeAgeInfo(off.createdAt, now, 9999);
+      alerts.push({
+        id: `P2POFF-${off.id}`,
+        entityId: off.id,
+        code: off.offerCode,
+        category: 'P2P_OFFER',
+        typeLabel: 'New P2P Offer',
+        title: `New P2P ${off.side} Offer: ${off.offerCode} (${new Decimal(off.totalAmount.toString()).toFixed(2)} ${off.cryptoCurrency})`,
+        description: `${merchantName} (${off.user?.email || ''}) @ ${new Decimal(off.price.toString()).toFixed(2)} ${off.fiatCurrency}`,
+        customerId: off.userId,
+        customerName: merchantName,
+        customerEmail: off.user?.email || '',
+        amount: new Decimal(off.totalAmount.toString()).toFixed(2),
+        currency: off.cryptoCurrency,
+        status: off.status,
+        targetTab: 'p2p',
+        requestDate: off.createdAt.toISOString(),
+        createdDate: off.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: false,
+        urgency: 'NORMAL',
+        priorityRank: 3,
+      });
+    }
+
     const sortByUrgencyThenAge = (a: any, b: any) => {
       if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
       return b.ageMs - a.ageMs;
@@ -4921,6 +5175,11 @@ export class AdminController {
       pendingP2PApplicationsCount: pendingP2PAppsList.length,
       disputedOtcCount: activeAndDisputedOtcTradesList.filter((t) => t.status === 'DISPUTED').length,
       activeOtcTradesCount: activeAndDisputedOtcTradesList.length,
+      activeP2POrdersCount: activeP2POrdersList.length,
+      recentSwapsCount: recentSwapsList.length,
+      recentP2PTransfersCount: recentP2PTransfersList.length,
+      recentP2POffersCount: recentP2POffersList.length,
+      pendingVentureInquiriesCount: pendingVentureInquiriesList.length,
       newInquiriesCount: pendingInquiriesList.length,
       totalPendingCount,
       totalActionItems: pendingRequests.length,
