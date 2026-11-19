@@ -1104,6 +1104,7 @@ model InvestmentCommitment {
   netInvestedAmount    Decimal        @db.Decimal(20, 2)
   instrument           String         @default("SAFE")
   ownershipPct         Decimal?       @db.Decimal(8, 4)
+  sourceType           String         @default("REAL_WALLET") @db.VarChar(40) // REAL_WALLET, ADMIN_EXTERNAL_VERIFIED, ADMIN_DISPLAY_MOCK
   status               String         @default("CLEARED_FUNDS") // EXPRESSION_OF_INTEREST, DOCUMENT_SIGNED, CLEARED_FUNDS, ACTIVE, EXITED, CANCELLED
   currentValuation     Decimal?       @db.Decimal(20, 2)
   unrealizedReturnPct  Decimal?       @db.Decimal(8, 2)

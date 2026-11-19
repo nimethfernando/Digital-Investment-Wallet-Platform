@@ -315,6 +315,7 @@ export class AdminController {
 
     const [invAgg, gmtTransfers, settledWithdrawals, approvedRazorpay] = await Promise.all([
       prisma.investmentCommitment.aggregate({
+        where: { sourceType: { not: 'ADMIN_DISPLAY_MOCK' } },
         _sum: { allocationFeeAmount: true, profitShareFeeAmount: true },
       }),
       prisma.globalTransfer.findMany({
@@ -1033,27 +1034,68 @@ export class AdminController {
           .catch(() => []),
       ]);
 
+      const invCodes = commitments.map((c) => c.investmentCode).filter(Boolean);
+      const matchingLedgerTxs =
+        invCodes.length > 0
+          ? await prisma.transaction
+              .findMany({
+                where: {
+                  settlementReference: { in: invCodes },
+                  type: TransactionType.INVESTMENT_ALLOCATION,
+                  status: TransactionStatus.COMPLETED,
+                },
+                select: {
+                  transactionCode: true,
+                  settlementReference: true,
+                  amount: true,
+                  currency: true,
+                  createdAt: true,
+                },
+              })
+              .catch(() => [])
+          : [];
+      const txByInvCode = new Map(matchingLedgerTxs.map((t) => [String(t.settlementReference), t]));
+
+      const resolveSourceType = (c: any): 'REAL_WALLET' | 'ADMIN_EXTERNAL_VERIFIED' | 'ADMIN_DISPLAY_MOCK' => {
+        if (c.sourceType === 'ADMIN_DISPLAY_MOCK') return 'ADMIN_DISPLAY_MOCK';
+        const matchedTx = txByInvCode.get(String(c.investmentCode));
+        if (matchedTx) return 'REAL_WALLET';
+        if (c.sourceType === 'ADMIN_EXTERNAL_VERIFIED') return 'ADMIN_EXTERNAL_VERIFIED';
+        if (String(c.notes || '').includes('External/Nominee Settled')) return 'ADMIN_EXTERNAL_VERIFIED';
+        return c.sourceType === 'REAL_WALLET' ? 'REAL_WALLET' : 'ADMIN_EXTERNAL_VERIFIED';
+      };
+
       const now = new Date();
       const formattedListings = listings.map((l) => {
         const listingCommitments = commitments.filter((c) => c.listingId === l.id);
-        const actualCollectedFromUsersUsd = listingCommitments.reduce(
+        const realWalletRows = listingCommitments.filter((c) => resolveSourceType(c) === 'REAL_WALLET');
+        const externalRows = listingCommitments.filter((c) => resolveSourceType(c) === 'ADMIN_EXTERNAL_VERIFIED');
+        const mockRows = listingCommitments.filter((c) => resolveSourceType(c) === 'ADMIN_DISPLAY_MOCK');
+        const realAndExternalRows = [...realWalletRows, ...externalRows];
+
+        const realWalletCollectedUsd = realWalletRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+        const realWalletInvestorsCount = new Set(realWalletRows.map((c) => c.investorUserId)).size;
+        const externalVerifiedCollectedUsd = externalRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+        const displayMockCollectedUsd = mockRows.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+
+        const actualCollectedFromUsersUsd = realAndExternalRows.reduce(
           (s, c) => s + Number(c.netInvestedAmount || 0),
           0
         );
-        const actualGrossCollectedUsd = listingCommitments.reduce(
+        const actualGrossCollectedUsd = realAndExternalRows.reduce(
           (s, c) => s + Number(c.grossAmount || 0),
           0
         );
-        const actualAllocationFeesUsd = listingCommitments.reduce(
+        const actualAllocationFeesUsd = realAndExternalRows.reduce(
           (s, c) => s + Number(c.allocationFeeAmount || 0),
           0
         );
-        const actualDistributedToUsersUsd = listingCommitments.reduce(
+        const actualDistributedToUsersUsd = realAndExternalRows.reduce(
           (s, c) => s + Number(c.realizedProceeds || 0),
           0
         );
-        const actualDistinctInvestorsCount = new Set(listingCommitments.map((c) => c.investorUserId)).size;
-        const actualCurrentPortfolioValueUsd = listingCommitments.reduce((s, c) => {
+        const actualDistinctInvestorsCount = new Set(realAndExternalRows.map((c) => c.investorUserId)).size;
+        const actualCurrentPortfolioValueUsd = realAndExternalRows.reduce((s, c) => {
           const netNum = Number(c.netInvestedAmount || 0);
           const rawCurVal = c.currentValuation ? Number(c.currentValuation) : netNum;
           const rawRetPct = c.unrealizedReturnPct ? Number(c.unrealizedReturnPct) : 0;
@@ -1100,12 +1142,19 @@ export class AdminController {
           supportingDocuments: Array.isArray(parsedDocs) ? parsedDocs : [],
           officialLinks: parsedLinks && typeof parsedLinks === 'object' ? parsedLinks : {},
           contactInfo: parsedContact && typeof parsedContact === 'object' ? parsedContact : {},
+          realWalletCollectedUsd: Number(realWalletCollectedUsd.toFixed(2)),
+          realWalletCommitmentsCount: realWalletRows.length,
+          realWalletInvestorsCount,
+          externalVerifiedCollectedUsd: Number(externalVerifiedCollectedUsd.toFixed(2)),
+          externalVerifiedCount: externalRows.length,
+          displayMockCollectedUsd: Number(displayMockCollectedUsd.toFixed(2)),
+          displayMockCount: mockRows.length,
           actualCollectedFromUsersUsd: Number(actualCollectedFromUsersUsd.toFixed(2)),
           actualGrossCollectedUsd: Number(actualGrossCollectedUsd.toFixed(2)),
           actualAllocationFeesUsd: Number(actualAllocationFeesUsd.toFixed(2)),
           actualDistributedToUsersUsd: Number(actualDistributedToUsersUsd.toFixed(2)),
           actualCurrentPortfolioValueUsd: Number(actualCurrentPortfolioValueUsd.toFixed(2)),
-          actualCommitmentsCount: listingCommitments.length,
+          actualCommitmentsCount: realAndExternalRows.length,
           actualDistinctInvestorsCount,
           fundingDiscrepancyUsd,
           investorCountDiscrepancy,
@@ -1114,6 +1163,9 @@ export class AdminController {
       });
 
       const formattedCommitments = commitments.map((c) => {
+        const effectiveSourceType = resolveSourceType(c);
+        const matchedTx = txByInvCode.get(String(c.investmentCode)) || null;
+        const isRealLedgerVerified = Boolean(matchedTx) && effectiveSourceType === 'REAL_WALLET';
         const netNum = Number(c.netInvestedAmount || 0);
         const rawCurVal = c.currentValuation ? Number(c.currentValuation) : netNum;
         const rawRetPct = c.unrealizedReturnPct ? Number(c.unrealizedReturnPct) : 0;
@@ -1146,6 +1198,9 @@ export class AdminController {
         }
         return {
           ...c,
+          sourceType: effectiveSourceType,
+          isRealLedgerVerified,
+          ledgerTxCode: matchedTx?.transactionCode || null,
           currentValuation: normalizedHoldingVal,
           unrealizedReturnPct: returnPctNormalized,
           profitLossUsd,
@@ -1630,7 +1685,10 @@ export class AdminController {
         where: { id: listingId },
         include: {
           investments: {
-            where: { status: { in: ['CLEARED_FUNDS', 'ACTIVE', 'DOCUMENT_SIGNED'] } },
+            where: {
+              status: { in: ['CLEARED_FUNDS', 'ACTIVE', 'DOCUMENT_SIGNED'] },
+              sourceType: { not: 'ADMIN_DISPLAY_MOCK' },
+            },
             include: { investor: true },
           },
         },
@@ -3181,11 +3239,12 @@ export class AdminController {
         return res.status(404).json({ success: false, message: 'Startup listing not found' });
       }
 
-      const totalNet = listing.investments.reduce(
+      const realEligible = listing.investments.filter((c) => c.sourceType !== 'ADMIN_DISPLAY_MOCK');
+      const totalNet = realEligible.reduce(
         (sum, c) => sum.plus(new Decimal(c.netInvestedAmount.toString())),
         new Decimal(0)
       );
-      const distinctInvestors = new Set(listing.investments.map((c) => c.investorUserId)).size;
+      const distinctInvestors = new Set(realEligible.map((c) => c.investorUserId)).size;
 
       const updated = await prisma.startupListing.update({
         where: { id },
@@ -3201,13 +3260,13 @@ export class AdminController {
           action: 'SYNC_STARTUP_METRICS',
           entity: 'StartupListing',
           entityId: id,
-          details: `Synchronized ${listing.companyName} metrics to match recorded commitments: $${totalNet.toFixed(2)} USD across ${distinctInvestors} distinct investors (${listing.investments.length} commitments).`,
+          details: `Synchronized ${listing.companyName} metrics to match real/verified commitments only (display/mock entries stripped): $${totalNet.toFixed(2)} USD across ${distinctInvestors} distinct investors (${realEligible.length} real commitments).`,
         },
       });
 
       res.json({
         success: true,
-        message: `Synced ${listing.companyName}: $${totalNet.toFixed(2)} USD raised from ${distinctInvestors} distinct investors (${listing.investments.length} commitments).`,
+        message: `Synced ${listing.companyName} to verified ledger only: $${totalNet.toFixed(2)} USD raised from ${distinctInvestors} distinct investors (${realEligible.length} commitments).`,
         data: updated,
       });
     } catch (err) {
@@ -3226,12 +3285,25 @@ export class AdminController {
         listingId,
         investorUserId,
         netAmount,
+        sourceType: requestedSourceType,
         debitWallet = false,
         applyAllocationFee = true,
+        addToCardDisplay = true,
         investmentDate,
         status = 'CLEARED_FUNDS',
         notes,
       } = req.body || {};
+
+      const resolvedSourceType: 'REAL_WALLET' | 'ADMIN_EXTERNAL_VERIFIED' | 'ADMIN_DISPLAY_MOCK' =
+        requestedSourceType === 'ADMIN_DISPLAY_MOCK'
+          ? 'ADMIN_DISPLAY_MOCK'
+          : requestedSourceType === 'REAL_WALLET' || debitWallet === true
+          ? 'REAL_WALLET'
+          : 'ADMIN_EXTERNAL_VERIFIED';
+
+      const effectiveDebitWallet = resolvedSourceType === 'REAL_WALLET';
+      const effectiveApplyFee =
+        resolvedSourceType === 'ADMIN_DISPLAY_MOCK' ? false : Boolean(applyAllocationFee);
 
       if (!listingId || !investorUserId) {
         return res.status(400).json({ success: false, message: 'Startup listing and investor user are required' });
@@ -3255,7 +3327,7 @@ export class AdminController {
       }
 
       const netDec = new Decimal(amtNum.toFixed(2));
-      const feePct = applyAllocationFee ? new Decimal(feeCfg.allocationFeePct) : new Decimal(0);
+      const feePct = effectiveApplyFee ? new Decimal(feeCfg.allocationFeePct) : new Decimal(0);
       const feeDec = new Decimal(netDec.times(feePct.div(100)).toFixed(2));
       const grossDec = netDec.plus(feeDec);
       const createdAtDate = investmentDate ? new Date(investmentDate) : new Date();
@@ -3264,11 +3336,12 @@ export class AdminController {
       }
 
       const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
-      const investmentCode = `INV-${Date.now().toString().slice(-6)}-${rand}`;
+      const prefix = resolvedSourceType === 'ADMIN_DISPLAY_MOCK' ? 'MOCK' : 'INV';
+      const investmentCode = `${prefix}-${Date.now().toString().slice(-6)}-${rand}`;
       const wallet = await ledgerService.ensureWallet(investor.id);
 
       const commitment = await prisma.$transaction(async (tx) => {
-        if (debitWallet) {
+        if (effectiveDebitWallet) {
           const usdRow = await ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
           const avail = new Decimal(usdRow.availableBalance.toString());
           if (avail.lessThan(grossDec)) {
@@ -3337,7 +3410,7 @@ export class AdminController {
           if (feeDec.greaterThan(0)) {
             await tx.transaction.create({
               data: {
-                transactionCode: `TX-INVF-${investmentCode.replace('INV-', '')}`,
+                transactionCode: `TX-INVF-${investmentCode.replace(`${prefix}-`, '')}`,
                 userId: investor.id,
                 type: TransactionType.INVESTMENT_FEE,
                 amount: feeDec.toFixed(8),
@@ -3354,17 +3427,21 @@ export class AdminController {
           }
         }
 
-        const priorCount = await tx.investmentCommitment.count({
-          where: { listingId: listing.id, investorUserId: investor.id },
-        });
+        const shouldUpdateCard =
+          resolvedSourceType !== 'ADMIN_DISPLAY_MOCK' || Boolean(addToCardDisplay);
+        if (shouldUpdateCard) {
+          const priorCount = await tx.investmentCommitment.count({
+            where: { listingId: listing.id, investorUserId: investor.id },
+          });
 
-        await tx.startupListing.update({
-          where: { id: listing.id },
-          data: {
-            verifiedFundsRaised: { increment: Number(netDec.toFixed(2)) },
-            ...(priorCount === 0 ? { investorCount: { increment: 1 } } : {}),
-          },
-        });
+          await tx.startupListing.update({
+            where: { id: listing.id },
+            data: {
+              verifiedFundsRaised: { increment: Number(netDec.toFixed(2)) },
+              ...(priorCount === 0 ? { investorCount: { increment: 1 } } : {}),
+            },
+          });
+        }
 
         const lockMonths = Math.max(0, Number(listing.lockInMonths ?? 12));
         const lockEnd =
@@ -3389,6 +3466,7 @@ export class AdminController {
             allocationFeeAmount: feeDec,
             netInvestedAmount: netDec,
             instrument: listing.instrument,
+            sourceType: resolvedSourceType,
             status: ['CLEARED_FUNDS', 'ACTIVE', 'DOCUMENT_SIGNED'].includes(String(status)) ? String(status) : 'CLEARED_FUNDS',
             currentValuation: curVal,
             unrealizedReturnPct: new Decimal(perfPct.toFixed(2)),
@@ -3396,14 +3474,19 @@ export class AdminController {
             realizedProceeds: new Decimal('0.00'),
             returnOfCapital: new Decimal('0.00'),
             eligibleNetProfit: new Decimal('0.00'),
-            profitShareFeePct: new Decimal(feeCfg.profitSharePct),
+            profitShareFeePct:
+              resolvedSourceType === 'ADMIN_DISPLAY_MOCK' ? new Decimal('0.00') : new Decimal(feeCfg.profitSharePct),
             profitShareFeeAmount: new Decimal('0.00'),
             netDistributedProfit: new Decimal('0.00'),
             settlementReference: investmentCode,
             createdAt: createdAtDate,
             notes:
               notes ||
-              `Recorded by Admin (${debitWallet ? 'Wallet Debited' : 'External/Nominee Settled'}) for ${listing.companyName}`,
+              (resolvedSourceType === 'REAL_WALLET'
+                ? `Recorded by Admin (Real Wallet Debited) for ${listing.companyName}`
+                : resolvedSourceType === 'ADMIN_DISPLAY_MOCK'
+                ? `Admin Showcase / Demo Display Entry (Unbacked — Excluded from Real Ledger & Exits)`
+                : `Recorded by Admin (External Wire / SPV Settled — No Platform Wallet Debit) for ${listing.companyName}`),
           },
         });
       });
@@ -3414,19 +3497,75 @@ export class AdminController {
           action: 'CREATE_MANUAL_INVESTMENT_COMMITMENT',
           entity: 'InvestmentCommitment',
           entityId: commitment.id,
-          details: `Recorded commitment ${investmentCode} for ${investor.email} in ${listing.companyName}: $${netDec.toFixed(2)} net ($${grossDec.toFixed(2)} gross, walletDebit=${Boolean(debitWallet)}).`,
+          details: `Recorded commitment ${investmentCode} [${resolvedSourceType}] for ${investor.email} in ${listing.companyName}: $${netDec.toFixed(2)} net.`,
         },
       });
 
       res.status(201).json({
         success: true,
-        message: `Commitment ${investmentCode} recorded for ${investor.email} in ${listing.companyName} ($${netDec.toFixed(2)} USD).`,
+        message: `Recorded [${resolvedSourceType.replace(/_/g, ' ')}] ${investmentCode} for ${investor.email} ($${netDec.toFixed(2)} USD).`,
         data: commitment,
       });
     } catch (err: any) {
       if (err?.message?.includes('insufficient USD')) {
         return res.status(400).json({ success: false, message: err.message });
       }
+      next(err);
+    }
+  }
+
+  /**
+   * Admin: Remove a Display/Mock commitment safely (strictly blocks deleting real ledger-verified commitments)
+   */
+  async deleteMockInvestmentCommitment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const inv = await prisma.investmentCommitment.findUnique({
+        where: { id },
+        include: { listing: { select: { id: true, companyName: true, verifiedFundsRaised: true, investorCount: true } } },
+      });
+      if (!inv) {
+        return res.status(404).json({ success: false, message: 'Commitment not found' });
+      }
+      const linkedTx = await prisma.transaction.findFirst({
+        where: {
+          settlementReference: inv.investmentCode,
+          type: TransactionType.INVESTMENT_ALLOCATION,
+          status: TransactionStatus.COMPLETED,
+        },
+      });
+      if (linkedTx || inv.sourceType === 'REAL_WALLET') {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Real wallet-debited commitments backed by immutable ledger transactions cannot be deleted. Only ADMIN_DISPLAY_MOCK entries can be removed.',
+        });
+      }
+      if (inv.sourceType !== 'ADMIN_DISPLAY_MOCK') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only Display/Mock entries can be deleted via this action.',
+        });
+      }
+
+      await prisma.investmentCommitment.delete({ where: { id } });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'DELETE_MOCK_INVESTMENT_COMMITMENT',
+          entity: 'InvestmentCommitment',
+          entityId: id,
+          details: `Removed display/mock commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) from ${inv.listing?.companyName || inv.listingId}.`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Removed display/mock commitment ${inv.investmentCode}. Click Sync Card to Real Ledger if card headline totals still reflect display offsets.`,
+      });
+    } catch (err) {
       next(err);
     }
   }
@@ -4842,9 +4981,12 @@ export class AdminController {
         prisma.user.count({ where: { isP2pMerchant: true } }),
       ]);
 
-      const [ventureStatsRows, fdYieldsPaidAgg, fdDistinctUsers, tokenRecords] = await Promise.all([
+      const [ventureStatsRows, startupHeadlineRows, fdYieldsPaidAgg, fdDistinctUsers, tokenRecords] = await Promise.all([
         prisma.investmentCommitment.findMany({
-          select: { investorUserId: true, netInvestedAmount: true },
+          select: { investorUserId: true, netInvestedAmount: true, sourceType: true },
+        }),
+        prisma.startupListing.findMany({
+          select: { verifiedFundsRaised: true },
         }),
         prisma.packageReturn.aggregate({
           where: { status: 'CREDITED' },
@@ -4867,11 +5009,22 @@ export class AdminController {
       const activeCapital = activePackages.reduce((acc, p) => acc + parseFloat(p.amount.toString()), 0);
       const revMod = platformRevenueSummary?.moduleBreakdown;
 
-      const uniqueVentureInvestors = new Set(ventureStatsRows.map((c) => c.investorUserId)).size;
-      const totalVentureCommittedUsd = ventureStatsRows.reduce(
+      const realVentureRows = ventureStatsRows.filter((c) => c.sourceType !== 'ADMIN_DISPLAY_MOCK');
+      const mockVentureRows = ventureStatsRows.filter((c) => c.sourceType === 'ADMIN_DISPLAY_MOCK');
+      const uniqueVentureInvestors = new Set(realVentureRows.map((c) => c.investorUserId)).size;
+      const totalVentureCommittedUsd = realVentureRows.reduce(
         (s, c) => s + Number(c.netInvestedAmount || 0),
         0
       );
+      const mockVentureVolumeUsd = mockVentureRows.reduce(
+        (s, c) => s + Number(c.netInvestedAmount || 0),
+        0
+      );
+      const totalCardHeadlineUsd = startupHeadlineRows.reduce(
+        (s, l) => s + Number(l.verifiedFundsRaised || 0),
+        0
+      );
+      const headlineDisplayDeltaUsd = Number((totalCardHeadlineUsd - totalVentureCommittedUsd).toFixed(2));
 
       let tokenPaidHolders = 0;
       let tokenWhitelistOnly = 0;
@@ -4919,9 +5072,12 @@ export class AdminController {
         },
         venture: {
           publishedCampaigns: totalStartups,
-          totalCommitments: ventureStatsRows.length,
+          totalCommitments: realVentureRows.length,
           uniqueInvestorsCount: uniqueVentureInvestors,
           totalNetInvestedUsd: totalVentureCommittedUsd.toFixed(2),
+          mockDisplayCommitmentsCount: mockVentureRows.length,
+          mockDisplayVolumeUsd: mockVentureVolumeUsd.toFixed(2),
+          headlineDisplayDeltaUsd: headlineDisplayDeltaUsd.toFixed(2),
           allocationFeeUsd: revMod?.ventureAllocationFeeUsd || '0.00',
           profitShareFeeUsd: revMod?.ventureProfitShareFeeUsd || '0.00',
         },
@@ -5917,15 +6073,26 @@ export class AdminController {
       }
 
       for (const inv of commitments) {
+        const srcTag =
+          inv.sourceType === 'ADMIN_DISPLAY_MOCK'
+            ? 'ADMIN DISPLAY / MOCK (Unbacked)'
+            : inv.sourceType === 'ADMIN_EXTERNAL_VERIFIED'
+            ? 'EXTERNAL SETTLED (No Wallet Debit)'
+            : 'REAL WALLET LEDGER';
         results.push({
           recordKind: 'STARTUP_INVESTMENT',
-          recordLabel: 'Startup Crowdfunding Commitment',
+          recordLabel: `Startup Crowdfunding Commitment · ${srcTag}`,
           id: inv.id,
           primaryCode: inv.investmentCode,
           secondaryRef: inv.settlementReference || inv.listing?.companyName || null,
-          title: `${inv.listing?.companyName || 'Startup Round'} (${inv.instrument})`,
+          title: `${inv.listing?.companyName || 'Startup Round'} (${inv.instrument}) [${srcTag}]`,
           currentStatus: inv.status,
-          paymentStatus: `Paid From Available USD Wallet ($${Number(inv.netInvestedAmount).toFixed(2)} Net + $${Number(inv.allocationFeeAmount).toFixed(2)} Fee = $${Number(inv.grossAmount).toFixed(2)} Gross)`,
+          paymentStatus:
+            inv.sourceType === 'ADMIN_DISPLAY_MOCK'
+              ? `Display / Mock Only ($${Number(inv.netInvestedAmount).toFixed(2)}) — Not Debited From Any Wallet`
+              : inv.sourceType === 'ADMIN_EXTERNAL_VERIFIED'
+              ? `External Bank / SPV Settled ($${Number(inv.netInvestedAmount).toFixed(2)} Net) — No Platform Wallet Debit`
+              : `Paid From Available USD Wallet ($${Number(inv.netInvestedAmount).toFixed(2)} Net + $${Number(inv.allocationFeeAmount).toFixed(2)} Fee = $${Number(inv.grossAmount).toFixed(2)} Gross)`,
           pendingReason:
             inv.status === 'EXITED'
               ? `Exited & distributed $${Number(inv.realizedProceeds).toFixed(2)} USD back to investor.`

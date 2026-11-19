@@ -554,19 +554,28 @@ export default function AdminOverviewTab({
               </div>
               <div className="space-y-1 text-[11px] text-slate-400">
                 <div className="flex justify-between">
-                  <span>Startups / Commitments:</span>
+                  <span>Real Startups / Commitments:</span>
                   <strong className="font-mono text-white">
-                    {sec?.venture?.publishedCampaigns ?? analytics?.totalStartups ?? 0} deals · {sec?.venture?.totalCommitments ?? 0} inv.
+                    {sec?.venture?.publishedCampaigns ?? analytics?.totalStartups ?? 0} deals · {sec?.venture?.totalCommitments ?? 0} real
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span>Unique Investors:</span>
+                  <span>Unique Real Investors:</span>
                   <strong className="font-mono text-purple-300">
                     {sec?.venture?.uniqueInvestorsCount ?? 0} users
                   </strong>
                 </div>
+                {(Number(sec?.venture?.mockDisplayCommitmentsCount || 0) > 0 ||
+                  Math.abs(Number(sec?.venture?.headlineDisplayDeltaUsd || 0)) > 0.01) && (
+                  <div className="flex justify-between text-amber-300">
+                    <span>Display/Mock Offset:</span>
+                    <strong className="font-mono">
+                      ${formatMoney(Number(sec?.venture?.mockDisplayVolumeUsd || 0) + Number(sec?.venture?.headlineDisplayDeltaUsd || 0))}
+                    </strong>
+                  </div>
+                )}
                 <div className="flex justify-between">
-                  <span>Protocol Fees:</span>
+                  <span>Real Protocol Fees:</span>
                   <strong className="font-mono text-emerald-400">
                     ${(Number(sec?.venture?.allocationFeeUsd || revBreakdown?.ventureAllocationFeeUsd || 0) + Number(sec?.venture?.profitShareFeeUsd || revBreakdown?.ventureProfitShareFeeUsd || 0)).toFixed(2)}
                   </strong>

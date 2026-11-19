@@ -128,6 +128,7 @@ router.put('/investments/listings/:id', requireRole([Role.ADMIN]), requireAdmin2
 router.delete('/investments/listings/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.deleteStartupListing(req, res, next));
 router.post('/investments/listings/:id/sync-metrics', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.syncStartupListingMetrics(req, res, next));
 router.post('/investments/commitments', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.createManualInvestmentCommitment(req, res, next));
+router.delete('/investments/commitments/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.deleteMockInvestmentCommitment(req, res, next));
 router.post('/investments/inquiries/:id/reply', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.replyStartupInquiry(req, res, next));
 
 // P2P Escrow, Onboarding Applications & Dispute Resolution

@@ -37,6 +37,7 @@ export class InvestmentsService {
         ['diw_startup_listings', 'providerNotes', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerNotes` TEXT NULL'],
         ['diw_investment_commitments', 'lockInEnd', 'ALTER TABLE `diw_investment_commitments` ADD COLUMN `lockInEnd` DATETIME(3) NULL'],
         ['diw_investment_commitments', 'maturedAt', 'ALTER TABLE `diw_investment_commitments` ADD COLUMN `maturedAt` DATETIME(3) NULL'],
+        ['diw_investment_commitments', 'sourceType', 'ALTER TABLE `diw_investment_commitments` ADD COLUMN `sourceType` VARCHAR(40) NOT NULL DEFAULT \'REAL_WALLET\''],
       ];
       for (const [tableName, colName, ddl] of checks) {
         const rows = (await prisma
@@ -526,6 +527,7 @@ export class InvestmentsService {
             allocationFeeAmount: feeDec,
             netInvestedAmount: netDec,
             instrument: data.instrument || campaign.instrument,
+            sourceType: 'REAL_WALLET',
             status: 'CLEARED_FUNDS',
             currentValuation: initialVal,
             unrealizedReturnPct: new Decimal(initialPerfPct.toFixed(2)),
@@ -738,9 +740,12 @@ export class InvestmentsService {
    */
   async getInvestorDashboard(userId: string) {
     await this.ensureVentureSchema();
-    // 1. Confirmed investments
+    // 1. Confirmed real investments (strictly excludes ADMIN_DISPLAY_MOCK test/showcase entries)
     const commitments = await prisma.investmentCommitment.findMany({
-      where: { investorUserId: userId },
+      where: {
+        investorUserId: userId,
+        sourceType: { not: 'ADMIN_DISPLAY_MOCK' },
+      },
       include: {
         listing: {
           select: {

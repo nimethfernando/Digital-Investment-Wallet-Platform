@@ -85,6 +85,7 @@ export default function AdminStartupsTab({
   const [selectedListingFilterId, setSelectedListingFilterId] = useState<string>('ALL');
   const [commitmentSearch, setCommitmentSearch] = useState('');
   const [commitmentStatusFilter, setCommitmentStatusFilter] = useState<'ALL' | 'CLEARED_FUNDS' | 'ACTIVE' | 'DOCUMENT_SIGNED' | 'EXITED'>('ALL');
+  const [commitmentSourceFilter, setCommitmentSourceFilter] = useState<'ALL' | 'REAL_WALLET' | 'ADMIN_EXTERNAL_VERIFIED' | 'ADMIN_DISPLAY_MOCK'>('ALL');
   const [commitmentPage, setCommitmentPage] = useState(1);
   const [commitmentPageSize, setCommitmentPageSize] = useState(50);
   const [selectedCommitment, setSelectedCommitment] = useState<any | null>(null);
@@ -98,7 +99,8 @@ export default function AdminStartupsTab({
   const [manualNetAmount, setManualNetAmount] = useState('1000');
   const [manualDate, setManualDate] = useState(new Date().toISOString().slice(0, 10));
   const [manualStatus, setManualStatus] = useState<'CLEARED_FUNDS' | 'ACTIVE'>('CLEARED_FUNDS');
-  const [manualDebitWallet, setManualDebitWallet] = useState(false);
+  const [manualSourceType, setManualSourceType] = useState<'REAL_WALLET' | 'ADMIN_EXTERNAL_VERIFIED' | 'ADMIN_DISPLAY_MOCK'>('ADMIN_EXTERNAL_VERIFIED');
+  const [manualAddToCardDisplay, setManualAddToCardDisplay] = useState(false);
   const [manualApplyFee, setManualApplyFee] = useState(true);
   const [manualNotes, setManualNotes] = useState('');
   const [creatingManual, setCreatingManual] = useState(false);
@@ -623,8 +625,10 @@ export default function AdminStartupsTab({
           netAmount: parseFloat(manualNetAmount || '0'),
           investmentDate: manualDate,
           status: manualStatus,
-          debitWallet: manualDebitWallet,
-          applyAllocationFee: manualApplyFee,
+          sourceType: manualSourceType,
+          debitWallet: manualSourceType === 'REAL_WALLET',
+          addToCardDisplay: manualSourceType === 'ADMIN_DISPLAY_MOCK' ? manualAddToCardDisplay : true,
+          applyAllocationFee: manualSourceType === 'ADMIN_DISPLAY_MOCK' ? false : manualApplyFee,
           notes: manualNotes.trim() || undefined,
           admin2FaCode: effective2Fa || undefined,
         },
@@ -642,6 +646,24 @@ export default function AdminStartupsTab({
       onFeedback({ text: errMsg, type: 'error' });
     } finally {
       setCreatingManual(false);
+    }
+  };
+
+  const handleDeleteMockCommitment = async (id: string, code: string) => {
+    if (!confirm(`Remove unbacked Display/Mock entry ${code}? Real wallet transactions can never be deleted.`)) return;
+    try {
+      const res = await api.delete(`/admin/investments/commitments/${id}`, {
+        headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {},
+      });
+      if (res.data?.success) {
+        onFeedback({ text: res.data.message || `Removed display/mock entry ${code}`, type: 'success' });
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback({
+        text: err.response?.data?.message || 'Failed to remove mock entry (enter 2FA code if enabled)',
+        type: 'error',
+      });
     }
   };
 
@@ -751,13 +773,22 @@ export default function AdminStartupsTab({
         </div>
       </div>
 
-      {/* Summary KPI Cards */}
+      {/* Summary KPI Cards: Strictly Separates Real Ledger-Backed vs Admin Display / Mock Numbers */}
       {(() => {
+        const realWalletRows = commitments.filter((c) => (c.sourceType || 'REAL_WALLET') === 'REAL_WALLET');
+        const externalRows = commitments.filter((c) => c.sourceType === 'ADMIN_EXTERNAL_VERIFIED');
+        const mockRows = commitments.filter((c) => c.sourceType === 'ADMIN_DISPLAY_MOCK');
+
+        const realWalletNetUsd = realWalletRows.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0);
+        const externalNetUsd = externalRows.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0);
+        const realAndExtTotalUsd = realWalletNetUsd + externalNetUsd;
+        const distinctRealInvestors = new Set([...realWalletRows, ...externalRows].map((c) => c.investorUserId).filter(Boolean)).size;
+
+        const mockCommitmentsUsd = mockRows.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0);
         const totalHeadlineRaised = listings.reduce((sum, l) => sum + parseFloat(l.verifiedFundsRaised || '0'), 0);
-        const totalHeadlineInvestors = listings.reduce((sum, l) => sum + Number(l.investorCount || 0), 0);
-        const totalRecordedNet = commitments.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0);
-        const distinctRecordedInvestors = new Set(commitments.map((c) => c.investorUserId).filter(Boolean)).size;
-        const totalFeesCollected = commitments.reduce(
+        const displayOffsetUsd = totalHeadlineRaised - realAndExtTotalUsd;
+
+        const totalFeesCollected = [...realWalletRows, ...externalRows].reduce(
           (sum, c) => sum + parseFloat(c.allocationFeeAmount || '0') + parseFloat(c.profitShareFeeAmount || '0'),
           0
         );
@@ -765,36 +796,45 @@ export default function AdminStartupsTab({
         const reviewCnt = listings.filter((l) => l.status === 'UNDER_REVIEW').length;
         return (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-[10px] text-slate-400 uppercase font-mono">Recorded Platform Commitments</span>
-              <div className="text-2xl font-black text-white font-mono">
-                ${totalRecordedNet.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+            <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/35 space-y-1">
+              <span className="text-[10px] text-emerald-400 uppercase font-mono font-bold">Real Ledger-Backed Raised</span>
+              <div className="text-2xl font-black text-emerald-400 font-mono">
+                ${realWalletNetUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
               </div>
-              <p className="text-[10px] text-purple-400 font-semibold">
-                {commitments.length} Commitments · {distinctRecordedInvestors} Distinct Investors
+              <p className="text-[10px] text-slate-300 font-semibold">
+                {realWalletRows.length} Real Wallet TX · {distinctRealInvestors} Unique Investors
               </p>
-              {Math.abs(totalHeadlineRaised - totalRecordedNet) > 0.01 && (
-                <p className="text-[10px] text-amber-300 font-mono">
-                  Campaign Card Totals: ${totalHeadlineRaised.toLocaleString('en-US', { minimumFractionDigits: 2 })} ({totalHeadlineInvestors} reported)
+              {externalNetUsd > 0 && (
+                <p className="text-[10px] text-sky-300 font-mono">
+                  + ${externalNetUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })} External Bank/SPV Settled ({externalRows.length})
                 </p>
               )}
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-[10px] text-slate-400 uppercase font-mono">Protocol Entry + Exit Fees Collected</span>
-              <div className="text-2xl font-black text-emerald-400 font-mono">
-                ${totalFeesCollected.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+            <div className={`p-4 rounded-2xl bg-slate-900 border space-y-1 ${
+              Math.abs(displayOffsetUsd) > 0.01 || mockRows.length > 0
+                ? 'border-amber-500/40'
+                : 'border-slate-800'
+            }`}>
+              <span className="text-[10px] text-amber-300 uppercase font-mono font-bold">Admin Showcase / Unbacked Offsets</span>
+              <div className="text-2xl font-black text-amber-300 font-mono">
+                ${(displayOffsetUsd + mockCommitmentsUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
               </div>
-              <p className="text-[10px] text-slate-500">5.0% In / 5.0% Exit on realized net gains</p>
+              <p className="text-[10px] text-slate-400">
+                Card Headline: <strong className="font-mono text-white">${totalHeadlineRaised.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> · {mockRows.length} Mock Entries
+              </p>
+              <p className="text-[10px] text-amber-400/90 font-semibold">
+                Strictly excluded from real wallet totals, vault fees &amp; exits
+              </p>
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-[10px] text-slate-400 uppercase font-mono">Rounds &amp; Investor Inquiries</span>
+              <span className="text-[10px] text-slate-400 uppercase font-mono">Real Protocol Fees · Pipeline</span>
               <div className="text-2xl font-black text-white font-mono">
-                {publishedCnt} Published
+                ${totalFeesCollected.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
               </div>
               <p className="text-[10px] text-slate-400">
-                {reviewCnt} Under Review · {inquiries.filter((q) => !q.response).length} Open Investor Inquiries
+                {publishedCnt} Published · {reviewCnt} Under Review · {inquiries.filter((q) => !q.response).length} Open Inquiries
               </p>
             </div>
           </div>
@@ -930,6 +970,23 @@ export default function AdminStartupsTab({
                   </div>
                 </div>
 
+                {/* Real vs Display Reconciliation Breakdown */}
+                <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 text-[10px] flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-emerald-400 font-mono font-bold">
+                    Real Wallet Ledger: ${Number(l.realWalletCollectedUsd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ({l.realWalletInvestorsCount ?? 0} real inv.)
+                  </span>
+                  {Number(l.externalVerifiedCollectedUsd || 0) > 0 && (
+                    <span className="text-sky-300 font-mono">
+                      External Settled: ${Number(l.externalVerifiedCollectedUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </span>
+                  )}
+                  {Number(l.displayMockCount || 0) > 0 && (
+                    <span className="text-amber-300 font-mono">
+                      Mock/Demo: ${Number(l.displayMockCollectedUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ({l.displayMockCount})
+                    </span>
+                  )}
+                </div>
+
                 {(Math.abs(Number(l.actualCollectedFromUsersUsd || 0) - raised) > 0.01 ||
                   (l.actualDistinctInvestorsCount !== undefined && Number(l.actualDistinctInvestorsCount) !== Number(l.investorCount || 0))) && (
                   <div
@@ -937,17 +994,17 @@ export default function AdminStartupsTab({
                     className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[10px] flex flex-wrap items-center justify-between gap-2 text-amber-200"
                   >
                     <span>
-                      Ledger Commitments: <strong className="font-mono text-white">${Number(l.actualCollectedFromUsersUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> across{' '}
-                      <strong>{l.actualDistinctInvestorsCount ?? 0}</strong> investors ({matchingCommitmentsCount} allocations)
+                      ⚠️ Display Offset vs Real Ledger: <strong className="font-mono text-white">{(raised - Number(l.actualCollectedFromUsersUsd || 0)) >= 0 ? '+' : '-'}${Math.abs(raised - Number(l.actualCollectedFromUsersUsd || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>{' '}
+                      (Unbacked display adjustment on card)
                     </span>
                     <button
                       type="button"
                       disabled={syncingId === l.id}
                       onClick={() => handleSyncListingMetrics(l.id)}
                       className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black cursor-pointer disabled:opacity-50"
-                      title="Overwrite headline Raised ($) and Investors Count on this card with exact DB commitment totals"
+                      title="Strip false/display offset and set card Raised ($) and Investors Count strictly from real & external verified commitments"
                     >
-                      {syncingId === l.id ? 'Syncing...' : 'Sync Card to Ledger'}
+                      {syncingId === l.id ? 'Syncing...' : 'Reset Card to Real Ledger'}
                     </button>
                   </div>
                 )}
@@ -1040,6 +1097,8 @@ export default function AdminStartupsTab({
           const lid = inv.listing?.id || inv.listingId;
           if (selectedListingFilterId !== 'ALL' && lid !== selectedListingFilterId) return false;
           if (commitmentStatusFilter !== 'ALL' && inv.status !== commitmentStatusFilter) return false;
+          const invSrc = inv.sourceType || 'REAL_WALLET';
+          if (commitmentSourceFilter !== 'ALL' && invSrc !== commitmentSourceFilter) return false;
           if (!cQuery) return true;
           const invName = `${inv.investor?.firstName || ''} ${inv.investor?.lastName || ''}`.trim().toLowerCase();
           return (
@@ -1119,6 +1178,20 @@ export default function AdminStartupsTab({
                   <option value="EXITED">EXITED</option>
                 </select>
 
+                <select
+                  value={commitmentSourceFilter}
+                  onChange={(e) => {
+                    setCommitmentSourceFilter(e.target.value as any);
+                    setCommitmentPage(1);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-semibold outline-none focus:border-emerald-500"
+                >
+                  <option value="ALL">All Origins (Real &amp; Mock)</option>
+                  <option value="REAL_WALLET">Real Wallet Ledger Only</option>
+                  <option value="ADMIN_EXTERNAL_VERIFIED">External Settled Only</option>
+                  <option value="ADMIN_DISPLAY_MOCK">Display / Mock Only</option>
+                </select>
+
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -1156,6 +1229,7 @@ export default function AdminStartupsTab({
                     <thead className="border-b border-slate-800 text-slate-400 uppercase font-bold text-[10px]">
                       <tr>
                         <th className="pb-3 pr-3">Code &amp; Date</th>
+                        <th className="pb-3 pr-3">Origin / Ledger Proof</th>
                         <th className="pb-3 pr-3">Startup</th>
                         <th className="pb-3 pr-3">Investor (Client View)</th>
                         <th className="pb-3 pr-3">Net Capital (Gross)</th>
@@ -1175,11 +1249,14 @@ export default function AdminStartupsTab({
                         const retPct = parseFloat(String(inv.unrealizedReturnPct ?? (netAmt > 0 ? (plUsd / netAmt) * 100 : 0)));
                         const lockMonths = Number(inv.lockInMonths ?? inv.listing?.lockInMonths ?? 12);
                         const matDate = inv.expectedMaturityDate || inv.lockInEnd || inv.listing?.maturityDate;
+                        const srcType = inv.sourceType || 'REAL_WALLET';
                         return (
                         <tr
                           key={inv.id}
                           onClick={() => setSelectedCommitment(inv)}
-                          className="hover:bg-slate-800/60 transition-colors cursor-pointer group"
+                          className={`hover:bg-slate-800/60 transition-colors cursor-pointer group ${
+                            srcType === 'ADMIN_DISPLAY_MOCK' ? 'bg-amber-950/15' : ''
+                          }`}
                           title="Click to inspect full allocation, settlement, lock-in & documents"
                         >
                           <td className="py-3 pr-3 whitespace-nowrap">
@@ -1187,6 +1264,32 @@ export default function AdminStartupsTab({
                             <div className="text-[10px] text-slate-500 font-mono">
                               {new Date(inv.createdAt).toLocaleDateString()}
                             </div>
+                          </td>
+                          <td className="py-3 pr-3 whitespace-nowrap">
+                            {srcType === 'ADMIN_DISPLAY_MOCK' ? (
+                              <div>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                  DISPLAY / MOCK
+                                </span>
+                                <div className="text-[10px] text-amber-400/80 mt-0.5">Unbacked (No Real TX)</div>
+                              </div>
+                            ) : srcType === 'ADMIN_EXTERNAL_VERIFIED' ? (
+                              <div>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                                  EXTERNAL WIRE
+                                </span>
+                                <div className="text-[10px] text-slate-400 mt-0.5">No Wallet Debit</div>
+                              </div>
+                            ) : (
+                              <div>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                  REAL LEDGER
+                                </span>
+                                <div className="text-[10px] text-emerald-400/80 font-mono mt-0.5">
+                                  {inv.ledgerTxCode || 'Wallet Debited'}
+                                </div>
+                              </div>
+                            )}
                           </td>
                           <td className="py-3 pr-3 font-bold text-white">{inv.listing?.companyName || '—'}</td>
                           <td className="py-3 pr-3 text-slate-300">
@@ -1255,17 +1358,32 @@ export default function AdminStartupsTab({
                               {inv.status}
                             </span>
                           </td>
-                          <td className="py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedCommitment(inv);
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-amber-500/20 border border-slate-700 hover:border-amber-500/40 text-[10px] font-bold text-slate-200 hover:text-amber-300 cursor-pointer"
-                            >
-                              Details →
-                            </button>
+                          <td className="py-3 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              {srcType === 'ADMIN_DISPLAY_MOCK' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteMockCommitment(inv.id, inv.investmentCode);
+                                  }}
+                                  className="p-1 rounded-lg bg-rose-500/15 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/30 cursor-pointer"
+                                  title="Delete this Display/Mock entry (requires 2FA if enabled)"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedCommitment(inv);
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-amber-500/20 border border-slate-700 hover:border-amber-500/40 text-[10px] font-bold text-slate-200 hover:text-amber-300 cursor-pointer"
+                              >
+                                Details →
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -3223,7 +3341,7 @@ export default function AdminStartupsTab({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Commitment Status</label>
                   <select
@@ -3236,27 +3354,45 @@ export default function AdminStartupsTab({
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Funding Source Mode</label>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Transaction Classification</label>
                   <select
-                    value={manualDebitWallet ? 'DEBIT_WALLET' : 'EXTERNAL'}
-                    onChange={(e) => setManualDebitWallet(e.target.value === 'DEBIT_WALLET')}
+                    value={manualSourceType}
+                    onChange={(e) => setManualSourceType(e.target.value as any)}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white outline-none"
                   >
-                    <option value="EXTERNAL">External / Wire / Nominee Settled</option>
-                    <option value="DEBIT_WALLET">Debit Investor Available USD Wallet</option>
+                    <option value="REAL_WALLET">Real User Wallet Debit (Immutable Ledger TX)</option>
+                    <option value="ADMIN_EXTERNAL_VERIFIED">External Bank / SPV Settled (Real, No Wallet Debit)</option>
+                    <option value="ADMIN_DISPLAY_MOCK">Display / Demo Only (Fake/Unbacked — Excluded From Ledger)</option>
                   </select>
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900 border border-slate-800 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={manualApplyFee}
-                  onChange={(e) => setManualApplyFee(e.target.checked)}
-                  className="accent-emerald-500"
-                />
-                <span className="text-slate-300 font-semibold">Apply configured 5% platform allocation fee</span>
-              </label>
+              {manualSourceType === 'ADMIN_DISPLAY_MOCK' ? (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2 text-[11px] text-amber-200">
+                  <div>
+                    <strong>Isolated Display / Demo Entry:</strong> Does NOT touch real wallets, platform fee revenue, user dashboards, or exit distributions.
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={manualAddToCardDisplay}
+                      onChange={(e) => setManualAddToCardDisplay(e.target.checked)}
+                      className="accent-amber-500"
+                    />
+                    <span>Also add this amount to public campaign card display</span>
+                  </label>
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900 border border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={manualApplyFee}
+                    onChange={(e) => setManualApplyFee(e.target.checked)}
+                    className="accent-emerald-500"
+                  />
+                  <span className="text-slate-300 font-semibold">Apply configured 5% platform allocation fee</span>
+                </label>
+              )}
 
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Audit Notes (Optional)</label>
