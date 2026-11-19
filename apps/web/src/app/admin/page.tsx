@@ -207,6 +207,12 @@ export default function AdminPortalPage() {
   const [tenureNotes, setTenureNotes] = useState('');
   const [savingTenure, setSavingTenure] = useState(false);
 
+  // FD KPI Drill-Down & Full Package Dossier Inspection Modals
+  const [fdKpiModal, setFdKpiModal] = useState<
+    'ACTIVE_PRINCIPAL' | 'MONTHLY_YIELD' | 'ACTIVE_LIABILITY' | 'PENDING_SETTLED' | null
+  >(null);
+  const [selectedFdInspect, setSelectedFdInspect] = useState<any | null>(null);
+
   // Startup Equity & Valuation / Exit State
   const [adminInvestments, setAdminInvestments] = useState<any[]>([]);
   const [startupListings, setStartupListings] = useState<any[]>([]);
@@ -3952,18 +3958,32 @@ export default function AdminPortalPage() {
           <div className="space-y-6">
             {/* Treasury Maturity & Future Liability Risk Dashboard (6 Institutional KPI Cards) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-semibold">Active FD Principal Locked</span>
+              <button
+                type="button"
+                onClick={() => setFdKpiModal('ACTIVE_PRINCIPAL')}
+                className="p-5 rounded-3xl bg-slate-900 hover:bg-slate-800/70 border border-slate-800 hover:border-emerald-500/40 text-left space-y-1 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-semibold">Active FD Principal Locked</span>
+                  <span className="text-[10px] font-bold text-emerald-400 group-hover:underline">Inspect →</span>
+                </div>
                 <div className="text-2xl font-black text-white font-mono">
                   ${packageAnalytics.activePrincipal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                 </div>
                 <p className="text-[11px] text-emerald-400 font-semibold">
                   {packageAnalytics.activeCount} Active Client Packages
                 </p>
-              </div>
+              </button>
 
-              <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-semibold">Monthly Yield Obligation</span>
+              <button
+                type="button"
+                onClick={() => setFdKpiModal('MONTHLY_YIELD')}
+                className="p-5 rounded-3xl bg-slate-900 hover:bg-slate-800/70 border border-slate-800 hover:border-emerald-500/40 text-left space-y-1 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-semibold">Monthly Yield Obligation</span>
+                  <span className="text-[10px] font-bold text-emerald-400 group-hover:underline">Inspect →</span>
+                </div>
                 <div className="text-2xl font-black text-emerald-400 font-mono">
                   ${packageAnalytics.monthlyYieldObligation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
                   <span className="text-sm font-bold text-slate-400">/ mo</span>
@@ -3971,17 +3991,24 @@ export default function AdminPortalPage() {
                 <p className="text-[11px] text-slate-400 font-mono">
                   Total Yield Paid to Date: ${packageAnalytics.totalYieldPaidAll.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
-              </div>
+              </button>
 
-              <div className="p-5 rounded-3xl bg-slate-900 border border-rose-500/30 space-y-1">
-                <span className="text-xs text-slate-400 font-semibold">Total Active Liability (Principal + Rem. Yield)</span>
+              <button
+                type="button"
+                onClick={() => setFdKpiModal('ACTIVE_LIABILITY')}
+                className="p-5 rounded-3xl bg-slate-900 hover:bg-slate-800/70 border border-rose-500/30 hover:border-rose-500/60 text-left space-y-1 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-semibold">Total Active Liability (Principal + Rem. Yield)</span>
+                  <span className="text-[10px] font-bold text-rose-400 group-hover:underline">Inspect →</span>
+                </div>
                 <div className="text-2xl font-black text-rose-400 font-mono">
                   ${packageAnalytics.totalActiveLiability.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                 </div>
                 <p className="text-[11px] text-slate-400">
                   Total treasury liquidity required through full maturity
                 </p>
-              </div>
+              </button>
 
               <button
                 type="button"
@@ -4023,8 +4050,15 @@ export default function AdminPortalPage() {
                 </p>
               </button>
 
-              <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-1">
-                <span className="text-xs text-slate-400 font-semibold">Pending Activation vs. Settled</span>
+              <button
+                type="button"
+                onClick={() => setFdKpiModal('PENDING_SETTLED')}
+                className="p-5 rounded-3xl bg-slate-900 hover:bg-slate-800/70 border border-slate-800 hover:border-amber-500/40 text-left space-y-1 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-semibold">Pending Activation vs. Settled</span>
+                  <span className="text-[10px] font-bold text-amber-400 group-hover:underline">Inspect →</span>
+                </div>
                 <div className="text-2xl font-black text-white font-mono">
                   <span className="text-amber-400">{packageAnalytics.pendingCount} Pending</span>
                   <span className="text-slate-600 mx-2">/</span>
@@ -4033,7 +4067,7 @@ export default function AdminPortalPage() {
                 <p className="text-[11px] text-slate-500 font-mono">
                   Cycle Check: Daily 00:05 UTC · {packageAnalytics.yieldDueCount} Yield Due
                 </p>
-              </div>
+              </button>
             </div>
 
             {/* Yield Due Alert Banner */}
@@ -4379,9 +4413,21 @@ export default function AdminPortalPage() {
                         const startRaw = pkg.lockInStart || pkg.purchaseDate;
 
                         return (
-                          <tr key={pkg.id} className="hover:bg-slate-800/40 transition-colors align-top">
+                          <tr
+                            key={pkg.id}
+                            onClick={() => setSelectedFdInspect(pkg)}
+                            className="hover:bg-slate-800/60 transition-colors align-top cursor-pointer group"
+                            title={`Click to inspect full FD dossier & monthly yield schedule for ${pkg.packageCode}`}
+                          >
                             <td className="py-3.5 pr-3 max-w-[205px]">
-                              <div className="font-mono font-bold text-rose-400">{pkg.packageCode}</div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono font-bold text-rose-400 group-hover:text-rose-300 group-hover:underline">
+                                  {pkg.packageCode}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-500 group-hover:text-emerald-400 whitespace-nowrap">
+                                  Inspect →
+                                </span>
+                              </div>
                               <div className="font-semibold text-slate-200 mt-0.5 truncate" title={pkg.user?.firstName || pkg.user?.email}>
                                 {pkg.user?.firstName || pkg.user?.lastName
                                   ? `${pkg.user?.firstName || ''} ${pkg.user?.lastName || ''}`.trim()
@@ -4458,8 +4504,13 @@ export default function AdminPortalPage() {
                             </td>
 
                             <td className="py-3.5 pr-3 min-w-[125px]">
-                              <div className="font-semibold text-slate-200">
-                                {pkg.lockInMonths || 6} Months FD
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-slate-200 group-hover:text-white">
+                                  {pkg.lockInMonths || 6} Months FD
+                                </span>
+                                <span className="text-[10px] font-semibold text-slate-500 group-hover:text-amber-300 whitespace-nowrap">
+                                  Schedule →
+                                </span>
                               </div>
                               <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden my-1.5">
                                 <div
@@ -4560,7 +4611,7 @@ export default function AdminPortalPage() {
                               </div>
                             </td>
 
-                            <td className="py-3.5 text-right">
+                            <td className="py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="flex flex-col items-end gap-1.5">
                                 {pkg.status === 'ACTIVE' && pkg.isYieldDue && (
                                   <button
@@ -4645,6 +4696,565 @@ export default function AdminPortalPage() {
                 </>
               )}
             </div>
+
+            {/* FD KPI Cohort Breakdown Modal */}
+            {fdKpiModal && (() => {
+              const activePkgs = adminPackages.filter((p) => p.status === 'ACTIVE');
+              const pendingPkgs = adminPackages.filter((p) => p.status === 'PENDING_PAYMENT');
+              const settledPkgs = adminPackages.filter((p) =>
+                ['MATURED', 'SETTLED', 'CANCELLED'].includes(p.status)
+              );
+
+              const modalConfig =
+                fdKpiModal === 'ACTIVE_PRINCIPAL'
+                  ? {
+                      title: 'Active FD Principal Locked — Breakdown',
+                      subtitle: `${packageAnalytics.activeCount} active packages locking client principal`,
+                      headline: `$${packageAnalytics.activePrincipal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`,
+                      accentClass: 'text-emerald-400',
+                      items: [...activePkgs].sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0)),
+                    }
+                  : fdKpiModal === 'MONTHLY_YIELD'
+                  ? {
+                      title: 'Monthly Yield Obligation — Breakdown',
+                      subtitle: `Total Yield Paid to Date: $${packageAnalytics.totalYieldPaidAll.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                      headline: `$${packageAnalytics.monthlyYieldObligation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / mo`,
+                      accentClass: 'text-emerald-400',
+                      items: [...activePkgs].sort(
+                        (a, b) =>
+                          Number(b.monthlyYield ?? Number(b.amount || 0) * 0.01) -
+                          Number(a.monthlyYield ?? Number(a.amount || 0) * 0.01)
+                      ),
+                    }
+                  : fdKpiModal === 'ACTIVE_LIABILITY'
+                  ? {
+                      title: 'Total Active Liability (Principal + Rem. Yield)',
+                      subtitle: 'Treasury liquidity required to settle all active FDs through maturity',
+                      headline: `$${packageAnalytics.totalActiveLiability.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`,
+                      accentClass: 'text-rose-400',
+                      items: [...activePkgs].sort(
+                        (a, b) =>
+                          Number(b.outstandingLiability ?? b.amount ?? 0) -
+                          Number(a.outstandingLiability ?? a.amount ?? 0)
+                      ),
+                    }
+                  : {
+                      title: 'Pending Activation vs. Settled FDs',
+                      subtitle: `${packageAnalytics.pendingCount} awaiting approval · ${packageAnalytics.settledCount} matured / settled · ${packageAnalytics.yieldDueCount} yield due now`,
+                      headline: `${pendingPkgs.length} Pending / ${settledPkgs.length} Settled`,
+                      accentClass: 'text-amber-400',
+                      items: [...pendingPkgs, ...settledPkgs],
+                    };
+
+              return (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+                  onClick={() => setFdKpiModal(null)}
+                >
+                  <div
+                    className="w-full max-w-4xl max-h-[88vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="px-6 py-4 border-b border-slate-800 flex items-start justify-between gap-4 bg-slate-950/60">
+                      <div>
+                        <h3 className="text-base font-extrabold text-white">{modalConfig.title}</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">{modalConfig.subtitle}</p>
+                        <div className={`text-2xl font-black font-mono mt-1.5 ${modalConfig.accentClass}`}>
+                          {modalConfig.headline}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFdKpiModal(null)}
+                        className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                        aria-label="Close KPI breakdown modal"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="px-6 py-3 border-b border-slate-800/80 bg-slate-900/90 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="text-slate-400">
+                        Click any row below to inspect its full timeline, yield schedule &amp; actions.
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {fdKpiModal !== 'PENDING_SETTLED' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPkgHorizonFilter('ALL');
+                              setPkgStatusFilter('ACTIVE');
+                              setFdKpiModal(null);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 font-bold cursor-pointer"
+                          >
+                            Apply Table Filter: ACTIVE ({activePkgs.length})
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPkgHorizonFilter('ALL');
+                                setPkgStatusFilter('PENDING_PAYMENT');
+                                setFdKpiModal(null);
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold cursor-pointer"
+                            >
+                              Filter Table: Pending ({pendingPkgs.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPkgHorizonFilter('ALL');
+                                setPkgStatusFilter('MATURED');
+                                setFdKpiModal(null);
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 font-bold cursor-pointer"
+                            >
+                              Filter Table: Settled ({settledPkgs.length})
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-6 overflow-y-auto space-y-2.5">
+                      {modalConfig.items.length === 0 ? (
+                        <div className="py-10 text-center text-sm text-slate-500">
+                          No Fixed Deposit packages in this cohort right now.
+                        </div>
+                      ) : (
+                        modalConfig.items.map((item) => {
+                          const clientName =
+                            item.user?.firstName || item.user?.lastName
+                              ? `${item.user?.firstName || ''} ${item.user?.lastName || ''}`.trim()
+                              : item.user?.email || 'investor@avorabank.com';
+                          const monthlyY = parseFloat(
+                            item.monthlyYield ?? (parseFloat(item.amount || 0) * 0.01).toFixed(2)
+                          );
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setFdKpiModal(null);
+                                setSelectedFdInspect(item);
+                              }}
+                              className="w-full p-3.5 rounded-2xl bg-slate-950/70 hover:bg-slate-800/80 border border-slate-800 hover:border-rose-500/40 flex flex-wrap items-center justify-between gap-3 text-left transition-all cursor-pointer group"
+                            >
+                              <div className="min-w-[190px]">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-xs text-rose-400 group-hover:underline">
+                                    {item.packageCode}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-slate-300">
+                                    {item.status}
+                                  </span>
+                                </div>
+                                <div className="text-xs font-semibold text-white mt-0.5">{clientName}</div>
+                                <div className="text-[11px] text-slate-400">{item.user?.email}</div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-5 text-xs font-mono">
+                                <div>
+                                  <div className="text-[10px] text-slate-500 font-sans">Principal</div>
+                                  <div className="font-bold text-white">
+                                    ${parseFloat(item.amount || 0).toLocaleString()}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-slate-500 font-sans">Monthly Yield</div>
+                                  <div className="font-bold text-emerald-400">
+                                    +${monthlyY.toFixed(2)}/mo
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-slate-500 font-sans">Paid / Tenure</div>
+                                  <div className="text-slate-200">
+                                    ${parseFloat(item.totalYieldPaid || 0).toFixed(2)} ({item.returnsCount ?? 0}/
+                                    {item.lockInMonths || 6}m)
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-slate-500 font-sans">Total Due</div>
+                                  <div className="font-bold text-rose-400">
+                                    ${parseFloat(item.outstandingLiability ?? item.amount ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[11px] font-sans font-bold text-slate-400 group-hover:text-emerald-400">
+                                    Open Dossier →
+                                  </span>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* FD Package Full Dossier & Monthly Schedule Modal */}
+            {selectedFdInspect && (() => {
+              const fd = selectedFdInspect;
+              const isSettledFd = ['MATURED', 'SETTLED', 'CANCELLED'].includes(fd.status);
+              const isPendingFd = fd.status === 'PENDING_PAYMENT';
+              const months = Number(fd.lockInMonths || 6);
+              const paidCount = Number(fd.returnsCount ?? 0);
+              const monthlyVal = parseFloat(
+                fd.monthlyYield ?? (parseFloat(fd.amount || 0) * 0.01).toFixed(2)
+              );
+              const startBaseRaw = fd.lockInStart || fd.purchaseDate || fd.createdAt;
+              const startBaseDate = startBaseRaw ? new Date(startBaseRaw) : null;
+              const clientDisplay =
+                fd.user?.firstName || fd.user?.lastName
+                  ? `${fd.user?.firstName || ''} ${fd.user?.lastName || ''}`.trim()
+                  : fd.user?.email || 'investor@avorabank.com';
+
+              const cycleSchedule = Array.from({ length: months }, (_, idx) => {
+                const cycleNum = idx + 1;
+                let dueDate: Date | null = null;
+                if (startBaseDate && !isNaN(startBaseDate.getTime())) {
+                  dueDate = new Date(startBaseDate);
+                  dueDate.setMonth(dueDate.getMonth() + cycleNum);
+                }
+                const isPaidCycle = cycleNum <= paidCount;
+                const isCurrentDueCycle = !isPaidCycle && cycleNum === paidCount + 1 && Boolean(fd.isYieldDue);
+                const stateLabel = isPaidCycle
+                  ? 'CREDITED'
+                  : isSettledFd
+                  ? 'SETTLED / CLOSED'
+                  : isPendingFd
+                  ? 'PENDING START'
+                  : isCurrentDueCycle
+                  ? 'YIELD DUE NOW'
+                  : 'SCHEDULED';
+                return { cycleNum, dueDate, isPaidCycle, isCurrentDueCycle, stateLabel };
+              });
+
+              return (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+                  onClick={() => setSelectedFdInspect(null)}
+                >
+                  <div
+                    className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Header */}
+                    <div className="px-6 py-4 border-b border-slate-800 bg-slate-950/70 flex items-start justify-between gap-4">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <span className="font-mono text-lg font-black text-rose-400">{fd.packageCode}</span>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase ${
+                              fd.status === 'ACTIVE'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : fd.status === 'PENDING_PAYMENT'
+                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                            }`}
+                          >
+                            {fd.status}
+                          </span>
+                          {fd.depositMethod && (
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-slate-300 border border-slate-700">
+                              {fd.depositMethod}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm font-bold text-white mt-1">
+                          {clientDisplay}{' '}
+                          <span className="text-xs font-normal text-slate-400">({fd.user?.email || 'N/A'})</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFdInspect(null)}
+                        className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                        aria-label="Close FD dossier"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Body */}
+                    <div className="p-6 overflow-y-auto space-y-6">
+                      {/* Financial Summary Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
+                          <div className="text-[10px] uppercase font-bold text-slate-400">Locked Principal</div>
+                          <div className="text-lg font-black font-mono text-white mt-0.5">
+                            ${parseFloat(fd.amount || 0).toLocaleString()} USD
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-mono">
+                            Rate: {fd.returnRateSnapshot || '1.0%'} / mo
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
+                          <div className="text-[10px] uppercase font-bold text-slate-400">Monthly Yield</div>
+                          <div className="text-lg font-black font-mono text-emerald-400 mt-0.5">
+                            +${monthlyVal.toFixed(2)} / mo
+                          </div>
+                          <div className="text-[11px] text-emerald-300/80 font-mono">
+                            Paid: ${parseFloat(fd.totalYieldPaid || 0).toFixed(2)}
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
+                          <div className="text-[10px] uppercase font-bold text-slate-400">Remaining Yield</div>
+                          <div className="text-lg font-black font-mono text-amber-400 mt-0.5">
+                            ${isSettledFd ? '0.00' : parseFloat(fd.remainingYieldLiability || 0).toFixed(2)}
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-mono">
+                            Cycles: {paidCount} / {months} mos
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-rose-500/30">
+                          <div className="text-[10px] uppercase font-bold text-rose-300">Total Due at Maturity</div>
+                          <div className="text-lg font-black font-mono text-rose-400 mt-0.5">
+                            $
+                            {isSettledFd
+                              ? '0.00'
+                              : parseFloat(fd.outstandingLiability ?? fd.amount ?? 0).toLocaleString('en-US', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                          </div>
+                          <div className="text-[11px] text-slate-400">Principal + Remaining Yield</div>
+                        </div>
+                      </div>
+
+                      {/* Tenure & Countdown Timeline */}
+                      <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-300">
+                            Tenure &amp; Countdown Progress ({months} Months FD)
+                          </h4>
+                          <span className="text-xs font-mono font-bold text-emerald-400">
+                            {Math.round(Number(fd.progressPercent || 0))}% Elapsed ·{' '}
+                            {isPendingFd
+                              ? 'Awaiting Activation'
+                              : isSettledFd
+                              ? 'Settled & Released'
+                              : fd.daysRemaining !== null && fd.daysRemaining !== undefined
+                              ? fd.daysRemaining <= 0
+                                ? 'Matured / Due Now'
+                                : `${fd.daysRemaining}d remaining`
+                              : 'Active'}
+                          </span>
+                        </div>
+
+                        <div className="w-full h-2.5 rounded-full bg-slate-800 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              isSettledFd
+                                ? 'bg-purple-500'
+                                : fd.daysRemaining !== null && fd.daysRemaining <= 0
+                                ? 'bg-rose-500'
+                                : fd.daysRemaining !== null && fd.daysRemaining <= 30
+                                ? 'bg-amber-400'
+                                : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${Math.min(100, Math.max(0, fd.progressPercent || 0))}%` }}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-1">
+                          <div>
+                            <span className="text-slate-500">Created / Requested:</span>{' '}
+                            <span className="font-mono text-slate-200">
+                              {fd.createdAt ? new Date(fd.createdAt).toLocaleString() : 'N/A'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Start Date:</span>{' '}
+                            <span className="font-mono text-slate-200">
+                              {!isPendingFd && (fd.lockInStart || fd.purchaseDate)
+                                ? new Date(fd.lockInStart || fd.purchaseDate).toLocaleDateString('en-GB', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })
+                                : 'Starts on Approval'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Maturity / End Date:</span>{' '}
+                            <span className="font-mono font-bold text-white">
+                              {fd.lockInEnd
+                                ? new Date(fd.lockInEnd).toLocaleDateString('en-GB', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })
+                                : `+${months}m from Approval`}
+                            </span>
+                          </div>
+                        </div>
+
+                        {fd.status === 'ACTIVE' && fd.nextYieldDueDate && (
+                          <div className="pt-2 border-t border-slate-800/80 text-xs flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-slate-300">
+                              Next Monthly Cycle:{' '}
+                              <strong className="font-mono text-amber-300">
+                                Mo {fd.nextPeriodIndex ?? paidCount + 1} (+${Number(fd.dueYieldAmount || monthlyVal).toFixed(2)})
+                              </strong>
+                            </span>
+                            <span className="font-mono text-slate-400">
+                              Due {new Date(fd.nextYieldDueDate).toLocaleDateString('en-GB', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })}{' '}
+                              ({fd.daysUntilNextYield ?? 0}d left)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Month-by-Month Projected / Paid Yield Schedule */}
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-300">
+                            Monthly Yield Payout Schedule ({months} Cycles)
+                          </h4>
+                          <span className="text-[11px] font-mono text-slate-400">
+                            Total Projected Yield: ${(monthlyVal * months).toFixed(2)} USD
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                          {cycleSchedule.map((c) => (
+                            <div
+                              key={c.cycleNum}
+                              className={`p-3 rounded-2xl border text-xs flex items-center justify-between gap-2 ${
+                                c.isPaidCycle
+                                  ? 'bg-emerald-950/25 border-emerald-500/30'
+                                  : c.isCurrentDueCycle
+                                  ? 'bg-amber-950/30 border-amber-500/50'
+                                  : 'bg-slate-950/60 border-slate-800'
+                              }`}
+                            >
+                              <div>
+                                <div className="font-bold text-white">Month {c.cycleNum}</div>
+                                <div className="text-[10px] font-mono text-slate-400">
+                                  {c.dueDate
+                                    ? c.dueDate.toLocaleDateString('en-GB', {
+                                        day: '2-digit',
+                                        month: 'short',
+                                        year: 'numeric',
+                                      })
+                                    : 'TBD on Activation'}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-mono font-bold text-emerald-400">
+                                  +${monthlyVal.toFixed(2)}
+                                </div>
+                                <span
+                                  className={`text-[9px] font-black uppercase ${
+                                    c.isPaidCycle
+                                      ? 'text-emerald-300'
+                                      : c.isCurrentDueCycle
+                                      ? 'text-amber-300'
+                                      : 'text-slate-500'
+                                  }`}
+                                >
+                                  {c.stateLabel}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Footer Actions */}
+                    <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/70 flex flex-wrap items-center justify-between gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedFdInspect(null);
+                          setSelectedPackage(fd);
+                          setEditLockMonths(fd.lockInMonths || 6);
+                          const startRawVal = fd.lockInStart || fd.purchaseDate;
+                          setCustomStartDate(
+                            startRawVal ? new Date(startRawVal).toISOString().split('T')[0] : ''
+                          );
+                          setCustomMaturityDate(
+                            fd.lockInEnd ? new Date(fd.lockInEnd).toISOString().split('T')[0] : ''
+                          );
+                          setTenureNotes('');
+                          setTenureModalOpen(true);
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Clock className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Edit FD Tenure &amp; Dates</span>
+                      </button>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {fd.status === 'ACTIVE' && fd.isYieldDue && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFdInspect(null);
+                              handleCreditSinglePackageYield(fd.id, fd.packageCode);
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                            <span>
+                              Credit Due Yield (+${Number(fd.dueYieldAmount || monthlyVal).toFixed(2)})
+                            </span>
+                          </button>
+                        )}
+
+                        {fd.status === 'PENDING_PAYMENT' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFdInspect(null);
+                              handleApprovePackage(fd.id);
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs cursor-pointer"
+                          >
+                            Approve &amp; Activate
+                          </button>
+                        )}
+
+                        {fd.status === 'ACTIVE' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFdInspect(null);
+                              handleSettleFullPackage(fd.id, fd.packageCode);
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs cursor-pointer"
+                          >
+                            Settle Full (Returns + Principal)
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFdInspect(null)}
+                          className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs cursor-pointer"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
