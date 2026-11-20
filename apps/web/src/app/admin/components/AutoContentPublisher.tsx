@@ -443,16 +443,32 @@ export default function AutoContentPublisher({
     }
   };
 
-  const handleAutoPublish = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const executeAutoPublish = async () => {
+    const rawTopic = topic.trim();
+    const rawPrompt = customPrompt.trim();
+    const promptSubject = rawPrompt
+      .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
+      .split(/[.!?\n]/)[0]
+      .trim()
+      .slice(0, 110);
+
+    // If user typed an explicit subject in the prompt box (e.g. "About Nvidia market and Gold market") and either left topic empty or left an unrelated quick topic selected, use the prompt subject!
+    const topicWords = rawTopic
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !['inc', 'corp', 'the'].includes(w));
+    const promptLower = rawPrompt.toLowerCase();
+    const topicMentionedInPrompt =
+      topicWords.length > 0 && topicWords.some((w) => promptLower.includes(w));
+
     const effectiveTopic =
-      topic.trim() ||
-      customPrompt
-        .trim()
-        .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
-        .split(/[.!?\n]/)[0]
-        .trim()
-        .slice(0, 110);
+      !rawTopic
+        ? promptSubject
+        : rawPrompt && (!topicMentionedInPrompt || /^(about|write|blog|article|topic)\b/i.test(rawPrompt))
+        ? promptSubject || rawTopic
+        : rawTopic;
+
     if (!effectiveTopic || publishing) return;
 
     setPublishing(true);
@@ -466,7 +482,7 @@ export default function AutoContentPublisher({
     try {
       const res = await api.post('/cms/admin/blogs/auto-publish', {
         topic: effectiveTopic,
-        customPrompt: customPrompt.trim() || undefined,
+        customPrompt: rawPrompt || undefined,
         categoryOverride: autoCategoryOverride || undefined,
         includeMeme,
         autoTrackNews,
@@ -486,6 +502,11 @@ export default function AutoContentPublisher({
       setPublishing(false);
       setProgressStep(0);
     }
+  };
+
+  const handleAutoPublish = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await executeAutoPublish();
   };
 
   const handleSyncSingle = async (postId: string) => {
@@ -1045,19 +1066,20 @@ export default function AutoContentPublisher({
               ))}
             </div>
 
-            <form onSubmit={handleAutoPublish} className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2.5">
+            <form onSubmit={handleAutoPublish} className="space-y-3.5">
+              {/* Row 1: Topic / Ticker Input + Category Selector (2 items only -> zero overflow) */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                 <input
                   type="text"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  placeholder="Enter blog topic OR ticker (or describe below in Custom AI Prompt)..."
-                  className="min-w-[220px] flex-1 px-4 py-3 rounded-2xl bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white text-xs font-semibold outline-none"
+                  placeholder="Step 1: Enter blog topic or ticker (e.g. Nvidia & Gold Market, AAPL, Bitcoin)..."
+                  className="sm:col-span-8 px-4 py-3 rounded-2xl bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white text-xs font-semibold outline-none w-full"
                 />
                 <select
                   value={autoCategoryOverride}
                   onChange={(e) => setAutoCategoryOverride(e.target.value)}
-                  className="px-3.5 py-3 rounded-2xl bg-slate-900 border border-slate-700 focus:border-emerald-500 text-slate-200 text-xs font-semibold outline-none shrink-0"
+                  className="sm:col-span-4 px-3.5 py-3 rounded-2xl bg-slate-900 border border-slate-700 focus:border-emerald-500 text-slate-200 text-xs font-semibold outline-none w-full"
                   title="Optional: Choose article category or leave on Auto-Detect"
                 >
                   <option value="">Auto-Detect Category</option>
@@ -1067,50 +1089,14 @@ export default function AutoContentPublisher({
                     </option>
                   ))}
                 </select>
-                <button
-                  type="submit"
-                  disabled={publishing || publishingNextFresh || (!topic.trim() && !customPrompt.trim())}
-                  className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
-                >
-                  {publishing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Generating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Rocket className="w-4 h-4" />
-                      <span>Auto-Generate &amp; Publish</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePublishNextFreshTopic}
-                  disabled={publishingNextFresh || publishing}
-                  className="px-4 py-3 rounded-2xl bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
-                  title="Automatically pick the next rotating watchlist topic and publish a fresh edition now"
-                >
-                  {publishingNextFresh ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Publishing Next...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      <span>Publish Next Fresh Topic</span>
-                    </>
-                  )}
-                </button>
               </div>
 
-              {/* Custom AI Prompt / Editorial Brief Box */}
-              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
+              {/* Row 2: Custom AI Prompt / Editorial Brief Box with Enter-to-Submit & Inline Enter Button */}
+              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <label className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Custom AI Prompt / Editorial Brief &amp; Instructions (Optional)</span>
+                    <span>Step 2: Custom AI Prompt / Editorial Brief &amp; Instructions (Press Enter ↵ to Generate)</span>
                   </label>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {[
@@ -1150,35 +1136,112 @@ export default function AutoContentPublisher({
                     )}
                   </div>
                 </div>
-                <textarea
-                  rows={2}
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="Describe what this blog post should focus on, key points to explain, target audience, or platform features to highlight (e.g. 'Explain how multi-currency wallets reduce FX fees for Indian and European businesses')..."
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-emerald-500 text-xs text-white placeholder-slate-500 outline-none leading-relaxed"
-                />
+
+                <div className="relative">
+                  <textarea
+                    rows={3}
+                    value={customPrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (!publishing && !publishingNextFresh && (topic.trim() || customPrompt.trim())) {
+                          executeAutoPublish();
+                        }
+                      }
+                    }}
+                    placeholder="Type what this blog post is about (e.g. 'About Nvidia market and Gold market') and press Enter ↵ to generate immediately (use Shift+Enter for a new line)..."
+                    className="w-full px-3.5 py-2.5 pb-11 rounded-xl bg-slate-950 border border-slate-800 focus:border-emerald-500 text-xs text-white placeholder-slate-500 outline-none leading-relaxed"
+                  />
+                  <div className="absolute bottom-2.5 left-3.5 right-3 flex items-center justify-between gap-2 pointer-events-none">
+                    <span className="text-[10px] text-slate-500 hidden sm:inline">
+                      Press <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300 font-mono">Enter ↵</kbd> to generate • <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400 font-mono">Shift + Enter</kbd> for new line
+                    </span>
+                    <button
+                      type="submit"
+                      disabled={publishing || publishingNextFresh || (!topic.trim() && !customPrompt.trim())}
+                      className="pointer-events-auto ml-auto px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer disabled:opacity-40 shadow-md transition-all"
+                      title="Generate & Publish Blog Post from Topic / Prompt (Enter)"
+                    >
+                      {publishing ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Generating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Rocket className="w-3.5 h-3.5" />
+                          <span>Enter ↵ · Generate Blog</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-5 text-xs text-slate-300">
-                <label className="inline-flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={includeMeme}
-                    onChange={(e) => setIncludeMeme(e.target.checked)}
-                    className="rounded border-slate-600 bg-slate-800 text-emerald-500"
-                  />
-                  <Smile className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Include Bull/Bear Sentiment Matrix graphic</span>
-                </label>
-                <label className="inline-flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoTrackNews}
-                    onChange={(e) => setAutoTrackNews(e.target.checked)}
-                    className="rounded border-slate-600 bg-slate-800 text-emerald-500"
-                  />
-                  <Radio className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Auto-track live breaking news underneath post</span>
-                </label>
+
+              {/* Row 3: Bottom Footer — Options on Left, Action Buttons on Right (Never Overflows) */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
+                <div className="flex flex-wrap items-center gap-5 text-xs text-slate-300">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeMeme}
+                      onChange={(e) => setIncludeMeme(e.target.checked)}
+                      className="rounded border-slate-600 bg-slate-800 text-emerald-500"
+                    />
+                    <Smile className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Include Bull/Bear Sentiment Matrix graphic</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoTrackNews}
+                      onChange={(e) => setAutoTrackNews(e.target.checked)}
+                      className="rounded border-slate-600 bg-slate-800 text-emerald-500"
+                    />
+                    <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Auto-track live breaking news underneath post</span>
+                  </label>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="submit"
+                    disabled={publishing || publishingNextFresh || (!topic.trim() && !customPrompt.trim())}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {publishing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Generating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Rocket className="w-4 h-4" />
+                        <span>Auto-Generate &amp; Publish</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePublishNextFreshTopic}
+                    disabled={publishingNextFresh || publishing}
+                    className="px-4 py-2.5 rounded-xl bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    title="Automatically pick the next rotating watchlist topic and publish a fresh edition now"
+                  >
+                    {publishingNextFresh ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Publishing Next...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        <span>Publish Next Watchlist Topic</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
 

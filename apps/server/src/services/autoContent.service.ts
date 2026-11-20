@@ -1888,21 +1888,26 @@ Return ONLY valid JSON matching this schema:
   }) {
     let topic = (params.topic || '').trim();
     const rawPrompt = (params.customPrompt || '').trim();
-    // If topic was left at default "Apple Inc." while the user wrote a custom prompt about a different subject (e.g. "About Nvidia market and Gold market"), use the prompt's subject!
-    if (
-      rawPrompt &&
-      (!topic ||
-        (topic.toLowerCase() === 'apple inc.' &&
-          !rawPrompt.toLowerCase().includes('apple') &&
-          !rawPrompt.toLowerCase().includes('aapl')))
-    ) {
-      const promptSubject = rawPrompt
-        .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
-        .split(/[.!?\n]/)[0]
-        .trim()
-        .slice(0, 110);
-      if (promptSubject.length >= 2) {
-        topic = promptSubject;
+    // If the user wrote a custom prompt about a different subject than the selected Quick Topic (e.g. topic="Apple Inc." while prompt="About Nvidia market and Gold market"), prioritize the prompt's subject!
+    if (rawPrompt) {
+      const topicWords = topic
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length > 2 && !['inc', 'corp', 'the'].includes(w));
+      const promptLower = rawPrompt.toLowerCase();
+      const topicMentionedInPrompt =
+        topicWords.length > 0 && topicWords.some((w) => promptLower.includes(w));
+
+      if (!topic || !topicMentionedInPrompt || /^(about|write|blog|article|topic)\b/i.test(rawPrompt)) {
+        const promptSubject = rawPrompt
+          .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
+          .split(/[.!?\n]/)[0]
+          .trim()
+          .slice(0, 110);
+        if (promptSubject.length >= 2) {
+          topic = promptSubject;
+        }
       }
     }
     if (!topic) throw new Error('Topic or ticker symbol is required');
