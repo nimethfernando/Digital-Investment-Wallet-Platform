@@ -237,6 +237,7 @@ model User {
   packageReturns        PackageReturn[]
   withdrawals           WithdrawalRequest[]
   exchangeOrders        ExchangeOrder[]
+  swapRequests          SwapRequest[]
   p2pOffers             P2POffer[]
   p2pOrdersAsBuyer      P2POrder[]          @relation("BuyerOrders")
   p2pOrdersAsSeller     P2POrder[]          @relation("SellerOrders")
@@ -477,6 +478,39 @@ model ExchangeOrder {
 
   @@index([userId, status])
   @@map("diw_exchange_orders")
+}
+
+model SwapRequest {
+  id                     String   @id @default(uuid())
+  requestCode            String   @unique @db.VarChar(32)
+  userId                 String
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromCurrency           String   @db.VarChar(10)
+  toCurrency             String   @db.VarChar(10)
+  fromAmount             Decimal  @db.Decimal(20, 8)
+  toAmount               Decimal  @db.Decimal(20, 8)
+  spotRate               Decimal  @db.Decimal(20, 12)
+  effectiveRate          Decimal  @db.Decimal(20, 12)
+  spreadPct              Decimal  @default(0.0000) @db.Decimal(8, 4)
+  feeAmount              Decimal  @default(0.00000000) @db.Decimal(20, 8)
+  fromAmountUsd          Decimal  @default(0.00) @db.Decimal(20, 4)
+  toAmountUsd            Decimal  @default(0.00) @db.Decimal(20, 4)
+  userCostBasisUsd       Decimal  @default(0.00) @db.Decimal(20, 4)
+  estimatedPnlImpactUsd  Decimal  @default(0.00) @db.Decimal(20, 4)
+  platformLiquidityBefore Decimal @default(0.00000000) @db.Decimal(20, 8)
+  userExposureBeforeUsd  Decimal  @default(0.00) @db.Decimal(20, 4)
+  status                 String   @default("PENDING_APPROVAL") @db.VarChar(30) // PENDING_APPROVAL, AUTO_EXECUTED, APPROVED_EXECUTED, REJECTED, BLOCKED
+  riskFlags              String?  @db.Text // JSON array
+  reviewedByAdminId      String?  @db.VarChar(64)
+  reviewedAt             DateTime?
+  adminNotes             String?  @db.Text
+  executedTransactionCode String? @db.VarChar(40)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([userId, status, createdAt])
+  @@index([status, createdAt])
+  @@map("diw_swap_requests")
 }
 
 model P2POffer {

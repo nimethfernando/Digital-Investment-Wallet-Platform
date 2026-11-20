@@ -945,6 +945,7 @@ export class LedgerService {
     toCurrency: string;
     fromAmount: string | number;
     notes?: string;
+    consumeFromPending?: boolean;
   }) {
     const fromAmountDec = new Decimal(params.fromAmount.toString());
     if (fromAmountDec.lessThanOrEqualTo(0)) {
@@ -1012,10 +1013,11 @@ export class LedgerService {
         const fromLocked = await this.lockWalletBalance(tx, wallet.id, fromCur);
         const toLocked = await this.lockWalletBalance(tx, wallet.id, toCur);
 
-        const fromAvail = new Decimal(fromLocked.availableBalance.toString());
+        const fromSourceField = params.consumeFromPending ? 'pendingSettlement' : 'availableBalance';
+        const fromAvail = new Decimal(fromLocked[fromSourceField].toString());
         if (fromAvail.lessThan(fromAmtFixed)) {
           throw new Error(
-            `Insufficient ${fromCur} balance. Available: ${fromAvail.toFixed(fromDecimals)} ${fromCur}, Required: ${fromAmtFixed.toFixed(fromDecimals)}`
+            `Insufficient ${fromCur} ${params.consumeFromPending ? 'pending swap hold' : 'balance'}. Available: ${fromAvail.toFixed(fromDecimals)} ${fromCur}, Required: ${fromAmtFixed.toFixed(fromDecimals)}`
           );
         }
 
@@ -1026,7 +1028,7 @@ export class LedgerService {
         // Update wallet balances
         await tx.walletBalance.update({
           where: { id: fromLocked.id },
-          data: { availableBalance: fromBalAfter.toFixed(8) },
+          data: { [fromSourceField]: fromBalAfter.toFixed(8) },
         });
 
         await tx.walletBalance.update({

@@ -159,4 +159,11 @@ router.post('/system/settings', requireRole([Role.ADMIN]), requireAdmin2FA, (req
 router.get('/analytics/overview', (req, res, next) => adminController.getPlatformOverviewAnalytics(req, res, next));
 router.get('/notifications', (req, res, next) => adminController.getAdminNotifications(req, res, next));
 
+// Real-Time Liquidity, Exposure & Swap Risk Governance
+router.get('/liquidity-risk', (req, res, next) => adminController.getLiquidityRiskOverview(req, res, next));
+router.post('/liquidity-risk/config', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateLiquidityRiskConfig(req, res, next));
+router.post('/liquidity-risk/swaps/:id/approve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.approveSwapRequest(req, res, next));
+router.post('/liquidity-risk/swaps/:id/reject', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.rejectSwapRequest(req, res, next));
+router.post('/users/:id/swap-override', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateUserSwapOverride(req, res, next));
+
 export default router;

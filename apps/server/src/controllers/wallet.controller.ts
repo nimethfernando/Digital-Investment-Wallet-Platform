@@ -8,6 +8,7 @@ import { cardService } from '../services/card.service';
 import { computePackageYieldSchedule } from '../services/package.service';
 import { p2pService } from '../services/p2p.service';
 import { otcService } from '../services/otc.service';
+import { liquidityRiskService } from '../services/liquidityRisk.service';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -319,7 +320,7 @@ export class WalletController {
         });
       }
 
-      const result = await ledgerService.executeCurrencySwap({
+      const result = await liquidityRiskService.evaluateAndExecuteOrQueueSwap({
         userId,
         fromCurrency,
         toCurrency,
@@ -328,7 +329,9 @@ export class WalletController {
 
       res.json({
         success: true,
-        message: `Successfully swapped ${result.fromAmount} ${result.fromCurrency} for ${result.toAmount} ${result.toCurrency}!`,
+        message: result.queued
+          ? result.message
+          : `Successfully swapped ${result.fromAmount} ${result.fromCurrency} for ${result.toAmount} ${result.toCurrency}!`,
         data: result,
       });
     } catch (err: any) {

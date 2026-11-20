@@ -34,6 +34,7 @@ import PaginationControls, { usePagination } from '../../../components/Paginatio
 interface UsersTabProps {
   users: any[];
   usersLoading: boolean;
+  admin2FaCode?: string;
   onRefresh: () => void;
   onFeedback: (feedback: { text: string; type: 'success' | 'error' } | null) => void;
   onOpenOnboard?: () => void;
@@ -44,6 +45,7 @@ interface UsersTabProps {
 export default function AdminUsersTab({
   users,
   usersLoading,
+  admin2FaCode,
   onRefresh,
   onFeedback,
   onOpenOnboard,
@@ -60,6 +62,16 @@ export default function AdminUsersTab({
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+
+  // Per-User Swap Risk Override Editor State
+  const [swapOvDisabled, setSwapOvDisabled] = useState(false);
+  const [swapOvManual, setSwapOvManual] = useState(false);
+  const [swapOvMaxTx, setSwapOvMaxTx] = useState('');
+  const [swapOvDaily, setSwapOvDaily] = useState('');
+  const [swapOvMonthly, setSwapOvMonthly] = useState('');
+  const [swapOvNote, setSwapOvNote] = useState('');
+  const [swapOv2Fa, setSwapOv2Fa] = useState('');
+  const [savingSwapOverride, setSavingSwapOverride] = useState(false);
 
   // Balance Adjustment Modal
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
@@ -83,13 +95,52 @@ export default function AdminUsersTab({
     try {
       const res = await api.get(`/admin/users/${userId}`);
       if (res.data?.success) {
-        setSelectedUser(res.data.data);
+        const u = res.data.data;
+        const ov = u?.riskMetrics?.swapRiskOverride || {};
+        setSwapOvDisabled(Boolean(ov.swapsDisabled));
+        setSwapOvManual(Boolean(ov.requireManualApproval));
+        setSwapOvMaxTx(ov.maxPerTxUsd != null ? String(ov.maxPerTxUsd) : '');
+        setSwapOvDaily(ov.dailyLimitUsd != null ? String(ov.dailyLimitUsd) : '');
+        setSwapOvMonthly(ov.monthlyLimitUsd != null ? String(ov.monthlyLimitUsd) : '');
+        setSwapOvNote(ov.note || '');
+        setSwapOv2Fa(admin2FaCode || '');
+        setSelectedUser(u);
         setUserModalOpen(true);
       }
     } catch (e: any) {
       onFeedback({ text: e.response?.data?.message || 'Failed to load user details', type: 'error' });
     } finally {
       setLoadingDetails(false);
+    }
+  };
+
+  const handleSaveSwapOverride = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser) return;
+    setSavingSwapOverride(true);
+    try {
+      const effective2Fa = (swapOv2Fa || admin2FaCode || '').trim();
+      const res = await api.post(
+        `/admin/users/${selectedUser.id}/swap-override`,
+        {
+          swapsDisabled: swapOvDisabled,
+          requireManualApproval: swapOvManual,
+          maxPerTxUsd: swapOvMaxTx.trim() ? Number(swapOvMaxTx) : undefined,
+          dailyLimitUsd: swapOvDaily.trim() ? Number(swapOvDaily) : undefined,
+          monthlyLimitUsd: swapOvMonthly.trim() ? Number(swapOvMonthly) : undefined,
+          note: swapOvNote.trim() || undefined,
+        },
+        { headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {} }
+      );
+      if (res.data?.success) {
+        onFeedback({ text: `Swap risk override updated for ${selectedUser.email}`, type: 'success' });
+        await handleViewUser(selectedUser.id);
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback({ text: err.response?.data?.message || 'Failed to save user swap override', type: 'error' });
+    } finally {
+      setSavingSwapOverride(false);
     }
   };
 
@@ -488,7 +539,7 @@ export default function AdminUsersTab({
                   <th className="py-3.5 px-4">Contact</th>
                   <th className="py-3.5 px-4">Role &amp; KYC &amp; Status</th>
                   <th className="py-3.5 px-4">Available Balances</th>
-                  <th className="py-3.5 px-4">Investments</th>
+                  <th className="py-3.5 px-4">Portfolio, Exposure &amp; P&amp;L</th>
                   <th className="py-3.5 px-4 text-right">Administrative Actions</th>
                 </tr>
               </thead>
@@ -605,12 +656,61 @@ export default function AdminUsersTab({
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <div className="text-slate-300 text-xs">
-                        <span className="font-bold text-white">{u.counts?.packages || 0}</span> FD Packages
-                      </div>
-                      <div className="text-slate-400 text-[11px] mt-0.5">
-                        <span className="font-bold text-white">{u.counts?.investorCommitments || 0}</span> Venture Equity
-                      </div>
+                      {u.riskMetrics ? (
+                        <div className="space-y-1 font-mono text-[11px]">
+                          <div className="font-bold text-white">
+                            Portfolio: ${Number(u.riskMetrics.totalPortfolioValueUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <div className="flex flex-wrap gap-x-2 text-[10px] text-slate-400">
+                            <span className="text-amber-300">Crypto: ${Number(u.riskMetrics.cryptoBalanceUsd || 0).toFixed(2)}</span>
+                            <span className="text-emerald-300">USDT: ${Number(u.riskMetrics.stablecoinBalanceUsd || 0).toFixed(2)}</span>
+                            <span className="text-blue-300">Fiat: ${Number(u.riskMetrics.fiatBalanceUsd || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-2 text-[10px] text-slate-400">
+                            <span>Dep: ${Number(u.riskMetrics.totalDepositedUsd || 0).toFixed(0)}</span>
+                            <span>•</span>
+                            <span>Wth: ${Number(u.riskMetrics.totalWithdrawnUsd || 0).toFixed(0)}</span>
+                            <span>•</span>
+                            <span className="text-cyan-300">Exp: ${Number(u.riskMetrics.openExposureUsd || 0).toFixed(0)}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                            <span
+                              className={
+                                Number(u.riskMetrics.totalPnlExposureUsd || 0) >= 0
+                                  ? 'text-emerald-400 font-bold'
+                                  : 'text-rose-400 font-bold'
+                              }
+                            >
+                              P&amp;L: {Number(u.riskMetrics.totalPnlExposureUsd || 0) >= 0 ? '+' : ''}$
+                              {Number(u.riskMetrics.totalPnlExposureUsd || 0).toFixed(2)}
+                            </span>
+                            {Number(u.riskMetrics.cryptoUnrealizedPnlUsd || 0) !== 0 && (
+                              <span className="text-amber-300">
+                                (Crypto: {Number(u.riskMetrics.cryptoUnrealizedPnlUsd) >= 0 ? '+' : ''}$
+                                {Number(u.riskMetrics.cryptoUnrealizedPnlUsd).toFixed(2)})
+                              </span>
+                            )}
+                            {Number(u.riskMetrics.pendingSwapsCount || 0) > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
+                                {u.riskMetrics.pendingSwapsCount} Pend Swap
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            <span className="text-slate-300 font-semibold">{u.counts?.packages || 0}</span> FD •{' '}
+                            <span className="text-slate-300 font-semibold">{u.counts?.investorCommitments || 0}</span> Venture
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-slate-300 text-xs">
+                            <span className="font-bold text-white">{u.counts?.packages || 0}</span> FD Packages
+                          </div>
+                          <div className="text-slate-400 text-[11px] mt-0.5">
+                            <span className="font-bold text-white">{u.counts?.investorCommitments || 0}</span> Venture Equity
+                          </div>
+                        </>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
@@ -793,6 +893,131 @@ export default function AdminUsersTab({
                 <p className="text-xs font-bold text-amber-400 mt-0.5">{selectedUser.withdrawalLockedUntil ? 'FROZEN' : 'ACTIVE'}</p>
               </div>
             </div>
+
+            {/* Real-Time Risk, Liquidity & P&L Position */}
+            {selectedUser.riskMetrics && (
+              <div className="space-y-3 bg-slate-900/70 border border-emerald-500/30 rounded-2xl p-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-emerald-400 uppercase font-mono">
+                    Real-Time Portfolio, Liquidity Exposure &amp; Swap P&amp;L Telemetry
+                  </h4>
+                  <span className="text-[11px] font-mono font-bold text-white">
+                    Total Portfolio: ${Number(selectedUser.riskMetrics.totalPortfolioValueUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs font-mono">
+                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
+                    <span className="text-[10px] text-slate-400 block">Crypto Holdings</span>
+                    <span className="font-bold text-amber-300">${Number(selectedUser.riskMetrics.cryptoBalanceUsd || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
+                    <span className="text-[10px] text-slate-400 block">USDT / Stablecoin</span>
+                    <span className="font-bold text-emerald-300">${Number(selectedUser.riskMetrics.stablecoinBalanceUsd || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
+                    <span className="text-[10px] text-slate-400 block">Fiat Balances</span>
+                    <span className="font-bold text-blue-300">${Number(selectedUser.riskMetrics.fiatBalanceUsd || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
+                    <span className="text-[10px] text-slate-400 block">Open Exposure</span>
+                    <span className="font-bold text-cyan-300">${Number(selectedUser.riskMetrics.openExposureUsd || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
+                    <span className="text-[10px] text-slate-400 block">Total Deposited</span>
+                    <span className="font-bold text-white">${Number(selectedUser.riskMetrics.totalDepositedUsd || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
+                    <span className="text-[10px] text-slate-400 block">Total Withdrawn</span>
+                    <span className="font-bold text-white">${Number(selectedUser.riskMetrics.totalWithdrawnUsd || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
+                    <span className="text-[10px] text-slate-400 block">Crypto Unrealized P&amp;L</span>
+                    <span className={`font-bold ${Number(selectedUser.riskMetrics.cryptoUnrealizedPnlUsd || 0) >= 0 ? 'text-amber-300' : 'text-rose-400'}`}>
+                      {Number(selectedUser.riskMetrics.cryptoUnrealizedPnlUsd || 0) >= 0 ? '+' : ''}${Number(selectedUser.riskMetrics.cryptoUnrealizedPnlUsd || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
+                    <span className="text-[10px] text-slate-400 block">Pending Swaps / Tx</span>
+                    <span className="font-bold text-amber-400">
+                      {selectedUser.riskMetrics.pendingSwapsCount || 0} Swaps (${Number(selectedUser.riskMetrics.pendingSwapsUsd || 0).toFixed(2)})
+                    </span>
+                  </div>
+                </div>
+
+                {/* Per-User Swap Risk Override Form */}
+                <form onSubmit={handleSaveSwapOverride} className="pt-3 border-t border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-white uppercase">Per-User Swap Governance Override</span>
+                    <div className="flex items-center gap-4 text-xs">
+                      <label className="inline-flex items-center gap-1.5 text-rose-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={swapOvDisabled}
+                          onChange={(e) => setSwapOvDisabled(e.target.checked)}
+                          className="accent-rose-500"
+                        />
+                        Block Swaps
+                      </label>
+                      <label className="inline-flex items-center gap-1.5 text-amber-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={swapOvManual}
+                          onChange={(e) => setSwapOvManual(e.target.checked)}
+                          className="accent-amber-500"
+                        />
+                        Force Admin Approval
+                      </label>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
+                    <input
+                      type="number"
+                      placeholder="Max Tx USD (default)"
+                      value={swapOvMaxTx}
+                      onChange={(e) => setSwapOvMaxTx(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Daily USD Limit"
+                      value={swapOvDaily}
+                      onChange={(e) => setSwapOvDaily(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Monthly USD Limit"
+                      value={swapOvMonthly}
+                      onChange={(e) => setSwapOvMonthly(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono"
+                    />
+                    <input
+                      type="text"
+                      placeholder="2FA Code (if enabled)"
+                      value={swapOv2Fa}
+                      onChange={(e) => setSwapOv2Fa(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Compliance / Swap Risk Note for this client..."
+                      value={swapOvNote}
+                      onChange={(e) => setSwapOvNote(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                    />
+                    <button
+                      type="submit"
+                      disabled={savingSwapOverride}
+                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs rounded-lg transition-all cursor-pointer"
+                    >
+                      {savingSwapOverride ? 'Saving...' : 'Save Swap Override'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
 
             {/* Multi-Currency Balances */}
             <div className="space-y-2">

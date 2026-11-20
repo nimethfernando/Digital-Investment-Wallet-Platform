@@ -180,6 +180,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const [swapReceipt, setSwapReceipt] = useState<any | null>(null);
   const [exchangeSpreadPercent, setExchangeSpreadPercent] = useState<number>(1.0);
   const [exchangePairs, setExchangePairs] = useState<Array<{ baseCurrency: string; quoteCurrency: string; buyMarginPct: number; sellMarginPct: number }>>([]);
+  const [swapGovernance, setSwapGovernance] = useState<{
+    swapsEnabled: boolean;
+    disabledPairs: string[];
+    maxPerTxUsd: number;
+    maxPerUserDailyUsd: number;
+    maxPerUserMonthlyUsd: number;
+    approvalThresholdUsd: number;
+    requireApprovalForCryptoSells: boolean;
+  } | null>(null);
 
   // Live Market Exchange Rates (units per 1 USD, fetched from /otc/rates)
   const [livePerUsdRates, setLivePerUsdRates] = useState<Record<string, number>>({
@@ -224,6 +233,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           }
           if (Array.isArray(res.data?.exchangePairs)) {
             setExchangePairs(res.data.exchangePairs);
+          }
+          if (res.data?.swapGovernance && typeof res.data.swapGovernance === 'object') {
+            setSwapGovernance(res.data.swapGovernance);
           }
         }
       })
@@ -622,6 +634,28 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </span>
             </div>
 
+            {/* Governance Status Banner (Global Pause / Disabled Pair / Limits) */}
+            {swapGovernance && (!swapGovernance.swapsEnabled || (swapGovernance.disabledPairs || []).includes(`${sendFromCurrency.toUpperCase()}->${sendToCurrency.toUpperCase()}`)) ? (
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold flex items-center gap-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>
+                  {!swapGovernance.swapsEnabled
+                    ? 'Instant Currency Swaps are temporarily paused by Risk & Liquidity Administration.'
+                    : `Swapping ${sendFromCurrency} → ${sendToCurrency} is currently disabled by Admin policy. Please select another pair.`}
+                </span>
+              </div>
+            ) : swapGovernance ? (
+              <div className="px-3.5 py-2 rounded-xl bg-slate-100/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/80 text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  Limits: Max <strong className="text-slate-800 dark:text-slate-200">${Number(swapGovernance.maxPerTxUsd || 0).toLocaleString()}</strong>/tx •{' '}
+                  <strong className="text-slate-800 dark:text-slate-200">${Number(swapGovernance.maxPerUserDailyUsd || 0).toLocaleString()}</strong>/day
+                </span>
+                <span className="text-amber-600 dark:text-amber-400 font-medium">
+                  Swaps &ge; ${Number(swapGovernance.approvalThresholdUsd || 0).toLocaleString()} require Admin approval
+                </span>
+              </div>
+            ) : null}
+
             {/* Error Banner with Direct Deposit Action */}
             {swapError && (
               <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in">
@@ -783,12 +817,30 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </div>
             </div>
 
-            {/* Execute Swap Button with Smart Deposit State */}
+            {/* Execute Swap Button with Smart Deposit & Governance State */}
             <button
               onClick={isInsufficientFromBalance ? onOpenDeposit : handleExecuteSwap}
-              disabled={swapping || parseFloat(sendAmount || '0') <= 0 || sendFromCurrency === sendToCurrency}
+              disabled={
+                swapping ||
+                parseFloat(sendAmount || '0') <= 0 ||
+                sendFromCurrency === sendToCurrency ||
+                Boolean(
+                  !isInsufficientFromBalance &&
+                    swapGovernance &&
+                    (!swapGovernance.swapsEnabled ||
+                      (swapGovernance.disabledPairs || []).includes(`${sendFromCurrency.toUpperCase()}->${sendToCurrency.toUpperCase()}`))
+                )
+              }
               className={`w-full py-4 rounded-2xl font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer ${
-                swapping || parseFloat(sendAmount || '0') <= 0 || sendFromCurrency === sendToCurrency
+                swapping ||
+                parseFloat(sendAmount || '0') <= 0 ||
+                sendFromCurrency === sendToCurrency ||
+                Boolean(
+                  !isInsufficientFromBalance &&
+                    swapGovernance &&
+                    (!swapGovernance.swapsEnabled ||
+                      (swapGovernance.disabledPairs || []).includes(`${sendFromCurrency.toUpperCase()}->${sendToCurrency.toUpperCase()}`))
+                )
                   ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                   : isInsufficientFromBalance
                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20 active:scale-[0.99]'
@@ -1377,61 +1429,105 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
         </div>
       )}
 
-      {/* Modal 3: Swap Receipt */}
-      {swapReceipt && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-sm w-full space-y-5 text-slate-900 dark:text-white shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                  <Check className="w-4 h-4" />
+      {/* Modal 3: Swap Receipt / Risk Approval Pending */}
+      {swapReceipt && (() => {
+        const isPendingApproval = Boolean(swapReceipt.queued || swapReceipt.status === 'PENDING_APPROVAL');
+        return (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-sm w-full space-y-5 text-slate-900 dark:text-white shadow-2xl animate-in zoom-in-95">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      isPendingApproval
+                        ? 'bg-amber-500/20 text-amber-500'
+                        : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {isPendingApproval ? <Clock className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                  </div>
+                  <h3 className="font-extrabold text-sm">
+                    {isPendingApproval ? 'Swap Queued for Admin Approval' : 'Swap Completed'}
+                  </h3>
                 </div>
-                <h3 className="font-extrabold text-sm">Swap Completed</h3>
+                <button
+                  onClick={() => setSwapReceipt(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
+
+              {isPendingApproval && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
+                  {swapReceipt.message ||
+                    'Your swap exceeds automated liquidity/risk thresholds and has been routed to our Treasury Desk for manual verification. Your funds are safely reserved.'}
+                </div>
+              )}
+
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/90 dark:border-slate-800/80 space-y-3 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {isPendingApproval ? 'Request Reference' : 'Transaction ID'}
+                  </span>
+                  <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                    {swapReceipt.requestCode || swapReceipt.transactionCode}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {isPendingApproval ? 'Reserved Amount' : 'Debited Amount'}
+                  </span>
+                  <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                    -{swapReceipt.fromAmount} {swapReceipt.fromCurrency}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {isPendingApproval ? 'Estimated Receive' : 'Credited Amount'}
+                  </span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                    +{swapReceipt.toAmount} {swapReceipt.toCurrency}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    Desk Spread ({swapReceipt.spreadPct || '0.00'}%)
+                  </span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                    -{swapReceipt.feeAmount || '0.0000'} {swapReceipt.feeCurrency || swapReceipt.fromCurrency}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">Execution Rate</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    1 {swapReceipt.fromCurrency} = {swapReceipt.rate} {swapReceipt.toCurrency}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">Ledger Status</span>
+                  <span
+                    className={`font-bold ${
+                      isPendingApproval
+                        ? 'text-amber-500 dark:text-amber-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {isPendingApproval ? 'PENDING ADMIN REVIEW' : 'COMPLETED & AUDITED'}
+                  </span>
+                </div>
+              </div>
+
               <button
                 onClick={() => setSwapReceipt(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                className="w-full py-3 rounded-xl bg-slate-900 hover:bg-black text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-950 font-bold text-xs shadow-md transition-colors cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                Done
               </button>
             </div>
-
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/90 dark:border-slate-800/80 space-y-3 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Transaction ID</span>
-                <span className="font-mono font-bold text-rose-600 dark:text-rose-400">{swapReceipt.transactionCode}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Debited Amount</span>
-                <span className="font-mono font-bold text-rose-600 dark:text-rose-400">-{swapReceipt.fromAmount} {swapReceipt.fromCurrency}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Credited Amount</span>
-                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">+{swapReceipt.toAmount} {swapReceipt.toCurrency}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Desk Spread ({swapReceipt.spreadPct || '0.00'}%)</span>
-                <span className="font-mono font-bold text-slate-700 dark:text-slate-300">-{swapReceipt.feeAmount || '0.0000'} {swapReceipt.feeCurrency || swapReceipt.fromCurrency}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Execution Rate</span>
-                <span className="font-mono font-bold text-slate-900 dark:text-white">1 {swapReceipt.fromCurrency} = {swapReceipt.rate} {swapReceipt.toCurrency}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Ledger Status</span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">COMPLETED &amp; AUDITED</span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setSwapReceipt(null)}
-              className="w-full py-3 rounded-xl bg-slate-900 hover:bg-black text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-950 font-bold text-xs shadow-md transition-colors cursor-pointer"
-            >
-              Done
-            </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal 4: Choose Send Method Modal */}
       <ChooseSendMethodModal

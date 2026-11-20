@@ -21,6 +21,7 @@ import { otcService } from '../services/otc.service';
 import { rateService } from '../services/rate.service';
 import { investmentsService } from '../services/investments.service';
 import { tokenService } from '../services/token.service';
+import { liquidityRiskService } from '../services/liquidityRisk.service';
 import { walletController } from './wallet.controller';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -1964,7 +1965,7 @@ export class AdminController {
         ];
       }
 
-      const [users, total] = await Promise.all([
+      const [users, total, riskMetricsMap] = await Promise.all([
         prisma.user.findMany({
           where,
           include: {
@@ -1985,12 +1986,14 @@ export class AdminController {
           take: limitNum,
         }),
         prisma.user.count({ where }),
+        liquidityRiskService.getUserRiskMetricsBatch().catch(() => new Map<string, any>()),
       ]);
 
       const formatted = users.map((u) => {
         const usdBal = u.wallet?.balances.find((b) => b.currency === 'USD')?.availableBalance?.toString() || '0.00';
         const usdtBal = u.wallet?.balances.find((b) => b.currency === 'USDT')?.availableBalance?.toString() || '0.00';
         const isLocked = !!(u.withdrawalLockedUntil && new Date() < u.withdrawalLockedUntil);
+        const rm = riskMetricsMap.get(u.id) || null;
 
         return {
           id: u.id,
@@ -2019,7 +2022,9 @@ export class AdminController {
             currency: b.currency,
             available: b.availableBalance.toString(),
             locked: b.lockedPrincipal.toString(),
+            pending: b.pendingSettlement.toString(),
           })) || [],
+          riskMetrics: rm,
           counts: u._count,
           createdAt: u.createdAt,
         };
@@ -2077,11 +2082,18 @@ export class AdminController {
         return res.status(404).json({ success: false, message: 'User not found' });
       }
 
+      const riskMetricsMap = await liquidityRiskService.getUserRiskMetricsBatch().catch(() => new Map<string, any>());
+      const pendingSwaps = await prisma.swapRequest
+        .findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 20 })
+        .catch(() => []);
+
       res.json({
         success: true,
         data: {
           ...user,
           accountNumber: generateAvoraAccountNumber(user.id),
+          riskMetrics: riskMetricsMap.get(id) || null,
+          swapRequests: pendingSwaps,
         },
       });
     } catch (err) {
@@ -4219,6 +4231,7 @@ export class AdminController {
 
     const last72Hours = new Date(now.getTime() - 72 * 60 * 60 * 1000);
     await otcService.ensureOtcSchema();
+    await liquidityRiskService.ensureSchema().catch(() => {});
     const [
       activeAndDisputedOtcTradesList,
       underReviewOtcDesksList,
@@ -4229,6 +4242,7 @@ export class AdminController {
       recentP2PTransfersList,
       recentP2POffersList,
       pendingVentureInquiriesList,
+      pendingSwapRequestsList,
     ] = await Promise.all([
       prisma.otcTrade.findMany({
         where: { status: { in: ['DISPUTED', 'IN_PROGRESS'] } },
@@ -4335,6 +4349,16 @@ export class AdminController {
           },
           orderBy: { createdAt: 'desc' },
           take: 25,
+        })
+        .catch(() => []),
+      prisma.swapRequest
+        .findMany({
+          where: { status: 'PENDING_APPROVAL' },
+          include: {
+            user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+          take: 50,
         })
         .catch(() => []),
     ]);
@@ -5043,6 +5067,41 @@ export class AdminController {
       alerts.push(item);
     }
 
+    // Pending High-Risk / Large Currency Swap Approvals
+    for (const sr of pendingSwapRequestsList as any[]) {
+      const custName = `${sr.user?.firstName || ''} ${sr.user?.lastName || ''}`.trim() || sr.user?.email || 'Client';
+      const fromUsd = new Decimal(sr.fromAmountUsd?.toString() || '0').toFixed(2);
+      const estPnl = new Decimal(sr.estPlatformPnlUsd?.toString() || '0').toFixed(2);
+      const age = this.computeAgeInfo(sr.createdAt, now, 4);
+      const item = {
+        id: `SWREQ-${sr.id}`,
+        entityId: sr.id,
+        code: sr.requestCode,
+        category: 'SWAP_APPROVAL',
+        typeLabel: 'Swap Risk Approval',
+        title: `Swap Approval: ${sr.fromCurrency} -> ${sr.toCurrency} ($${fromUsd})`,
+        description: `${custName} • ${sr.riskReason || 'Manual risk review required'} • Est P&L Impact: $${estPnl}`,
+        customerId: sr.userId,
+        customerName: custName,
+        customerEmail: sr.user?.email || '',
+        amount: fromUsd,
+        currency: sr.fromCurrency,
+        status: sr.status,
+        targetTab: 'liquidity',
+        requestDate: sr.createdAt.toISOString(),
+        createdDate: sr.createdAt.toISOString(),
+        ageMs: age.ageMs,
+        ageHours: age.ageHours,
+        ageDays: age.ageDays,
+        ageLabel: age.ageLabel,
+        isOverdue: age.isOverdue,
+        urgency: 'HIGH',
+        priorityRank: 1,
+      };
+      pendingRequests.push(item);
+      alerts.push(item);
+    }
+
     // Recent Instant Currency Swaps (72h activity visibility)
     for (const sw of recentSwapsList as any[]) {
       const custName = `${sw.user?.firstName || ''} ${sw.user?.lastName || ''}`.trim() || sw.user?.email || 'Client';
@@ -5180,6 +5239,7 @@ export class AdminController {
       recentP2PTransfersCount: recentP2PTransfersList.length,
       recentP2POffersCount: recentP2POffersList.length,
       pendingVentureInquiriesCount: pendingVentureInquiriesList.length,
+      pendingSwapsCount: (pendingSwapRequestsList as any[]).length,
       newInquiriesCount: pendingInquiriesList.length,
       totalPendingCount,
       totalActionItems: pendingRequests.length,
@@ -6585,6 +6645,97 @@ export class AdminController {
             createdAt: l.createdAt,
           })),
         },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/admin/liquidity-risk
+   * Real-time Platform Liquidity, Exposure, Cost-Basis P&L Risk, Pending Swap Queue & Audit Trail
+   */
+  async getLiquidityRiskOverview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await liquidityRiskService.getLiquidityAndExposureOverview();
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/admin/liquidity-risk/config
+   * Update Swap Permissions, Disabled Pairs, Risk Limits & Per-Asset Thresholds
+   */
+  async updateLiquidityRiskConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminId = (req as any).user.id;
+      const updated = await liquidityRiskService.updateConfig(req.body || {}, adminId);
+      res.json({
+        success: true,
+        message: 'Liquidity & Swap Risk Governance rules updated.',
+        data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/admin/liquidity-risk/swaps/:id/approve
+   */
+  async approveSwapRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminId = (req as any).user.id;
+      const swapId = String(req.params.id);
+      const { adminNotes } = req.body || {};
+      const result = await liquidityRiskService.approveQueuedSwap(swapId, adminId, adminNotes);
+      res.json({
+        success: true,
+        message: `Swap ${result.swapRequest.requestCode} approved and settled (${result.execution.transactionCode}).`,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/admin/liquidity-risk/swaps/:id/reject
+   */
+  async rejectSwapRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminId = (req as any).user.id;
+      const swapId = String(req.params.id);
+      const { reason } = req.body || {};
+      const updated = await liquidityRiskService.rejectQueuedSwap(swapId, adminId, reason);
+      res.json({
+        success: true,
+        message: `Swap ${updated.requestCode} rejected and held balance unlocked to user.`,
+        data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/admin/users/:id/swap-override
+   */
+  async updateUserSwapOverride(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminId = (req as any).user.id;
+      const targetUserId = String(req.params.id);
+      const override = req.body || {};
+      const updated = await liquidityRiskService.updateConfig(
+        { perUserOverrides: { [targetUserId]: override } },
+        adminId
+      );
+      res.json({
+        success: true,
+        message: 'User-level swap risk override saved.',
+        data: updated.perUserOverrides[targetUserId] || null,
       });
     } catch (err) {
       next(err);

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { otcService } from '../services/otc.service';
 import { rateService } from '../services/rate.service';
+import { liquidityRiskService } from '../services/liquidityRisk.service';
 import { prisma } from '../lib/prisma';
 
 export class OtcController {
@@ -10,7 +11,7 @@ export class OtcController {
    */
   async getRates(req: Request, res: Response, next: NextFunction) {
     try {
-      const [data, marginSetting, feeSetting, showSpreadSetting, otcCommission, wdFeeSetting, wdSpreadSetting, exchangeSpreadSetting, activePairs] = await Promise.all([
+      const [data, marginSetting, feeSetting, showSpreadSetting, otcCommission, wdFeeSetting, wdSpreadSetting, exchangeSpreadSetting, activePairs, swapRiskCfg] = await Promise.all([
         rateService.getLiveRates(),
         prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
         prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
@@ -23,6 +24,7 @@ export class OtcController {
           where: { isActive: true },
           select: { baseCurrency: true, quoteCurrency: true, buyMarginPct: true, sellMarginPct: true },
         }).catch(() => []),
+        liquidityRiskService.getConfig().catch(() => null),
       ]);
       const marginPercent = parseFloat(marginSetting?.value || '2.0');
       const feePercent = parseFloat(feeSetting?.value || '3.0');
@@ -42,6 +44,18 @@ export class OtcController {
         feePercent,
         showRemittanceSpreadControls,
         exchangeSpreadPercent,
+        swapGovernance: swapRiskCfg
+          ? {
+              swapsEnabled: swapRiskCfg.swapsEnabled,
+              disabledPairs: swapRiskCfg.disabledPairs,
+              maxPerTxUsd: swapRiskCfg.maxPerTxUsd,
+              approvalThresholdUsd: swapRiskCfg.approvalThresholdUsd,
+              requireApprovalForCryptoSells: swapRiskCfg.requireApprovalForCryptoSells,
+              disabledAssets: Object.entries(swapRiskCfg.perAssetConfig || {})
+                .filter(([, v]) => !v.enabled)
+                .map(([k]) => k),
+            }
+          : null,
         exchangePairs: activePairs.map((p) => ({
           baseCurrency: p.baseCurrency,
           quoteCurrency: p.quoteCurrency,

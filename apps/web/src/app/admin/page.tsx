@@ -14,6 +14,7 @@ import AdminTokenTab from './components/AdminTokenTab';
 import AdminNewsletterTab from './components/AdminNewsletterTab';
 import AdminP2PTab from './components/AdminP2PTab';
 import AdminOtcTab from './components/AdminOtcTab';
+import AdminLiquidityTab from './components/AdminLiquidityTab';
 import AdminKycTab from './components/AdminKycTab';
 import AdminSystemTab from './components/AdminSystemTab';
 import AdminAuditLogsTab from './components/AdminAuditLogsTab';
@@ -72,8 +73,10 @@ export default function AdminPortalPage() {
   const { user, token, isAdmin, isLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'alerts' | 'users' | 'packages' | 'remittance' | 'investments' | 'token' | 'newsletter' | 'p2p' | 'otc' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
+    'overview' | 'alerts' | 'users' | 'liquidity' | 'packages' | 'remittance' | 'investments' | 'token' | 'newsletter' | 'p2p' | 'otc' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
   >('overview');
+  const [liquidityRiskData, setLiquidityRiskData] = useState<any | null>(null);
+  const [liquidityLoading, setLiquidityLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Overview, Command Center Notifications & Analytics State
@@ -407,7 +410,7 @@ export default function AdminPortalPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const tabParam = new URLSearchParams(window.location.search).get('tab');
-    const validTabs = ['overview', 'alerts', 'users', 'packages', 'remittance', 'investments', 'token', 'newsletter', 'p2p', 'otc', 'deposits', 'withdrawals', 'kyc', 'treasury', 'addresses', 'config', 'system', 'audit', 'disputes', 'content'];
+    const validTabs = ['overview', 'alerts', 'users', 'liquidity', 'packages', 'remittance', 'investments', 'token', 'newsletter', 'p2p', 'otc', 'deposits', 'withdrawals', 'kyc', 'treasury', 'addresses', 'config', 'system', 'audit', 'disputes', 'content'];
     if (tabParam && validTabs.includes(tabParam)) {
       setActiveTab(tabParam as any);
     }
@@ -517,6 +520,18 @@ export default function AdminPortalPage() {
         setOtcInquiries([]);
       } finally {
         setOtcLoading(false);
+      }
+    } else if (activeTab === 'liquidity') {
+      setLiquidityLoading(true);
+      try {
+        const res = await api.get('/admin/liquidity-risk');
+        if (res.data?.success && res.data?.data) {
+          setLiquidityRiskData(res.data.data);
+        }
+      } catch (e) {
+        console.error('Failed to load liquidity & swap risk dashboard:', e);
+      } finally {
+        setLiquidityLoading(false);
       }
     } else if (activeTab === 'audit') {
       setAuditLoading(true);
@@ -1954,6 +1969,7 @@ export default function AdminPortalPage() {
             { id: 'overview', label: 'Overview & Analytics', icon: LayoutDashboard },
             { id: 'alerts', label: `Alerts & Pending Queue (${tabBadgeCounts.alerts})`, icon: Bell },
             { id: 'users', label: `Users & Accounts (${tabBadgeCounts.users})`, icon: Users },
+            { id: 'liquidity', label: `Liquidity & Swap Risk${(commandCenterSummary?.pendingSwapsCount ?? 0) > 0 ? ` (${commandCenterSummary.pendingSwapsCount} Pending)` : ''}`, icon: ShieldAlert },
             { id: 'packages', label: `Packages & Yields (${tabBadgeCounts.packages})${(commandCenterSummary?.yieldDueCount ?? 0) > 0 ? ` • 🔔 ${commandCenterSummary.yieldDueCount} Due` : ''}`, icon: Package },
             { id: 'remittance', label: `Remittance Orders (${tabBadgeCounts.remittance})`, icon: Globe },
             { id: 'investments', label: `Startup Portfolios (${tabBadgeCounts.investments})`, icon: Building },
@@ -2511,11 +2527,23 @@ export default function AdminPortalPage() {
           <AdminUsersTab
             users={users}
             usersLoading={usersLoading}
+            admin2FaCode={admin2FaCode}
             onRefresh={loadData}
             onFeedback={(f) => setFeedback(f)}
             onOpenOnboard={() => { setActionTargetUser(null); setOnboardModalOpen(true); }}
             onOpenDeployPackage={(targetUser) => { setActionTargetUser(targetUser); setDeployPackageModalOpen(true); }}
             onOpenManualDeposit={(targetUser) => { setActionTargetUser(targetUser); setManualDepositModalOpen(true); }}
+          />
+        )}
+
+        {/* TAB: LIQUIDITY & SWAP RISK */}
+        {activeTab === 'liquidity' && (
+          <AdminLiquidityTab
+            data={liquidityRiskData}
+            loading={liquidityLoading}
+            admin2FaCode={admin2FaCode}
+            onRefresh={loadData}
+            onFeedback={(f) => setFeedback(f)}
           />
         )}
 
