@@ -15,6 +15,7 @@ import AdminNewsletterTab from './components/AdminNewsletterTab';
 import AdminP2PTab from './components/AdminP2PTab';
 import AdminOtcTab from './components/AdminOtcTab';
 import AdminLiquidityTab from './components/AdminLiquidityTab';
+import AdminFeatureControlTab from './components/AdminFeatureControlTab';
 import AdminKycTab from './components/AdminKycTab';
 import AdminSystemTab from './components/AdminSystemTab';
 import AdminAuditLogsTab from './components/AdminAuditLogsTab';
@@ -73,10 +74,12 @@ export default function AdminPortalPage() {
   const { user, token, isAdmin, isLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'alerts' | 'users' | 'liquidity' | 'packages' | 'remittance' | 'investments' | 'token' | 'newsletter' | 'p2p' | 'otc' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
+    'overview' | 'alerts' | 'users' | 'liquidity' | 'features' | 'packages' | 'remittance' | 'investments' | 'token' | 'newsletter' | 'p2p' | 'otc' | 'deposits' | 'withdrawals' | 'kyc' | 'treasury' | 'addresses' | 'config' | 'system' | 'audit' | 'disputes' | 'content'
   >('overview');
   const [liquidityRiskData, setLiquidityRiskData] = useState<any | null>(null);
   const [liquidityLoading, setLiquidityLoading] = useState(false);
+  const [featureControlsData, setFeatureControlsData] = useState<any | null>(null);
+  const [featureControlsLoading, setFeatureControlsLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Overview, Command Center Notifications & Analytics State
@@ -385,6 +388,14 @@ export default function AdminPortalPage() {
         })
         .catch(() => {});
 
+      api.get('/admin/feature-controls')
+        .then((res) => {
+          if (res.data?.success && res.data?.data) {
+            setFeatureControlsData(res.data.data);
+          }
+        })
+        .catch(() => {});
+
       const pollAlerts = setInterval(() => {
         api.get('/admin/notifications')
           .then((res) => {
@@ -410,7 +421,7 @@ export default function AdminPortalPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const tabParam = new URLSearchParams(window.location.search).get('tab');
-    const validTabs = ['overview', 'alerts', 'users', 'liquidity', 'packages', 'remittance', 'investments', 'token', 'newsletter', 'p2p', 'otc', 'deposits', 'withdrawals', 'kyc', 'treasury', 'addresses', 'config', 'system', 'audit', 'disputes', 'content'];
+    const validTabs = ['overview', 'alerts', 'users', 'liquidity', 'features', 'packages', 'remittance', 'investments', 'token', 'newsletter', 'p2p', 'otc', 'deposits', 'withdrawals', 'kyc', 'treasury', 'addresses', 'config', 'system', 'audit', 'disputes', 'content'];
     if (tabParam && validTabs.includes(tabParam)) {
       setActiveTab(tabParam as any);
     }
@@ -532,6 +543,18 @@ export default function AdminPortalPage() {
         console.error('Failed to load liquidity & swap risk dashboard:', e);
       } finally {
         setLiquidityLoading(false);
+      }
+    } else if (activeTab === 'features') {
+      setFeatureControlsLoading(true);
+      try {
+        const res = await api.get('/admin/feature-controls');
+        if (res.data?.success && res.data?.data) {
+          setFeatureControlsData(res.data.data);
+        }
+      } catch (e) {
+        console.error('Failed to load feature controls:', e);
+      } finally {
+        setFeatureControlsLoading(false);
       }
     } else if (activeTab === 'audit') {
       setAuditLoading(true);
@@ -1970,6 +1993,7 @@ export default function AdminPortalPage() {
             { id: 'alerts', label: `Alerts & Pending Queue (${tabBadgeCounts.alerts})`, icon: Bell },
             { id: 'users', label: `Users & Accounts (${tabBadgeCounts.users})`, icon: Users },
             { id: 'liquidity', label: `Liquidity & Swap Risk${(commandCenterSummary?.pendingSwapsCount ?? 0) > 0 ? ` (${commandCenterSummary.pendingSwapsCount} Pending)` : ''}`, icon: ShieldAlert },
+            { id: 'features', label: `Feature Controls${(featureControlsData?.summary?.disabledCount ?? 0) > 0 ? ` (${featureControlsData.summary.disabledCount} Off)` : ''}`, icon: Zap },
             { id: 'packages', label: `Packages & Yields (${tabBadgeCounts.packages})${(commandCenterSummary?.yieldDueCount ?? 0) > 0 ? ` • 🔔 ${commandCenterSummary.yieldDueCount} Due` : ''}`, icon: Package },
             { id: 'remittance', label: `Remittance Orders (${tabBadgeCounts.remittance})`, icon: Globe },
             { id: 'investments', label: `Startup Portfolios (${tabBadgeCounts.investments})`, icon: Building },
@@ -2541,6 +2565,17 @@ export default function AdminPortalPage() {
           <AdminLiquidityTab
             data={liquidityRiskData}
             loading={liquidityLoading}
+            admin2FaCode={admin2FaCode}
+            onRefresh={loadData}
+            onFeedback={(f) => setFeedback(f)}
+          />
+        )}
+
+        {/* TAB: CENTRAL FEATURE CONTROLS & KILL-SWITCHES */}
+        {activeTab === 'features' && (
+          <AdminFeatureControlTab
+            data={featureControlsData}
+            loading={featureControlsLoading}
             admin2FaCode={admin2FaCode}
             onRefresh={loadData}
             onFeedback={(f) => setFeedback(f)}

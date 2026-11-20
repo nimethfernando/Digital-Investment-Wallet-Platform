@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Role } from '@prisma/client';
 import { gmtController } from '../controllers/gmt.controller';
 import { authenticateToken, requireRole } from '../middleware/auth';
+import { featureControlService } from '../services/featureControl.service';
 
 const router = Router();
 
@@ -13,7 +14,15 @@ router.get('/track/:code', (req, res, next) => gmtController.trackTransferPublic
 // Protected: Authenticated Customer Routes
 router.use(authenticateToken);
 
-router.post('/transfers', (req, res, next) => gmtController.createTransfer(req, res, next));
+router.post(
+  '/transfers',
+  featureControlService.requireFeature('REMITTANCE', async (req) => {
+    await featureControlService.assertCurrencyEnabled(req.body?.sourceCurrency || req.body?.sendCurrency);
+    await featureControlService.assertCurrencyEnabled(req.body?.targetCurrency || req.body?.receiveCurrency);
+    await featureControlService.assertGatewayEnabled(req.body?.payoutMethod);
+  }),
+  (req, res, next) => gmtController.createTransfer(req, res, next)
+);
 router.get('/transfers', (req, res, next) => gmtController.listUserTransfers(req, res, next));
 router.get('/transfers/:code', (req, res, next) => gmtController.getTransfer(req, res, next));
 

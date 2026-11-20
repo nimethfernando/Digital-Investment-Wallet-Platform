@@ -3,6 +3,7 @@ import Decimal from 'decimal.js';
 import { PrismaClient } from '@prisma/client';
 import { ledgerService } from '../src/services/ledger.service';
 import { liquidityRiskService } from '../src/services/liquidityRisk.service';
+import { featureControlService } from '../src/services/featureControl.service';
 import { notificationService } from '../src/adapters/notification/notification.provider';
 
 const prisma = new PrismaClient();
@@ -41,6 +42,8 @@ async function runLiquidityRiskE2E() {
 
   // Preserve original governance config to restore cleanly in finally
   const prevCfgRow = await prisma.cmsSetting.findUnique({ where: { key: 'SWAP_RISK_GOVERNANCE_CONFIG' } });
+  const prevFeatRow = await prisma.cmsSetting.findUnique({ where: { key: 'PLATFORM_FEATURE_CONTROLS_V1' } });
+  const prevFeatHistRow = await prisma.cmsSetting.findUnique({ where: { key: 'PLATFORM_FEATURE_CONTROL_HISTORY_V1' } });
 
   try {
     await liquidityRiskService.ensureSchema();
@@ -334,11 +337,81 @@ async function runLiquidityRiskE2E() {
         throw new Error(`Ledger out of balance! Debits=${rec.totalDebit}, Credits=${rec.totalCredit}, Diff=${rec.difference}`);
       }
     });
+
+    await assertTest('10. Central Feature Control registry exposes all 5 categories & 45+ switches', async () => {
+      const fc = await featureControlService.getAllFeatures();
+      if (!fc?.features || fc.features.length < 45) {
+        throw new Error(`Expected >= 45 feature controls, got ${fc?.features?.length}`);
+      }
+      const cats = new Set(fc.features.map((f) => f.category));
+      for (const expected of ['CORE_MODULES', 'PAYMENT_GATEWAYS', 'CURRENCIES', 'BLOCKCHAIN_NETWORKS', 'TRADING_PAIRS'] as const) {
+        if (!cats.has(expected)) {
+          throw new Error(`Missing category ${expected}`);
+        }
+      }
+    });
+
+    await assertTest('11. Disabling & re-enabling features/gateways/currencies/networks enforces kill-switches & logs Admin audit trail', async () => {
+      const reason = 'Emergency hot-wallet node maintenance test';
+      const toggled = await featureControlService.toggleFeature({
+        featureKey: 'NETWORK_TRC20',
+        enabled: false,
+        reason,
+        adminId: user.id,
+      });
+      if (toggled.feature.enabled !== false || toggled.auditEntry.action !== 'DISABLED') {
+        throw new Error('Expected NETWORK_TRC20 to be disabled');
+      }
+
+      let trcBlocked = false;
+      try {
+        await featureControlService.assertNetworkEnabled('USDT_TRC20');
+      } catch (err: any) {
+        if (err.code === 'FEATURE_DISABLED' && String(err.message).includes(reason)) {
+          trcBlocked = true;
+        }
+      }
+      if (!trcBlocked) {
+        throw new Error('Expected assertNetworkEnabled("USDT_TRC20") to throw FEATURE_DISABLED with reason');
+      }
+
+      // Also test disabling a trading pair syncs with liquidityRiskService
+      await featureControlService.toggleFeature({
+        featureKey: 'PAIR_BTC_USDT',
+        enabled: false,
+        reason: 'Pause BTC->USDT pair during volatility test',
+        adminId: user.id,
+      });
+      const swapCfg = await liquidityRiskService.getConfig();
+      if (!swapCfg.disabledPairs.includes('BTC->USDT')) {
+        throw new Error('Expected PAIR_BTC_USDT disable to sync BTC->USDT into liquidityRiskService.disabledPairs');
+      }
+
+      // Re-enable both
+      await featureControlService.toggleFeature({
+        featureKey: 'NETWORK_TRC20',
+        enabled: true,
+        reason: 'Node maintenance complete',
+        adminId: user.id,
+      });
+      await featureControlService.toggleFeature({
+        featureKey: 'PAIR_BTC_USDT',
+        enabled: true,
+        reason: 'Volatility subsided',
+        adminId: user.id,
+      });
+
+      await featureControlService.assertNetworkEnabled('USDT_TRC20');
+      const hist = await featureControlService.getHistory(10);
+      if (hist.length < 4 || hist[0].adminEmail !== testEmail) {
+        throw new Error(`Expected feature control audit history to record adminEmail=${testEmail}`);
+      }
+    });
   } finally {
     notificationService.sendEmail = origSendEmail;
     notificationService.sendAdminAlert = origSendAdminAlert;
 
-    // Restore original CmsSetting
+    // Restore original CmsSettings
     if (prevCfgRow) {
       await prisma.cmsSetting
         .update({
@@ -348,6 +421,28 @@ async function runLiquidityRiskE2E() {
         .catch(() => {});
     } else {
       await prisma.cmsSetting.deleteMany({ where: { key: 'SWAP_RISK_GOVERNANCE_CONFIG' } }).catch(() => {});
+    }
+
+    if (prevFeatRow) {
+      await prisma.cmsSetting
+        .update({
+          where: { key: 'PLATFORM_FEATURE_CONTROLS_V1' },
+          data: { value: prevFeatRow.value },
+        })
+        .catch(() => {});
+    } else {
+      await prisma.cmsSetting.deleteMany({ where: { key: 'PLATFORM_FEATURE_CONTROLS_V1' } }).catch(() => {});
+    }
+
+    if (prevFeatHistRow) {
+      await prisma.cmsSetting
+        .update({
+          where: { key: 'PLATFORM_FEATURE_CONTROL_HISTORY_V1' },
+          data: { value: prevFeatHistRow.value },
+        })
+        .catch(() => {});
+    } else {
+      await prisma.cmsSetting.deleteMany({ where: { key: 'PLATFORM_FEATURE_CONTROL_HISTORY_V1' } }).catch(() => {});
     }
 
     if (userId) {

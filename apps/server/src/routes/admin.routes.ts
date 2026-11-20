@@ -166,4 +166,8 @@ router.post('/liquidity-risk/swaps/:id/approve', requireRole([Role.ADMIN]), requ
 router.post('/liquidity-risk/swaps/:id/reject', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.rejectSwapRequest(req, res, next));
 router.post('/users/:id/swap-override', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateUserSwapOverride(req, res, next));
 
+// Central Feature Control & Emergency Kill-Switches
+router.get('/feature-controls', (req, res, next) => adminController.getFeatureControls(req, res, next));
+router.post('/feature-controls/toggle', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.toggleFeatureControl(req, res, next));
+
 export default router;

@@ -22,6 +22,7 @@ import { rateService } from '../services/rate.service';
 import { investmentsService } from '../services/investments.service';
 import { tokenService } from '../services/token.service';
 import { liquidityRiskService } from '../services/liquidityRisk.service';
+import { featureControlService } from '../services/featureControl.service';
 import { walletController } from './wallet.controller';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -6739,6 +6740,99 @@ export class AdminController {
       });
     } catch (err) {
       next(err);
+    }
+  }
+
+  /**
+   * GET /api/v1/admin/feature-controls
+   * Central Feature Control Registry + Summary + Change Audit History
+   */
+  async getFeatureControls(req: Request, res: Response, next: NextFunction) {
+    try {
+      const [overview, history] = await Promise.all([
+        featureControlService.getAllFeatures(),
+        featureControlService.getHistory(150),
+      ]);
+      res.json({
+        success: true,
+        data: {
+          ...overview,
+          history,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/admin/feature-controls/toggle
+   * Toggle any platform feature, payment gateway, currency, blockchain network, or trading pair ON/OFF
+   * Enforces reason logging, admin attribution, and sensitive feature confirmation + 2FA
+   */
+  async toggleFeatureControl(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminId = (req as any).user.id;
+      const { featureKey, enabled, reason, confirmedSensitive, customMeta } = req.body || {};
+
+      if (!featureKey) {
+        return res.status(400).json({
+          success: false,
+          message: 'featureKey is required.',
+        });
+      }
+
+      if (!reason || String(reason).trim().length < 3) {
+        return res.status(400).json({
+          success: false,
+          message: 'A clear reason (at least 3 characters) is required for the Admin Audit Log.',
+        });
+      }
+
+      const { featureMap } = await featureControlService.getAllFeatures();
+      const targetFeature = featureMap[String(featureKey).trim().toUpperCase()];
+      const isSensitive =
+        targetFeature !== undefined
+          ? targetFeature.isSensitive
+          : customMeta?.isSensitive !== undefined
+          ? Boolean(customMeta.isSensitive)
+          : true;
+
+      if (isSensitive && !confirmedSensitive) {
+        return res.status(400).json({
+          success: false,
+          code: 'SENSITIVE_CONFIRMATION_REQUIRED',
+          message: `Sensitive feature "${targetFeature?.label || featureKey}" requires explicit confirmation before toggling.`,
+        });
+      }
+
+      const result = await featureControlService.toggleFeature({
+        featureKey,
+        enabled: Boolean(enabled),
+        reason: String(reason).trim(),
+        adminId,
+        customMeta,
+      });
+
+      const [overview, history] = await Promise.all([
+        featureControlService.getAllFeatures(),
+        featureControlService.getHistory(150),
+      ]);
+
+      res.json({
+        success: true,
+        message: `${result.feature.label} switched ${result.feature.enabled ? 'ON (ENABLED)' : 'OFF (DISABLED)'}. Recorded in Admin Audit Logs.`,
+        data: {
+          ...result,
+          ...overview,
+          history,
+        },
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Failed to update feature control.',
+      });
     }
   }
 }

@@ -1,8 +1,14 @@
 import { Router } from 'express';
 import { otcController } from '../controllers/otc.controller';
 import { authenticateToken } from '../middleware/auth';
+import { featureControlService } from '../services/featureControl.service';
 
 const router = Router();
+
+const requireOtcDesk = featureControlService.requireFeature('OTC_DESK', async (req) => {
+  await featureControlService.assertCurrencyEnabled(req.body?.cryptoCurrency);
+  await featureControlService.assertCurrencyEnabled(req.body?.fiatCurrency);
+});
 
 // Public: Location-based OTC desk discovery and Live Benchmark Rates
 router.get('/desks', (req, res, next) => otcController.listDesks(req, res, next));
@@ -12,15 +18,15 @@ router.get('/rates', (req, res, next) => otcController.getRates(req, res, next))
 router.use(authenticateToken);
 
 // Desk Operator Management
-router.post('/apply', (req, res, next) => otcController.applyOtcDesk(req, res, next));
+router.post('/apply', requireOtcDesk, (req, res, next) => otcController.applyOtcDesk(req, res, next));
 router.post('/deposit/refund', (req, res, next) => otcController.refundOtcDeposit(req, res, next));
 router.get('/my-desk', (req, res, next) => otcController.getMyDesk(req, res, next));
-router.patch('/my-desk', (req, res, next) => otcController.updateMyDesk(req, res, next));
+router.patch('/my-desk', requireOtcDesk, (req, res, next) => otcController.updateMyDesk(req, res, next));
 
 // Quote & Trade Lifecycle
 router.get('/my-trades', (req, res, next) => otcController.getMyTrades(req, res, next));
-router.post('/quote', (req, res, next) => otcController.requestQuote(req, res, next));
-router.post('/trades/accept-quote', (req, res, next) => otcController.acceptQuote(req, res, next));
+router.post('/quote', requireOtcDesk, (req, res, next) => otcController.requestQuote(req, res, next));
+router.post('/trades/accept-quote', requireOtcDesk, (req, res, next) => otcController.acceptQuote(req, res, next));
 router.get('/trades/:id', (req, res, next) => otcController.getTrade(req, res, next));
 router.post('/trades/:id/messages', (req, res, next) => otcController.sendMessage(req, res, next));
 router.post('/trades/:id/release', (req, res, next) => otcController.releaseEscrow(req, res, next));
@@ -28,7 +34,7 @@ router.post('/trades/:id/dispute', (req, res, next) => otcController.disputeTrad
 router.post('/trades/:id/cancel', (req, res, next) => otcController.cancelTrade(req, res, next));
 
 // Pre-Trade OTC Desk Inquiries (Ask availability / currency before escrow)
-router.post('/desks/:deskId/inquire', (req, res, next) => otcController.createInquiry(req, res, next));
+router.post('/desks/:deskId/inquire', requireOtcDesk, (req, res, next) => otcController.createInquiry(req, res, next));
 router.get('/inquiries', (req, res, next) => otcController.getMyInquiries(req, res, next));
 router.get('/inquiries/:id', (req, res, next) => otcController.getInquiry(req, res, next));
 router.post('/inquiries/:id/messages', (req, res, next) => otcController.sendInquiryMessage(req, res, next));

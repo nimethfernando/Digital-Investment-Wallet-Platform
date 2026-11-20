@@ -189,6 +189,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     approvalThresholdUsd: number;
     requireApprovalForCryptoSells: boolean;
   } | null>(null);
+  const [featureFlagsMap, setFeatureFlagsMap] = useState<Record<string, any>>({});
 
   // Live Market Exchange Rates (units per 1 USD, fetched from /otc/rates)
   const [livePerUsdRates, setLivePerUsdRates] = useState<Record<string, number>>({
@@ -237,6 +238,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           if (res.data?.swapGovernance && typeof res.data.swapGovernance === 'object') {
             setSwapGovernance(res.data.swapGovernance);
           }
+        }
+      })
+      .catch(() => {});
+
+    api
+      .get('/cms/feature-flags')
+      .then((res) => {
+        if (active && res.data?.success && res.data?.data?.featureMap) {
+          setFeatureFlagsMap(res.data.data.featureMap);
         }
       })
       .catch(() => {});
@@ -634,27 +644,66 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </span>
             </div>
 
-            {/* Governance Status Banner (Global Pause / Disabled Pair / Limits) */}
-            {swapGovernance && (!swapGovernance.swapsEnabled || (swapGovernance.disabledPairs || []).includes(`${sendFromCurrency.toUpperCase()}->${sendToCurrency.toUpperCase()}`)) ? (
-              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold flex items-center gap-2.5">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>
-                  {!swapGovernance.swapsEnabled
-                    ? 'Instant Currency Swaps are temporarily paused by Risk & Liquidity Administration.'
-                    : `Swapping ${sendFromCurrency} → ${sendToCurrency} is currently disabled by Admin policy. Please select another pair.`}
-                </span>
-              </div>
-            ) : swapGovernance ? (
-              <div className="px-3.5 py-2 rounded-xl bg-slate-100/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/80 text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  Limits: Max <strong className="text-slate-800 dark:text-slate-200">${Number(swapGovernance.maxPerTxUsd || 0).toLocaleString()}</strong>/tx •{' '}
-                  <strong className="text-slate-800 dark:text-slate-200">${Number(swapGovernance.maxPerUserDailyUsd || 0).toLocaleString()}</strong>/day
-                </span>
-                <span className="text-amber-600 dark:text-amber-400 font-medium">
-                  Swaps &ge; ${Number(swapGovernance.approvalThresholdUsd || 0).toLocaleString()} require Admin approval
-                </span>
-              </div>
-            ) : null}
+            {/* Governance Status Banner (Global Pause / Disabled Currency / Disabled Pair / Limits) */}
+            {(() => {
+              const fromUpper = sendFromCurrency.toUpperCase();
+              const toUpper = sendToCurrency.toUpperCase();
+              const swapFeat = featureFlagsMap['INSTANT_SWAP'];
+              const fromCurFeat = featureFlagsMap[`CURRENCY_${fromUpper}`];
+              const toCurFeat = featureFlagsMap[`CURRENCY_${toUpper}`];
+              const pairFeat = featureFlagsMap[`PAIR_${fromUpper}_${toUpper}`];
+
+              const pausedFeature =
+                (swapFeat && !swapFeat.enabled && swapFeat) ||
+                (fromCurFeat && !fromCurFeat.enabled && fromCurFeat) ||
+                (toCurFeat && !toCurFeat.enabled && toCurFeat) ||
+                (pairFeat && !pairFeat.enabled && pairFeat) ||
+                null;
+
+              if (pausedFeature) {
+                return (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold flex items-center gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>
+                      {pausedFeature.label} is temporarily paused by Admin
+                      {pausedFeature.reason ? ` (${pausedFeature.reason})` : '.'}
+                    </span>
+                  </div>
+                );
+              }
+
+              if (
+                swapGovernance &&
+                (!swapGovernance.swapsEnabled ||
+                  (swapGovernance.disabledPairs || []).includes(`${fromUpper}->${toUpper}`))
+              ) {
+                return (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold flex items-center gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>
+                      {!swapGovernance.swapsEnabled
+                        ? 'Instant Currency Swaps are temporarily paused by Risk & Liquidity Administration.'
+                        : `Swapping ${sendFromCurrency} → ${sendToCurrency} is currently disabled by Admin policy. Please select another pair.`}
+                    </span>
+                  </div>
+                );
+              }
+
+              if (swapGovernance) {
+                return (
+                  <div className="px-3.5 py-2 rounded-xl bg-slate-100/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/80 text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      Limits: Max <strong className="text-slate-800 dark:text-slate-200">${Number(swapGovernance.maxPerTxUsd || 0).toLocaleString()}</strong>/tx •{' '}
+                      <strong className="text-slate-800 dark:text-slate-200">${Number(swapGovernance.maxPerUserDailyUsd || 0).toLocaleString()}</strong>/day
+                    </span>
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">
+                      Swaps &ge; ${Number(swapGovernance.approvalThresholdUsd || 0).toLocaleString()} require Admin approval
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             {/* Error Banner with Direct Deposit Action */}
             {swapError && (
@@ -826,9 +875,13 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 sendFromCurrency === sendToCurrency ||
                 Boolean(
                   !isInsufficientFromBalance &&
-                    swapGovernance &&
-                    (!swapGovernance.swapsEnabled ||
-                      (swapGovernance.disabledPairs || []).includes(`${sendFromCurrency.toUpperCase()}->${sendToCurrency.toUpperCase()}`))
+                    ((swapGovernance &&
+                      (!swapGovernance.swapsEnabled ||
+                        (swapGovernance.disabledPairs || []).includes(`${sendFromCurrency.toUpperCase()}->${sendToCurrency.toUpperCase()}`))) ||
+                      featureFlagsMap['INSTANT_SWAP']?.enabled === false ||
+                      featureFlagsMap[`CURRENCY_${sendFromCurrency.toUpperCase()}`]?.enabled === false ||
+                      featureFlagsMap[`CURRENCY_${sendToCurrency.toUpperCase()}`]?.enabled === false ||
+                      featureFlagsMap[`PAIR_${sendFromCurrency.toUpperCase()}_${sendToCurrency.toUpperCase()}`]?.enabled === false)
                 )
               }
               className={`w-full py-4 rounded-2xl font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer ${
@@ -837,9 +890,13 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 sendFromCurrency === sendToCurrency ||
                 Boolean(
                   !isInsufficientFromBalance &&
-                    swapGovernance &&
-                    (!swapGovernance.swapsEnabled ||
-                      (swapGovernance.disabledPairs || []).includes(`${sendFromCurrency.toUpperCase()}->${sendToCurrency.toUpperCase()}`))
+                    ((swapGovernance &&
+                      (!swapGovernance.swapsEnabled ||
+                        (swapGovernance.disabledPairs || []).includes(`${sendFromCurrency.toUpperCase()}->${sendToCurrency.toUpperCase()}`))) ||
+                      featureFlagsMap['INSTANT_SWAP']?.enabled === false ||
+                      featureFlagsMap[`CURRENCY_${sendFromCurrency.toUpperCase()}`]?.enabled === false ||
+                      featureFlagsMap[`CURRENCY_${sendToCurrency.toUpperCase()}`]?.enabled === false ||
+                      featureFlagsMap[`PAIR_${sendFromCurrency.toUpperCase()}_${sendToCurrency.toUpperCase()}`]?.enabled === false)
                 )
                   ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                   : isInsufficientFromBalance

@@ -29,11 +29,20 @@ import {
   saveAiPublisherConfig,
 } from '../controllers/cms.controller';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { featureControlService } from '../services/featureControl.service';
 
 const router = Router();
 
 // Public & User CMS/Ticket routes
 router.get('/settings', getSettings);
+router.get('/feature-flags', async (req, res) => {
+  try {
+    const data = await featureControlService.getAllFeatures();
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to load feature flags' });
+  }
+});
 router.get('/variables', getPlatformVariables);
 router.get('/sections/:page', getPageSections);
 router.get('/blogs', getBlogPosts);
