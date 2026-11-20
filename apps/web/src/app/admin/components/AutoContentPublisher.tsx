@@ -198,6 +198,8 @@ export default function AutoContentPublisher({
   // AI Auto-Publisher State
   const [showAutoPublisher, setShowAutoPublisher] = useState(false);
   const [topic, setTopic] = useState('Apple Inc.');
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [autoCategoryOverride, setAutoCategoryOverride] = useState('');
   const [includeMeme, setIncludeMeme] = useState(true);
   const [autoTrackNews, setAutoTrackNews] = useState(true);
   const [publishing, setPublishing] = useState(false);
@@ -456,6 +458,8 @@ export default function AutoContentPublisher({
     try {
       const res = await api.post('/cms/admin/blogs/auto-publish', {
         topic: topic.trim(),
+        customPrompt: customPrompt.trim() || undefined,
+        categoryOverride: autoCategoryOverride || undefined,
         includeMeme,
         autoTrackNews,
       });
@@ -1043,6 +1047,19 @@ export default function AutoContentPublisher({
                   placeholder="Enter ANY custom blog topic OR stock/crypto ticker (e.g. How Digital Wallets Transform Cross-Border Payments, AAPL, Bitcoin)..."
                   className="flex-1 px-4 py-3 rounded-2xl bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white text-xs font-semibold outline-none"
                 />
+                <select
+                  value={autoCategoryOverride}
+                  onChange={(e) => setAutoCategoryOverride(e.target.value)}
+                  className="px-3.5 py-3 rounded-2xl bg-slate-900 border border-slate-700 focus:border-emerald-500 text-slate-200 text-xs font-semibold outline-none shrink-0"
+                  title="Optional: Choose article category or leave on Auto-Detect"
+                >
+                  <option value="">Auto-Detect Category</option>
+                  {PRESET_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="submit"
                   disabled={publishing || publishingNextFresh || !topic.trim()}
@@ -1079,6 +1096,60 @@ export default function AutoContentPublisher({
                     </>
                   )}
                 </button>
+              </div>
+
+              {/* Custom AI Prompt / Editorial Brief Box */}
+              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Custom AI Prompt / Editorial Brief &amp; Instructions (Optional)</span>
+                  </label>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      {
+                        label: '+ Liquidity & Swap Protection',
+                        prompt:
+                          'Explain how Avora Bank protects users during crypto market volatility with real-time liquidity monitoring, 2FA-secured instant swaps, and double-entry ledger verification.',
+                      },
+                      {
+                        label: '+ Cross-Border Remittance',
+                        prompt:
+                          'Focus on fast international bank wire delivery across 110+ countries, transparent exchange rate margins, and multi-currency USD/USDT/INR/EUR settlement.',
+                      },
+                      {
+                        label: '+ P2P Escrow & Fixed Deposits',
+                        prompt:
+                          'Highlight institutional P2P escrow safety, verified merchant settlement, and predictable 1% monthly Fixed Deposit yields compared to volatile markets.',
+                      },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => setCustomPrompt(preset.prompt)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-[10px] font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                    {customPrompt && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomPrompt('')}
+                        className="px-2 py-1 rounded-lg text-[10px] text-rose-400 hover:underline cursor-pointer"
+                      >
+                        Clear Prompt
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <textarea
+                  rows={2}
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  placeholder="Describe what this blog post should focus on, key points to explain, target audience, or platform features to highlight (e.g. 'Explain how multi-currency wallets reduce FX fees for Indian and European businesses')..."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-emerald-500 text-xs text-white placeholder-slate-500 outline-none leading-relaxed"
+                />
               </div>
               <div className="flex flex-wrap items-center gap-5 text-xs text-slate-300">
                 <label className="inline-flex items-center gap-2 cursor-pointer">

@@ -854,7 +854,11 @@ class AutoContentService {
      * Generate Institutional Equity/Asset Research Report + Visual Specs grounded in real market metrics & news
      */
     async generateEditorialPackage(opts) {
-        const { topic, quote, news, categoryOverride, includeMeme = true, priorTitles = [], priorSummaries = [], usedHeadlineKeys, editionNumber = 1, visualVariant, } = opts;
+        const { topic, customPrompt, quote, news, categoryOverride, includeMeme = true, priorTitles = [], priorSummaries = [], usedHeadlineKeys, editionNumber = 1, visualVariant, } = opts;
+        const cleanCustomPrompt = String(customPrompt || '').trim();
+        const promptInstructionBlock = cleanCustomPrompt
+            ? `\n\nMANDATORY ADMIN EDITORIAL PROMPT & BRIEF (FOLLOW THESE INSTRUCTIONS CLOSELY AND INCORPORATE EVERY KEY POINT):\n"${cleanCustomPrompt}"`
+            : '';
         const aiCfg = await this.getAiConfig();
         const t = quote.technicals;
         const f = quote.fundamentals;
@@ -1066,8 +1070,8 @@ Return ONLY valid JSON matching this schema:
   "deskTakeaway": "Sharp 1-line institutional trading desk verdict (max 75 chars)"
 }`;
         const userPrompt = quote.isCustomTopic
-            ? `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nGENERATED AT: ${nowUtc}\nCUSTOM EDITORIAL TOPIC (WRITE SPECIFICALLY ABOUT THIS TOPIC): "${topic}"\n\nRELATED NEWS & INDUSTRY WIRES ON "${topic}":\n${newsContext || `Focus on institutional analysis, practical mechanics, and strategic implications of "${topic}".`}${avoidanceBlock}`
-            : `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nGENERATED AT: ${nowUtc}\nTOPIC: ${topic}\n\nREAL-TIME QUANTITATIVE DATA:\n${metricsSummary}\n\nLATEST VERIFIED NEWS WIRES (NEWEST & UNUSED FIRST):\n${newsContext || 'No breaking wire stories in the last 24h.'}${avoidanceBlock}`;
+            ? `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nGENERATED AT: ${nowUtc}\nCUSTOM EDITORIAL TOPIC (WRITE SPECIFICALLY ABOUT THIS TOPIC): "${topic}"${promptInstructionBlock}\n\nRELATED NEWS & INDUSTRY WIRES ON "${topic}":\n${newsContext || `Focus on institutional analysis, practical mechanics, and strategic implications of "${topic}".`}${avoidanceBlock}`
+            : `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nGENERATED AT: ${nowUtc}\nTOPIC: ${topic}${promptInstructionBlock}\n\nREAL-TIME QUANTITATIVE DATA:\n${metricsSummary}\n\nLATEST VERIFIED NEWS WIRES (NEWEST & UNUSED FIRST):\n${newsContext || 'No breaking wire stories in the last 24h.'}${avoidanceBlock}`;
         let aiParsed = null;
         if (aiCfg.openaiApiKey) {
             try {
@@ -1143,9 +1147,17 @@ Return ONLY valid JSON matching this schema:
                 ? `${(((quote.price - t.sma20) / t.sma20) * 100).toFixed(2)}% above its 20-day moving average`
                 : `${(((t.sma20 - quote.price) / t.sma20) * 100).toFixed(2)}% below its 20-day moving average`
             : 'tracking near medium-term equilibrium';
-        // Custom Editorial Topic Fallback Builder (100% focused on the user's exact topic when not a stock ticker)
+        // Custom Editorial Topic Fallback Builder (100% focused on the user's exact topic & custom prompt when not a stock ticker)
         if (quote.isCustomTopic) {
             const cleanTopicTitle = topic.trim();
+            const promptSentences = cleanCustomPrompt
+                ? cleanCustomPrompt
+                    .split(/(?<=[.!?])\s+|\r?\n/)
+                    .map((s) => s.replace(/^[-*•]\s*/, '').trim())
+                    .filter((s) => s.length > 4)
+                : [];
+            const promptLead = promptSentences[0] || '';
+            const promptSecondary = promptSentences.slice(1).join(' ');
             const customCategory = categoryOverride ||
                 aiParsed?.category ||
                 (quote.symbol === 'REMIT'
@@ -1162,10 +1174,10 @@ Return ONLY valid JSON matching this schema:
             const customParagraphs = Array.isArray(aiParsed?.contentParagraphs) && aiParsed.contentParagraphs.length > 0
                 ? aiParsed.contentParagraphs
                 : [
-                    `## 1. Executive Thesis & Institutional Context: ${cleanTopicTitle} (${dateStamp})\n**${cleanTopicTitle}** has emerged as a critical strategic focus across modern digital banking, multi-currency treasury operations, and institutional capital markets. As cross-border liquidity and digital settlement infrastructure evolve, organizations and private investors evaluating **${cleanTopicTitle}** require transparent execution frameworks, real-time visibility, and verifiable risk governance.${topNews1 ? ` Recent industry coverage from ${topNews1.sourceName} underscores this momentum: "${topNews1.headline}".` : ''}`,
-                    `## 2. Core Architecture, Operational Mechanics & Industry Catalysts\nAt the operational layer, implementing and scaling **${cleanTopicTitle}** depends on deterministic settlement rules, multi-rail interoperability, and real-time reconciliation.${topNews1 ? ` According to ${topNews1.sourceName}, "${topNews1.summary.slice(0, 220)}".` : ''}${topNews2 ? ` Parallel reporting from ${topNews2.sourceName} further highlights "${topNews2.headline}", demonstrating how rapidly institutional standards around **${cleanTopicTitle}** are maturing.` : ' By combining automated double-entry ledger verification with granular administrative controls, platforms eliminate counterparty friction while maintaining full auditability.'}`,
+                    `## 1. Executive Thesis & Institutional Context: ${cleanTopicTitle} (${dateStamp})\n**${cleanTopicTitle}** has emerged as a critical strategic focus across modern digital banking, multi-currency treasury operations, and institutional capital markets.${cleanCustomPrompt ? ` ${promptLead}${promptSecondary ? ` ${promptSecondary}` : ''}` : ` As cross-border liquidity and digital settlement infrastructure evolve, organizations and private investors evaluating **${cleanTopicTitle}** require transparent execution frameworks, real-time visibility, and verifiable risk governance.`}${topNews1 ? ` Recent industry coverage from ${topNews1.sourceName} underscores this momentum: "${topNews1.headline}".` : ''}`,
+                    `## 2. Core Architecture, Operational Mechanics & Industry Catalysts\nAt the operational layer, implementing and scaling **${cleanTopicTitle}** depends on deterministic settlement rules, multi-rail interoperability, and real-time reconciliation.${cleanCustomPrompt ? ` Specifically, in aligning with the core focus on ${cleanCustomPrompt.slice(0, 260)}, institutional workflows prioritize zero-spread-loss double-entry accounting and instant multi-currency clearing.` : ''}${topNews1 ? ` According to ${topNews1.sourceName}, "${topNews1.summary.slice(0, 220)}".` : ''}${topNews2 ? ` Parallel reporting from ${topNews2.sourceName} further highlights "${topNews2.headline}", demonstrating how rapidly institutional standards around **${cleanTopicTitle}** are maturing.` : ' By combining automated double-entry ledger verification with granular administrative controls, platforms eliminate counterparty friction while maintaining full auditability.'}`,
                     `## 3. Liquidity Governance, Security & Risk Controls\nA foundational requirement for **${cleanTopicTitle}** is proactive risk and liquidity management. Rather than relying on static thresholds, institutional desks monitor real-time reserve coverage, per-asset exposure, and automated circuit breakers.${topNews3 ? ` Industry analysis via ${topNews3.sourceName} ("${topNews3.headline}") reinforces the importance of coupling rapid execution with strict compliance and 2FA-protected administrative oversight.` : ' Granular feature controls and manual approval gates for high-value transactions ensure that user assets and treasury reserves remain protected under all market conditions.'}`,
-                    `## 4. Strategic Outlook & Key Takeaways for ${new Date().getFullYear()}\nLooking ahead, **${cleanTopicTitle}** will continue to shape how capital moves across fiat and digital asset corridors. Institutions that prioritize transparent fee structures, real-time exposure telemetry, and resilient settlement rails are best positioned to capture long-term growth while safeguarding client portfolios.`,
+                    `## 4. Strategic Outlook & Key Takeaways for ${new Date().getFullYear()}\nLooking ahead, **${cleanTopicTitle}** will continue to shape how capital moves across fiat and digital asset corridors.${promptLead ? ` Guided by the strategic priority that ${promptLead.charAt(0).toLowerCase() + promptLead.slice(1)},` : ''} institutions that prioritize transparent fee structures, real-time exposure telemetry, and resilient settlement rails are best positioned to capture long-term growth while safeguarding client portfolios.`,
                 ];
             let customTitle = String(aiParsed?.title || '').trim() ||
                 `${cleanTopicTitle}: Institutional Analysis & Strategic Framework (${dateStamp})`;
@@ -1173,7 +1185,9 @@ Return ONLY valid JSON matching this schema:
                 customTitle = `${cleanTopicTitle} — Executive Research & Industry Briefing (${dateStamp} · #${editionNumber})`;
             }
             const customSummary = String(aiParsed?.summary || '').trim() ||
-                `In-depth institutional research report and strategic briefing on ${cleanTopicTitle}, examining core operational mechanics, industry catalysts, liquidity governance, and forward outlook.`;
+                (cleanCustomPrompt
+                    ? `${cleanTopicTitle} — ${cleanCustomPrompt.slice(0, 240)}${cleanCustomPrompt.length > 240 ? '...' : ''}`
+                    : `In-depth institutional research report and strategic briefing on ${cleanTopicTitle}, examining core operational mechanics, industry catalysts, liquidity governance, and forward outlook.`);
             const topicWords = cleanTopicTitle
                 .replace(/[^a-zA-Z0-9\s-]/g, '')
                 .split(/\s+/)
@@ -1185,13 +1199,14 @@ Return ONLY valid JSON matching this schema:
             const customTakeaways = Array.isArray(aiParsed?.keyTakeaways) && aiParsed.keyTakeaways.length > 0
                 ? aiParsed.keyTakeaways.slice(0, 5)
                 : [
-                    `Strategic Focus: Comprehensive institutional analysis of ${cleanTopicTitle} and its impact on digital banking and capital flows.`,
+                    ...(promptSentences.slice(0, 2).map((ps) => `Editorial Focus: ${ps}`)),
+                    `Strategic Scope: Comprehensive institutional analysis of ${cleanTopicTitle} and its impact on digital banking and capital flows.`,
                     `Operational Architecture: Emphasizes deterministic settlement, transparent pricing, and real-time multi-currency liquidity management.`,
                     `Risk & Governance: Integrates automated exposure monitoring, granular feature controls, and full audit-trail accountability.`,
                     topNews1
                         ? `Industry Wire Signal (${topNews1.sourceName}): "${topNews1.headline}"`
                         : `Prepared by Avora Institutional Research Desk (${dateStamp}).`,
-                ];
+                ].slice(0, 5);
             const customHighlights = Array.isArray(aiParsed?.todayHighlights) && aiParsed.todayHighlights.length > 0
                 ? aiParsed.todayHighlights.slice(0, 5).map((h, idx) => ({
                     text: String(h.text || h),
@@ -1655,6 +1670,7 @@ Return ONLY valid JSON matching this schema:
         const news = await this.fetchReliableNews(quote, topic, aiCfg.finnhubApiKey, usedHeadlineKeys);
         const pkg = await this.generateEditorialPackage({
             topic,
+            customPrompt: params.customPrompt,
             quote,
             news,
             categoryOverride: params.categoryOverride,

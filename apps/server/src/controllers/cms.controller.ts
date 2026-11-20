@@ -220,13 +220,14 @@ export const getBlogMemeMedia = async (req: Request, res: Response, next: NextFu
 
 export const autoPublishBlog = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { topic, includeMeme, autoTrackNews, categoryOverride } = req.body;
+    const { topic, customPrompt, includeMeme, autoTrackNews, categoryOverride } = req.body;
     if (!topic || typeof topic !== 'string' || topic.trim().length < 2) {
       return res.status(400).json({ success: false, message: 'Please enter a valid stock ticker or topic.' });
     }
 
     const result = await autoContentService.publishAutomatedPost({
       topic: topic.trim(),
+      customPrompt: typeof customPrompt === 'string' && customPrompt.trim() ? customPrompt.trim() : undefined,
       includeMeme: includeMeme !== false,
       autoTrackNews: autoTrackNews !== false,
       categoryOverride: typeof categoryOverride === 'string' && categoryOverride.trim() ? categoryOverride.trim() : undefined,
