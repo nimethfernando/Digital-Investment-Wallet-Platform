@@ -252,7 +252,8 @@ class AutoContentService {
         }
     }
     async getAiConfig() {
-        const keys = await prisma_1.prisma.cmsSetting.findMany({
+        const keys = await prisma_1.prisma.cmsSetting
+            .findMany({
             where: {
                 key: {
                     in: [
@@ -267,7 +268,8 @@ class AutoContentService {
                     ],
                 },
             },
-        });
+        })
+            .catch(() => []);
         const map = {};
         for (const k of keys)
             map[k.key] = k.value;
@@ -389,33 +391,62 @@ class AutoContentService {
         let isCrypto = false;
         const direct = KNOWN_ENTITIES[key] || KNOWN_ENTITIES[cleaned.toLowerCase()];
         const cacheBust = Date.now();
+        const wordTokens = cleaned
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter(Boolean);
+        const COMMON_ENGLISH_WORDS = new Set([
+            'HOW', 'WHY', 'WHAT', 'WHEN', 'WHERE', 'WHO', 'THE', 'AND', 'FOR', 'WITH',
+            'FROM', 'INTO', 'OVER', 'BEST', 'NEW', 'TOP', 'FUTURE', 'GUIDE', 'BANK',
+            'WALLET', 'PAY', 'SWAP', 'RISK', 'YIELD', 'GLOBAL', 'MONEY', 'CRYPTO',
+        ]);
+        let isCustomTopic = false;
         if (direct) {
             symbol = direct.symbol;
             companyName = direct.companyName;
             exchange = direct.exchange;
             isCrypto = Boolean(direct.isCrypto);
         }
-        else if (/^[A-Z]{1,6}(-[A-Z]{2,4})?$/.test(cleaned.toUpperCase())) {
+        else if (wordTokens.length === 1 &&
+            /^[A-Z]{1,5}(-[A-Z]{2,4})?$/.test(cleaned.toUpperCase()) &&
+            !COMMON_ENGLISH_WORDS.has(cleaned.toUpperCase())) {
             symbol = cleaned.toUpperCase();
         }
-        else {
+        else if (wordTokens.length <= 3) {
             try {
                 const res = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(cleaned)}&quotesCount=3&newsCount=0&_ts=${cacheBust}`, { headers: { 'User-Agent': USER_AGENT, 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(4500) });
                 if (res.ok) {
                     const json = await res.json();
                     const first = json?.quotes?.[0];
-                    if (first?.symbol) {
+                    const candName = String(first?.longname || first?.shortname || '').toLowerCase();
+                    const candSym = String(first?.symbol || '').toLowerCase();
+                    const sigWords = wordTokens.filter((w) => w.length > 2 && !['inc', 'corp', 'ltd', 'plc', 'the', 'and'].includes(w));
+                    const allWordsMatch = sigWords.length > 0 &&
+                        sigWords.every((w) => candName.includes(w) || candSym === w);
+                    if (first?.symbol && allWordsMatch) {
                         symbol = first.symbol;
                         companyName = first.longname || first.shortname || cleaned;
                         exchange = first.exchDisp || first.exchange || 'MARKET';
                         isCrypto = first.quoteType === 'CRYPTOCURRENCY';
                     }
+                    else {
+                        isCustomTopic = true;
+                    }
+                }
+                else {
+                    isCustomTopic = true;
                 }
             }
-            catch { }
+            catch {
+                isCustomTopic = true;
+            }
+        }
+        else {
+            isCustomTopic = true;
         }
         if (!symbol) {
-            symbol = cleaned.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'AAPL';
+            isCustomTopic = true;
         }
         let price = null;
         let prevClose = null;
@@ -605,6 +636,42 @@ class AutoContentService {
             technicals.fiftyTwoWeekPct = Math.min(100, Math.max(0, Number((((price - technicals.fiftyTwoWeekLow) / (technicals.fiftyTwoWeekHigh - technicals.fiftyTwoWeekLow)) * 100).toFixed(1))));
         }
         fundamentals.dataSource = Array.from(new Set(sourcesUsed)).join(' + ');
+        // If no real market quote was found or user entered a custom editorial topic, preserve their exact topic!
+        if (isCustomTopic || price === null) {
+            isCustomTopic = true;
+            const lowerTopic = cleaned.toLowerCase();
+            const thematicBadge = lowerTopic.includes('remit') || lowerTopic.includes('cross-border') || lowerTopic.includes('wire')
+                ? 'REMIT'
+                : lowerTopic.includes('p2p') || lowerTopic.includes('escrow') || lowerTopic.includes('otc')
+                    ? 'LIQUIDITY'
+                    : lowerTopic.includes('yield') || lowerTopic.includes('deposit') || lowerTopic.includes('fd')
+                        ? 'TREASURY'
+                        : lowerTopic.includes('security') || lowerTopic.includes('ledger') || lowerTopic.includes('audit')
+                            ? 'SECURITY'
+                            : lowerTopic.includes('crypto') || lowerTopic.includes('blockchain') || lowerTopic.includes('token') || lowerTopic.includes('usdt')
+                                ? 'DIGITAL'
+                                : 'INSIGHT';
+            return {
+                symbol: thematicBadge,
+                companyName: cleaned,
+                exchange: 'AVORA RESEARCH',
+                currency: 'USD',
+                price: null,
+                prevClose: null,
+                changeAbs: null,
+                changePct: null,
+                priceFormatted: 'SPECIAL REPORT',
+                changeFormatted: 'EDITORIAL',
+                sparkline: [100, 103, 102, 106, 108, 107, 111, 114, 118],
+                isCrypto: lowerTopic.includes('crypto') || lowerTopic.includes('blockchain') || lowerTopic.includes('token'),
+                isCustomTopic: true,
+                quoteTimestamp,
+                technicals,
+                fundamentals: {
+                    dataSource: 'Avora Institutional Research & Global News Wires',
+                },
+            };
+        }
         const priceFormatted = price !== null
             ? `${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
             : 'Live Quote';
@@ -622,6 +689,7 @@ class AutoContentService {
             changeFormatted,
             sparkline: sparkline.length >= 4 ? sparkline : [100, 102, 101, 104, 103, 106, 108, 107, 111],
             isCrypto,
+            isCustomTopic: false,
             quoteTimestamp,
             technicals,
             fundamentals,
@@ -636,9 +704,11 @@ class AutoContentService {
         const activeFinnhub = finnhubKey || aiCfg.finnhubApiKey;
         const items = [];
         const cacheBust = Date.now();
-        const queryTerm = quote.companyName && quote.companyName !== quote.symbol
-            ? `${quote.companyName} ${quote.symbol}`
-            : originalTopic;
+        const queryTerm = quote.isCustomTopic
+            ? originalTopic
+            : quote.companyName && quote.companyName !== quote.symbol
+                ? `${quote.companyName} ${quote.symbol}`
+                : originalTopic;
         const parseAlphaVantageTime = (raw) => {
             if (!raw || typeof raw !== 'string')
                 return new Date();
@@ -697,14 +767,18 @@ class AutoContentService {
                     parseRss(await r.text(), 'Google News');
             })
                 .catch(() => { }),
-            fetch(`https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(quote.isCrypto ? `${quote.symbol}-USD` : quote.symbol)}&region=US&lang=en-US&_ts=${cacheBust}`, { headers: { 'User-Agent': USER_AGENT, 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5500) })
-                .then(async (r) => {
-                if (r.ok)
-                    parseRss(await r.text(), 'Yahoo Finance');
-            })
-                .catch(() => { }),
+            ...(quote.isCustomTopic
+                ? []
+                : [
+                    fetch(`https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(quote.isCrypto ? `${quote.symbol}-USD` : quote.symbol)}&region=US&lang=en-US&_ts=${cacheBust}`, { headers: { 'User-Agent': USER_AGENT, 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5500) })
+                        .then(async (r) => {
+                        if (r.ok)
+                            parseRss(await r.text(), 'Yahoo Finance');
+                    })
+                        .catch(() => { }),
+                ]),
         ];
-        if (activeFinnhub && !quote.isCrypto) {
+        if (activeFinnhub && !quote.isCrypto && !quote.isCustomTopic) {
             const to = new Date().toISOString().slice(0, 10);
             const from = new Date(Date.now() - 4 * 86400000).toISOString().slice(0, 10);
             tasks.push(fetch(`https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(quote.symbol)}&from=${from}&to=${to}&token=${encodeURIComponent(activeFinnhub)}`, { headers: { 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5000) })
@@ -730,7 +804,7 @@ class AutoContentService {
             })
                 .catch(() => { }));
         }
-        if (aiCfg.alphaVantageApiKey && !quote.isCrypto) {
+        if (aiCfg.alphaVantageApiKey && !quote.isCrypto && !quote.isCustomTopic) {
             tasks.push(fetch(`https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${encodeURIComponent(quote.symbol)}&sort=LATEST&limit=15&apikey=${encodeURIComponent(aiCfg.alphaVantageApiKey)}`, { headers: { 'Cache-Control': 'no-cache, no-store' }, signal: AbortSignal.timeout(5000) })
                 .then(async (r) => {
                 if (!r.ok)
@@ -941,7 +1015,32 @@ class AutoContentService {
                 .join('\n')}`);
         }
         const avoidanceBlock = avoidanceBlockParts.length > 0 ? `\n\n${avoidanceBlockParts.join('\n\n')}` : '';
-        const systemPrompt = `You are a Managing Director of Equity & Digital Asset Research at Avora Bank.
+        const systemPrompt = quote.isCustomTopic
+            ? `You are a Managing Director of Institutional Research & Editorial Strategy at Avora Bank.
+Write a COMPLETELY FRESH, AUTHORITATIVE, IN-DEPTH institutional research article & platform announcement SPECIFICALLY about the exact user-requested topic: "${topic}" (Edition #${editionNumber}, Timestamp: ${nowUtc}).
+CRITICAL TOPIC FIDELITY RULES:
+1. The entire article (title, summary, keyTakeaways, all 4 contentParagraphs, todayHighlights, bullPoints, bearPoints, deskTakeaway) MUST be 100% about "${topic}".
+2. Do NOT switch to an unrelated stock ticker and do NOT invent fake stock prices.
+3. Incorporate relevant insights from the provided news headlines where applicable, and frame the analysis with institutional depth (architecture, market adoption, liquidity/risk mechanics, and strategic implications).
+Return ONLY valid JSON matching this schema:
+{
+  "title": "Compelling, authoritative headline directly about ${topic} (max 95 chars)",
+  "summary": "2-sentence executive summary explaining the core thesis and institutional significance of ${topic}",
+  "category": "Market Research | Global Remittance | OTC & P2P Liquidity | Treasury & Yield | Ledger Security | Digital Assets",
+  "tags": ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"],
+  "keyTakeaways": ["4-5 original, substantive bullet takeaways directly addressing ${topic}"],
+  "contentParagraphs": [
+    "## 1. Executive Thesis & Market Context: ${topic}\\nDetailed institutional analysis directly exploring ${topic}.",
+    "## 2. Core Architecture, Mechanics & Industry Catalysts\\nDeep dive into how ${topic} operates in practice and recent developments.",
+    "## 3. Liquidity, Governance & Risk Management Framework\\nAnalysis of risk controls, compliance, and operational resilience for ${topic}.",
+    "## 4. Strategic Outlook & Institutional Takeaways\\nForward-looking roadmap and key conclusions on ${topic}."
+  ],
+  "todayHighlights": [{"text": "Crisp 1-2 sentence factual highlight on ${topic}", "source": "Source name or Avora Research Desk"}],
+  "bullPoints": ["3 key strategic advantages or growth drivers of ${topic} (max 65 chars each)"],
+  "bearPoints": ["3 key implementation risks or governance considerations for ${topic} (max 65 chars each)"],
+  "deskTakeaway": "Sharp 1-line institutional verdict on ${topic} (max 75 chars)"
+}`
+            : `You are a Managing Director of Equity & Digital Asset Research at Avora Bank.
 Write a COMPLETELY FRESH, LATEST, NEVER-BEFORE-SEEN announcement & institutional research note (Edition #${editionNumber}, Timestamp: ${nowUtc}) grounded 100% in the real-time quantitative metrics and latest breaking wire stories provided.
 MANDATORY EDITORIAL LENS FOR THIS EDITION: "${angle.name}" — ${angle.instruction}
 FRESHNESS RULES:
@@ -966,7 +1065,9 @@ Return ONLY valid JSON matching this schema:
   "bearPoints": ["3 concrete data-backed risk/bearish factors (max 65 chars each)"],
   "deskTakeaway": "Sharp 1-line institutional trading desk verdict (max 75 chars)"
 }`;
-        const userPrompt = `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nGENERATED AT: ${nowUtc}\nTOPIC: ${topic}\n\nREAL-TIME QUANTITATIVE DATA:\n${metricsSummary}\n\nLATEST VERIFIED NEWS WIRES (NEWEST & UNUSED FIRST):\n${newsContext || 'No breaking wire stories in the last 24h.'}${avoidanceBlock}`;
+        const userPrompt = quote.isCustomTopic
+            ? `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nGENERATED AT: ${nowUtc}\nCUSTOM EDITORIAL TOPIC (WRITE SPECIFICALLY ABOUT THIS TOPIC): "${topic}"\n\nRELATED NEWS & INDUSTRY WIRES ON "${topic}":\n${newsContext || `Focus on institutional analysis, practical mechanics, and strategic implications of "${topic}".`}${avoidanceBlock}`
+            : `EDITION NONCE: ${editionNumber}-${Date.now().toString(36)}\nGENERATED AT: ${nowUtc}\nTOPIC: ${topic}\n\nREAL-TIME QUANTITATIVE DATA:\n${metricsSummary}\n\nLATEST VERIFIED NEWS WIRES (NEWEST & UNUSED FIRST):\n${newsContext || 'No breaking wire stories in the last 24h.'}${avoidanceBlock}`;
         let aiParsed = null;
         if (aiCfg.openaiApiKey) {
             try {
@@ -1042,6 +1143,142 @@ Return ONLY valid JSON matching this schema:
                 ? `${(((quote.price - t.sma20) / t.sma20) * 100).toFixed(2)}% above its 20-day moving average`
                 : `${(((t.sma20 - quote.price) / t.sma20) * 100).toFixed(2)}% below its 20-day moving average`
             : 'tracking near medium-term equilibrium';
+        // Custom Editorial Topic Fallback Builder (100% focused on the user's exact topic when not a stock ticker)
+        if (quote.isCustomTopic) {
+            const cleanTopicTitle = topic.trim();
+            const customCategory = categoryOverride ||
+                aiParsed?.category ||
+                (quote.symbol === 'REMIT'
+                    ? 'Global Remittance'
+                    : quote.symbol === 'LIQUIDITY'
+                        ? 'OTC & P2P Liquidity'
+                        : quote.symbol === 'TREASURY'
+                            ? 'Treasury & Yield'
+                            : quote.symbol === 'SECURITY'
+                                ? 'Ledger Security'
+                                : quote.isCrypto
+                                    ? 'Digital Assets'
+                                    : 'Market Research');
+            const customParagraphs = Array.isArray(aiParsed?.contentParagraphs) && aiParsed.contentParagraphs.length > 0
+                ? aiParsed.contentParagraphs
+                : [
+                    `## 1. Executive Thesis & Institutional Context: ${cleanTopicTitle} (${dateStamp})\n**${cleanTopicTitle}** has emerged as a critical strategic focus across modern digital banking, multi-currency treasury operations, and institutional capital markets. As cross-border liquidity and digital settlement infrastructure evolve, organizations and private investors evaluating **${cleanTopicTitle}** require transparent execution frameworks, real-time visibility, and verifiable risk governance.${topNews1 ? ` Recent industry coverage from ${topNews1.sourceName} underscores this momentum: "${topNews1.headline}".` : ''}`,
+                    `## 2. Core Architecture, Operational Mechanics & Industry Catalysts\nAt the operational layer, implementing and scaling **${cleanTopicTitle}** depends on deterministic settlement rules, multi-rail interoperability, and real-time reconciliation.${topNews1 ? ` According to ${topNews1.sourceName}, "${topNews1.summary.slice(0, 220)}".` : ''}${topNews2 ? ` Parallel reporting from ${topNews2.sourceName} further highlights "${topNews2.headline}", demonstrating how rapidly institutional standards around **${cleanTopicTitle}** are maturing.` : ' By combining automated double-entry ledger verification with granular administrative controls, platforms eliminate counterparty friction while maintaining full auditability.'}`,
+                    `## 3. Liquidity Governance, Security & Risk Controls\nA foundational requirement for **${cleanTopicTitle}** is proactive risk and liquidity management. Rather than relying on static thresholds, institutional desks monitor real-time reserve coverage, per-asset exposure, and automated circuit breakers.${topNews3 ? ` Industry analysis via ${topNews3.sourceName} ("${topNews3.headline}") reinforces the importance of coupling rapid execution with strict compliance and 2FA-protected administrative oversight.` : ' Granular feature controls and manual approval gates for high-value transactions ensure that user assets and treasury reserves remain protected under all market conditions.'}`,
+                    `## 4. Strategic Outlook & Key Takeaways for ${new Date().getFullYear()}\nLooking ahead, **${cleanTopicTitle}** will continue to shape how capital moves across fiat and digital asset corridors. Institutions that prioritize transparent fee structures, real-time exposure telemetry, and resilient settlement rails are best positioned to capture long-term growth while safeguarding client portfolios.`,
+                ];
+            let customTitle = String(aiParsed?.title || '').trim() ||
+                `${cleanTopicTitle}: Institutional Analysis & Strategic Framework (${dateStamp})`;
+            if (isTitleTooSimilar(customTitle, priorTitles)) {
+                customTitle = `${cleanTopicTitle} — Executive Research & Industry Briefing (${dateStamp} · #${editionNumber})`;
+            }
+            const customSummary = String(aiParsed?.summary || '').trim() ||
+                `In-depth institutional research report and strategic briefing on ${cleanTopicTitle}, examining core operational mechanics, industry catalysts, liquidity governance, and forward outlook.`;
+            const topicWords = cleanTopicTitle
+                .replace(/[^a-zA-Z0-9\s-]/g, '')
+                .split(/\s+/)
+                .filter((w) => w.length > 3)
+                .slice(0, 3);
+            const customTags = Array.isArray(aiParsed?.tags) && aiParsed.tags.length > 0
+                ? aiParsed.tags.slice(0, 6)
+                : Array.from(new Set([cleanTopicTitle.slice(0, 32), ...topicWords, customCategory, 'Avora Research'])).slice(0, 6);
+            const customTakeaways = Array.isArray(aiParsed?.keyTakeaways) && aiParsed.keyTakeaways.length > 0
+                ? aiParsed.keyTakeaways.slice(0, 5)
+                : [
+                    `Strategic Focus: Comprehensive institutional analysis of ${cleanTopicTitle} and its impact on digital banking and capital flows.`,
+                    `Operational Architecture: Emphasizes deterministic settlement, transparent pricing, and real-time multi-currency liquidity management.`,
+                    `Risk & Governance: Integrates automated exposure monitoring, granular feature controls, and full audit-trail accountability.`,
+                    topNews1
+                        ? `Industry Wire Signal (${topNews1.sourceName}): "${topNews1.headline}"`
+                        : `Prepared by Avora Institutional Research Desk (${dateStamp}).`,
+                ];
+            const customHighlights = Array.isArray(aiParsed?.todayHighlights) && aiParsed.todayHighlights.length > 0
+                ? aiParsed.todayHighlights.slice(0, 5).map((h, idx) => ({
+                    text: String(h.text || h),
+                    source: String(h.source || rotatedNews[idx]?.sourceName || 'Avora Research Desk'),
+                    url: rotatedNews[idx]?.sourceUrl,
+                }))
+                : rotatedNews.length > 0
+                    ? rotatedNews.slice(0, 4).map((n) => ({
+                        text: n.headline,
+                        source: n.sourceName,
+                        url: n.sourceUrl,
+                    }))
+                    : [
+                        {
+                            text: `Executive deep dive into ${cleanTopicTitle} covering architecture, risk controls, and adoption drivers.`,
+                            source: 'Avora Research Desk',
+                        },
+                    ];
+            const customBanner = {
+                kicker: `AVORA RESEARCH BRIEF • ${customCategory.toUpperCase()}`,
+                headline: customTitle.slice(0, 62),
+                subtitle: `Topic: ${cleanTopicTitle.slice(0, 48)} • Edition #${editionNumber} • ${dateStamp}`,
+                ticker: quote.symbol,
+                exchange: 'AVORA RESEARCH',
+                priceText: 'SPECIAL REPORT',
+                changeText: `EDITION #${editionNumber}`,
+                isPositive: true,
+                sparkline: quote.sparkline,
+                dayRangeText: customCategory.slice(0, 24),
+                fiftyTwoWeekText: `${rotatedNews.length || 4} Verified Sources`,
+                volumeText: 'Institutional Brief',
+                rsiText: `${rawSentScore}/100 Constructive`,
+                smaText: cleanTopicTitle.slice(0, 40),
+                marketCapText: 'Editorial Focus',
+                peText: 'Deep Dive',
+                dataSource: 'Avora Institutional Research & Global Wires',
+                variant: chosenVariant,
+                editionLabel: `SPECIAL REPORT #${editionNumber} • ${quote.symbol}`,
+                chartStyle: chosenChartStyle,
+                technicals: t,
+                fundamentals: f,
+            };
+            const customBullPoints = Array.isArray(aiParsed?.bullPoints) && aiParsed.bullPoints.length >= 2
+                ? aiParsed.bullPoints.slice(0, 3)
+                : [
+                    `Direct strategic alignment with ${cleanTopicTitle.slice(0, 36)}`,
+                    `Transparent double-entry settlement & real-time auditability`,
+                    topNews1
+                        ? `Industry momentum (${topNews1.sourceName}): ${topNews1.headline.slice(0, 44)}...`
+                        : `Scalable multi-currency infrastructure & risk telemetry`,
+                ];
+            const customBearPoints = Array.isArray(aiParsed?.bearPoints) && aiParsed.bearPoints.length >= 2
+                ? aiParsed.bearPoints.slice(0, 3)
+                : [
+                    `Requires strict liquidity thresholds & exposure monitoring`,
+                    `Regulatory & compliance alignment across jurisdictions`,
+                    `Operational resilience & real-time kill-switch governance`,
+                ];
+            const customMeme = {
+                template: 'sentiment-matrix',
+                topText: String(aiParsed?.deskTakeaway || `${cleanTopicTitle.slice(0, 52)} — Strategic Matrix`),
+                bottomText: `Focus: ${cleanTopicTitle.slice(0, 38)}  •  Category: ${customCategory}  •  ${dateStamp}`,
+                ticker: quote.symbol,
+                companyName: cleanTopicTitle.slice(0, 36),
+                priceText: 'SPECIAL REPORT',
+                changeText: customCategory.toUpperCase(),
+                sentimentScore: rawSentScore,
+                sentimentLabel,
+                bullPoints: customBullPoints,
+                bearPoints: customBearPoints,
+                supportLevel: 'Verified Controls',
+                resistanceLevel: 'Full Audit Trail',
+            };
+            return {
+                title: customTitle,
+                summary: customSummary,
+                category: customCategory,
+                tags: customTags,
+                keyTakeaways: customTakeaways,
+                content: customParagraphs.join('\n\n'),
+                readTime: `${Math.max(4, Math.ceil(customParagraphs.join(' ').split(/\s+/).length / 170))} min read`,
+                highlights: customHighlights,
+                banner: customBanner,
+                meme: includeMeme ? customMeme : null,
+                usedAi: Boolean(aiParsed),
+            };
+        }
         const fallbackParagraphSets = [
             [
                 `## 1. Valuation Snapshot & Capitalization Scale (${dateStamp})\n${quote.companyName} (${quote.symbol}) trades on ${quote.exchange} at ${quote.priceFormatted} (${quote.changeFormatted} session move${quote.prevClose ? ` from $${quote.prevClose.toFixed(2)} prior close` : ''}).${f.marketCap ? ` Implied equity value stands near ${f.marketCap}` : ''}${f.peRatio ? ` with a trailing P/E multiple of ${f.peRatio}` : ''}${f.eps ? ` on ${f.eps} diluted EPS` : ''}. Intraday turnover spans ${dayRangeStr} on ${volStr} volume.`,
@@ -1527,7 +1764,7 @@ Return ONLY valid JSON matching this schema:
         })
             .catch(() => []);
         const usedHeadlineKeys = this.extractUsedHeadlineKeys(regenerateReport ? siblingPosts : siblingPosts.filter((s) => s.id !== post.id));
-        const quote = await this.resolveTopicAndQuote(post.ticker || post.topicQuery || post.title);
+        const quote = await this.resolveTopicAndQuote(post.topicQuery || post.ticker || post.title);
         const news = await this.fetchReliableNews(quote, post.topicQuery || post.ticker || post.title, aiCfg.finnhubApiKey, usedHeadlineKeys);
         let addedCount = 0;
         if (news.length > 0) {

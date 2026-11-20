@@ -1,10 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.featureControlService = exports.FeatureControlService = void 0;
-const client_1 = require("@prisma/client");
+const prisma_1 = require("../lib/prisma");
 const liquidityRisk_service_1 = require("./liquidityRisk.service");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
-const prisma = new client_1.PrismaClient();
 const FEATURE_CONFIG_KEY = 'PLATFORM_FEATURE_CONTROLS_V1';
 const FEATURE_HISTORY_KEY = 'PLATFORM_FEATURE_CONTROL_HISTORY_V1';
 const DEFAULT_FEATURES = [
@@ -409,7 +408,7 @@ class FeatureControlService {
     async getAllFeatures() {
         let storedMap = {};
         try {
-            const row = await prisma.cmsSetting.findUnique({ where: { key: FEATURE_CONFIG_KEY } });
+            const row = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: FEATURE_CONFIG_KEY } });
             if (row?.value) {
                 storedMap = JSON.parse(row.value) || {};
             }
@@ -521,7 +520,7 @@ class FeatureControlService {
      */
     async getHistory(limit = 100) {
         try {
-            const row = await prisma.cmsSetting.findUnique({ where: { key: FEATURE_HISTORY_KEY } });
+            const row = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: FEATURE_HISTORY_KEY } });
             if (!row?.value)
                 return [];
             const parsed = JSON.parse(row.value);
@@ -548,7 +547,7 @@ class FeatureControlService {
         }
         const [{ featureMap }, adminUser] = await Promise.all([
             this.getAllFeatures(),
-            prisma.user
+            prisma_1.prisma.user
                 .findUnique({
                 where: { id: params.adminId },
                 select: { id: true, firstName: true, lastName: true, email: true },
@@ -583,7 +582,7 @@ class FeatureControlService {
         // Persist to CmsSetting
         let rawStored = {};
         try {
-            const row = await prisma.cmsSetting.findUnique({ where: { key: FEATURE_CONFIG_KEY } });
+            const row = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: FEATURE_CONFIG_KEY } });
             if (row?.value)
                 rawStored = JSON.parse(row.value) || {};
         }
@@ -591,7 +590,7 @@ class FeatureControlService {
             rawStored = {};
         }
         rawStored[cleanKey] = updatedFeature;
-        await prisma.cmsSetting.upsert({
+        await prisma_1.prisma.cmsSetting.upsert({
             where: { key: FEATURE_CONFIG_KEY },
             update: { value: JSON.stringify(rawStored) },
             create: { key: FEATURE_CONFIG_KEY, group: 'FEATURE_CONTROL', value: JSON.stringify(rawStored) },
@@ -630,7 +629,7 @@ class FeatureControlService {
                 }
             }
             else if (cleanKey === 'USER_REGISTRATION') {
-                await prisma.cmsSetting
+                await prisma_1.prisma.cmsSetting
                     .upsert({
                     where: { key: 'registrationsEnabled' },
                     update: { value: String(nextEnabled) },
@@ -659,14 +658,14 @@ class FeatureControlService {
         };
         const prevHistory = await this.getHistory(249);
         const nextHistory = [auditEntry, ...prevHistory];
-        await prisma.cmsSetting.upsert({
+        await prisma_1.prisma.cmsSetting.upsert({
             where: { key: FEATURE_HISTORY_KEY },
             update: { value: JSON.stringify(nextHistory) },
             create: { key: FEATURE_HISTORY_KEY, group: 'FEATURE_CONTROL', value: JSON.stringify(nextHistory) },
         });
         // Record in global AdminAuditLog table
         if (adminUser?.id) {
-            await prisma.adminAuditLog
+            await prisma_1.prisma.adminAuditLog
                 .create({
                 data: {
                     userId: adminUser.id,

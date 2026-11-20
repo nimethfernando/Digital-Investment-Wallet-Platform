@@ -1040,7 +1040,7 @@ export default function AutoContentPublisher({
                   required
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  placeholder="Enter company, stock ticker, crypto or topic (e.g. Apple Inc., AAPL, NVDA, Bitcoin)..."
+                  placeholder="Enter ANY custom blog topic OR stock/crypto ticker (e.g. How Digital Wallets Transform Cross-Border Payments, AAPL, Bitcoin)..."
                   className="flex-1 px-4 py-3 rounded-2xl bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white text-xs font-semibold outline-none"
                 />
                 <button

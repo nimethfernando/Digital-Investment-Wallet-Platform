@@ -782,7 +782,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                       value={sendAmount}
                       onChange={(e) => {
                         setUserEditedSwapAmount(true);
-                        setSendAmount(e.target.value);
+                        let val = e.target.value.replace(/[^0-9.]/g, '');
+                        if (/^0+[1-9]/.test(val)) val = val.replace(/^0+/, '');
+                        else if (/^0{2,}$/.test(val)) val = '0';
+                        setSendAmount(val);
                       }}
                       placeholder="0.00"
                       className="bg-transparent text-right font-mono text-2xl sm:text-3xl font-black text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-700 outline-none w-full"

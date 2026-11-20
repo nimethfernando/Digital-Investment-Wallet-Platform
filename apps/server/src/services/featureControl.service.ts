@@ -1,9 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { liquidityRiskService } from './liquidityRisk.service';
 import { notificationService } from '../adapters/notification/notification.provider';
-
-const prisma = new PrismaClient();
 
 const FEATURE_CONFIG_KEY = 'PLATFORM_FEATURE_CONTROLS_V1';
 const FEATURE_HISTORY_KEY = 'PLATFORM_FEATURE_CONTROL_HISTORY_V1';

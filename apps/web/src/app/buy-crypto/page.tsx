@@ -406,7 +406,12 @@ export default function BuyCryptoPage() {
                   max="5000000"
                   step="any"
                   value={fiatAmount}
-                  onChange={(e) => setFiatAmount(e.target.value)}
+                  onChange={(e) => {
+                    let val = e.target.value;
+                    if (/^0+[1-9]/.test(val)) val = val.replace(/^0+/, '');
+                    else if (/^0{2,}$/.test(val)) val = '0';
+                    setFiatAmount(val);
+                  }}
                   placeholder="1000"
                   className="w-full bg-transparent text-2xl font-black font-mono focus:outline-none text-slate-900 dark:text-white"
                 />

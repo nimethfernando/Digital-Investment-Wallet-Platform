@@ -1,12 +1,12 @@
 process.env.NODE_ENV = 'test';
 import Decimal from 'decimal.js';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../src/lib/prisma';
 import { ledgerService } from '../src/services/ledger.service';
 import { liquidityRiskService } from '../src/services/liquidityRisk.service';
 import { featureControlService } from '../src/services/featureControl.service';
+import { autoContentService } from '../src/services/autoContent.service';
 import { notificationService } from '../src/adapters/notification/notification.provider';
 
-const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 async function runLiquidityRiskE2E() {
@@ -47,6 +47,39 @@ async function runLiquidityRiskE2E() {
 
   try {
     await liquidityRiskService.ensureSchema();
+
+    // Clean any orphaned liq_e2e_ test user from a prior interrupted connection before starting
+    const staleUsers = await prisma.user.findMany({
+      where: { email: { startsWith: 'liq_e2e_' } },
+      select: { id: true },
+    }).catch(() => []);
+    if (staleUsers.length > 0) {
+      const staleIds = staleUsers.map((u) => u.id);
+      const staleTxs = await prisma.transaction.findMany({
+        where: { userId: { in: staleIds } },
+        select: { settlementReference: true },
+      }).catch(() => []);
+      const staleRefIds = staleTxs.map((t) => t.settlementReference).filter((x): x is string => Boolean(x));
+      const staleJournals = await prisma.ledgerJournal.findMany({
+        where: {
+          OR: [
+            { idempotencyKey: { startsWith: 'LIQ-SEED-' } },
+            { referenceId: { in: staleRefIds } },
+            { createdBy: { in: staleIds } },
+          ],
+        },
+        select: { id: true },
+      }).catch(() => []);
+      const sjIds = staleJournals.map((j) => j.id);
+      if (sjIds.length > 0) {
+        await prisma.ledgerEntry.deleteMany({ where: { journalId: { in: sjIds } } }).catch(() => {});
+        await prisma.ledgerJournal.deleteMany({ where: { id: { in: sjIds } } }).catch(() => {});
+      }
+      await prisma.swapRequest.deleteMany({ where: { userId: { in: staleIds } } }).catch(() => {});
+      await prisma.userNotification.deleteMany({ where: { userId: { in: staleIds } } }).catch(() => {});
+      await prisma.adminAuditLog.deleteMany({ where: { userId: { in: staleIds } } }).catch(() => {});
+      await prisma.user.deleteMany({ where: { id: { in: staleIds } } }).catch(() => {});
+    }
 
     const user = await prisma.user.create({
       data: {
@@ -446,6 +479,23 @@ async function runLiquidityRiskE2E() {
       );
       if (afterClear.perUserOverrides[user.id]) {
         throw new Error('Expected clearing all user override flags to remove perUserOverrides entry');
+      }
+    });
+
+    await assertTest('13. Auto-Content Publisher preserves custom user-written blog topics without hijacking to random stock tickers', async () => {
+      const customTopic = 'How Multi-Currency Digital Wallets Transform Cross-Border Remittance';
+      const quote = await autoContentService.resolveTopicAndQuote(customTopic);
+      if (!quote.isCustomTopic || quote.companyName !== customTopic) {
+        throw new Error(`Expected custom topic to be preserved verbatim, got isCustomTopic=${quote.isCustomTopic}, companyName=${quote.companyName}, symbol=${quote.symbol}`);
+      }
+      const pkg = await autoContentService.generateEditorialPackage({
+        topic: customTopic,
+        quote,
+        news: [],
+        editionNumber: 1,
+      });
+      if (!pkg.title.includes(customTopic) || !pkg.content.includes(customTopic)) {
+        throw new Error(`Expected generated blog title & content to directly address "${customTopic}", got title="${pkg.title}"`);
       }
     });
   } finally {

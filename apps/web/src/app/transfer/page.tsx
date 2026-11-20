@@ -140,10 +140,51 @@ export default function GlobalMoneyTransferPage() {
   // Transfer Calculation State
   const [sendingCurrency, setSendingCurrency] = useState<string>('USD');
   const [selectedCountry, setSelectedCountry] = useState<CountryItem>(GMT_GLOBAL_COUNTRIES[0]);
-  const [sendingAmount, setSendingAmount] = useState<number>(1000);
+  const [sendingAmountInput, setSendingAmountInput] = useState<string>('1000');
+  const [liveRatesMap, setLiveRatesMap] = useState<Record<string, number>>({
+    USD: 1,
+    INR: 93.38,
+    AED: 3.6725,
+    GBP: 0.785,
+    EUR: 0.909,
+    LKR: 298.5,
+    GEL: 2.593,
+    CAD: 1.38,
+    AUD: 1.52,
+    SGD: 1.34,
+  });
   const [quote, setQuote] = useState<any>(null);
   const [quoteLoading, setQuoteLoading] = useState<boolean>(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const quoteReqSeqRef = useRef<number>(0);
+
+  const sendingAmount = useMemo(() => {
+    const cleaned = sendingAmountInput.trim();
+    if (!cleaned) return 0;
+    const parsed = parseFloat(cleaned);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [sendingAmountInput]);
+
+  const handleSendingAmountChange = (rawVal: string) => {
+    // Allow empty string so the user can delete all characters freely
+    if (rawVal === '') {
+      setSendingAmountInput('');
+      return;
+    }
+    // Strip invalid characters while allowing digits and at most one decimal point
+    let cleaned = rawVal.replace(/[^0-9.]/g, '');
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      cleaned = `${parts[0]}.${parts.slice(1).join('')}`;
+    }
+    // Strip leading zeros before non-zero digits (e.g. "0100" -> "100", "00" -> "0", keep "0.5")
+    if (/^0+[1-9]/.test(cleaned)) {
+      cleaned = cleaned.replace(/^0+/, '');
+    } else if (/^0{2,}$/.test(cleaned)) {
+      cleaned = '0';
+    }
+    setSendingAmountInput(cleaned);
+  };
 
   // Country Search & Dropdown State
   const [dropdownOpen, setDropdownOpen] = useState<boolean>(false);
@@ -211,33 +252,103 @@ export default function GlobalMoneyTransferPage() {
         if (res.data?.settings) setCmsSettings(res.data.settings);
       })
       .catch(() => {});
+
+    api.get('/otc/rates')
+      .then((res) => {
+        if (res.data?.rates && typeof res.data.rates === 'object') {
+          setLiveRatesMap((prev) => ({ ...prev, ...res.data.rates, USD: 1 }));
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  // Calculate live quote
-  const fetchQuote = async () => {
-    if (!sendingAmount || sendingAmount <= 0) return;
+  // Instant client-side synchronous quote calculation so left & right sides never lag or show stale values
+  const liveComputedQuote = useMemo(() => {
+    const fromCur = (sendingCurrency || 'USD').toUpperCase();
+    const toCur = (selectedCountry.currency || 'INR').toUpperCase();
+    const fromPerUsd = liveRatesMap[fromCur] || 1.0;
+    const toPerUsd = liveRatesMap[toCur] || 1.0;
+    const refRate = toPerUsd / fromPerUsd;
+
+    const rateAdjustmentPct = parseFloat(cmsSettings.remittance_margin_percent || '2.00') || 2.0;
+    const effectiveRate = refRate * (1 - rateAdjustmentPct / 100);
+    const transferFeePct = parseFloat(cmsSettings.remittance_fee_percent || '3.00') || 3.0;
+
+    const amt = sendingAmount > 0 ? sendingAmount : 0;
+    const transferFeeAmount = amt * (transferFeePct / 100);
+    const totalPaidAmount = amt + transferFeeAmount;
+    const recipientAmount = amt * effectiveRate;
+
+    const deliveryDaysNum = Math.max(1, parseInt(cmsSettings.remittance_delivery_days || '2', 10) || 2);
+    const deliveryDate = new Date();
+    deliveryDate.setDate(deliveryDate.getDate() + deliveryDaysNum);
+
+    return {
+      sendingAmount: amt.toFixed(2),
+      sendingCurrency: fromCur,
+      destinationCountryCode: selectedCountry.code,
+      recipientCurrency: toCur,
+      recipientAmount: recipientAmount.toFixed(2),
+      referenceRate: refRate.toFixed(4),
+      rateAdjustmentPct: rateAdjustmentPct.toFixed(2),
+      effectiveRate: effectiveRate.toFixed(4),
+      transferFeePct: transferFeePct.toFixed(2),
+      transferFeeAmount: transferFeeAmount.toFixed(2),
+      totalPaidAmount: totalPaidAmount.toFixed(2),
+      estimatedDeliveryDate: deliveryDate.toISOString(),
+    };
+  }, [sendingAmount, sendingCurrency, selectedCountry, liveRatesMap, cmsSettings]);
+
+  // Calculate live quote from server with race-condition protection
+  const fetchQuote = async (amountToQuote: number) => {
+    const seq = ++quoteReqSeqRef.current;
+    if (!amountToQuote || amountToQuote <= 0) {
+      setQuote(null);
+      setQuoteLoading(false);
+      setQuoteError(null);
+      return;
+    }
     setQuoteLoading(true);
     setQuoteError(null);
     try {
       const res = await api.post('/gmt/quote', {
         sendingCurrency,
-        sendingAmount,
+        sendingAmount: amountToQuote,
         destinationCountryCode: selectedCountry.code,
         recipientCurrency: selectedCountry.currency,
       });
-      if (res.data?.success) {
+      if (seq !== quoteReqSeqRef.current) return;
+      if (res.data?.success && res.data?.data) {
         setQuote(res.data.data);
       }
     } catch (err: any) {
+      if (seq !== quoteReqSeqRef.current) return;
       setQuoteError(extractErrorMessage(err, 'Failed to fetch transfer quote.'));
     } finally {
-      setQuoteLoading(false);
+      if (seq === quoteReqSeqRef.current) {
+        setQuoteLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchQuote();
+    fetchQuote(sendingAmount);
   }, [sendingAmount, selectedCountry, sendingCurrency]);
+
+  // Always use the exact amount-matched quote so left and right panels never display stale numbers
+  const displayQuote = useMemo(() => {
+    if (sendingAmount <= 0) {
+      return liveComputedQuote;
+    }
+    if (
+      quote &&
+      quote.recipientCurrency === selectedCountry.currency &&
+      Math.abs(parseFloat(quote.sendingAmount || '0') - sendingAmount) < 0.01
+    ) {
+      return quote;
+    }
+    return liveComputedQuote;
+  }, [sendingAmount, quote, selectedCountry.currency, liveComputedQuote]);
 
   // Load User's Past Transfers
   const loadUserTransfers = async () => {
@@ -552,28 +663,30 @@ export default function GlobalMoneyTransferPage() {
               <div className="relative">
                 <span className="absolute left-4 top-3 text-lg font-bold text-slate-400">$</span>
                 <input
-                  type="number"
-                  min="50"
-                  max="50000"
-                  value={sendingAmount}
-                  onChange={(e) => setSendingAmount(Number(e.target.value))}
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={sendingAmountInput}
+                  onChange={(e) => handleSendingAmountChange(e.target.value)}
                   className="w-full pl-9 pr-4 py-3 rounded-2xl text-2xl font-black font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                 />
               </div>
             </div>
 
             {/* Recipient Estimated Receive */}
-            {quote && (
-              <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-500/30 space-y-1">
-                <div className="flex justify-between text-xs text-slate-500 font-semibold">
-                  <span>Recipient Receives ({selectedCountry.currency})</span>
-                  <span className="text-emerald-600 font-bold">Direct to Bank Account</span>
-                </div>
-                <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-                  {quote.recipientAmount} {quote.recipientCurrency}
-                </div>
+            <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-500/30 space-y-1">
+              <div className="flex justify-between text-xs text-slate-500 font-semibold">
+                <span>Recipient Receives ({selectedCountry.currency})</span>
+                <span className="text-emerald-600 font-bold">Direct to Bank Account</span>
               </div>
-            )}
+              <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+                {Number(displayQuote.recipientAmount || 0).toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                {displayQuote.recipientCurrency}
+              </div>
+            </div>
 
             <button
               onClick={() => {
@@ -583,8 +696,8 @@ export default function GlobalMoneyTransferPage() {
                 setShowTermsBox(false);
                 setStep(2);
               }}
-              disabled={quoteLoading || !quote}
-              className="w-full py-4 rounded-2xl font-bold text-sm bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
+              disabled={sendingAmount <= 0}
+              className="w-full py-4 rounded-2xl font-bold text-sm bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <span>Continue to Recipient Information</span>
               <ArrowRight className="w-4 h-4" />
@@ -600,36 +713,47 @@ export default function GlobalMoneyTransferPage() {
               <h4 className="text-lg font-black">Transfer Quote Summary</h4>
             </div>
 
-            {quote && (
+            {displayQuote && (
               <div className="space-y-3.5 text-xs text-slate-300 border-t border-slate-800 pt-4">
                 <div className="flex justify-between">
                   <span className="text-slate-400">Transfer Principal:</span>
-                  <span className="font-mono font-bold text-white">${quote.sendingAmount} USD</span>
+                  <span className="font-mono font-bold text-white">${displayQuote.sendingAmount} USD</span>
                 </div>
 
                 <div className="flex justify-between">
                   <span className="text-slate-400">Reference Exchange Rate:</span>
-                  <span className="font-mono text-slate-300">1 USD = {quote.referenceRate} {quote.recipientCurrency}</span>
+                  <span className="font-mono text-slate-300">1 USD = {displayQuote.referenceRate} {displayQuote.recipientCurrency}</span>
                 </div>
 
                 <div className="flex justify-between text-emerald-400">
                   <span>Exchange Rate Adjustment:</span>
-                  <span className="font-mono font-bold">-{quote.rateAdjustmentPct}% margin</span>
+                  <span className="font-mono font-bold">-{displayQuote.rateAdjustmentPct}% margin</span>
                 </div>
 
                 <div className="flex justify-between font-bold text-white">
                   <span>Effective Client Rate:</span>
-                  <span className="font-mono text-emerald-400">1 USD = {quote.effectiveRate} {quote.recipientCurrency}</span>
+                  <span className="font-mono text-emerald-400">1 USD = {displayQuote.effectiveRate} {displayQuote.recipientCurrency}</span>
                 </div>
 
                 <div className="flex justify-between text-amber-300 border-t border-slate-800/80 pt-2">
-                  <span>Transfer Fee (3.0%):</span>
-                  <span className="font-mono font-bold">+${quote.transferFeeAmount} USD</span>
+                  <span>Transfer Fee ({displayQuote.transferFeePct}%):</span>
+                  <span className="font-mono font-bold">+${displayQuote.transferFeeAmount} USD</span>
                 </div>
 
                 <div className="flex justify-between text-sm font-black text-white border-t border-slate-800 pt-2">
                   <span>Total Amount Paid:</span>
-                  <span className="font-mono text-emerald-400">${quote.totalPaidAmount} USD</span>
+                  <span className="font-mono text-emerald-400">${displayQuote.totalPaidAmount} USD</span>
+                </div>
+
+                <div className="flex justify-between text-sm font-black text-emerald-400 border-t border-slate-800 pt-2">
+                  <span>Recipient Receives:</span>
+                  <span className="font-mono">
+                    {Number(displayQuote.recipientAmount || 0).toLocaleString('en-US', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    {displayQuote.recipientCurrency}
+                  </span>
                 </div>
 
                 <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-1 text-[11px] text-slate-300 mt-2">
@@ -638,7 +762,7 @@ export default function GlobalMoneyTransferPage() {
                     <span>Processing Time: Up to 2 Business Days</span>
                   </div>
                   <p className="text-slate-400">
-                    Estimated local credit by {new Date(quote.estimatedDeliveryDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}.
+                    Estimated local credit by {new Date(displayQuote.estimatedDeliveryDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}.
                   </p>
                 </div>
               </div>
