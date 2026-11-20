@@ -8,6 +8,7 @@ const client_1 = require("@prisma/client");
 const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
 const rate_service_1 = require("./rate.service");
+const notification_provider_1 = require("../adapters/notification/notification.provider");
 // Configure Decimal.js precision for financial accuracy
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class LedgerService {
@@ -273,7 +274,9 @@ class LedgerService {
                 {
                     accountId: assetAccount,
                     direction: 'DEBIT',
-                    amount: amountDec.plus(avoraMarginDec).toFixed(8),
+                    amount: avoraMarginDec.greaterThan(0) && ['USD', 'USDT', 'USDC'].includes(upperCur)
+                        ? amountDec.plus(avoraMarginDec).toFixed(8)
+                        : amountDec.toFixed(8),
                     currency: upperCur,
                 },
                 {
@@ -285,12 +288,28 @@ class LedgerService {
                 },
             ];
             if (avoraMarginDec.greaterThan(0)) {
-                journalEntries.push({
-                    accountId: revenueAccount,
-                    direction: 'CREDIT',
-                    amount: avoraMarginDec.toFixed(8),
-                    currency: upperCur,
-                });
+                if (['USD', 'USDT', 'USDC'].includes(upperCur)) {
+                    journalEntries.push({
+                        accountId: revenueAccount,
+                        direction: 'CREDIT',
+                        amount: avoraMarginDec.toFixed(8),
+                        currency: upperCur,
+                    });
+                }
+                else {
+                    // For BTC/ETH purchases paid via USD card/gateway, keep fee revenue balanced in USD
+                    journalEntries.push({
+                        accountId: 'PLATFORM_TREASURY_USD',
+                        direction: 'DEBIT',
+                        amount: avoraMarginDec.toFixed(8),
+                        currency: 'USD',
+                    }, {
+                        accountId: 'PLATFORM_FEE_REVENUE_USD',
+                        direction: 'CREDIT',
+                        amount: avoraMarginDec.toFixed(8),
+                        currency: 'USD',
+                    });
+                }
             }
             await this.recordJournal(tx, {
                 idempotencyKey,
@@ -748,9 +767,10 @@ class LedgerService {
                 accumulatedReturns: accumulatedReturns.toFixed(2),
             },
             balances: balances.map((b) => {
-                const availStr = new decimal_js_1.default(b.availableBalance.toString()).toFixed(2);
-                const lockedStr = new decimal_js_1.default(b.lockedPrincipal.toString()).toFixed(2);
-                const pendingStr = new decimal_js_1.default(b.pendingSettlement.toString()).toFixed(2);
+                const dp = ['BTC', 'ETH'].includes((b.currency || '').toUpperCase()) ? 8 : 2;
+                const availStr = new decimal_js_1.default(b.availableBalance.toString()).toFixed(dp);
+                const lockedStr = new decimal_js_1.default(b.lockedPrincipal.toString()).toFixed(dp);
+                const pendingStr = new decimal_js_1.default(b.pendingSettlement.toString()).toFixed(dp);
                 return {
                     currency: b.currency,
                     available: availStr,
@@ -805,9 +825,11 @@ class LedgerService {
         const toPerUsd = live.rates[toCurUpper] || 1.0;
         const spotRate = new decimal_js_1.default(toPerUsd).dividedBy(new decimal_js_1.default(fromPerUsd));
         const multiplier = decimal_js_1.default.max(new decimal_js_1.default(0.01), new decimal_js_1.default(1).minus(spreadPctDec.dividedBy(100)));
-        const effectiveRate = new decimal_js_1.default(spotRate.times(multiplier).toFixed(6));
+        const effectiveRate = new decimal_js_1.default(spotRate.times(multiplier).toFixed(12));
         const fromCur = params.fromCurrency.toUpperCase();
         const toCur = params.toCurrency.toUpperCase();
+        const fromDecimals = ['BTC', 'ETH'].includes(fromCur) ? 8 : 2;
+        const toDecimals = ['BTC', 'ETH'].includes(toCur) ? 8 : 2;
         const fromAmtFixed = new decimal_js_1.default(fromAmountDec.toFixed(8));
         const toAmountDec = new decimal_js_1.default(fromAmtFixed.times(effectiveRate).toFixed(8));
         const spreadFeeFromDec = spreadPctDec.greaterThan(0)
@@ -816,13 +838,14 @@ class LedgerService {
         const netTreasuryFromDec = fromAmtFixed.minus(spreadFeeFromDec);
         const idempotencyKey = `SWAP-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
         const wallet = await this.ensureWallet(params.userId);
-        return await prisma_1.prisma.$transaction(async (tx) => {
+        const swapResult = await prisma_1.prisma.$transaction(async (tx) => {
             // Lock both balance rows to prevent race conditions
             const fromLocked = await this.lockWalletBalance(tx, wallet.id, fromCur);
             const toLocked = await this.lockWalletBalance(tx, wallet.id, toCur);
-            const fromAvail = new decimal_js_1.default(fromLocked.availableBalance.toString());
+            const fromSourceField = params.consumeFromPending ? 'pendingSettlement' : 'availableBalance';
+            const fromAvail = new decimal_js_1.default(fromLocked[fromSourceField].toString());
             if (fromAvail.lessThan(fromAmtFixed)) {
-                throw new Error(`Insufficient ${fromCur} balance. Available: ${fromAvail.toFixed(2)} ${fromCur}, Required: ${fromAmtFixed.toFixed(2)}`);
+                throw new Error(`Insufficient ${fromCur} ${params.consumeFromPending ? 'pending swap hold' : 'balance'}. Available: ${fromAvail.toFixed(fromDecimals)} ${fromCur}, Required: ${fromAmtFixed.toFixed(fromDecimals)}`);
             }
             const fromBalAfter = fromAvail.minus(fromAmtFixed);
             const toAvail = new decimal_js_1.default(toLocked.availableBalance.toString());
@@ -830,7 +853,7 @@ class LedgerService {
             // Update wallet balances
             await tx.walletBalance.update({
                 where: { id: fromLocked.id },
-                data: { availableBalance: fromBalAfter.toFixed(8) },
+                data: { [fromSourceField]: fromBalAfter.toFixed(8) },
             });
             await tx.walletBalance.update({
                 where: { id: toLocked.id },
@@ -878,7 +901,7 @@ class LedgerService {
                 idempotencyKey,
                 referenceType: client_1.JournalReferenceType.EXCHANGE_BUY,
                 referenceId: idempotencyKey,
-                notes: `Instant swap: ${fromAmtFixed.toFixed(2)} ${fromCur} -> ${toAmountDec.toFixed(2)} ${toCur} (Rate: ${effectiveRate.toFixed(4)}, Platform spread ${spreadPctDec.toFixed(2)}%: ${spreadFeeFromDec.toFixed(4)} ${fromCur})`,
+                notes: `Instant swap: ${fromAmtFixed.toFixed(fromDecimals)} ${fromCur} -> ${toAmountDec.toFixed(toDecimals)} ${toCur} (Rate: ${effectiveRate.toFixed(8)}, Platform spread ${spreadPctDec.toFixed(2)}%: ${spreadFeeFromDec.toFixed(4)} ${fromCur})`,
                 createdBy: params.userId,
                 entries: swapJournalEntries,
             });
@@ -895,7 +918,7 @@ class LedgerService {
                     balanceBefore: toAvail.toFixed(8),
                     balanceAfter: toBalAfter.toFixed(8),
                     settlementReference: idempotencyKey,
-                    notes: `Swapped ${fromAmtFixed.toFixed(2)} ${fromCur} for ${toAmountDec.toFixed(2)} ${toCur} at rate ${effectiveRate.toFixed(4)}`,
+                    notes: `Swapped ${fromAmtFixed.toFixed(fromDecimals)} ${fromCur} for ${toAmountDec.toFixed(toDecimals)} ${toCur} at rate ${effectiveRate.toFixed(8)}`,
                 },
             });
             if (spreadFeeFromDec.greaterThan(0)) {
@@ -920,21 +943,29 @@ class LedgerService {
                 transactionCode,
                 fromCurrency: fromCur,
                 toCurrency: toCur,
-                fromAmount: fromAmtFixed.toFixed(2),
-                toAmount: toAmountDec.toFixed(2),
+                fromAmount: fromAmtFixed.toFixed(fromDecimals),
+                toAmount: toAmountDec.toFixed(toDecimals),
                 feeAmount: spreadFeeFromDec.toFixed(4),
                 feeCurrency: fromCur,
                 spreadPct: spreadPctDec.toFixed(2),
-                rate: effectiveRate.toFixed(4),
+                rate: effectiveRate.toFixed(8),
                 balanceAfter: {
-                    [fromCur]: fromBalAfter.toFixed(2),
-                    [toCur]: toBalAfter.toFixed(2),
+                    [fromCur]: fromBalAfter.toFixed(fromDecimals),
+                    [toCur]: toBalAfter.toFixed(toDecimals),
                 },
             };
         }, {
             maxWait: 20000,
             timeout: 60000,
         });
+        prisma_1.prisma.user
+            .findUnique({ where: { id: params.userId }, select: { email: true, firstName: true, lastName: true } })
+            .then((u) => {
+            const actor = u ? `${`${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Client'} (${u.email})` : params.userId;
+            return notification_provider_1.notificationService.sendAdminAlert(`Instant Currency Swap Executed [${swapResult.transactionCode}]`, `${actor} swapped ${swapResult.fromAmount} ${swapResult.fromCurrency} → ${swapResult.toAmount} ${swapResult.toCurrency}.\nRate: 1 ${swapResult.fromCurrency} = ${swapResult.rate} ${swapResult.toCurrency} | Desk Spread (${swapResult.spreadPct}%): ${swapResult.feeAmount} ${swapResult.feeCurrency}.`, { userId: params.userId, ...swapResult });
+        })
+            .catch(() => { });
+        return swapResult;
     }
     /**
      * Admin manual balance adjustment (CREDIT or DEBIT)

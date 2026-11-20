@@ -233,10 +233,16 @@ class DepositService {
             grossPayableAmount = netWalletCredit.plus(totalCommission);
         }
         const walletCurrency = (params.currency || 'USD').toUpperCase();
+        const parsedCreditAmt = params.creditAmount !== undefined && params.creditAmount !== null && !isNaN(Number(params.creditAmount))
+            ? new decimal_js_1.default(params.creditAmount.toString())
+            : null;
+        const targetCreditAmount = parsedCreditAmt && parsedCreditAmt.greaterThan(0) ? parsedCreditAmt : netWalletCredit;
+        const isCryptoCredit = ['BTC', 'ETH'].includes(walletCurrency);
+        const creditDecimals = isCryptoCredit ? 8 : 2;
         const checkoutCurrency = (params.checkoutCurrency || 'USD').toUpperCase();
         const depositCode = `RZP-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
         const purposeLabel = params.purpose || 'WALLET_DEPOSIT';
-        const feeSummaryNote = `Razorpay (${purposeLabel}) | Gross Charged: $${grossPayableAmount.toFixed(2)} USD | Total Commission ${totalCommPct.toFixed(1)}%: $${totalCommission.toFixed(2)} (${gatewayFeePct.toFixed(1)}% Razorpay Fee: $${razorpayGatewayFee.toFixed(2)} + ${platformSpreadPct.toFixed(1)}% Avora Margin: $${avoraPlatformFee.toFixed(2)}) | Net Wallet Credit: $${netWalletCredit.toFixed(2)} ${walletCurrency}`;
+        const feeSummaryNote = `Razorpay (${purposeLabel}) | Gross Charged: $${grossPayableAmount.toFixed(2)} USD | Total Commission ${totalCommPct.toFixed(1)}%: $${totalCommission.toFixed(2)} (${gatewayFeePct.toFixed(1)}% Razorpay Fee: $${razorpayGatewayFee.toFixed(2)} + ${platformSpreadPct.toFixed(1)}% Avora Margin: $${avoraPlatformFee.toFixed(2)}) | Net Wallet Credit: ${targetCreditAmount.toFixed(creditDecimals)} ${walletCurrency} ($${netWalletCredit.toFixed(2)} USD eq.)`;
         let razorpayOrderId = `order_avr_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`;
         let mode = 'ASSISTED';
         const amountSubunits = Math.max(100, Math.round(grossPayableAmount.toNumber() * 100));
@@ -289,7 +295,7 @@ class DepositService {
             data: {
                 depositCode,
                 userId,
-                amount: netWalletCredit.toFixed(8),
+                amount: targetCreditAmount.toFixed(8),
                 currency: walletCurrency,
                 depositMethod: 'RAZORPAY',
                 txHashOrRef: razorpayOrderId,
@@ -309,7 +315,8 @@ class DepositService {
                 commissionPercent: Number(totalCommPct.toFixed(2)),
                 gatewayFeePercent: Number(gatewayFeePct.toFixed(2)),
                 platformSpreadPercent: Number(platformSpreadPct.toFixed(2)),
-                netWalletCredit: netWalletCredit.toFixed(2),
+                netWalletCredit: targetCreditAmount.toFixed(creditDecimals),
+                netWalletCreditUsd: netWalletCredit.toFixed(2),
                 razorpayGatewayFee: razorpayGatewayFee.toFixed(2),
                 avoraPlatformFee: avoraPlatformFee.toFixed(2),
                 totalCommission: totalCommission.toFixed(2),
@@ -318,7 +325,7 @@ class DepositService {
             deposit: {
                 id: deposit.id,
                 depositCode: deposit.depositCode,
-                amount: netWalletCredit.toFixed(2),
+                amount: targetCreditAmount.toFixed(creditDecimals),
                 currency: deposit.currency,
                 status: deposit.status,
                 txHashOrRef: deposit.txHashOrRef,
@@ -392,6 +399,7 @@ class DepositService {
           <p>New Available Wallet Balance: <strong>$${approval.balanceAfter} ${deposit.currency}</strong>.</p>
         `,
             }).catch(() => { });
+            notification_provider_1.notificationService.sendAdminAlert(`Razorpay Deposit Verified & Credited [${deposit.depositCode}]`, `${deposit.user.email} completed a verified Razorpay payment of ${new decimal_js_1.default(deposit.amount.toString()).toFixed(2)} ${deposit.currency} (Payment ID: ${paymentIdClean}).`, { depositCode: deposit.depositCode, userId: deposit.userId, paymentId: paymentIdClean, amount: deposit.amount.toString(), currency: deposit.currency }).catch(() => { });
             return {
                 verified: true,
                 autoCredited: true,
@@ -420,6 +428,7 @@ class DepositService {
         <p>Status: <strong>PENDING TREASURY VERIFICATION</strong>.</p>
       `,
         }).catch(() => { });
+        notification_provider_1.notificationService.sendAdminAlert(`New Razorpay Deposit Pending Review [${deposit.depositCode}]`, `${deposit.user.email} submitted Razorpay payment reference ${paymentIdClean} for ${new decimal_js_1.default(deposit.amount.toString()).toFixed(2)} ${deposit.currency}. Review in Admin → Deposits.`, { depositCode: deposit.depositCode, userId: deposit.userId, paymentId: paymentIdClean, amount: deposit.amount.toString(), currency: deposit.currency }).catch(() => { });
         return {
             verified: true,
             autoCredited: false,
@@ -604,6 +613,7 @@ class DepositService {
         <p>Status: <strong>PENDING REVIEW</strong>. Funds will be credited once confirmed on-chain / bank statement.</p>
       `,
         }).catch(() => { });
+        notification_provider_1.notificationService.sendAdminAlert(`New Deposit Request [${depositCode}]`, `${user.firstName || 'Client'} (${user.email}) submitted a deposit request for ${amountNum} ${currency} via ${data.depositMethod}.\nRef/TX: ${normalizedHash || data.txHashOrRef || 'N/A'}\nReview in Admin → Deposits.`, { depositCode, userId, email: user.email, amount: amountNum, currency, depositMethod: data.depositMethod, txHashOrRef: normalizedHash || data.txHashOrRef || null }).catch(() => { });
         return deposit;
     }
     /**

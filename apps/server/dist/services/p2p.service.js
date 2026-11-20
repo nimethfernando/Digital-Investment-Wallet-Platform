@@ -66,6 +66,10 @@ class P2PService {
                 ['locationCountry', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `locationCountry` VARCHAR(100) NULL'],
                 ['locationCity', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `locationCity` VARCHAR(100) NULL'],
             ]);
+            // Repair legacy ads created with the old hardcoded 50..1000 default fiat limits on high-unit-rate currencies (e.g. INR/LKR)
+            await prisma_1.prisma.$executeRawUnsafe(`UPDATE \`diw_p2p_offers\`
+         SET \`maxLimit\` = ROUND(\`totalAmount\` * \`price\`, 2)
+         WHERE \`minLimit\` = 50 AND \`maxLimit\` = 1000 AND (\`totalAmount\` * \`price\`) > 2000`).catch(() => { });
             await this.ensureColumns('diw_p2p_orders', [
                 ['cryptoCurrency', "ALTER TABLE `diw_p2p_orders` ADD COLUMN `cryptoCurrency` VARCHAR(10) NOT NULL DEFAULT 'USDT'"],
                 ['fiatCurrency', "ALTER TABLE `diw_p2p_orders` ADD COLUMN `fiatCurrency` VARCHAR(10) NOT NULL DEFAULT 'USD'"],
@@ -394,7 +398,8 @@ class P2PService {
                     },
                 });
                 const wallet = await ledger_service_1.ledgerService.ensureWallet(upserted.id);
-                for (const currency of ['USDT', 'USD']) {
+                for (const currency of ['USDT', 'USD', 'USDC', 'BTC', 'ETH']) {
+                    const targetAmt = currency === 'BTC' ? '10.00000000' : currency === 'ETH' ? '250.00000000' : '500000.00000000';
                     const bal = await prisma_1.prisma.walletBalance.findUnique({
                         where: { walletId_currency: { walletId: wallet.id, currency } },
                     });
@@ -403,16 +408,16 @@ class P2PService {
                             data: {
                                 walletId: wallet.id,
                                 currency,
-                                availableBalance: '500000.00000000',
+                                availableBalance: targetAmt,
                                 lockedPrincipal: '0.00000000',
                                 pendingSettlement: '0.00000000',
                             },
                         });
                     }
-                    else if (new decimal_js_1.default(bal.availableBalance.toString()).lessThan('500000')) {
+                    else if (new decimal_js_1.default(bal.availableBalance.toString()).lessThan(targetAmt)) {
                         await prisma_1.prisma.walletBalance.update({
                             where: { id: bal.id },
-                            data: { availableBalance: '500000.00000000' },
+                            data: { availableBalance: targetAmt },
                         });
                     }
                 }
@@ -554,11 +559,19 @@ class P2PService {
         if (sender.p2pBlocked) {
             throw new Error(`Your P2P trading access is restricted${sender.p2pBlockedReason ? `: ${sender.p2pBlockedReason}` : '. Contact compliance support.'}`);
         }
-        // 4. Enforce Daily Velocity Limit (Default: $5,000 USD / 24 hours)
-        const dailyLimitSetting = await prisma_1.prisma.cmsSetting.findUnique({
-            where: { key: 'p2p_daily_limit_usd' },
-        });
+        // 4. Enforce Daily Velocity Limit (Default: $5,000 USD equivalent / 24 hours)
+        const [dailyLimitSetting, liveRates] = await Promise.all([
+            prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'p2p_daily_limit_usd' } }),
+            rate_service_1.rateService.getLiveRates().catch(() => ({ rates: { USD: 1, USDT: 1, USDC: 1 } })),
+        ]);
         const maxDailyLimit = new decimal_js_1.default(dailyLimitSetting?.value || '5000');
+        const toUsdDec = (amt, cur) => {
+            const upper = (cur || 'USD').toUpperCase();
+            if (upper === 'USD' || upper === 'USDT' || upper === 'USDC')
+                return amt;
+            const rate = liveRates.rates[upper];
+            return rate && rate > 0 ? amt.dividedBy(new decimal_js_1.default(rate)) : amt;
+        };
         const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const recentTransfers = await prisma_1.prisma.transaction.findMany({
             where: {
@@ -567,12 +580,13 @@ class P2PService {
                 status: client_1.TransactionStatus.COMPLETED,
                 createdAt: { gte: oneDayAgo },
             },
-            select: { amount: true },
+            select: { amount: true, currency: true },
         });
-        const dailyTransferred = recentTransfers.reduce((sum, tx) => sum.plus(new decimal_js_1.default(tx.amount.toString())), new decimal_js_1.default(0));
-        if (dailyTransferred.plus(amountDec).greaterThan(maxDailyLimit)) {
+        const dailyTransferred = recentTransfers.reduce((sum, tx) => sum.plus(toUsdDec(new decimal_js_1.default(tx.amount.toString()), tx.currency)), new decimal_js_1.default(0));
+        const amountUsdDec = toUsdDec(amountDec, currency);
+        if (dailyTransferred.plus(amountUsdDec).greaterThan(maxDailyLimit)) {
             const remainingLimit = decimal_js_1.default.max(0, maxDailyLimit.minus(dailyTransferred));
-            throw new Error(`Daily P2P transfer velocity limit ($${maxDailyLimit.toFixed(2)} USD) exceeded. You have transferred $${dailyTransferred.toFixed(2)} in the last 24 hours. Remaining limit: $${remainingLimit.toFixed(2)}.`);
+            throw new Error(`Daily P2P transfer velocity limit ($${maxDailyLimit.toFixed(2)} USD) exceeded. You have transferred $${dailyTransferred.toFixed(2)} USD equivalent in the last 24 hours. Remaining limit: $${remainingLimit.toFixed(2)} USD.`);
         }
         const referenceCode = `P2P-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
         const idempotencyKey = `P2P-XFER-${senderUserId}-${referenceCode}`;
@@ -666,22 +680,24 @@ class P2PService {
                     notes: `Received from ${sender.firstName || 'Investor'} (${sender.email.split('@')[0]}***). Note: ${params.notes || 'None'}`,
                 },
             });
+            const dp = ['BTC', 'ETH'].includes(currency.toUpperCase()) ? 8 : 2;
             return {
                 referenceCode,
-                amount: amountDec.toFixed(2),
+                amount: amountDec.toFixed(dp),
                 currency,
                 recipient: recipientLookup,
-                balanceAfter: newSenderAvail.toFixed(2),
+                balanceAfter: newSenderAvail.toFixed(dp),
             };
         }, { timeout: 30000, maxWait: 10000 });
         // 6. Asynchronous email notifications (non-blocking)
+        const dpFmt = ['BTC', 'ETH'].includes(currency.toUpperCase()) ? 6 : 2;
         notification_provider_1.notificationService.sendEmail({
             to: sender.email,
             subject: `P2P Transfer Sent - ${referenceCode}`,
             html: `
         <div style="font-family: sans-serif; padding: 20px;">
           <h3>Transfer Sent</h3>
-          <p>You have sent <strong>$${amountDec.toFixed(2)} ${currency}</strong> to <strong>${recipientLookup.fullName}</strong> (${recipientLookup.emailMasked}).</p>
+          <p>You have sent <strong>${amountDec.toFixed(dpFmt)} ${currency}</strong> to <strong>${recipientLookup.fullName}</strong> (${recipientLookup.emailMasked}).</p>
           <p>Reference: <strong>${referenceCode}</strong></p>
         </div>
       `,
@@ -692,11 +708,12 @@ class P2PService {
             html: `
         <div style="font-family: sans-serif; padding: 20px;">
           <h3>Funds Received</h3>
-          <p>You received <strong>$${amountDec.toFixed(2)} ${currency}</strong> in your platform wallet.</p>
+          <p>You received <strong>${amountDec.toFixed(dpFmt)} ${currency}</strong> in your platform wallet.</p>
           <p>Reference: <strong>${referenceCode}</strong></p>
         </div>
       `,
         }).catch(() => { });
+        notification_provider_1.notificationService.sendAdminAlert(`Avora User P2P Transfer [${referenceCode}]`, `${sender.email} sent ${amountDec.toFixed(dpFmt)} ${currency} to ${recipient.email} (${recipientLookup.fullName}).`, { referenceCode, senderEmail: sender.email, recipientEmail: recipient.email, amount: amountDec.toFixed(dpFmt), currency }).catch(() => { });
         return result;
     }
     // ===========================================================================
@@ -736,7 +753,7 @@ class P2PService {
                 price: calcOfferPrice(lkrSpot, 1.004),
                 totalAmount: new decimal_js_1.default('50000.00'),
                 availableAmount: new decimal_js_1.default('50000.00'),
-                minLimit: new decimal_js_1.default('5000.00'),
+                minLimit: new decimal_js_1.default('300.00'),
                 maxLimit: new decimal_js_1.default('5000000.00'),
                 paymentMethods: JSON.stringify(['Commercial Bank SL', 'Sampath Vishwa', 'Hatton National Bank', 'Colombo Cash Counter']),
                 paymentTerms: 'Instant LKR CEFTS / SLIPS transfer or Colombo WTC physical counter settlement. 15-min escrow release.',
@@ -750,7 +767,7 @@ class P2PService {
                 price: calcOfferPrice(lkrSpot, 0.996),
                 totalAmount: new decimal_js_1.default('50000.00'),
                 availableAmount: new decimal_js_1.default('50000.00'),
-                minLimit: new decimal_js_1.default('5000.00'),
+                minLimit: new decimal_js_1.default('300.00'),
                 maxLimit: new decimal_js_1.default('5000000.00'),
                 paymentMethods: JSON.stringify(['Commercial Bank SL', 'Sampath Vishwa', 'Hatton National Bank']),
                 paymentTerms: 'Fast LKR bank payout within 10 minutes of escrow lock.',
@@ -764,7 +781,7 @@ class P2PService {
                 price: calcOfferPrice(inrSpot, 1.004),
                 totalAmount: new decimal_js_1.default('25000.00'),
                 availableAmount: new decimal_js_1.default('25000.00'),
-                minLimit: new decimal_js_1.default('1000.00'),
+                minLimit: new decimal_js_1.default('100.00'),
                 maxLimit: new decimal_js_1.default('500000.00'),
                 paymentMethods: JSON.stringify(['UPI', 'IMPS', 'NEFT / RTGS', 'PhonePe']),
                 paymentTerms: 'Payment via UPI/IMPS only from verified account. 15-minute quick release guaranteed.',
@@ -778,7 +795,7 @@ class P2PService {
                 price: calcOfferPrice(inrSpot, 0.996),
                 totalAmount: new decimal_js_1.default('25000.00'),
                 availableAmount: new decimal_js_1.default('25000.00'),
-                minLimit: new decimal_js_1.default('1000.00'),
+                minLimit: new decimal_js_1.default('100.00'),
                 maxLimit: new decimal_js_1.default('500000.00'),
                 paymentMethods: JSON.stringify(['UPI', 'IMPS', 'NEFT / RTGS']),
                 paymentTerms: 'Instant IMPS/UPI payout to your Indian bank account.',
@@ -792,7 +809,7 @@ class P2PService {
                 price: calcOfferPrice(aedSpot, 1.002),
                 totalAmount: new decimal_js_1.default('50000.00'),
                 availableAmount: new decimal_js_1.default('50000.00'),
-                minLimit: new decimal_js_1.default('500.00'),
+                minLimit: new decimal_js_1.default('10.00'),
                 maxLimit: new decimal_js_1.default('250000.00'),
                 paymentMethods: JSON.stringify(['AED Bank Transfer', 'Emirates NBD', 'FAB i-Save', 'ADCB']),
                 paymentTerms: 'Instant local bank transfer across UAE. Zero fees.',
@@ -806,7 +823,7 @@ class P2PService {
                 price: calcOfferPrice(aedSpot, 0.998),
                 totalAmount: new decimal_js_1.default('50000.00'),
                 availableAmount: new decimal_js_1.default('50000.00'),
-                minLimit: new decimal_js_1.default('500.00'),
+                minLimit: new decimal_js_1.default('10.00'),
                 maxLimit: new decimal_js_1.default('250000.00'),
                 paymentMethods: JSON.stringify(['AED Bank Transfer', 'Emirates NBD', 'ADCB']),
                 paymentTerms: 'Same-hour AED domestic transfer across UAE banks.',
@@ -820,7 +837,7 @@ class P2PService {
                 price: calcOfferPrice(gelSpot, 1.004),
                 totalAmount: new decimal_js_1.default('35000.00'),
                 availableAmount: new decimal_js_1.default('35000.00'),
-                minLimit: new decimal_js_1.default('100.00'),
+                minLimit: new decimal_js_1.default('15.00'),
                 maxLimit: new decimal_js_1.default('100000.00'),
                 paymentMethods: JSON.stringify(['Tbilisi Cash Pickup', 'Bank of Georgia', 'TBC Bank']),
                 paymentTerms: 'Tbilisi Freedom Square counter cash pickup available 10:00 - 21:00 GET or BoG transfer.',
@@ -834,7 +851,7 @@ class P2PService {
                 price: calcOfferPrice(gelSpot, 0.996),
                 totalAmount: new decimal_js_1.default('35000.00'),
                 availableAmount: new decimal_js_1.default('35000.00'),
-                minLimit: new decimal_js_1.default('100.00'),
+                minLimit: new decimal_js_1.default('15.00'),
                 maxLimit: new decimal_js_1.default('100000.00'),
                 paymentMethods: JSON.stringify(['Tbilisi Cash Pickup', 'Bank of Georgia', 'TBC Bank']),
                 paymentTerms: 'Instant GEL transfer via BoG/TBC or Freedom Square cash payout.',
@@ -848,7 +865,7 @@ class P2PService {
                 price: calcOfferPrice(eurSpot, 1.005),
                 totalAmount: new decimal_js_1.default('40000.00'),
                 availableAmount: new decimal_js_1.default('40000.00'),
-                minLimit: new decimal_js_1.default('200.00'),
+                minLimit: new decimal_js_1.default('5.00'),
                 maxLimit: new decimal_js_1.default('100000.00'),
                 paymentMethods: JSON.stringify(['SEPA Instant', 'Revolut', 'Wise', 'N26 Transfer']),
                 paymentTerms: 'Instant SEPA transfer. Please include order ID in remarks.',
@@ -862,7 +879,7 @@ class P2PService {
                 price: calcOfferPrice(eurSpot, 0.995),
                 totalAmount: new decimal_js_1.default('40000.00'),
                 availableAmount: new decimal_js_1.default('40000.00'),
-                minLimit: new decimal_js_1.default('200.00'),
+                minLimit: new decimal_js_1.default('5.00'),
                 maxLimit: new decimal_js_1.default('100000.00'),
                 paymentMethods: JSON.stringify(['SEPA Instant', 'Revolut', 'Wise']),
                 paymentTerms: 'SEPA Instant settlement within 10 minutes.',
@@ -876,7 +893,7 @@ class P2PService {
                 price: new decimal_js_1.default('1.00'),
                 totalAmount: new decimal_js_1.default('100000.00'),
                 availableAmount: new decimal_js_1.default('100000.00'),
-                minLimit: new decimal_js_1.default('100.00'),
+                minLimit: new decimal_js_1.default('5.00'),
                 maxLimit: new decimal_js_1.default('100000.00'),
                 paymentMethods: JSON.stringify(['ACH Transfer', 'Zelle', 'Domestic Wire', 'SWIFT']),
                 paymentTerms: 'Same-day US domestic wire or Zelle for verified accounts.',
@@ -890,7 +907,7 @@ class P2PService {
                 price: new decimal_js_1.default('1.00'),
                 totalAmount: new decimal_js_1.default('100000.00'),
                 availableAmount: new decimal_js_1.default('100000.00'),
-                minLimit: new decimal_js_1.default('100.00'),
+                minLimit: new decimal_js_1.default('5.00'),
                 maxLimit: new decimal_js_1.default('100000.00'),
                 paymentMethods: JSON.stringify(['ACH Transfer', 'Zelle', 'Domestic Wire']),
                 paymentTerms: 'Instant USD wire / ACH release upon confirmation.',
@@ -900,7 +917,7 @@ class P2PService {
             await prisma_1.prisma.p2POffer
                 .upsert({
                 where: { offerCode: d.offerCode },
-                update: { status: client_1.P2POfferStatus.OPEN, userId: d.userId, price: d.price },
+                update: { status: client_1.P2POfferStatus.OPEN, userId: d.userId, price: d.price, minLimit: d.minLimit },
                 create: d,
             })
                 .catch(() => { });
@@ -1594,8 +1611,12 @@ class P2PService {
         if (amountNum.isZero() || amountNum.isNegative()) {
             throw new Error('Total amount must be greater than zero.');
         }
-        const minLimitNum = input.minLimit ? new decimal_js_1.default(input.minLimit.toString()) : new decimal_js_1.default(10);
-        const maxLimitNum = input.maxLimit ? new decimal_js_1.default(input.maxLimit.toString()) : amountNum.times(priceNum);
+        const minLimitNum = input.minLimit !== undefined && input.minLimit !== null && String(input.minLimit).trim() !== ''
+            ? new decimal_js_1.default(input.minLimit.toString())
+            : new decimal_js_1.default(1);
+        const maxLimitNum = input.maxLimit !== undefined && input.maxLimit !== null && String(input.maxLimit).trim() !== ''
+            ? new decimal_js_1.default(input.maxLimit.toString())
+            : amountNum.times(priceNum);
         if (maxLimitNum.lessThan(minLimitNum)) {
             throw new Error('Maximum order limit cannot be lower than minimum order limit.');
         }
@@ -1633,6 +1654,9 @@ class P2PService {
                 promoMeta,
             };
         }, { timeout: 30000, maxWait: 10000 });
+        notification_provider_1.notificationService
+            .sendAdminAlert(`New P2P Marketplace Offer [${created.offer.offerCode}]`, `${user.email} published a P2P ${input.side} offer (${created.offer.offerCode}) for ${amountNum.toString()} ${cryptoCur} @ ${priceNum.toString()} ${input.fiatCurrency.toUpperCase()}.`, { offerCode: created.offer.offerCode, userId, email: user.email, side: input.side, cryptoCurrency: cryptoCur, fiatCurrency: input.fiatCurrency.toUpperCase() })
+            .catch(() => { });
         return {
             success: true,
             offerCode: created.offer.offerCode,
@@ -1710,7 +1734,11 @@ class P2PService {
             ? new decimal_js_1.default(params.fiatAmount.toString())
             : cryptoAmountDec.times(priceDec);
         const minLimitDec = new decimal_js_1.default(offer.minLimit.toString());
-        const maxLimitDec = new decimal_js_1.default(offer.maxLimit.toString());
+        const rawMaxLimitDec = new decimal_js_1.default(offer.maxLimit.toString());
+        const fullOfferFiatMax = offerAvailDec.times(priceDec);
+        const maxLimitDec = minLimitDec.equals(50) && rawMaxLimitDec.equals(1000) && fullOfferFiatMax.greaterThan(2000)
+            ? fullOfferFiatMax
+            : rawMaxLimitDec;
         if (fiatAmountDec.plus('0.05').lessThan(minLimitDec) || fiatAmountDec.minus('0.05').greaterThan(maxLimitDec)) {
             throw new Error(`Order total must be within merchant limits (${minLimitDec.toFixed(2)} - ${maxLimitDec.toFixed(2)} ${offer.fiatCurrency}).`);
         }
@@ -1793,7 +1821,10 @@ class P2PService {
             const sellerBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, sellerWallet.id, cryptoCur);
             const sellerAvail = new decimal_js_1.default(sellerBal.availableBalance.toString());
             if (sellerAvail.lessThan(cryptoAmountDec)) {
-                throw new Error(`Seller has insufficient ${cryptoCur} available for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required)`);
+                const isTakerSelling = sellerId === takerUserId;
+                throw new Error(isTakerSelling
+                    ? `Insufficient ${cryptoCur} in your wallet for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required). Convert USD to ${cryptoCur} via Instant Swap (/dashboard?tab=swap) or deposit ${cryptoCur} before selling.`
+                    : `This merchant currently has insufficient ${cryptoCur} available for escrow lock (${sellerAvail.toFixed(2)} ${cryptoCur} available, ${cryptoAmountDec.toFixed(2)} required). Please try another trader or a smaller amount.`);
             }
             const newAvail = sellerAvail.minus(cryptoAmountDec);
             const newLocked = new decimal_js_1.default(sellerBal.lockedPrincipal.toString()).plus(cryptoAmountDec);
@@ -1911,6 +1942,9 @@ class P2PService {
                 status: order.status,
             }),
         ]);
+        notification_provider_1.notificationService
+            .sendAdminAlert(`New P2P Order Created [${orderCode}]`, `Order ${orderCode} (${formattedCrypto} ${cryptoCur} ↔ ${(0, p2p_helpers_1.formatFiatWithCurrency)(fiatAmountDec, fiatCur)} via ${chosenMethod}) created.\nBuyer: ${order.buyer.email} | Seller: ${order.seller.email} | Status: ${order.status}.`, { orderId: order.id, orderCode, buyerEmail: order.buyer.email, sellerEmail: order.seller.email, cryptoAmount: formattedCrypto, cryptoCurrency: cryptoCur, fiatCurrency: fiatCur, status: order.status })
+            .catch(() => { });
         const statsMap = await (0, p2p_helpers_1.computeUserP2PStatsMap)([order.buyerId, order.sellerId]);
         return this.formatOrderForUser(order, takerUserId, statsMap);
     }
@@ -2082,6 +2116,9 @@ class P2PService {
             currency: cryptoCur,
             status: client_1.P2POrderStatus.PENDING_PAYMENT,
         });
+        notification_provider_1.notificationService
+            .sendAdminAlert(`P2P Order Accepted [${order.orderCode}]`, `Order ${order.orderCode} accepted by ${acceptedOrder.seller.email}. Payment window (${p2p_helpers_1.P2P_TIMERS.PAYMENT_MINUTES}m) active for buyer ${acceptedOrder.buyer.email}.`, { orderId: order.id, orderCode: order.orderCode, status: client_1.P2POrderStatus.PENDING_PAYMENT })
+            .catch(() => { });
         const statsMap = await (0, p2p_helpers_1.computeUserP2PStatsMap)([acceptedOrder.buyerId, acceptedOrder.sellerId]);
         return this.formatOrderForUser(acceptedOrder, userId, statsMap);
     }
@@ -2163,6 +2200,9 @@ class P2PService {
             referenceCode: order.orderCode,
             status: client_1.P2POrderStatus.DECLINED,
         });
+        notification_provider_1.notificationService
+            .sendAdminAlert(`P2P Order Declined [${order.orderCode}]`, `Order ${order.orderCode} was declined (${cleanReason}). Escrowed crypto unlocked back to seller.`, { orderId: order.id, orderCode: order.orderCode, status: client_1.P2POrderStatus.DECLINED })
+            .catch(() => { });
         const statsMap = await (0, p2p_helpers_1.computeUserP2PStatsMap)([declinedOrder.buyerId, declinedOrder.sellerId]);
         return this.formatOrderForUser(declinedOrder, userId, statsMap);
     }
@@ -2252,6 +2292,9 @@ class P2PService {
             referenceCode: order.orderCode,
             status: client_1.P2POrderStatus.CANCELLED,
         });
+        notification_provider_1.notificationService
+            .sendAdminAlert(`P2P Order Cancelled [${order.orderCode}]`, `Order ${order.orderCode} was cancelled (${cleanReason}). ${cryptoAmountDec.toFixed(4)} ${cryptoCur} unlocked back to seller.`, { orderId: order.id, orderCode: order.orderCode, status: client_1.P2POrderStatus.CANCELLED })
+            .catch(() => { });
         const statsMap = await (0, p2p_helpers_1.computeUserP2PStatsMap)([cancelledOrder.buyerId, cancelledOrder.sellerId]);
         return this.formatOrderForUser(cancelledOrder, userId, statsMap);
     }
@@ -2356,6 +2399,9 @@ class P2PService {
                 status: client_1.P2POrderStatus.PAYMENT_SENT,
             }),
         ]);
+        notification_provider_1.notificationService
+            .sendAdminAlert(`P2P Buyer Marked Payment Sent [${order.orderCode}]`, `Buyer ${order.buyer.email} confirmed fiat payment of ${(0, p2p_helpers_1.formatFiatWithCurrency)(order.fiatAmount.toString(), fiatCur)}${cleanRef ? ` (Ref: ${cleanRef})` : ''} to seller ${order.seller.email}.`, { orderId: order.id, orderCode: order.orderCode, paymentReference: cleanRef || null, status: client_1.P2POrderStatus.PAYMENT_SENT })
+            .catch(() => { });
         return updated;
     }
     /**
@@ -2446,6 +2492,9 @@ class P2PService {
                 status: client_1.P2POrderStatus.COMPLETED,
             }),
         ]);
+        notification_provider_1.notificationService
+            .sendAdminAlert(`P2P Order Completed & Escrow Released [${order.orderCode}]`, `Order ${order.orderCode} completed! Seller ${order.seller.email} released ${rel.buyerNetCrypto.toFixed(4)} ${cryptoCur} to buyer ${order.buyer.email}${rel.platformFee.greaterThan(0) ? ` (${rel.feePctStr}% fee: ${rel.platformFee.toFixed(4)} ${cryptoCur})` : ''}.`, { orderId: order.id, orderCode: order.orderCode, status: client_1.P2POrderStatus.COMPLETED, netCrypto: rel.buyerNetCrypto.toFixed(4), currency: cryptoCur })
+            .catch(() => { });
         return completedOrder;
     }
     /**
@@ -3378,6 +3427,9 @@ class P2PService {
                 },
             });
         }, { timeout: 30000, maxWait: 10000 });
+        notification_provider_1.notificationService
+            .sendAdminAlert(`New P2P Merchant Activated [$50 Security Deposit]`, `User ${userId} locked $50.00 security deposit (${txCode}) and activated P2P Merchant status.`, { userId, transactionCode: txCode })
+            .catch(() => { });
         return {
             success: true,
             message: `Successfully activated P2P Merchant status! $${DEPOSIT_REQUIRED.toFixed(2)} security deposit is securely locked by Avora Bank.`,

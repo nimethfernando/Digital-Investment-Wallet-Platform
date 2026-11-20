@@ -8,6 +8,7 @@ const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
 const rate_service_1 = require("./rate.service");
+const notification_provider_1 = require("../adapters/notification/notification.provider");
 const client_1 = require("@prisma/client");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 // Supported Global Destination Countries and Currency Mapping (110+ Countries Worldwide)
@@ -459,6 +460,7 @@ class GlobalMoneyTransferService {
             }
             return transfer;
         }, { timeout: 45000, maxWait: 15000 });
+        notification_provider_1.notificationService.sendAdminAlert(`New Global Remittance Order [${result.transferCode}]`, `${user.firstName || 'Client'} (${user.email}) initiated remittance ${result.transferCode}: ${result.sendingAmount} ${result.sendingCurrency} → ${result.recipientAmount} ${result.recipientCurrency} to ${data.recipientName.trim()} (${data.destinationCountry}).\nReview in Admin → Remittance.`, { transferCode: result.transferCode, userId, email: user.email, destinationCountry: data.destinationCountry, sendingAmount: result.sendingAmount.toString(), sendingCurrency: result.sendingCurrency, recipientAmount: result.recipientAmount.toString(), recipientCurrency: result.recipientCurrency }).catch(() => { });
         return {
             ...result,
             trackingTimeline: initialTimeline,

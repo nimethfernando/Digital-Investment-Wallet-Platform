@@ -5,6 +5,7 @@ const wallet_controller_1 = require("../controllers/wallet.controller");
 const withdrawal_controller_1 = require("../controllers/withdrawal.controller");
 const auth_1 = require("../middleware/auth");
 const rate_limiter_1 = require("../middleware/rate-limiter");
+const featureControl_service_1 = require("../services/featureControl.service");
 const router = (0, express_1.Router)();
 // Public BaaS / Visa Issuer Real-Time Authorization Webhook (Stripe Issuing / Interlace)
 router.post('/card/webhook/authorize', (req, res) => wallet_controller_1.walletController.authorizeCardWebhook(req, res));
@@ -16,19 +17,38 @@ router.get('/notifications', (req, res, next) => wallet_controller_1.walletContr
 router.post('/notifications/read', (req, res, next) => wallet_controller_1.walletController.markNotificationsRead(req, res, next));
 router.get('/transactions', (req, res, next) => wallet_controller_1.walletController.getTransactions(req, res, next));
 router.get('/deposit/instructions', (req, res, next) => wallet_controller_1.walletController.getDepositInstructions(req, res, next));
-router.post('/deposit', (req, res, next) => wallet_controller_1.walletController.submitDeposit(req, res, next));
+router.post('/deposit', featureControl_service_1.featureControlService.requireFeature('DEPOSITS', async (req) => {
+    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.currency);
+    await featureControl_service_1.featureControlService.assertGatewayEnabled(req.body?.depositMethod);
+    await featureControl_service_1.featureControlService.assertNetworkEnabled(req.body?.depositMethod);
+}), (req, res, next) => wallet_controller_1.walletController.submitDeposit(req, res, next));
 router.get('/deposits', (req, res, next) => wallet_controller_1.walletController.getDeposits(req, res, next));
-router.post('/razorpay/create-order', (req, res, next) => wallet_controller_1.walletController.createRazorpayOrder(req, res, next));
+router.post('/razorpay/create-order', featureControl_service_1.featureControlService.requireFeature('GATEWAY_RAZORPAY', async (req) => {
+    if (String(req.body?.purpose || '').toUpperCase().includes('CRYPTO')) {
+        await featureControl_service_1.featureControlService.assertFeatureEnabled('BUY_CRYPTO_ONRAMP');
+    }
+    else {
+        await featureControl_service_1.featureControlService.assertFeatureEnabled('DEPOSITS');
+    }
+    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.currency);
+    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.checkoutCurrency);
+}), (req, res, next) => wallet_controller_1.walletController.createRazorpayOrder(req, res, next));
 router.post('/razorpay/verify', (req, res, next) => wallet_controller_1.walletController.verifyRazorpayPayment(req, res, next));
-router.post('/swap', (req, res, next) => wallet_controller_1.walletController.executeSwap(req, res, next));
+router.post('/swap', featureControl_service_1.featureControlService.requireFeature('INSTANT_SWAP', async (req) => {
+    await featureControl_service_1.featureControlService.assertTradingPairEnabled(req.body?.fromCurrency, req.body?.toCurrency);
+}), (req, res, next) => wallet_controller_1.walletController.executeSwap(req, res, next));
 // Virtual Card Endpoints
 router.get('/card', (req, res, next) => wallet_controller_1.walletController.getCard(req, res, next));
-router.post('/card/reveal-session', (req, res, next) => wallet_controller_1.walletController.createCardRevealSession(req, res, next));
-router.post('/card/freeze', (req, res, next) => wallet_controller_1.walletController.toggleCardFreeze(req, res, next));
-router.post('/card/limits', (req, res, next) => wallet_controller_1.walletController.updateCardLimits(req, res, next));
-router.post('/card/settings', (req, res, next) => wallet_controller_1.walletController.updateCardSettings(req, res, next));
+router.post('/card/reveal-session', featureControl_service_1.featureControlService.requireFeature('VIRTUAL_CARDS'), (req, res, next) => wallet_controller_1.walletController.createCardRevealSession(req, res, next));
+router.post('/card/freeze', featureControl_service_1.featureControlService.requireFeature('VIRTUAL_CARDS'), (req, res, next) => wallet_controller_1.walletController.toggleCardFreeze(req, res, next));
+router.post('/card/limits', featureControl_service_1.featureControlService.requireFeature('VIRTUAL_CARDS'), (req, res, next) => wallet_controller_1.walletController.updateCardLimits(req, res, next));
+router.post('/card/settings', featureControl_service_1.featureControlService.requireFeature('VIRTUAL_CARDS'), (req, res, next) => wallet_controller_1.walletController.updateCardSettings(req, res, next));
 router.get('/card/transactions', (req, res, next) => wallet_controller_1.walletController.getCardTransactions(req, res, next));
 // Withdrawal shortcuts under /wallet
-router.post('/withdraw', rate_limiter_1.withdrawalRateLimiter, (req, res, next) => withdrawal_controller_1.withdrawalController.requestWithdrawal(req, res, next));
+router.post('/withdraw', rate_limiter_1.withdrawalRateLimiter, featureControl_service_1.featureControlService.requireFeature('WITHDRAWALS', async (req) => {
+    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.currency);
+    await featureControl_service_1.featureControlService.assertGatewayEnabled(req.body?.payoutMethod);
+    await featureControl_service_1.featureControlService.assertNetworkEnabled(req.body?.payoutDetails?.network || req.body?.payoutMethod);
+}), (req, res, next) => withdrawal_controller_1.withdrawalController.requestWithdrawal(req, res, next));
 router.get('/withdrawals', (req, res, next) => withdrawal_controller_1.withdrawalController.getWithdrawals(req, res, next));
 exports.default = router;

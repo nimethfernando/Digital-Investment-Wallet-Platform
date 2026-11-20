@@ -396,6 +396,7 @@ const syncBlogTokensAdmin = async (req, res, next) => {
 exports.syncBlogTokensAdmin = syncBlogTokensAdmin;
 const getAiPublisherConfig = async (req, res, next) => {
     try {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
         const status = await autoContent_service_1.autoContentService.getPublicAiStatus();
         res.json({ success: true, status });
     }
@@ -406,17 +407,22 @@ const getAiPublisherConfig = async (req, res, next) => {
 exports.getAiPublisherConfig = getAiPublisherConfig;
 const saveAiPublisherConfig = async (req, res, next) => {
     try {
-        const { openaiApiKey, geminiApiKey, finnhubApiKey, alphaVantageApiKey, autoPublishEnabled, autoPublishIntervalHours, autoPublishTopics, } = req.body;
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        const { openaiApiKey, geminiApiKey, finnhubApiKey, alphaVantageApiKey, clearOpenaiKey, clearGeminiKey, clearFinnhubKey, clearAlphaVantageKey, autoPublishEnabled, autoPublishIntervalHours, autoPublishTopics, } = req.body;
         const status = await autoContent_service_1.autoContentService.saveAiConfig({
             openaiApiKey,
             geminiApiKey,
             finnhubApiKey,
             alphaVantageApiKey,
+            clearOpenaiKey: Boolean(clearOpenaiKey),
+            clearGeminiKey: Boolean(clearGeminiKey),
+            clearFinnhubKey: Boolean(clearFinnhubKey),
+            clearAlphaVantageKey: Boolean(clearAlphaVantageKey),
             autoPublishEnabled,
             autoPublishIntervalHours,
             autoPublishTopics,
         });
-        res.json({ success: true, status });
+        res.json({ success: true, status, message: `Saved configuration. Active Engine: ${status.engineMode}` });
     }
     catch (err) {
         next(err);

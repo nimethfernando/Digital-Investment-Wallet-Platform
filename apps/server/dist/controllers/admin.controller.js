@@ -54,6 +54,8 @@ const otc_service_1 = require("../services/otc.service");
 const rate_service_1 = require("../services/rate.service");
 const investments_service_1 = require("../services/investments.service");
 const token_service_1 = require("../services/token.service");
+const liquidityRisk_service_1 = require("../services/liquidityRisk.service");
+const featureControl_service_1 = require("../services/featureControl.service");
 const wallet_controller_1 = require("./wallet.controller");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class AdminController {
@@ -918,42 +920,10 @@ class AdminController {
     async getInvestments(req, res, next) {
         try {
             await investments_service_1.investmentsService.ensureVentureSchema();
-            const [commitments, listings, inquiries] = await Promise.all([
+            // Fetch raw commitments & inquiries without non-nullable Prisma relation includes so an orphaned
+            // foreign key (e.g. a removed StartupListing or User) never triggers Prisma P2025/inconsistent-null errors.
+            const [rawCommitments, listings, rawInquiries] = await Promise.all([
                 prisma_1.prisma.investmentCommitment.findMany({
-                    include: {
-                        investor: {
-                            select: {
-                                id: true,
-                                email: true,
-                                firstName: true,
-                                lastName: true,
-                                phone: true,
-                                country: true,
-                            },
-                        },
-                        listing: {
-                            select: {
-                                id: true,
-                                slug: true,
-                                companyName: true,
-                                logoUrl: true,
-                                industry: true,
-                                stage: true,
-                                country: true,
-                                valuation: true,
-                                fundingTarget: true,
-                                expectedReturnPct: true,
-                                lockInMonths: true,
-                                startDate: true,
-                                deadline: true,
-                                maturityDate: true,
-                                performancePct: true,
-                                providerName: true,
-                                termsAndNotes: true,
-                                supportingDocuments: true,
-                            },
-                        },
-                    },
                     orderBy: { createdAt: 'desc' },
                 }),
                 prisma_1.prisma.startupListing.findMany({
@@ -961,18 +931,66 @@ class AdminController {
                 }),
                 prisma_1.prisma.investmentInquiry
                     .findMany({
-                    include: {
-                        investor: {
-                            select: { id: true, email: true, firstName: true, lastName: true, phone: true },
-                        },
-                        listing: {
-                            select: { id: true, companyName: true, slug: true },
-                        },
-                    },
                     orderBy: { createdAt: 'desc' },
                 })
                     .catch(() => []),
             ]);
+            const investorIds = Array.from(new Set([
+                ...rawCommitments.map((c) => c.investorUserId),
+                ...rawInquiries.map((inq) => inq.investorUserId),
+            ].filter(Boolean)));
+            const investors = investorIds.length > 0
+                ? await prisma_1.prisma.user
+                    .findMany({
+                    where: { id: { in: investorIds } },
+                    select: {
+                        id: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                        phone: true,
+                        country: true,
+                    },
+                })
+                    .catch(() => [])
+                : [];
+            const investorById = new Map(investors.map((u) => [u.id, u]));
+            const listingById = new Map(listings.map((l) => [l.id, l]));
+            const pickListingSummary = (l) => l
+                ? {
+                    id: l.id,
+                    slug: l.slug,
+                    companyName: l.companyName,
+                    logoUrl: l.logoUrl,
+                    industry: l.industry,
+                    stage: l.stage,
+                    country: l.country,
+                    valuation: l.valuation,
+                    fundingTarget: l.fundingTarget,
+                    expectedReturnPct: l.expectedReturnPct,
+                    lockInMonths: l.lockInMonths,
+                    startDate: l.startDate,
+                    deadline: l.deadline,
+                    maturityDate: l.maturityDate,
+                    performancePct: l.performancePct,
+                    providerName: l.providerName,
+                    termsAndNotes: l.termsAndNotes,
+                    supportingDocuments: l.supportingDocuments,
+                }
+                : null;
+            const commitments = rawCommitments.map((c) => ({
+                ...c,
+                investor: investorById.get(c.investorUserId) || null,
+                listing: pickListingSummary(listingById.get(c.listingId)),
+            }));
+            const inquiries = rawInquiries.map((inq) => {
+                const l = listingById.get(inq.listingId);
+                return {
+                    ...inq,
+                    investor: investorById.get(inq.investorUserId) || null,
+                    listing: l ? { id: l.id, companyName: l.companyName, slug: l.slug } : null,
+                };
+            });
             const invCodes = commitments.map((c) => c.investmentCode).filter(Boolean);
             const matchingLedgerTxs = invCodes.length > 0
                 ? await prisma_1.prisma.transaction
@@ -1765,7 +1783,7 @@ class AdminController {
                     { phone: { contains: query } },
                 ];
             }
-            const [users, total] = await Promise.all([
+            const [users, total, riskMetricsMap] = await Promise.all([
                 prisma_1.prisma.user.findMany({
                     where,
                     include: {
@@ -1786,11 +1804,13 @@ class AdminController {
                     take: limitNum,
                 }),
                 prisma_1.prisma.user.count({ where }),
+                liquidityRisk_service_1.liquidityRiskService.getUserRiskMetricsBatch().catch(() => new Map()),
             ]);
             const formatted = users.map((u) => {
                 const usdBal = u.wallet?.balances.find((b) => b.currency === 'USD')?.availableBalance?.toString() || '0.00';
                 const usdtBal = u.wallet?.balances.find((b) => b.currency === 'USDT')?.availableBalance?.toString() || '0.00';
                 const isLocked = !!(u.withdrawalLockedUntil && new Date() < u.withdrawalLockedUntil);
+                const rm = riskMetricsMap.get(u.id) || null;
                 return {
                     id: u.id,
                     email: u.email,
@@ -1818,7 +1838,9 @@ class AdminController {
                         currency: b.currency,
                         available: b.availableBalance.toString(),
                         locked: b.lockedPrincipal.toString(),
+                        pending: b.pendingSettlement.toString(),
                     })) || [],
+                    riskMetrics: rm,
                     counts: u._count,
                     createdAt: u.createdAt,
                 };
@@ -1873,11 +1895,17 @@ class AdminController {
             if (!user) {
                 return res.status(404).json({ success: false, message: 'User not found' });
             }
+            const riskMetricsMap = await liquidityRisk_service_1.liquidityRiskService.getUserRiskMetricsBatch().catch(() => new Map());
+            const pendingSwaps = await prisma_1.prisma.swapRequest
+                .findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 20 })
+                .catch(() => []);
             res.json({
                 success: true,
                 data: {
                     ...user,
                     accountNumber: (0, p2p_service_1.generateAvoraAccountNumber)(user.id),
+                    riskMetrics: riskMetricsMap.get(id) || null,
+                    swapRequests: pendingSwaps,
                 },
             });
         }
@@ -2309,6 +2337,7 @@ class AdminController {
                 p2p_fee_percent: configMap['p2p_fee_percent'] || '0.0',
                 p2p_security_deposit_usd: configMap['p2p_security_deposit_usd'] || '50',
                 p2p_daily_limit_usd: configMap['p2p_daily_limit_usd'] || '5000',
+                enable_virtual_cards: configMap['enable_virtual_cards'] || 'false',
                 virtual_card_issuance_fee: configMap['virtual_card_issuance_fee'] || '10.00',
                 avr_token_price_usd: configMap['avr_token_price_usd'] || '0.10',
                 avr_lockin_days: configMap['avr_lockin_days'] || '180',
@@ -2368,6 +2397,7 @@ class AdminController {
                 'p2p_fee_percent',
                 'p2p_security_deposit_usd',
                 'p2p_daily_limit_usd',
+                'enable_virtual_cards',
                 'virtual_card_issuance_fee',
                 'avr_token_price_usd',
                 'avr_lockin_days',
@@ -2391,6 +2421,8 @@ class AdminController {
                         group = 'OTC';
                     if (key.startsWith('p2p_'))
                         group = 'P2P';
+                    if (key === 'enable_virtual_cards' || key.startsWith('virtual_card_'))
+                        group = 'CARDS';
                     if (key.startsWith('avr_'))
                         group = 'TOKEN';
                     await prisma_1.prisma.cmsSetting.upsert({
@@ -2613,6 +2645,9 @@ class AdminController {
                     { senderName: { contains: query } },
                     { recipientName: { contains: query } },
                     { recipientAccount: { contains: query } },
+                    { recipientBankName: { contains: query } },
+                    { recipientBicSwift: { contains: query } },
+                    { transferReason: { contains: query } },
                     { destinationCountry: { contains: query } },
                 ];
             }
@@ -2621,7 +2656,15 @@ class AdminController {
                     where,
                     include: {
                         user: {
-                            select: { id: true, email: true, firstName: true, lastName: true },
+                            select: {
+                                id: true,
+                                email: true,
+                                firstName: true,
+                                lastName: true,
+                                kycStatus: true,
+                                phone: true,
+                                country: true,
+                            },
                         },
                     },
                     orderBy: { createdAt: 'desc' },
@@ -3172,11 +3215,16 @@ class AdminController {
             const id = String(req.params.id);
             const inv = await prisma_1.prisma.investmentCommitment.findUnique({
                 where: { id },
-                include: { listing: { select: { id: true, companyName: true, verifiedFundsRaised: true, investorCount: true } } },
             });
             if (!inv) {
                 return res.status(404).json({ success: false, message: 'Commitment not found' });
             }
+            const invListing = await prisma_1.prisma.startupListing
+                .findUnique({
+                where: { id: inv.listingId },
+                select: { id: true, companyName: true },
+            })
+                .catch(() => null);
             const linkedTx = await prisma_1.prisma.transaction.findFirst({
                 where: {
                     settlementReference: inv.investmentCode,
@@ -3203,7 +3251,7 @@ class AdminController {
                     action: 'DELETE_MOCK_INVESTMENT_COMMITMENT',
                     entity: 'InvestmentCommitment',
                     entityId: id,
-                    details: `Removed display/mock commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) from ${inv.listing?.companyName || inv.listingId}.`,
+                    details: `Removed display/mock commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) from ${invListing?.companyName || inv.listingId}.`,
                 },
             });
             res.json({
@@ -3774,8 +3822,10 @@ class AdminController {
                 orderBy: { createdAt: 'asc' },
             }),
         ]);
+        const last72Hours = new Date(now.getTime() - 72 * 60 * 60 * 1000);
         await otc_service_1.otcService.ensureOtcSchema();
-        const [activeAndDisputedOtcTradesList, underReviewOtcDesksList, pendingP2PAppsList, openOtcInquiriesList] = await Promise.all([
+        await liquidityRisk_service_1.liquidityRiskService.ensureSchema().catch(() => { });
+        const [activeAndDisputedOtcTradesList, underReviewOtcDesksList, pendingP2PAppsList, openOtcInquiriesList, activeP2POrdersList, recentSwapsList, recentP2PTransfersList, recentP2POffersList, pendingVentureInquiriesList, pendingSwapRequestsList,] = await Promise.all([
             prisma_1.prisma.otcTrade.findMany({
                 where: { status: { in: ['DISPUTED', 'IN_PROGRESS'] } },
                 include: {
@@ -3808,6 +3858,89 @@ class AdminController {
                     messages: { orderBy: { createdAt: 'desc' }, take: 1 },
                 },
                 orderBy: { updatedAt: 'desc' },
+            })
+                .catch(() => []),
+            prisma_1.prisma.p2POrder
+                .findMany({
+                where: {
+                    status: {
+                        in: [
+                            client_1.P2POrderStatus.PENDING,
+                            client_1.P2POrderStatus.ACCEPTED,
+                            client_1.P2POrderStatus.PENDING_PAYMENT,
+                            client_1.P2POrderStatus.PAYMENT_SENT,
+                            client_1.P2POrderStatus.SELLER_CONFIRMING,
+                        ],
+                    },
+                },
+                include: {
+                    buyer: { select: { id: true, email: true, firstName: true, lastName: true } },
+                    seller: { select: { id: true, email: true, firstName: true, lastName: true } },
+                    offer: { select: { fiatCurrency: true, cryptoCurrency: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 50,
+            })
+                .catch(() => []),
+            prisma_1.prisma.transaction
+                .findMany({
+                where: {
+                    type: client_1.TransactionType.EXCHANGE_BUY,
+                    transactionCode: { startsWith: 'TX-SWAP-' },
+                    createdAt: { gte: last72Hours },
+                },
+                include: {
+                    user: { select: { id: true, email: true, firstName: true, lastName: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 25,
+            })
+                .catch(() => []),
+            prisma_1.prisma.transaction
+                .findMany({
+                where: {
+                    type: client_1.TransactionType.P2P_TRANSFER_OUT,
+                    createdAt: { gte: last72Hours },
+                },
+                include: {
+                    user: { select: { id: true, email: true, firstName: true, lastName: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 25,
+            })
+                .catch(() => []),
+            prisma_1.prisma.p2POffer
+                .findMany({
+                where: {
+                    status: client_1.P2POfferStatus.OPEN,
+                    createdAt: { gte: last72Hours },
+                },
+                include: {
+                    user: { select: { id: true, email: true, firstName: true, lastName: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 25,
+            })
+                .catch(() => []),
+            prisma_1.prisma.investmentInquiry
+                .findMany({
+                where: { status: 'PENDING' },
+                include: {
+                    investor: { select: { id: true, email: true, firstName: true, lastName: true } },
+                    listing: { select: { companyName: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 25,
+            })
+                .catch(() => []),
+            prisma_1.prisma.swapRequest
+                .findMany({
+                where: { status: 'PENDING_APPROVAL' },
+                include: {
+                    user: { select: { id: true, email: true, firstName: true, lastName: true } },
+                },
+                orderBy: { createdAt: 'asc' },
+                take: 50,
             })
                 .catch(() => []),
         ]);
@@ -4420,6 +4553,205 @@ class AdminController {
             pendingRequests.push(item);
             alerts.push(item);
         }
+        // Active & New P2P Orders (PENDING, PENDING_PAYMENT, PAYMENT_SENT, etc.)
+        for (const ord of activeP2POrdersList) {
+            const buyerName = `${ord.buyer?.firstName || ''} ${ord.buyer?.lastName || ''}`.trim() || ord.buyer?.email || 'Buyer';
+            const cryptoCur = (ord.cryptoCurrency || ord.offer?.cryptoCurrency || 'USDT').toUpperCase();
+            const fiatCur = (ord.fiatCurrency || ord.offer?.fiatCurrency || 'USD').toUpperCase();
+            const decPlaces = ['BTC', 'ETH'].includes(cryptoCur) ? 6 : 2;
+            const amountFixed = new decimal_js_1.default(ord.cryptoAmount.toString()).toFixed(decPlaces);
+            const age = this.computeAgeInfo(ord.createdAt, now, 2);
+            const item = {
+                id: `P2P_ORD-${ord.id}`,
+                entityId: ord.id,
+                code: ord.orderCode,
+                category: 'P2P_ORDER',
+                typeLabel: 'Active P2P Order',
+                title: `P2P Order (${ord.status}): ${ord.orderCode} (${amountFixed} ${cryptoCur})`,
+                description: `${buyerName} (${ord.buyer?.email || ''}) ↔ ${ord.seller?.email || 'Seller'} (${(0, p2p_helpers_1.formatFiatWithCurrency)(ord.fiatAmount.toString(), fiatCur)})`,
+                customerId: ord.buyerId,
+                customerName: buyerName,
+                customerEmail: ord.buyer?.email || '',
+                amount: amountFixed,
+                currency: cryptoCur,
+                status: ord.status,
+                targetTab: 'p2p',
+                requestDate: ord.createdAt.toISOString(),
+                createdDate: ord.createdAt.toISOString(),
+                ageMs: age.ageMs,
+                ageHours: age.ageHours,
+                ageDays: age.ageDays,
+                ageLabel: age.ageLabel,
+                isOverdue: age.isOverdue,
+                urgency: ord.status === 'PAYMENT_SENT' ? 'HIGH' : 'NORMAL',
+                priorityRank: ord.status === 'PAYMENT_SENT' ? 1 : 2,
+            };
+            pendingRequests.push(item);
+            alerts.push(item);
+        }
+        // Pending Venture Inquiries
+        for (const vinq of pendingVentureInquiriesList) {
+            const invName = `${vinq.investor?.firstName || ''} ${vinq.investor?.lastName || ''}`.trim() || vinq.investor?.email || 'Investor';
+            const age = this.computeAgeInfo(vinq.createdAt, now, 24);
+            const item = {
+                id: `VINQ-${vinq.id}`,
+                entityId: vinq.id,
+                code: `VINQ-${vinq.id.slice(0, 8).toUpperCase()}`,
+                category: 'VENTURE_INQUIRY',
+                typeLabel: 'Venture Inquiry',
+                title: `Startup Inquiry (${vinq.listing?.companyName || 'Venture'}): ${vinq.subject}`,
+                description: `${invName}: "${String(vinq.message || '').slice(0, 120)}"`,
+                customerId: vinq.investorUserId,
+                customerName: invName,
+                customerEmail: vinq.investor?.email || '',
+                amount: null,
+                currency: null,
+                status: vinq.status,
+                targetTab: 'investments',
+                requestDate: vinq.createdAt.toISOString(),
+                createdDate: vinq.createdAt.toISOString(),
+                ageMs: age.ageMs,
+                ageHours: age.ageHours,
+                ageDays: age.ageDays,
+                ageLabel: age.ageLabel,
+                isOverdue: age.isOverdue,
+                urgency: age.isOverdue ? 'OVERDUE' : 'HIGH',
+                priorityRank: 2,
+            };
+            pendingRequests.push(item);
+            alerts.push(item);
+        }
+        // Pending High-Risk / Large Currency Swap Approvals
+        for (const sr of pendingSwapRequestsList) {
+            const custName = `${sr.user?.firstName || ''} ${sr.user?.lastName || ''}`.trim() || sr.user?.email || 'Client';
+            const fromUsd = new decimal_js_1.default(sr.fromAmountUsd?.toString() || '0').toFixed(2);
+            const estPnl = new decimal_js_1.default(sr.estPlatformPnlUsd?.toString() || '0').toFixed(2);
+            const age = this.computeAgeInfo(sr.createdAt, now, 4);
+            const item = {
+                id: `SWREQ-${sr.id}`,
+                entityId: sr.id,
+                code: sr.requestCode,
+                category: 'SWAP_APPROVAL',
+                typeLabel: 'Swap Risk Approval',
+                title: `Swap Approval: ${sr.fromCurrency} -> ${sr.toCurrency} ($${fromUsd})`,
+                description: `${custName} • ${sr.riskReason || 'Manual risk review required'} • Est P&L Impact: $${estPnl}`,
+                customerId: sr.userId,
+                customerName: custName,
+                customerEmail: sr.user?.email || '',
+                amount: fromUsd,
+                currency: sr.fromCurrency,
+                status: sr.status,
+                targetTab: 'liquidity',
+                requestDate: sr.createdAt.toISOString(),
+                createdDate: sr.createdAt.toISOString(),
+                ageMs: age.ageMs,
+                ageHours: age.ageHours,
+                ageDays: age.ageDays,
+                ageLabel: age.ageLabel,
+                isOverdue: age.isOverdue,
+                urgency: 'HIGH',
+                priorityRank: 1,
+            };
+            pendingRequests.push(item);
+            alerts.push(item);
+        }
+        // Recent Instant Currency Swaps (72h activity visibility)
+        for (const sw of recentSwapsList) {
+            const custName = `${sw.user?.firstName || ''} ${sw.user?.lastName || ''}`.trim() || sw.user?.email || 'Client';
+            const cur = (sw.currency || 'USD').toUpperCase();
+            const decPlaces = ['BTC', 'ETH'].includes(cur) ? 6 : 2;
+            const amtFixed = new decimal_js_1.default(sw.amount.toString()).toFixed(decPlaces);
+            const age = this.computeAgeInfo(sw.createdAt, now, 9999);
+            const item = {
+                id: `SWAP-${sw.id}`,
+                entityId: sw.id,
+                code: sw.transactionCode,
+                category: 'CURRENCY_SWAP',
+                typeLabel: 'Instant Swap',
+                title: `Currency Swap: ${sw.transactionCode} (+${amtFixed} ${cur})`,
+                description: `${custName} • ${sw.notes || 'Instant OTC Currency Swap'}`,
+                customerId: sw.userId,
+                customerName: custName,
+                customerEmail: sw.user?.email || '',
+                amount: amtFixed,
+                currency: cur,
+                status: sw.status,
+                targetTab: 'users',
+                requestDate: sw.createdAt.toISOString(),
+                createdDate: sw.createdAt.toISOString(),
+                ageMs: age.ageMs,
+                ageHours: age.ageHours,
+                ageDays: age.ageDays,
+                ageLabel: age.ageLabel,
+                isOverdue: false,
+                urgency: 'NORMAL',
+                priorityRank: 3,
+            };
+            alerts.push(item);
+        }
+        // Recent Avora P2P Internal Transfers (72h)
+        for (const ptr of recentP2PTransfersList) {
+            const custName = `${ptr.user?.firstName || ''} ${ptr.user?.lastName || ''}`.trim() || ptr.user?.email || 'Client';
+            const cur = (ptr.currency || 'USD').toUpperCase();
+            const decPlaces = ['BTC', 'ETH'].includes(cur) ? 6 : 2;
+            const amtFixed = new decimal_js_1.default(ptr.amount.toString()).toFixed(decPlaces);
+            const age = this.computeAgeInfo(ptr.createdAt, now, 9999);
+            alerts.push({
+                id: `P2PX-${ptr.id}`,
+                entityId: ptr.id,
+                code: ptr.transactionCode,
+                category: 'P2P_TRANSFER',
+                typeLabel: 'Avora P2P Transfer',
+                title: `P2P Transfer: ${ptr.transactionCode} (${amtFixed} ${cur})`,
+                description: `${custName} • ${ptr.notes || 'Avora internal transfer'}`,
+                customerId: ptr.userId,
+                customerName: custName,
+                customerEmail: ptr.user?.email || '',
+                amount: amtFixed,
+                currency: cur,
+                status: ptr.status,
+                targetTab: 'p2p',
+                requestDate: ptr.createdAt.toISOString(),
+                createdDate: ptr.createdAt.toISOString(),
+                ageMs: age.ageMs,
+                ageHours: age.ageHours,
+                ageDays: age.ageDays,
+                ageLabel: age.ageLabel,
+                isOverdue: false,
+                urgency: 'NORMAL',
+                priorityRank: 3,
+            });
+        }
+        // Recent New P2P Marketplace Offers (72h)
+        for (const off of recentP2POffersList) {
+            const merchantName = `${off.user?.firstName || ''} ${off.user?.lastName || ''}`.trim() || off.user?.email || 'Merchant';
+            const age = this.computeAgeInfo(off.createdAt, now, 9999);
+            alerts.push({
+                id: `P2POFF-${off.id}`,
+                entityId: off.id,
+                code: off.offerCode,
+                category: 'P2P_OFFER',
+                typeLabel: 'New P2P Offer',
+                title: `New P2P ${off.side} Offer: ${off.offerCode} (${new decimal_js_1.default(off.totalAmount.toString()).toFixed(2)} ${off.cryptoCurrency})`,
+                description: `${merchantName} (${off.user?.email || ''}) @ ${new decimal_js_1.default(off.price.toString()).toFixed(2)} ${off.fiatCurrency}`,
+                customerId: off.userId,
+                customerName: merchantName,
+                customerEmail: off.user?.email || '',
+                amount: new decimal_js_1.default(off.totalAmount.toString()).toFixed(2),
+                currency: off.cryptoCurrency,
+                status: off.status,
+                targetTab: 'p2p',
+                requestDate: off.createdAt.toISOString(),
+                createdDate: off.createdAt.toISOString(),
+                ageMs: age.ageMs,
+                ageHours: age.ageHours,
+                ageDays: age.ageDays,
+                ageLabel: age.ageLabel,
+                isOverdue: false,
+                urgency: 'NORMAL',
+                priorityRank: 3,
+            });
+        }
         const sortByUrgencyThenAge = (a, b) => {
             if (a.priorityRank !== b.priorityRank)
                 return a.priorityRank - b.priorityRank;
@@ -4448,6 +4780,12 @@ class AdminController {
             pendingP2PApplicationsCount: pendingP2PAppsList.length,
             disputedOtcCount: activeAndDisputedOtcTradesList.filter((t) => t.status === 'DISPUTED').length,
             activeOtcTradesCount: activeAndDisputedOtcTradesList.length,
+            activeP2POrdersCount: activeP2POrdersList.length,
+            recentSwapsCount: recentSwapsList.length,
+            recentP2PTransfersCount: recentP2PTransfersList.length,
+            recentP2POffersCount: recentP2POffersList.length,
+            pendingVentureInquiriesCount: pendingVentureInquiriesList.length,
+            pendingSwapsCount: pendingSwapRequestsList.length,
             newInquiriesCount: pendingInquiriesList.length,
             totalPendingCount,
             totalActionItems: pendingRequests.length,
@@ -5143,7 +5481,7 @@ class AdminController {
                 kycStatus: true,
                 status: true,
             };
-            const [ledgerTxs, deposits, withdrawals, packages, commitments, p2pOrders, otcTrades, remittances,] = await Promise.all([
+            const [ledgerTxs, deposits, withdrawals, packages, rawCommitments, p2pOrders, otcTrades, remittances,] = await Promise.all([
                 prisma_1.prisma.transaction.findMany({
                     where: {
                         OR: [
@@ -5216,21 +5554,6 @@ class AdminController {
                             { id: q },
                         ],
                     },
-                    include: {
-                        investor: { select: userSelect },
-                        listing: {
-                            select: {
-                                id: true,
-                                slug: true,
-                                companyName: true,
-                                industry: true,
-                                stage: true,
-                                country: true,
-                                lockInMonths: true,
-                                maturityDate: true,
-                            },
-                        },
-                    },
                     orderBy: { createdAt: 'desc' },
                     take: 15,
                 }),
@@ -5274,14 +5597,55 @@ class AdminController {
             const linkedInvCodes = Array.from(new Set(ledgerTxs
                 .map((t) => t.settlementReference)
                 .filter((r) => Boolean(r && /^INV-/i.test(r)))));
-            const linkedCommitments = linkedInvCodes.length > 0
-                ? await prisma_1.prisma.investmentCommitment.findMany({
+            const rawLinkedCommitments = linkedInvCodes.length > 0
+                ? await prisma_1.prisma.investmentCommitment
+                    .findMany({
                     where: { investmentCode: { in: linkedInvCodes } },
-                    include: {
-                        listing: { select: { id: true, companyName: true, industry: true, stage: true, maturityDate: true } },
-                    },
                 })
+                    .catch(() => [])
                 : [];
+            const searchListingIds = Array.from(new Set([...rawCommitments, ...rawLinkedCommitments]
+                .map((c) => c.listingId)
+                .filter(Boolean)));
+            const searchInvestorIds = Array.from(new Set(rawCommitments.map((c) => c.investorUserId).filter(Boolean)));
+            const [searchListings, searchInvestors] = await Promise.all([
+                searchListingIds.length > 0
+                    ? prisma_1.prisma.startupListing
+                        .findMany({
+                        where: { id: { in: searchListingIds } },
+                        select: {
+                            id: true,
+                            slug: true,
+                            companyName: true,
+                            industry: true,
+                            stage: true,
+                            country: true,
+                            lockInMonths: true,
+                            maturityDate: true,
+                        },
+                    })
+                        .catch(() => [])
+                    : Promise.resolve([]),
+                searchInvestorIds.length > 0
+                    ? prisma_1.prisma.user
+                        .findMany({
+                        where: { id: { in: searchInvestorIds } },
+                        select: userSelect,
+                    })
+                        .catch(() => [])
+                    : Promise.resolve([]),
+            ]);
+            const searchListingMap = new Map(searchListings.map((l) => [l.id, l]));
+            const searchInvestorMap = new Map(searchInvestors.map((u) => [u.id, u]));
+            const commitments = rawCommitments.map((c) => ({
+                ...c,
+                investor: searchInvestorMap.get(c.investorUserId) || null,
+                listing: searchListingMap.get(c.listingId) || null,
+            }));
+            const linkedCommitments = rawLinkedCommitments.map((c) => ({
+                ...c,
+                listing: searchListingMap.get(c.listingId) || null,
+            }));
             const invByCode = new Map(linkedCommitments.map((c) => [c.investmentCode, c]));
             // Cross-check if ledgerTxs have sibling entries with same settlementReference
             const allRefs = Array.from(new Set([
@@ -5685,6 +6049,233 @@ class AdminController {
         }
         catch (err) {
             next(err);
+        }
+    }
+    /**
+     * GET /api/v1/admin/liquidity-risk
+     * Real-time Platform Liquidity, Exposure, Cost-Basis P&L Risk, Pending Swap Queue & Audit Trail
+     */
+    async getLiquidityRiskOverview(req, res, next) {
+        try {
+            const data = await liquidityRisk_service_1.liquidityRiskService.getLiquidityAndExposureOverview();
+            res.json({ success: true, data });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/liquidity-risk/config
+     * Update Swap Permissions, Disabled Pairs, Risk Limits & Per-Asset Thresholds
+     */
+    async updateLiquidityRiskConfig(req, res, next) {
+        try {
+            const adminId = req.user.id;
+            const updated = await liquidityRisk_service_1.liquidityRiskService.updateConfig(req.body || {}, adminId);
+            res.json({
+                success: true,
+                message: 'Liquidity & Swap Risk Governance rules updated.',
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/liquidity-risk/swaps/:id/approve
+     */
+    async approveSwapRequest(req, res, next) {
+        try {
+            const adminId = req.user.id;
+            const swapId = String(req.params.id);
+            const adminNotes = req.body?.adminNotes || req.body?.notes || req.body?.reason;
+            const result = await liquidityRisk_service_1.liquidityRiskService.approveQueuedSwap(swapId, adminId, adminNotes);
+            res.json({
+                success: true,
+                message: `Swap ${result.swapRequest.requestCode} approved and settled (${result.execution.transactionCode}).`,
+                data: result,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/liquidity-risk/swaps/:id/reject
+     */
+    async rejectSwapRequest(req, res, next) {
+        try {
+            const adminId = req.user.id;
+            const swapId = String(req.params.id);
+            const reason = req.body?.reason || req.body?.notes || req.body?.adminNotes;
+            const updated = await liquidityRisk_service_1.liquidityRiskService.rejectQueuedSwap(swapId, adminId, reason);
+            res.json({
+                success: true,
+                message: `Swap ${updated.requestCode} rejected and held balance unlocked to user.`,
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/users/:id/swap-override
+     */
+    async updateUserSwapOverride(req, res, next) {
+        try {
+            const adminId = req.user.id;
+            const targetUserId = String(req.params.id);
+            const override = req.body || {};
+            const updated = await liquidityRisk_service_1.liquidityRiskService.updateConfig({ perUserOverrides: { [targetUserId]: override } }, adminId);
+            res.json({
+                success: true,
+                message: 'User-level swap risk override saved.',
+                data: updated.perUserOverrides[targetUserId] || null,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * GET /api/v1/admin/feature-controls
+     * Central Feature Control Registry + Summary + Change Audit History
+     */
+    async getFeatureControls(req, res, next) {
+        try {
+            const [overview, history] = await Promise.all([
+                featureControl_service_1.featureControlService.getAllFeatures(),
+                featureControl_service_1.featureControlService.getHistory(150),
+            ]);
+            res.json({
+                success: true,
+                data: {
+                    ...overview,
+                    history,
+                },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/feature-controls/toggle
+     * Toggle any platform feature, payment gateway, currency, blockchain network, or trading pair ON/OFF
+     * Enforces reason logging, admin attribution, and sensitive feature confirmation + 2FA
+     */
+    async toggleFeatureControl(req, res, next) {
+        try {
+            const adminId = req.user.id;
+            const { featureKey, enabled, reason, confirmedSensitive, customMeta } = req.body || {};
+            if (!featureKey) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'featureKey is required.',
+                });
+            }
+            if (!reason || String(reason).trim().length < 3) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'A clear reason (at least 3 characters) is required for the Admin Audit Log.',
+                });
+            }
+            const { featureMap } = await featureControl_service_1.featureControlService.getAllFeatures();
+            const targetFeature = featureMap[String(featureKey).trim().toUpperCase()];
+            const isSensitive = targetFeature !== undefined
+                ? targetFeature.isSensitive
+                : customMeta?.isSensitive !== undefined
+                    ? Boolean(customMeta.isSensitive)
+                    : true;
+            if (isSensitive && !confirmedSensitive) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'SENSITIVE_CONFIRMATION_REQUIRED',
+                    message: `Sensitive feature "${targetFeature?.label || featureKey}" requires explicit confirmation before toggling.`,
+                });
+            }
+            const result = await featureControl_service_1.featureControlService.toggleFeature({
+                featureKey,
+                enabled: Boolean(enabled),
+                reason: String(reason).trim(),
+                adminId,
+                customMeta,
+            });
+            const [overview, history] = await Promise.all([
+                featureControl_service_1.featureControlService.getAllFeatures(),
+                featureControl_service_1.featureControlService.getHistory(150),
+            ]);
+            res.json({
+                success: true,
+                message: `${result.feature.label} switched ${result.feature.enabled ? 'ON (ENABLED)' : 'OFF (DISABLED)'}. Recorded in Admin Audit Logs.`,
+                data: {
+                    ...result,
+                    ...overview,
+                    history,
+                },
+            });
+        }
+        catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: err.message || 'Failed to update feature control.',
+            });
+        }
+    }
+    /**
+     * POST /api/v1/admin/feature-controls/bulk-toggle
+     * Emergency Playbook bulk switch (e.g. Freeze Outbound Funds, Pause Trading Engines, Pause On-Chain Rails, or Restore All)
+     */
+    async bulkToggleFeatureControls(req, res, next) {
+        try {
+            const adminId = req.user.id;
+            const { featureKeys, enabled, reason, confirmedSensitive } = req.body || {};
+            if (!Array.isArray(featureKeys) || featureKeys.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'featureKeys array is required.',
+                });
+            }
+            if (!reason || String(reason).trim().length < 3) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'A clear reason (at least 3 characters) is required for the Admin Audit Log.',
+                });
+            }
+            if (!confirmedSensitive) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'SENSITIVE_CONFIRMATION_REQUIRED',
+                    message: 'Emergency bulk feature changes require explicit confirmation.',
+                });
+            }
+            const result = await featureControl_service_1.featureControlService.bulkToggleFeatures({
+                featureKeys,
+                enabled: Boolean(enabled),
+                reason: String(reason).trim(),
+                adminId,
+            });
+            const [overview, history] = await Promise.all([
+                featureControl_service_1.featureControlService.getAllFeatures(),
+                featureControl_service_1.featureControlService.getHistory(150),
+            ]);
+            res.json({
+                success: true,
+                message: `${result.updatedCount} feature(s) switched ${enabled ? 'ON (ENABLED)' : 'OFF (DISABLED)'} and logged.`,
+                data: {
+                    ...result,
+                    ...overview,
+                    history,
+                },
+            });
+        }
+        catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: err.message || 'Failed to execute bulk feature control update.',
+            });
         }
     }
 }

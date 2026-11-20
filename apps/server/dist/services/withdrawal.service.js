@@ -51,7 +51,7 @@ class WithdrawalService {
         if (isStrict && today.getUTCDate() !== allowedDay) {
             throw this.validationError(`Withdrawals may only be submitted on the ${allowedDay}st of each month. Current date: ${today.toISOString().split('T')[0]}`);
         }
-        let effectiveWithdrawalType = params.withdrawalType;
+        let effectiveWithdrawalType = params.withdrawalType === 'PRINCIPAL_RELEASE' ? 'PRINCIPAL_RELEASE' : 'MONTHLY_RETURNS';
         let effectivePackageId = params.packageId || undefined;
         // 4. Validate & Smartly Resolve Principal Release vs Available Balance
         if (effectiveWithdrawalType === 'PRINCIPAL_RELEASE') {
@@ -273,6 +273,7 @@ class WithdrawalService {
         </div>
       `,
         }).catch(() => { });
+        notification_provider_1.notificationService.sendAdminAlert(`New Withdrawal Request [${requestCode}]`, `${user.firstName || 'Client'} (${user.email}) requested withdrawal of ${amountDec.toFixed(4)} ${currency} via ${payoutDesc} (Source: ${normalizedDetails.sourceBalanceLabel}).\nReview & settle in Admin → Withdrawals.`, { requestCode, userId, email: user.email, amount: amountDec.toFixed(4), currency, payoutMethod: params.payoutMethod }).catch(() => { });
         return result;
     }
     /**

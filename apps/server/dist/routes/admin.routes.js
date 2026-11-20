@@ -96,4 +96,14 @@ router.post('/system/settings', (0, auth_1.requireRole)([client_1.Role.ADMIN]), 
 // Platform Analytics Overview & Real-Time Admin Notifications
 router.get('/analytics/overview', (req, res, next) => admin_controller_1.adminController.getPlatformOverviewAnalytics(req, res, next));
 router.get('/notifications', (req, res, next) => admin_controller_1.adminController.getAdminNotifications(req, res, next));
+// Real-Time Liquidity, Exposure & Swap Risk Governance
+router.get('/liquidity-risk', (req, res, next) => admin_controller_1.adminController.getLiquidityRiskOverview(req, res, next));
+router.post('/liquidity-risk/config', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateLiquidityRiskConfig(req, res, next));
+router.post('/liquidity-risk/swaps/:id/approve', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.approveSwapRequest(req, res, next));
+router.post('/liquidity-risk/swaps/:id/reject', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.rejectSwapRequest(req, res, next));
+router.post('/users/:id/swap-override', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateUserSwapOverride(req, res, next));
+// Central Feature Control & Emergency Kill-Switches
+router.get('/feature-controls', (req, res, next) => admin_controller_1.adminController.getFeatureControls(req, res, next));
+router.post('/feature-controls/toggle', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.toggleFeatureControl(req, res, next));
+router.post('/feature-controls/bulk-toggle', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.bulkToggleFeatureControls(req, res, next));
 exports.default = router;

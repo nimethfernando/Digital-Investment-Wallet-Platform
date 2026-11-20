@@ -20,7 +20,7 @@ const ticket_routes_1 = __importDefault(require("./ticket.routes"));
 const router = (0, express_1.Router)();
 router.use('/auth', auth_routes_1.default);
 router.use('/cms', cms_routes_1.default);
-router.use('/upload', upload_routes_1.default);
+router.use(['/upload', '/uploads'], upload_routes_1.default);
 router.use('/wallet', wallet_routes_1.default);
 router.use('/packages', package_routes_1.default);
 router.use('/admin', admin_routes_1.default);

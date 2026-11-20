@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.kycService = exports.KycService = void 0;
 const client_1 = require("@prisma/client");
 const prisma_1 = require("../lib/prisma");
+const notification_provider_1 = require("../adapters/notification/notification.provider");
 class KycService {
     /**
      * Submit KYC document for identity verification
@@ -34,6 +35,12 @@ class KycService {
                 kycStatus: client_1.KycStatus.PENDING,
             },
         });
+        notification_provider_1.notificationService.sendEmail({
+            to: user.email,
+            subject: `KYC Documents Received - Pending Review`,
+            html: `<p>Hello ${user.firstName || 'Client'},</p><p>We received your <strong>${input.documentType}</strong> verification submission. Our Compliance Team will review your documents shortly.</p>`,
+        }).catch(() => { });
+        notification_provider_1.notificationService.sendAdminAlert(`New KYC Submission [${document.id.slice(0, 8).toUpperCase()}]`, `${user.firstName || 'Client'} (${user.email}) submitted ${input.documentType} documents for KYC identity verification.\nReview in Admin → KYC Approvals.`, { documentId: document.id, userId, email: user.email, documentType: input.documentType }).catch(() => { });
         return {
             documentId: document.id,
             documentType: document.documentType,

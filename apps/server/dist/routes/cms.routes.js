@@ -3,9 +3,19 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const cms_controller_1 = require("../controllers/cms.controller");
 const auth_1 = require("../middleware/auth");
+const featureControl_service_1 = require("../services/featureControl.service");
 const router = (0, express_1.Router)();
 // Public & User CMS/Ticket routes
 router.get('/settings', cms_controller_1.getSettings);
+router.get('/feature-flags', async (req, res) => {
+    try {
+        const data = await featureControl_service_1.featureControlService.getAllFeatures();
+        res.json({ success: true, data });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, message: err.message || 'Failed to load feature flags' });
+    }
+});
 router.get('/variables', cms_controller_1.getPlatformVariables);
 router.get('/sections/:page', cms_controller_1.getPageSections);
 router.get('/blogs', cms_controller_1.getBlogPosts);

@@ -4,11 +4,12 @@ const express_1 = require("express");
 const auth_controller_1 = require("../controllers/auth.controller");
 const auth_1 = require("../middleware/auth");
 const rate_limiter_1 = require("../middleware/rate-limiter");
+const featureControl_service_1 = require("../services/featureControl.service");
 const router = (0, express_1.Router)();
 // Public auth routes with strict anti-brute force rate limiting (10 attempts / 15 min)
 router.get('/detect-location', auth_controller_1.detectLocation);
 router.get('/check-display-name', auth_controller_1.checkDisplayName);
-router.post('/register', rate_limiter_1.authRateLimiter, auth_controller_1.register);
+router.post('/register', rate_limiter_1.authRateLimiter, featureControl_service_1.featureControlService.requireFeature('USER_REGISTRATION'), auth_controller_1.register);
 router.post('/login', rate_limiter_1.authRateLimiter, auth_controller_1.login);
 router.post('/forgot-password', rate_limiter_1.authRateLimiter, auth_controller_1.forgotPassword);
 router.post('/reset-password', rate_limiter_1.authRateLimiter, auth_controller_1.resetPassword);

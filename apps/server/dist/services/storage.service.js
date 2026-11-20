@@ -47,13 +47,14 @@ exports.upload = (0, multer_1.default)({
     storage,
     limits: { fileSize: 10 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-        const allowed = /jpeg|jpg|png|webp|svg|pdf/;
-        const ext = allowed.test(path_1.default.extname(file.originalname).toLowerCase());
-        const mime = allowed.test(file.mimetype);
-        if (ext && mime) {
+        const allowedExt = /\.(jpeg|jpg|png|webp|svg|gif|avif|ico|bmp|pdf)$/i;
+        const allowedMime = /(jpeg|jpg|png|webp|svg|gif|avif|icon|bmp|pdf)/i;
+        const extOk = allowedExt.test(path_1.default.extname(file.originalname || '').toLowerCase());
+        const mimeOk = allowedMime.test(file.mimetype || '') || file.mimetype === 'application/octet-stream';
+        if (extOk && mimeOk) {
             return cb(null, true);
         }
-        cb(new Error('Only images (jpg, png, webp, svg) and PDF documents are permitted'));
+        cb(new Error('Only images (jpg, png, webp, svg, gif, avif, ico) and PDF documents are permitted'));
     },
 });
 const getUploadPath = (folder, filename) => {

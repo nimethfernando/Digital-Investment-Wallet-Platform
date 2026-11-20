@@ -172,10 +172,25 @@ export class LiquidityRiskService {
     const nextOverrides: Record<string, UserSwapOverride> = { ...current.perUserOverrides };
     if (patch.perUserOverrides) {
       for (const [uid, ov] of Object.entries(patch.perUserOverrides)) {
-        if (!ov || (ov.swapsDisabled === undefined && ov.requireManualApproval === undefined && ov.maxPerTxUsd === undefined && ov.dailyLimitUsd === undefined && ov.monthlyLimitUsd === undefined && !ov.note)) {
+        if (
+          !ov ||
+          (!ov.swapsDisabled &&
+            !ov.requireManualApproval &&
+            ov.maxPerTxUsd == null &&
+            ov.dailyLimitUsd == null &&
+            ov.monthlyLimitUsd == null &&
+            !ov.note)
+        ) {
           delete nextOverrides[uid];
         } else {
-          nextOverrides[uid] = { ...(nextOverrides[uid] || {}), ...ov };
+          nextOverrides[uid] = {
+            swapsDisabled: Boolean(ov.swapsDisabled),
+            requireManualApproval: Boolean(ov.requireManualApproval),
+            ...(ov.maxPerTxUsd != null && Number(ov.maxPerTxUsd) > 0 ? { maxPerTxUsd: Number(ov.maxPerTxUsd) } : {}),
+            ...(ov.dailyLimitUsd != null && Number(ov.dailyLimitUsd) > 0 ? { dailyLimitUsd: Number(ov.dailyLimitUsd) } : {}),
+            ...(ov.monthlyLimitUsd != null && Number(ov.monthlyLimitUsd) > 0 ? { monthlyLimitUsd: Number(ov.monthlyLimitUsd) } : {}),
+            ...(ov.note ? { note: String(ov.note).trim() } : {}),
+          };
         }
       }
     }
@@ -207,6 +222,49 @@ export class LiquidityRiskService {
       update: { value: JSON.stringify(updated) },
       create: { key: CONFIG_SETTING_KEY, group: 'LIQUIDITY_RISK', value: JSON.stringify(updated) },
     });
+
+    // Keep Central Feature Control registry in lockstep if swapsEnabled, perAssetConfig, or disabledPairs changed
+    try {
+      const featRow = await prisma.cmsSetting.findUnique({ where: { key: 'PLATFORM_FEATURE_CONTROLS_V1' } });
+      if (featRow?.value) {
+        const featMap = JSON.parse(featRow.value) || {};
+        let touched = false;
+        if (patch.swapsEnabled !== undefined && featMap['INSTANT_SWAP']) {
+          featMap['INSTANT_SWAP'].enabled = Boolean(updated.swapsEnabled);
+          touched = true;
+        }
+        if (patch.perAssetConfig) {
+          for (const [cur, pol] of Object.entries(updated.perAssetConfig)) {
+            const cKey = `CURRENCY_${cur.toUpperCase()}`;
+            if (featMap[cKey]) {
+              featMap[cKey].enabled = Boolean(pol.enabled);
+              touched = true;
+            }
+          }
+        }
+        if (patch.disabledPairs !== undefined) {
+          const disabledSet = new Set(updated.disabledPairs);
+          for (const [fKey, fObj] of Object.entries<any>(featMap)) {
+            if (fKey.startsWith('PAIR_')) {
+              const parts = fKey.replace(/^PAIR_/, '').split('_');
+              if (parts.length === 2) {
+                const arrow = `${parts[0]}->${parts[1]}`;
+                fObj.enabled = !disabledSet.has(arrow);
+                touched = true;
+              }
+            }
+          }
+        }
+        if (touched) {
+          await prisma.cmsSetting.update({
+            where: { key: 'PLATFORM_FEATURE_CONTROLS_V1' },
+            data: { value: JSON.stringify(featMap) },
+          });
+        }
+      }
+    } catch {
+      // Non-fatal sync
+    }
 
     await prisma.adminAuditLog
       .create({

@@ -13,6 +13,7 @@ const card_service_1 = require("../services/card.service");
 const package_service_1 = require("../services/package.service");
 const p2p_service_1 = require("../services/p2p.service");
 const otc_service_1 = require("../services/otc.service");
+const liquidityRisk_service_1 = require("../services/liquidityRisk.service");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 async function ensureVirtualCardsEnabled(res) {
     const flag = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'enable_virtual_cards' } });
@@ -82,7 +83,8 @@ class WalletController {
                 });
                 let csv = 'Transaction Code,Date,Type,Amount,Currency,Status,Balance Before,Balance After,Reference,Notes\n';
                 for (const t of txs) {
-                    csv += `"${t.transactionCode}","${t.createdAt.toISOString()}","${t.type}","${new decimal_js_1.default(t.amount.toString()).toFixed(2)}","${t.currency}","${t.status}","${new decimal_js_1.default(t.balanceBefore.toString()).toFixed(2)}","${new decimal_js_1.default(t.balanceAfter.toString()).toFixed(2)}","${t.settlementReference || ''}","${(t.notes || '').replace(/"/g, '""')}"\n`;
+                    const dp = ['BTC', 'ETH'].includes((t.currency || '').toUpperCase()) ? 8 : 2;
+                    csv += `"${t.transactionCode}","${t.createdAt.toISOString()}","${t.type}","${new decimal_js_1.default(t.amount.toString()).toFixed(dp)}","${t.currency}","${t.status}","${new decimal_js_1.default(t.balanceBefore.toString()).toFixed(dp)}","${new decimal_js_1.default(t.balanceAfter.toString()).toFixed(dp)}","${t.settlementReference || ''}","${(t.notes || '').replace(/"/g, '""')}"\n`;
                 }
                 res.setHeader('Content-Type', 'text/csv');
                 res.setHeader('Content-Disposition', `attachment; filename="transactions_${Date.now()}.csv"`);
@@ -100,20 +102,23 @@ class WalletController {
                 }),
                 prisma_1.prisma.transaction.count({ where }),
             ]);
-            const formattedTransactions = transactions.map((t) => ({
-                id: t.id,
-                transactionCode: t.transactionCode,
-                type: t.type,
-                amount: new decimal_js_1.default(t.amount.toString()).toFixed(2),
-                currency: t.currency,
-                status: t.status,
-                balanceBefore: new decimal_js_1.default(t.balanceBefore.toString()).toFixed(2),
-                balanceAfter: new decimal_js_1.default(t.balanceAfter.toString()).toFixed(2),
-                settlementReference: t.settlementReference,
-                packageCode: t.package?.packageCode || null,
-                notes: t.notes,
-                createdAt: t.createdAt,
-            }));
+            const formattedTransactions = transactions.map((t) => {
+                const dp = ['BTC', 'ETH'].includes((t.currency || '').toUpperCase()) ? 8 : 2;
+                return {
+                    id: t.id,
+                    transactionCode: t.transactionCode,
+                    type: t.type,
+                    amount: new decimal_js_1.default(t.amount.toString()).toFixed(dp),
+                    currency: t.currency,
+                    status: t.status,
+                    balanceBefore: new decimal_js_1.default(t.balanceBefore.toString()).toFixed(dp),
+                    balanceAfter: new decimal_js_1.default(t.balanceAfter.toString()).toFixed(dp),
+                    settlementReference: t.settlementReference,
+                    packageCode: t.package?.packageCode || null,
+                    notes: t.notes,
+                    createdAt: t.createdAt,
+                };
+            });
             res.json({
                 success: true,
                 transactions: formattedTransactions,
@@ -190,7 +195,7 @@ class WalletController {
     async createRazorpayOrder(req, res, next) {
         try {
             const userId = req.user.id;
-            const { amount, currency, checkoutCurrency, feeMode, purpose } = req.body;
+            const { amount, currency, creditAmount, checkoutCurrency, feeMode, purpose } = req.body;
             if (!amount || isNaN(parseFloat(String(amount))) || parseFloat(String(amount)) <= 0) {
                 return res.status(400).json({
                     success: false,
@@ -200,6 +205,7 @@ class WalletController {
             const orderResult = await deposit_service_1.depositService.createRazorpayOrder(userId, {
                 amount,
                 currency,
+                creditAmount,
                 checkoutCurrency,
                 feeMode,
                 purpose,
@@ -280,7 +286,7 @@ class WalletController {
                     message: 'fromCurrency, toCurrency, and fromAmount are required',
                 });
             }
-            const result = await ledger_service_1.ledgerService.executeCurrencySwap({
+            const result = await liquidityRisk_service_1.liquidityRiskService.evaluateAndExecuteOrQueueSwap({
                 userId,
                 fromCurrency,
                 toCurrency,
@@ -288,7 +294,9 @@ class WalletController {
             });
             res.json({
                 success: true,
-                message: `Successfully swapped ${result.fromAmount} ${result.fromCurrency} for ${result.toAmount} ${result.toCurrency}!`,
+                message: result.queued
+                    ? result.message
+                    : `Successfully swapped ${result.fromAmount} ${result.fromCurrency} for ${result.toAmount} ${result.toCurrency}!`,
                 data: result,
             });
         }
@@ -511,14 +519,16 @@ class WalletController {
                 orderBy: { updatedAt: 'desc' },
                 take: 15,
             }),
-            prisma_1.prisma.investmentInquiry.findMany({
+            prisma_1.prisma.investmentInquiry
+                .findMany({
                 where: { investorUserId: userId },
                 include: {
                     listing: { select: { companyName: true, slug: true } },
                 },
                 orderBy: { updatedAt: 'desc' },
                 take: 15,
-            }),
+            })
+                .catch(() => []),
             prisma_1.prisma.investmentPackage.findMany({
                 where: { userId },
                 include: {

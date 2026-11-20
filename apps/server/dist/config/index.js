@@ -20,7 +20,7 @@ exports.config = {
         host: (process.env.EMAIL_HOST || 'smtp.gmail.com').trim(),
         port: Number(process.env.EMAIL_PORT) || 587,
         from: process.env.EMAIL_FROM || 'Avora Bank <gnbmailsender@gmail.com>',
-        adminNotify: (process.env.ADMIN_NOTIFICATION_EMAIL || 'gnbmailsender@gmail.com').trim(),
+        adminNotify: (process.env.ADMIN_NOTIFICATION_EMAIL || 'avorabank@gmail.com').trim(),
     },
     uploadDir: process.env.UPLOAD_DIR || './uploads',
 };

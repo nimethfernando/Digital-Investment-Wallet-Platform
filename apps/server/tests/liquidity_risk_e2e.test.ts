@@ -407,6 +407,47 @@ async function runLiquidityRiskE2E() {
         throw new Error(`Expected feature control audit history to record adminEmail=${testEmail}`);
       }
     });
+
+    await assertTest('12. Bulk Emergency Playbook toggle & per-user override reset work end-to-end', async () => {
+      const bulkOff = await featureControlService.bulkToggleFeatures({
+        featureKeys: ['WITHDRAWALS', 'INTERNAL_P2P_TRANSFER', 'REMITTANCE'],
+        enabled: false,
+        reason: 'Emergency Outbound Freeze Playbook Test',
+        adminId: user.id,
+      });
+      if (bulkOff.updatedCount !== 3) {
+        throw new Error(`Expected 3 updated features, got ${bulkOff.updatedCount}`);
+      }
+
+      let wthBlocked = false;
+      try {
+        await featureControlService.assertFeatureEnabled('WITHDRAWALS');
+      } catch (err: any) {
+        if (err.code === 'FEATURE_DISABLED') wthBlocked = true;
+      }
+      if (!wthBlocked) throw new Error('Expected WITHDRAWALS to be blocked after playbook freeze');
+
+      await featureControlService.bulkToggleFeatures({
+        featureKeys: ['WITHDRAWALS', 'INTERNAL_P2P_TRANSFER', 'REMITTANCE'],
+        enabled: true,
+        reason: 'Restore Outbound Playbook Test',
+        adminId: user.id,
+      });
+      await featureControlService.assertFeatureEnabled('WITHDRAWALS');
+
+      // Test clearing per-user swap override cleanly
+      const afterClear = await liquidityRiskService.updateConfig(
+        {
+          perUserOverrides: {
+            [user.id]: { swapsDisabled: false, requireManualApproval: false },
+          },
+        },
+        user.id
+      );
+      if (afterClear.perUserOverrides[user.id]) {
+        throw new Error('Expected clearing all user override flags to remove perUserOverrides entry');
+      }
+    });
   } finally {
     notificationService.sendEmail = origSendEmail;
     notificationService.sendAdminAlert = origSendAdminAlert;

@@ -6690,7 +6690,7 @@ export class AdminController {
     try {
       const adminId = (req as any).user.id;
       const swapId = String(req.params.id);
-      const { adminNotes } = req.body || {};
+      const adminNotes = req.body?.adminNotes || req.body?.notes || req.body?.reason;
       const result = await liquidityRiskService.approveQueuedSwap(swapId, adminId, adminNotes);
       res.json({
         success: true,
@@ -6709,7 +6709,7 @@ export class AdminController {
     try {
       const adminId = (req as any).user.id;
       const swapId = String(req.params.id);
-      const { reason } = req.body || {};
+      const reason = req.body?.reason || req.body?.notes || req.body?.adminNotes;
       const updated = await liquidityRiskService.rejectQueuedSwap(swapId, adminId, reason);
       res.json({
         success: true,

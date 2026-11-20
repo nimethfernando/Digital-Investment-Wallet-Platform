@@ -4,7 +4,13 @@ const express_1 = require("express");
 const p2p_controller_1 = require("../controllers/p2p.controller");
 const auth_1 = require("../middleware/auth");
 const rate_limiter_1 = require("../middleware/rate-limiter");
+const featureControl_service_1 = require("../services/featureControl.service");
 const router = (0, express_1.Router)();
+const requireP2PTrading = featureControl_service_1.featureControlService.requireFeature('P2P_TRADING', async (req) => {
+    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.cryptoCurrency);
+    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.fiatCurrency);
+    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.currency);
+});
 /**
  * Public P2P Offers / Market Ads & Trader Profiles (viewable before or after login)
  */
@@ -15,15 +21,15 @@ router.use(auth_1.authenticateToken);
 /**
  * P2P Onboarding & Compliance Verification Application
  */
-router.post('/onboarding/apply', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.submitOnboardingApplication(req, res, next));
+router.post('/onboarding/apply', rate_limiter_1.p2pActionLimiter, requireP2PTrading, (req, res, next) => p2p_controller_1.p2pController.submitOnboardingApplication(req, res, next));
 router.get('/onboarding/applications', (req, res, next) => p2p_controller_1.p2pController.getMyOnboardingApplications(req, res, next));
 /**
  * P2P Offers / Market Ads Management (Authenticated merchants only)
  */
 router.get('/my-offers', (req, res, next) => p2p_controller_1.p2pController.getMyOffers(req, res, next));
-router.post('/offers', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.createOffer(req, res, next));
-router.post('/offers/:offerId/promote', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.promoteOffer(req, res, next));
-router.patch('/offers/:offerId', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.updateOffer(req, res, next));
+router.post('/offers', rate_limiter_1.p2pActionLimiter, requireP2PTrading, (req, res, next) => p2p_controller_1.p2pController.createOffer(req, res, next));
+router.post('/offers/:offerId/promote', rate_limiter_1.p2pActionLimiter, requireP2PTrading, (req, res, next) => p2p_controller_1.p2pController.promoteOffer(req, res, next));
+router.patch('/offers/:offerId', rate_limiter_1.p2pActionLimiter, requireP2PTrading, (req, res, next) => p2p_controller_1.p2pController.updateOffer(req, res, next));
 router.delete('/offers/:offerId', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.cancelOffer(req, res, next));
 /**
  * Preview recipient details with email masking & self-transfer block
@@ -32,11 +38,13 @@ router.post(['/lookup-recipient', '/lookup'], rate_limiter_1.p2pRateLimiter, (re
 /**
  * Execute P2P transfer with daily velocity limit ($5,000/24h) and 2FA
  */
-router.post('/transfer', rate_limiter_1.p2pRateLimiter, (req, res, next) => p2p_controller_1.p2pController.transferFunds(req, res, next));
+router.post('/transfer', rate_limiter_1.p2pRateLimiter, featureControl_service_1.featureControlService.requireFeature('INTERNAL_P2P_TRANSFER', async (req) => {
+    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.currency);
+}), (req, res, next) => p2p_controller_1.p2pController.transferFunds(req, res, next));
 /**
  * P2P Orders & Escrow
  */
-router.post('/orders', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.createOrder(req, res, next));
+router.post('/orders', rate_limiter_1.p2pActionLimiter, requireP2PTrading, (req, res, next) => p2p_controller_1.p2pController.createOrder(req, res, next));
 router.get('/orders', (req, res, next) => p2p_controller_1.p2pController.getUserOrders(req, res, next));
 router.get('/orders/:orderId', (req, res, next) => p2p_controller_1.p2pController.getOrderById(req, res, next));
 router.post('/orders/:orderId/accept', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.acceptOrder(req, res, next));
