@@ -197,7 +197,7 @@ export default function AutoContentPublisher({
 
   // AI Auto-Publisher State
   const [showAutoPublisher, setShowAutoPublisher] = useState(false);
-  const [topic, setTopic] = useState('Apple Inc.');
+  const [topic, setTopic] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [autoCategoryOverride, setAutoCategoryOverride] = useState('');
   const [includeMeme, setIncludeMeme] = useState(true);
@@ -445,7 +445,15 @@ export default function AutoContentPublisher({
 
   const handleAutoPublish = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!topic.trim() || publishing) return;
+    const effectiveTopic =
+      topic.trim() ||
+      customPrompt
+        .trim()
+        .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
+        .split(/[.!?\n]/)[0]
+        .trim()
+        .slice(0, 110);
+    if (!effectiveTopic || publishing) return;
 
     setPublishing(true);
     setProgressStep(1);
@@ -457,7 +465,7 @@ export default function AutoContentPublisher({
 
     try {
       const res = await api.post('/cms/admin/blogs/auto-publish', {
-        topic: topic.trim(),
+        topic: effectiveTopic,
         customPrompt: customPrompt.trim() || undefined,
         categoryOverride: autoCategoryOverride || undefined,
         includeMeme,
@@ -1038,14 +1046,13 @@ export default function AutoContentPublisher({
             </div>
 
             <form onSubmit={handleAutoPublish} className="space-y-3">
-              <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <input
                   type="text"
-                  required
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  placeholder="Enter ANY custom blog topic OR stock/crypto ticker (e.g. How Digital Wallets Transform Cross-Border Payments, AAPL, Bitcoin)..."
-                  className="flex-1 px-4 py-3 rounded-2xl bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white text-xs font-semibold outline-none"
+                  placeholder="Enter blog topic OR ticker (or describe below in Custom AI Prompt)..."
+                  className="min-w-[220px] flex-1 px-4 py-3 rounded-2xl bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white text-xs font-semibold outline-none"
                 />
                 <select
                   value={autoCategoryOverride}
@@ -1062,8 +1069,8 @@ export default function AutoContentPublisher({
                 </select>
                 <button
                   type="submit"
-                  disabled={publishing || publishingNextFresh || !topic.trim()}
-                  className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+                  disabled={publishing || publishingNextFresh || (!topic.trim() && !customPrompt.trim())}
+                  className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
                 >
                   {publishing ? (
                     <>

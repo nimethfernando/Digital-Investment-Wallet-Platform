@@ -1607,7 +1607,23 @@ Return ONLY valid JSON matching this schema:
      * End-to-End 1-Click Automated Post & Publisher
      */
     async publishAutomatedPost(params) {
-        const topic = params.topic.trim();
+        let topic = (params.topic || '').trim();
+        const rawPrompt = (params.customPrompt || '').trim();
+        // If topic was left at default "Apple Inc." while the user wrote a custom prompt about a different subject (e.g. "About Nvidia market and Gold market"), use the prompt's subject!
+        if (rawPrompt &&
+            (!topic ||
+                (topic.toLowerCase() === 'apple inc.' &&
+                    !rawPrompt.toLowerCase().includes('apple') &&
+                    !rawPrompt.toLowerCase().includes('aapl')))) {
+            const promptSubject = rawPrompt
+                .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
+                .split(/[.!?\n]/)[0]
+                .trim()
+                .slice(0, 110);
+            if (promptSubject.length >= 2) {
+                topic = promptSubject;
+            }
+        }
         if (!topic)
             throw new Error('Topic or ticker symbol is required');
         await this.ensureSchema();
