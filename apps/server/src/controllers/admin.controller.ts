@@ -6835,6 +6835,66 @@ export class AdminController {
       });
     }
   }
+
+  /**
+   * POST /api/v1/admin/feature-controls/bulk-toggle
+   * Emergency Playbook bulk switch (e.g. Freeze Outbound Funds, Pause Trading Engines, Pause On-Chain Rails, or Restore All)
+   */
+  async bulkToggleFeatureControls(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminId = (req as any).user.id;
+      const { featureKeys, enabled, reason, confirmedSensitive } = req.body || {};
+
+      if (!Array.isArray(featureKeys) || featureKeys.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'featureKeys array is required.',
+        });
+      }
+
+      if (!reason || String(reason).trim().length < 3) {
+        return res.status(400).json({
+          success: false,
+          message: 'A clear reason (at least 3 characters) is required for the Admin Audit Log.',
+        });
+      }
+
+      if (!confirmedSensitive) {
+        return res.status(400).json({
+          success: false,
+          code: 'SENSITIVE_CONFIRMATION_REQUIRED',
+          message: 'Emergency bulk feature changes require explicit confirmation.',
+        });
+      }
+
+      const result = await featureControlService.bulkToggleFeatures({
+        featureKeys,
+        enabled: Boolean(enabled),
+        reason: String(reason).trim(),
+        adminId,
+      });
+
+      const [overview, history] = await Promise.all([
+        featureControlService.getAllFeatures(),
+        featureControlService.getHistory(150),
+      ]);
+
+      res.json({
+        success: true,
+        message: `${result.updatedCount} feature(s) switched ${enabled ? 'ON (ENABLED)' : 'OFF (DISABLED)'} and logged.`,
+        data: {
+          ...result,
+          ...overview,
+          history,
+        },
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Failed to execute bulk feature control update.',
+      });
+    }
+  }
 }
 
 export const adminController = new AdminController();

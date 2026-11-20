@@ -788,6 +788,39 @@ export class FeatureControlService {
   }
 
   /**
+   * Bulk toggle multiple features at once (e.g. Emergency Incident Playbooks or Restore All)
+   */
+  async bulkToggleFeatures(params: {
+    featureKeys: string[];
+    enabled: boolean;
+    reason: string;
+    adminId: string;
+  }): Promise<{ updatedCount: number }> {
+    const keys = Array.from(
+      new Set(
+        (params.featureKeys || [])
+          .map((k) => String(k || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+    if (keys.length === 0) {
+      throw new Error('At least one featureKey is required for bulk toggle.');
+    }
+
+    let updatedCount = 0;
+    for (const key of keys) {
+      await this.toggleFeature({
+        featureKey: key,
+        enabled: params.enabled,
+        reason: params.reason,
+        adminId: params.adminId,
+      });
+      updatedCount++;
+    }
+    return { updatedCount };
+  }
+
+  /**
    * Throw an actionable 403 error if a feature is currently disabled
    */
   async assertFeatureEnabled(featureKey: string): Promise<void> {

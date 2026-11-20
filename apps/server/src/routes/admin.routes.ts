@@ -169,5 +169,6 @@ router.post('/users/:id/swap-override', requireRole([Role.ADMIN]), requireAdmin2
 // Central Feature Control & Emergency Kill-Switches
 router.get('/feature-controls', (req, res, next) => adminController.getFeatureControls(req, res, next));
 router.post('/feature-controls/toggle', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.toggleFeatureControl(req, res, next));
+router.post('/feature-controls/bulk-toggle', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.bulkToggleFeatureControls(req, res, next));
 
 export default router;

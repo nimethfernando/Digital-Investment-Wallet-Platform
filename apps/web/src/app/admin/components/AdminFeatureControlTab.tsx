@@ -123,6 +123,17 @@ export default function AdminFeatureControlTab({
   const [customEnabled, setCustomEnabled] = useState(false);
   const [customReason, setCustomReason] = useState('Added custom feature control rule');
 
+  // Emergency Playbook Bulk Confirmation Modal
+  const [playbookModal, setPlaybookModal] = useState<{
+    title: string;
+    description: string;
+    featureKeys: string[];
+    targetEnabled: boolean;
+    defaultReason: string;
+  } | null>(null);
+  const [playbookReason, setPlaybookReason] = useState('');
+  const [playbookConfirmed, setPlaybookConfirmed] = useState(false);
+
   useEffect(() => {
     if (admin2FaCode && !local2FaCode) {
       setLocal2FaCode(admin2FaCode);
@@ -295,6 +306,51 @@ export default function AdminFeatureControlTab({
     }
   };
 
+  const handleConfirmPlaybook = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!playbookModal) return;
+    if (playbookReason.trim().length < 3) {
+      onFeedback({ text: 'Please provide an incident reason (min 3 characters).', type: 'error' });
+      return;
+    }
+    if (!playbookConfirmed) {
+      onFeedback({ text: 'Please check the confirmation checkbox to execute this playbook.', type: 'error' });
+      return;
+    }
+
+    setSubmittingToggle(true);
+    try {
+      const code = (local2FaCode || admin2FaCode || '').trim();
+      const res = await api.post(
+        '/admin/feature-controls/bulk-toggle',
+        {
+          featureKeys: playbookModal.featureKeys,
+          enabled: playbookModal.targetEnabled,
+          reason: playbookReason.trim(),
+          confirmedSensitive: true,
+        },
+        { headers: code ? { 'x-admin-2fa': code } : {} }
+      );
+      if (res.data?.success) {
+        onFeedback({
+          text: res.data.message || `${playbookModal.title} executed and logged.`,
+          type: 'success',
+        });
+        setPlaybookModal(null);
+        setPlaybookReason('');
+        setPlaybookConfirmed(false);
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback({
+        text: extractErrorMessage(err, 'Failed to execute emergency playbook.'),
+        type: 'error',
+      });
+    } finally {
+      setSubmittingToggle(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -388,6 +444,110 @@ export default function AdminFeatureControlTab({
               {tab.label}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Summary KPI Cards */}
+      <div className="bg-[#0e1520] border border-gray-800 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+            <ShieldAlert className="w-3.5 h-3.5" />
+            1-Click Emergency Incident Response Playbooks (2FA &amp; Audit Protected)
+          </span>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Isolate outbound fund movements, trading engines, or on-chain rails during an investigation while keeping the rest of the platform running.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const modal = {
+                title: 'Freeze All Outbound Funds',
+                description:
+                  'Immediately pauses Client Withdrawals, Internal Account/QR Transfers, and Global Remittance while keeping deposits and portfolio viewing online.',
+                featureKeys: ['WITHDRAWALS', 'INTERNAL_P2P_TRANSFER', 'REMITTANCE'],
+                targetEnabled: false,
+                defaultReason: 'Emergency outbound fund protection during security/ledger investigation',
+              };
+              setPlaybookModal(modal);
+              setPlaybookReason(modal.defaultReason);
+              setPlaybookConfirmed(false);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 text-xs font-bold transition-all cursor-pointer"
+          >
+            Freeze Outbound Funds
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const modal = {
+                title: 'Pause All Swap & Trading Engines',
+                description:
+                  'Immediately pauses Instant Currency Swaps, P2P Marketplace, Institutional OTC Desk, and Buy Crypto On-Ramp during price feed or liquidity incidents.',
+                featureKeys: ['INSTANT_SWAP', 'P2P_TRADING', 'OTC_DESK', 'BUY_CRYPTO_ONRAMP'],
+                targetEnabled: false,
+                defaultReason: 'Emergency liquidity & price feed volatility protection',
+              };
+              setPlaybookModal(modal);
+              setPlaybookReason(modal.defaultReason);
+              setPlaybookConfirmed(false);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold transition-all cursor-pointer"
+          >
+            Pause Swap &amp; Trading
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const modal = {
+                title: 'Pause All On-Chain Crypto Rails',
+                description:
+                  'Immediately pauses On-Chain Crypto Deposits/Withdrawals across TRC-20, ERC-20, BEP-20, Bitcoin Native, Solana, and Polygon networks.',
+                featureKeys: [
+                  'GATEWAY_CRYPTO_ONCHAIN',
+                  'NETWORK_TRC20',
+                  'NETWORK_ERC20',
+                  'NETWORK_BEP20',
+                  'NETWORK_BTC_NATIVE',
+                  'NETWORK_SOLANA',
+                  'NETWORK_POLYGON',
+                ],
+                targetEnabled: false,
+                defaultReason: 'Blockchain network / custody node maintenance',
+              };
+              setPlaybookModal(modal);
+              setPlaybookReason(modal.defaultReason);
+              setPlaybookConfirmed(false);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition-all cursor-pointer"
+          >
+            Pause On-Chain Rails
+          </button>
+
+          {summary.disabledCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                const disabledKeys = (summary.disabledFeatures || []).map((f: any) => f.key);
+                const modal = {
+                  title: `Restore All Paused Features (${disabledKeys.length})`,
+                  description: `Re-enables all ${disabledKeys.length} currently disabled feature(s) back to normal live operations.`,
+                  featureKeys: disabledKeys,
+                  targetEnabled: true,
+                  defaultReason: 'Incident investigation complete — all systems verified stable',
+                };
+                setPlaybookModal(modal);
+                setPlaybookReason(modal.defaultReason);
+                setPlaybookConfirmed(false);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition-all cursor-pointer shadow-lg shadow-emerald-500/20"
+            >
+              Restore All Online ({summary.disabledCount})
+            </button>
+          )}
         </div>
       </div>
 
@@ -985,6 +1145,102 @@ export default function AdminFeatureControlTab({
               >
                 {submittingToggle && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 Save Feature Switch
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL: Emergency Playbook Bulk Confirmation */}
+      {playbookModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            onSubmit={handleConfirmPlaybook}
+            className="bg-[#0e1520] border border-gray-700 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white">{playbookModal.title}</h3>
+              <button
+                type="button"
+                onClick={() => setPlaybookModal(null)}
+                className="text-gray-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-300 leading-relaxed">{playbookModal.description}</p>
+
+            <div className="p-3 rounded-xl bg-[#090e17] border border-gray-800 text-xs">
+              <p className="font-bold text-gray-400 mb-1">
+                Affected Feature Keys ({playbookModal.featureKeys.length}):
+              </p>
+              <p className="font-mono text-white text-[11px] break-words">
+                {playbookModal.featureKeys.join(', ')}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-300 mb-1">
+                Mandatory Audit Reason / Incident Note *
+              </label>
+              <textarea
+                rows={2}
+                value={playbookReason}
+                onChange={(e) => setPlaybookReason(e.target.value)}
+                className="w-full bg-[#090e17] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+                required
+              />
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-3">
+              <label className="flex items-start gap-2.5 text-xs text-gray-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={playbookConfirmed}
+                  onChange={(e) => setPlaybookConfirmed(e.target.checked)}
+                  className="mt-0.5 accent-amber-500"
+                />
+                <span>
+                  I confirm executing <strong>{playbookModal.title}</strong> and recording this action in the Admin Audit Log.
+                </span>
+              </label>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-amber-200/90 mb-1">
+                  Admin 2FA Code (if 2FA is enabled on your Admin profile)
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="6-digit OTP"
+                  value={local2FaCode}
+                  onChange={(e) => setLocal2FaCode(e.target.value)}
+                  className="w-full bg-[#090e17] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setPlaybookModal(null)}
+                className="px-4 py-2 rounded-xl bg-gray-800 text-gray-300 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submittingToggle}
+                className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                  playbookModal.targetEnabled
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-black'
+                    : 'bg-rose-600 hover:bg-rose-500 text-white'
+                }`}
+              >
+                {submittingToggle && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Execute Playbook
               </button>
             </div>
           </form>
