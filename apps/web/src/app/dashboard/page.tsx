@@ -2294,15 +2294,15 @@ function DashboardContent() {
                 className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 transition-all group flex flex-col justify-between gap-3 shadow-sm"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                    OTC Desks • $1K Bond
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                    OTC Desks • Staging
                   </span>
                   <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all" />
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 dark:text-white">Global OTC Exchange</h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Request live quotes from Colombo, Tbilisi, Dubai & London desks
+                    Physical counter &amp; liquidity desks onboarding across 3–4 international hubs
                   </p>
                 </div>
               </Link>

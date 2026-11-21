@@ -1244,6 +1244,17 @@ export default function ExchangeDeskPage() {
           Connect with verified OTC desk operators worldwide. Exchange USDT for local fiat currencies (LKR, AED, GEL, USD, EUR, INR) with guaranteed escrow protection, verified Google Maps locations, direct operator chat, and a transparent {otcCommission.totalFeePct}% commission split ({otcCommission.operatorFeePct}% OTC Broker + {otcCommission.platformFeePct}% Avora Bank).
         </p>
 
+        {/* OTC Infrastructure Expansion Notice */}
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs flex items-start gap-3 text-left max-w-2xl mx-auto shadow-sm">
+          <AlertCircle className="w-5 h-5 shrink-0 text-amber-500 mt-0.5" />
+          <div className="space-y-1">
+            <h5 className="font-bold text-slate-900 dark:text-white">OTC Infrastructure Staging Notice</h5>
+            <p className="leading-relaxed text-slate-600 dark:text-slate-300">
+              Direct instant OTC fulfillment and physical exchange counters are currently being established across our initial 3–4 international hubs. Location-based OTC desks will be activated once regional custody and settlement infrastructure are finalized. For active peer trades, please visit the <Link href="/p2p" className="underline font-bold text-emerald-600 dark:text-emerald-400">P2P Marketplace</Link>.
+            </p>
+          </div>
+        </div>
+
         {/* Action CTAs */}
         <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
           {myDesk && myDesk.status === 'ACTIVE' ? (

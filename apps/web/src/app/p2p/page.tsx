@@ -72,7 +72,7 @@ const COUNTRIES: CountryRail[] = [
     code: 'LK',
     flag: '🇱🇰',
     currency: 'LKR',
-    methods: ['Commercial Bank CEFTS', 'Sampath Bank Vishwa', 'BOC / HNB', 'Colombo OTC Cash'],
+    methods: ['Commercial Bank CEFTS', 'Sampath Bank Vishwa', 'BOC / HNB', 'Bank Transfer'],
   },
   {
     id: 'in',
@@ -88,7 +88,7 @@ const COUNTRIES: CountryRail[] = [
     code: 'AE',
     flag: '🇦🇪',
     currency: 'AED',
-    methods: ['AED Bank Transfer', 'FAB i-Save', 'ADCB Hayyak', 'Dubai Cash'],
+    methods: ['AED Bank Transfer', 'FAB i-Save', 'ADCB Hayyak'],
   },
   {
     id: 'ge',
@@ -96,7 +96,7 @@ const COUNTRIES: CountryRail[] = [
     code: 'GE',
     flag: '🇬🇪',
     currency: 'GEL',
-    methods: ['Tbilisi Cash Pickup', 'Bank of Georgia', 'TBC Bank'],
+    methods: ['Bank of Georgia', 'TBC Bank'],
   },
   {
     id: 'eu',
@@ -238,7 +238,7 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       availableUsdt: '6,500.00',
       minFiat: '50,000',
       maxFiat: '1,200,000',
-      methods: ['Sampath Bank Vishwa', 'Colombo OTC Cash'],
+      methods: ['Sampath Bank Vishwa', 'Commercial Bank CEFTS'],
       terms: 'High-volume LKR desk merchant. Scheduled active windows daily.',
     },
     {
@@ -319,7 +319,7 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
     },
     {
       id: 'off_ae_2',
-      name: 'Fatima Al-Zaabi OTC',
+      name: 'Fatima Al-Zaabi',
       avatar: 'F',
       lastSeen: 'Last seen 45m ago',
       spreadPct: 0.009,
@@ -338,7 +338,7 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       availableUsdt: '6,000.00',
       minFiat: '500',
       maxFiat: '20,000',
-      methods: ['FAB i-Save', 'Dubai Cash'],
+      methods: ['FAB i-Save', 'AED Bank Transfer'],
       terms: 'Aani instant payment supported when active.',
     },
     {
@@ -350,7 +350,7 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       availableUsdt: '25,000.00',
       minFiat: '2,500',
       maxFiat: '75,000',
-      methods: ['AED Bank Transfer', 'Dubai Cash'],
+      methods: ['AED Bank Transfer', 'ADCB Hayyak'],
       terms: 'Private wealth AED liquidity specialist.',
     },
   ],
@@ -388,8 +388,8 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
       availableUsdt: '5,500.00',
       minFiat: '500',
       maxFiat: '25,000',
-      methods: ['Tbilisi Cash Pickup', 'Bank of Georgia'],
-      terms: 'Vake / Saburtalo cash & local bank settlement.',
+      methods: ['Bank of Georgia', 'TBC Bank'],
+      terms: 'Vake / Saburtalo local bank settlement.',
     },
     {
       id: 'off_ge_4',
@@ -407,7 +407,7 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
   EUR: [
     {
       id: 'off_eu_1',
-      name: 'Lukas Weber OTC',
+      name: 'Lukas Weber',
       avatar: 'L',
       lastSeen: 'Last seen 9m ago',
       spreadPct: 0.006,
@@ -469,7 +469,7 @@ const CURATED_OFFLINE_TRADERS: Record<string, CuratedTraderTemplate[]> = {
     },
     {
       id: 'off_us_2',
-      name: 'Elena Rostova OTC',
+      name: 'Elena Rostova',
       avatar: 'E',
       lastSeen: 'Last seen 37m ago',
       spreadPct: 0.009,
@@ -1283,36 +1283,6 @@ function P2PPageContent() {
         ? qty.toFixed(4)
         : qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
-    const deskSpread = marketSide === 'BUY' ? 1.004 : 0.996;
-
-    const deskListing: P2POfferItem = {
-      id: `desk_${cur}_${activeCrypto}_${marketSide}`,
-      offerCode: `AVORA-DESK-${cur}`,
-      side: marketSide,
-      cryptoCurrency: activeCrypto,
-      fiatCurrency: cur,
-      price: (spot * deskSpread).toFixed(2),
-      priceNum: spot * deskSpread,
-      totalAmount: scaleAmount('50000'),
-      availableAmount: scaleAmount('50000'),
-      minLimit: cur === 'LKR' ? '10,000' : cur === 'INR' ? '2,500' : '100',
-      maxLimit: cur === 'LKR' ? '5,000,000' : cur === 'INR' ? '1,000,000' : '50,000',
-      paymentMethods: [...selectedCountry.methods.slice(0, 3)],
-      paymentTerms: 'Official 24/7 Avora Clearing Desk. Connect directly with a specialist for guaranteed settlement.',
-      locationCountry: selectedCountry.name,
-      isOffline: false,
-      isDeskConcierge: true,
-      trader: {
-        id: 'avora_desk_specialist',
-        name: 'Avora Priority P2P Desk',
-        avatar: 'A',
-        isVerified: true,
-        isInstitutional: true,
-        completionRate: 'Institutional 24/7 Desk',
-        totalOrders: 0,
-      },
-      createdAt: new Date().toISOString(),
-    };
 
     const offlineTemplates = CURATED_OFFLINE_TRADERS[cur] || [];
     const curatedOfflineListings: P2POfferItem[] = offlineTemplates.map((tpl) => {
@@ -1354,9 +1324,9 @@ function P2PPageContent() {
       lastSeen: o.trader?.isOffline || o.trader?.isOnline === false ? 'Unavailable' : undefined,
     }));
     if (marketMinCompletion === 'ALL' && !marketLocationFilter.trim() && !marketAmountFilter.trim()) {
-      combined = [...offers, deskListing, ...curatedOfflineListings];
+      combined = [...offers, ...curatedOfflineListings];
     } else if (!marketAmountFilter.trim() && !marketLocationFilter.trim()) {
-      combined = [...offers, deskListing];
+      combined = [...offers];
     }
 
     if (marketPaymentFilter && marketPaymentFilter !== 'ALL') {
@@ -2411,12 +2381,6 @@ function P2PPageContent() {
               );
             })}
           </div>
-          <Link
-            href="/exchange"
-            className="text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400 hover:underline whitespace-nowrap"
-          >
-            Convert USD ↔ USDT (Instant Swap) →
-          </Link>
         </div>
       )}
 
@@ -2589,22 +2553,6 @@ function P2PPageContent() {
           >
             {expressSide === 'BUY' ? 'Buy with 0 Fee' : 'Sell with 0 Fee'}
           </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              openDeskConcierge({
-                side: expressSide,
-                currency: expressCurrency,
-                cryptoAmount: parseFloat(expressCryptoCalculated) > 0 ? expressCryptoCalculated : '100',
-              })
-            }
-            className="w-full py-2.5 rounded-xl bg-zinc-900/70 hover:bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
-          >
-            <Headphones className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Need direct assistance? Connect with Avora P2P Desk</span>
-          </button>
-
         </div>
       )}
 
@@ -2840,7 +2788,7 @@ function P2PPageContent() {
                   Corridor Order Book — {selectedCountry.name} ({selectedCountry.currency})
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Verified regional merchants &amp; 24/7 Avora Priority Settlement Desk
+                  Verified regional merchants &amp; automated escrow protection
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -2854,18 +2802,6 @@ function P2PPageContent() {
                     className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500 w-52 sm:w-64"
                   />
                 </div>
-                <button
-                  onClick={() =>
-                    openDeskConcierge({
-                      side: marketSide,
-                      currency: selectedCountry.currency,
-                    })
-                  }
-                  className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Headphones className="w-3.5 h-3.5" />
-                  <span>Contact P2P Desk</span>
-                </button>
                 <button onClick={fetchOffers} className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer" title="Refresh Listings">
                   <RefreshCw className="w-4 h-4" />
                 </button>
@@ -2883,7 +2819,7 @@ function P2PPageContent() {
                   No P2P listings match {selectedCountry.currency} + &ldquo;{marketPaymentFilter}&rdquo;
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                  Clear the payment method filter or route a custom {selectedCountry.currency} request through our 24/7 Priority Settlement Desk.
+                  Clear the payment method filter or post your own custom Buy/Sell advertisement.
                 </p>
                 <div className="flex items-center justify-center gap-2 pt-1">
                   <button
@@ -2895,16 +2831,10 @@ function P2PPageContent() {
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      openDeskConcierge({
-                        side: marketSide,
-                        currency: selectedCountry.currency,
-                        preferredMethod: marketPaymentFilter !== 'ALL' ? marketPaymentFilter : undefined,
-                      })
-                    }
+                    onClick={() => navigateTo('post-ad')}
                     className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
                   >
-                    Contact P2P Desk
+                    Post an Advertisement
                   </button>
                 </div>
               </div>
@@ -4235,7 +4165,7 @@ function P2PPageContent() {
                     <p className="mt-1.5 text-[11px] text-amber-300 leading-snug">
                       Insufficient {selectedOfferForTrade.cryptoCurrency} in your wallet (USD: $
                       {(walletBalances['USD'] ?? 0).toFixed(2)}).{' '}
-                      <Link href="/exchange" className="underline font-bold text-emerald-400 hover:text-emerald-300">
+                      <Link href="/dashboard?tab=swap" className="underline font-bold text-emerald-400 hover:text-emerald-300">
                         Swap USD → {selectedOfferForTrade.cryptoCurrency} first →
                       </Link>
                     </p>
@@ -4537,7 +4467,7 @@ function P2PPageContent() {
                     {(walletBalances[expressCrypto] ?? 0) < (parseFloat(expressCryptoCalculated || '0') || 0) && (
                       <>
                         {' · '}
-                        <Link href="/exchange" className="underline text-amber-300">
+                        <Link href="/dashboard?tab=swap" className="underline text-amber-300">
                           Swap USD → {expressCrypto}
                         </Link>
                       </>
@@ -4552,7 +4482,7 @@ function P2PPageContent() {
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-slate-400">Matched Liquidity:</span>
                 <span className="text-zinc-200 font-semibold flex items-center gap-1">
-                  <span>Avora Express Clearing</span>
+                  <span>P2P Peer Escrow</span>
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                 </span>
               </div>
@@ -4565,23 +4495,8 @@ function P2PPageContent() {
             </div>
 
             {expressError && (
-              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs space-y-2">
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
                 <p>{expressError}</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExpressOrderModalOpen(false);
-                    setExpressError(null);
-                    openDeskConcierge({
-                      side: expressSide,
-                      currency: expressCurrency,
-                      cryptoAmount: parseFloat(expressCryptoCalculated) > 0 ? expressCryptoCalculated : '100',
-                    });
-                  }}
-                  className="underline font-bold text-emerald-400 hover:text-emerald-300 cursor-pointer"
-                >
-                  Connect with 24/7 Priority P2P Desk instead →
-                </button>
               </div>
             )}
 

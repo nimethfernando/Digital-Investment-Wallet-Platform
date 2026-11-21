@@ -152,6 +152,7 @@ export const Header: React.FC = () => {
       id: 'exchange',
       label: 'Exchange & Liquidity',
       items: [
+        /* OTC Desk Network temporarily hidden until 3-4 international pilot hubs are ready
         {
           href: '/exchange',
           label: t('nav.exchange', 'OTC Desk Network'),
@@ -159,6 +160,7 @@ export const Header: React.FC = () => {
           badge: '1.5% Fee',
           icon: Landmark,
         },
+        */
         {
           href: '/p2p',
           label: t('nav.p2p', 'P2P Escrow Marketplace'),
