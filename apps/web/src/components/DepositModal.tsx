@@ -34,7 +34,7 @@ interface DepositModalProps {
 }
 
 type CryptoNetwork = 'TRC20' | 'BEP20' | 'ERC20';
-type DepositRail = 'USDT' | 'RAZORPAY' | 'BANK_WIRE';
+type DepositRail = 'USDT' | 'RAZORPAY' | 'CARDS' | 'BANK_WIRE';
 
 interface NetworkConfig {
   id: string;
@@ -261,7 +261,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
     }
 
     if (amt < razorpayConfig.minDeposit) {
-      setErrorMsg(`Minimum Razorpay payment amount is $${razorpayConfig.minDeposit} USD.`);
+      setErrorMsg(`Minimum card payment amount is $${razorpayConfig.minDeposit} USD.`);
       return;
     }
 
@@ -357,7 +357,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         if (onDepositSuccess) onDepositSuccess();
       }
     } catch (err: any) {
-      setErrorMsg(extractErrorMessage(err, 'Failed to process Razorpay payment.'));
+      setErrorMsg(extractErrorMessage(err, 'Failed to process card payment.'));
     } finally {
       setSubmitting(false);
     }
@@ -619,13 +619,13 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                 type="button"
                 onClick={() => setSelectedRail('RAZORPAY')}
                 className={`py-2.5 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  selectedRail === 'RAZORPAY'
+                  selectedRail === 'RAZORPAY' || (selectedRail as string) === 'CARDS'
                     ? 'bg-blue-600 text-white shadow-md'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                 }`}
               >
                 <CreditCard className="w-3.5 h-3.5 shrink-0" />
-                <span>Razorpay ({razorpayConfig.commissionPercent}% Fee)</span>
+                <span>CARDS ({razorpayConfig.commissionPercent}% Fee)</span>
               </button>
               <button
                 type="button"
@@ -942,8 +942,8 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                 </form>
 
               </div>
-            ) : selectedRail === 'RAZORPAY' ? (
-              /* ================= RAZORPAY INSTANT CHECKOUT (5% COMMISSION) ================= */
+            ) : selectedRail === 'RAZORPAY' || (selectedRail as string) === 'CARDS' ? (
+              /* ================= CARD CHECKOUT (5% COMMISSION) ================= */
               <form onSubmit={handleRazorpaySubmit} className="space-y-4">
                 <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-blue-50/90 to-indigo-50/60 dark:from-slate-950 dark:to-blue-950/30 border border-blue-500/25 space-y-3">
                   <div className="flex items-center justify-between">
@@ -953,10 +953,10 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                       </div>
                       <div>
                         <h4 className="text-xs font-black text-slate-900 dark:text-white">
-                          Razorpay Payment Gateway
+                          Card Payment Gateway
                         </h4>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                          Visa • Mastercard • RuPay • UPI • NetBanking
+                          Visa • Mastercard • RuPay
                         </p>
                       </div>
                     </div>
@@ -965,27 +965,20 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                     </span>
                   </div>
 
-                  {/* Method Chips */}
-                  <div className="grid grid-cols-3 gap-2 pt-1">
-                    {[
-                      { id: 'CARD' as const, label: 'Cards', sub: 'Visa / MC / RuPay' },
-                      { id: 'UPI' as const, label: 'UPI Instant', sub: 'GPay / PhonePe' },
-                      { id: 'NETBANKING' as const, label: 'NetBanking', sub: '50+ Banks' },
-                    ].map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => setRazorpayMethodTag(m.id)}
-                        className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
-                          razorpayMethodTag === m.id
-                            ? 'border-blue-600 bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-sm'
-                            : 'border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/40 text-slate-600 dark:text-slate-400'
-                        }`}
-                      >
-                        <div className="text-xs font-bold">{m.label}</div>
-                        <div className="text-[10px] text-slate-400 truncate">{m.sub}</div>
-                      </button>
-                    ))}
+                  {/* Active Card Payment Rail (UPI and NetBanking removed as unsupported) */}
+                  <div className="p-3 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-blue-500/20 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                        <CreditCard className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">Credit &amp; Debit Cards</div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400">Visa • Mastercard • RuPay • Instant Settlement</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      Active
+                    </span>
                   </div>
                 </div>
 
@@ -1025,7 +1018,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                   </div>
                 </div>
 
-                {/* Live 5% Commission Breakdown Box (3% Razorpay + 2% Avora) */}
+                {/* Live 5% Commission Breakdown Box (3% Gateway + 2% Avora) */}
                 {(() => {
                   const netVal = Math.max(0, parseFloat(depositAmount) || 0);
                   const rzpFee = netVal * (razorpayConfig.gatewayFeePercent / 100);
@@ -1041,7 +1034,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                         </span>
                       </div>
                       <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                        <span>Razorpay Gateway Fee ({razorpayConfig.gatewayFeePercent.toFixed(1)}%):</span>
+                        <span>Card Gateway Processing Fee ({razorpayConfig.gatewayFeePercent.toFixed(1)}%):</span>
                         <span className="font-mono">
                           +${rzpFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                         </span>
@@ -1059,7 +1052,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                         </span>
                       </div>
                       <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-800 text-sm font-black text-slate-900 dark:text-white">
-                        <span>Total Payable via Razorpay:</span>
+                        <span>Total Payable via Card:</span>
                         <span className="font-mono text-blue-600 dark:text-blue-400">
                           ${grossTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                         </span>
@@ -1068,15 +1061,15 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                   );
                 })()}
 
-                {/* Optional Razorpay Payment ID / UTR input if paying via payment link or assisted mode */}
+                {/* Optional Card Reference input if paying via payment link or assisted mode */}
                 {!razorpayConfig.hasLiveKeys && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Razorpay Payment ID / UTR Reference (Optional for Instant Order)
+                      Card Payment Reference / Transaction ID (Optional for Instant Order)
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. pay_P9k28xL09a or UPI UTR (auto-generated if blank)"
+                      placeholder="e.g. CARD_REF_9k28x or bank reference (auto-generated if blank)"
                       value={txHash}
                       onChange={(e) => setTxHash(e.target.value)}
                       className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-blue-500"
@@ -1092,13 +1085,13 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                   {submitting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Initializing Razorpay Checkout...</span>
+                      <span>Initializing Card Checkout...</span>
                     </>
                   ) : (
                     <>
                       <CreditCard className="w-4 h-4" />
                       <span>
-                        Pay ${((parseFloat(depositAmount) || 0) * (1 + razorpayConfig.commissionPercent / 100)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD via Razorpay
+                        Pay ${((parseFloat(depositAmount) || 0) * (1 + razorpayConfig.commissionPercent / 100)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD via Card
                       </span>
                     </>
                   )}

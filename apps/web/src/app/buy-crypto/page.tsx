@@ -597,7 +597,7 @@ export default function BuyCryptoPage() {
               </label>
               {isRazorpayRail && (
                 <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
-                  Powered by Razorpay ({activeCommissionPercent.toFixed(1)}% Total Fee)
+                  Card Gateway ({activeCommissionPercent.toFixed(1)}% Total Fee)
                 </span>
               )}
             </div>
@@ -614,8 +614,8 @@ export default function BuyCryptoPage() {
               >
                 <CreditCard className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                 <div>
-                  <div className="text-xs font-bold">Razorpay</div>
-                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Card / UPI / Net</div>
+                  <div className="text-xs font-bold">CARDS</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">Visa • MC • RuPay</div>
                 </div>
               </button>
 
@@ -696,7 +696,7 @@ export default function BuyCryptoPage() {
             {isRazorpayRail ? (
               <>
                 <div className="flex justify-between text-slate-500">
-                  <span>Razorpay Gateway Fee ({activeGatewayFeePercent.toFixed(1)}%)</span>
+                  <span>Card Gateway Fee ({activeGatewayFeePercent.toFixed(1)}%)</span>
                   <span className="font-mono text-slate-700 dark:text-slate-300 font-semibold">
                     -${razorpayFeeUsd.toFixed(2)} USD
                   </span>
@@ -729,7 +729,7 @@ export default function BuyCryptoPage() {
             <div className="flex justify-between text-slate-500">
               <span>Settlement Verification</span>
               <span className="text-slate-800 dark:text-slate-200 font-semibold flex items-center gap-1">
-                <Clock className="w-3 h-3 text-emerald-500" /> {isRazorpayRail ? 'Razorpay Gateway + Ledger Credit' : 'Treasury Verification & Ledger Credit'}
+                <Clock className="w-3 h-3 text-emerald-500" /> {isRazorpayRail ? 'Card Gateway + Ledger Credit' : 'Treasury Verification & Ledger Credit'}
               </span>
             </div>
           </div>
@@ -846,7 +846,7 @@ export default function BuyCryptoPage() {
                   {isRazorpayRail && (
                     <>
                       <div className="flex justify-between text-slate-500">
-                        <span>Razorpay Gateway Fee ({activeGatewayFeePercent.toFixed(1)}%):</span>
+                        <span>Card Gateway Fee ({activeGatewayFeePercent.toFixed(1)}%):</span>
                         <span className="font-mono text-slate-700 dark:text-slate-300">-${razorpayFeeUsd.toFixed(2)} USD</span>
                       </div>
                       <div className="flex justify-between text-slate-500">
@@ -874,7 +874,7 @@ export default function BuyCryptoPage() {
                   <div className="flex justify-between">
                     <span className="text-slate-500">Payment Rail:</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200 uppercase">
-                      {isRazorpayRail ? `RAZORPAY (${paymentMethod.replace('_', ' ')})` : paymentMethod.replace('_', ' ')}
+                      {isRazorpayRail ? (paymentMethod === 'razorpay' ? 'CARDS' : paymentMethod.toUpperCase().replace('_', ' ')) : paymentMethod.replace('_', ' ')}
                     </span>
                   </div>
                 </div>
