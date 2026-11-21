@@ -32,10 +32,12 @@ import {
   Mail,
   Phone,
   MessageSquare,
+  Briefcase,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
 import PaginationControls, { usePagination } from '../../components/PaginationControls';
+import VentureDealflowSection from '../../components/VentureDealflowSection';
 
 const stripMarkdownText = (raw?: string): string => {
   if (!raw) return '';
@@ -166,6 +168,9 @@ interface StartupItem {
 export default function InvestmentsMarketplacePage() {
   const router = useRouter();
   const { user } = useAuth();
+
+  // Top-Level Navigation Tab: 'PORTFOLIO' (Curated Campaigns) vs 'DEALFLOW' (Capital & Dealflow Matchmaking Desk)
+  const [activeInvestmentTab, setActiveInvestmentTab] = useState<'PORTFOLIO' | 'DEALFLOW'>('PORTFOLIO');
 
   // Directory State
   const [campaigns, setCampaigns] = useState<StartupItem[]>([]);
@@ -583,8 +588,45 @@ export default function InvestmentsMarketplacePage() {
         </div>
       )}
 
-      {/* Filter and Search Bar */}
-      <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-4">
+      {/* Sub-Navigation Switcher: Curated Portfolio vs Dealflow Desk */}
+      <div className="flex items-center justify-center pt-2">
+        <div className="p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-center gap-2 text-xs font-black shadow-md">
+          <button
+            type="button"
+            onClick={() => setActiveInvestmentTab('PORTFOLIO')}
+            className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+              activeInvestmentTab === 'PORTFOLIO'
+                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Award className="w-4 h-4 text-emerald-500" />
+            <span>Curated Startup Portfolio ({campaigns.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveInvestmentTab('DEALFLOW')}
+            className={`px-5 py-2.5 rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+              activeInvestmentTab === 'DEALFLOW'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Briefcase className="w-4 h-4 text-indigo-300" />
+            <span>Venture &amp; Lending Dealflow Desk</span>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-slate-950 font-mono text-[10px] font-bold">
+              Matchmaking
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {activeInvestmentTab === 'DEALFLOW' ? (
+        <VentureDealflowSection />
+      ) : (
+        <>
+          {/* Filter and Search Bar */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-4">
         
         {/* Dynamic Category / Industry Navigation Pills */}
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -882,6 +924,8 @@ export default function InvestmentsMarketplacePage() {
         itemLabel="offerings"
         theme="auto"
       />
+        </>
+      )}
 
       {/* ========================================================================= */}
       {/* MODAL 0: SCROLLABLE COMPLETE COMPANY & INVESTMENT DOSSIER MODAL           */}

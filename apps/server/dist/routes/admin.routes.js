@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const admin_controller_1 = require("../controllers/admin.controller");
+const ventureMatchmaking_controller_1 = require("../controllers/ventureMatchmaking.controller");
 const auth_1 = require("../middleware/auth");
 const client_1 = require("@prisma/client");
 const router = (0, express_1.Router)();
@@ -75,6 +76,11 @@ router.post('/investments/listings/:id/sync-metrics', (0, auth_1.requireRole)([c
 router.post('/investments/commitments', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.createManualInvestmentCommitment(req, res, next));
 router.delete('/investments/commitments/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.deleteMockInvestmentCommitment(req, res, next));
 router.post('/investments/inquiries/:id/reply', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.replyStartupInquiry(req, res, next));
+// Venture Fund Dealflow & Capital Matchmaking Desk
+router.get('/dealflow/opportunities', (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminListOpportunities(req, res, next));
+router.get('/dealflow/applications', (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminListApplications(req, res, next));
+router.patch('/dealflow/applications/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminUpdateApplicationStatus(req, res, next));
+router.patch('/dealflow/opportunities/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminUpdateOpportunityStatus(req, res, next));
 // P2P Escrow, Onboarding Applications & Dispute Resolution
 router.get('/p2p/applications', (req, res, next) => admin_controller_1.adminController.getP2PApplications(req, res, next));
 router.post('/p2p/applications/:id/review', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.reviewP2PApplication(req, res, next));

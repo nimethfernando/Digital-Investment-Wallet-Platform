@@ -29,9 +29,11 @@ import {
   Lock,
   MessageSquare,
   Send,
+  Briefcase,
 } from 'lucide-react';
 import { api, resolveMediaUrl } from '../../../lib/api';
 import PaginationControls from '../../../components/PaginationControls';
+import AdminDealflowMatchmakingDesk from './AdminDealflowMatchmakingDesk';
 
 interface StartupsTabProps {
   listings: any[];
@@ -81,6 +83,7 @@ export default function AdminStartupsTab({
   onRefresh,
   onFeedback,
 }: StartupsTabProps) {
+  const [subTab, setSubTab] = useState<'CAMPAIGNS' | 'DEALFLOW_DESK'>('CAMPAIGNS');
   const [search, setSearch] = useState('');
   const [selectedListingFilterId, setSelectedListingFilterId] = useState<string>('ALL');
   const [commitmentSearch, setCommitmentSearch] = useState('');
@@ -725,7 +728,44 @@ export default function AdminStartupsTab({
           <option key={cat} value={cat} />
         ))}
       </datalist>
-      {/* Header & Controls Bar */}
+
+      {/* Sub-Navigation: Curated Campaigns & Commitments vs Dealflow Matchmaking Desk */}
+      <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-slate-900 border border-slate-800 text-xs font-black w-fit shadow-md">
+        <button
+          type="button"
+          onClick={() => setSubTab('CAMPAIGNS')}
+          className={`px-4 py-2 rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+            subTab === 'CAMPAIGNS'
+              ? 'bg-purple-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Building className="w-4 h-4" />
+          <span>Curated Campaigns &amp; Commitments ({listings.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSubTab('DEALFLOW_DESK')}
+          className={`px-4 py-2 rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+            subTab === 'DEALFLOW_DESK'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Briefcase className="w-4 h-4 text-indigo-300" />
+          <span>Venture &amp; Lending Dealflow Desk</span>
+          <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-slate-950 font-mono text-[10px] font-bold">
+            Applications
+          </span>
+        </button>
+      </div>
+
+      {subTab === 'DEALFLOW_DESK' ? (
+        <AdminDealflowMatchmakingDesk onFeedback={onFeedback} />
+      ) : (
+        <>
+          {/* Header & Controls Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-5 rounded-3xl border border-slate-800">
         <div>
           <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
@@ -3785,6 +3825,8 @@ export default function AdminStartupsTab({
           </div>
         );
       })()}
+        </>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { adminController } from '../controllers/admin.controller';
+import { ventureMatchmakingController } from '../controllers/ventureMatchmaking.controller';
 import { authenticateToken, requireRole, requireAdmin2FA } from '../middleware/auth';
 import { Role } from '@prisma/client';
 
@@ -130,6 +131,20 @@ router.post('/investments/listings/:id/sync-metrics', requireRole([Role.ADMIN]),
 router.post('/investments/commitments', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.createManualInvestmentCommitment(req, res, next));
 router.delete('/investments/commitments/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.deleteMockInvestmentCommitment(req, res, next));
 router.post('/investments/inquiries/:id/reply', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.replyStartupInquiry(req, res, next));
+
+// Venture Fund Dealflow & Capital Matchmaking Desk
+router.get('/dealflow/opportunities', (req, res, next) =>
+  ventureMatchmakingController.adminListOpportunities(req, res, next)
+);
+router.get('/dealflow/applications', (req, res, next) =>
+  ventureMatchmakingController.adminListApplications(req, res, next)
+);
+router.patch('/dealflow/applications/:id', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) =>
+  ventureMatchmakingController.adminUpdateApplicationStatus(req, res, next)
+);
+router.patch('/dealflow/opportunities/:id', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) =>
+  ventureMatchmakingController.adminUpdateOpportunityStatus(req, res, next)
+);
 
 // P2P Escrow, Onboarding Applications & Dispute Resolution
 router.get('/p2p/applications', (req, res, next) => adminController.getP2PApplications(req, res, next));
