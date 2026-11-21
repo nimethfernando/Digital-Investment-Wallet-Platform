@@ -1498,10 +1498,15 @@ Return ONLY valid JSON matching this schema:
       let cleanTopicTitle = topic.trim();
       // Ensure cleanTopicTitle never contains conversational persona instructions (e.g. "You are writing...", "Act as...")
       cleanTopicTitle = cleanTopicTitle
-        .replace(/^(?:you\s+are\s+writing\s+[^.,\n]+|act\s+as\s+[^.,\n]+|please\s+write\s+[^.,\n]+|write\s+[^.,\n]+)\s*(?:about|on|covering|regarding)?\s*/i, '')
+        .replace(
+          /^(?:you\s+are\s+(?:writing|drafting|creating|generating|authoring)(?:\s+(?:a|an)\s+[^.,\n]+)?|act\s+as\s+[^.,\n]+(?:\s+and\s+(?:write|draft|generate))?|please\s+(?:write|generate|draft|create)|write|draft|generate|create)\s*(?:a|an)?\s*(?:publication-ready|in-depth|detailed|breaking|comprehensive)?\s*(?:blog|article|post|report|news(?:\s+article)?|briefing|dispatch|analysis|memo|piece)?\s*(?:for\s+(?:my\s+)?website)?\s*(?:about|on|covering|regarding|focusing\s+on)?\s*/i,
+          ''
+        )
         .trim();
-      if (!cleanTopicTitle || /^(you|act\s+as|please)\b/i.test(cleanTopicTitle)) {
-        cleanTopicTitle = 'Institutional Market & Strategic Intelligence';
+      if (!cleanTopicTitle || /^(you|act\s+as|please|i\s+want)\b/i.test(cleanTopicTitle) || cleanTopicTitle.length < 3) {
+        cleanTopicTitle = /technology|tech/i.test(topic)
+          ? 'Next-Gen Financial & Enterprise Technology'
+          : 'Institutional Market & Strategic Intelligence';
       }
       if (/nvidia/i.test(cleanTopicTitle) && /gold/i.test(cleanTopicTitle)) {
         cleanTopicTitle = 'NVIDIA & Gold Market';

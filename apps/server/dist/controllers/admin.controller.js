@@ -2094,6 +2094,10 @@ class AdminController {
                         lockinDays: policy.lockinDays,
                         redemptionEnabled: policy.redemptionEnabled,
                         unlockAllNow: policy.unlockAllNow,
+                        displayChangePct: policy.displayChangePct,
+                        scheduledPriceUsd: policy.scheduledPriceUsd ? Number(policy.scheduledPriceUsd) : null,
+                        scheduledEffectiveAt: policy.scheduledEffectiveAt ? policy.scheduledEffectiveAt.toISOString() : null,
+                        isScheduledPending: policy.isScheduledPending,
                     },
                     summary: {
                         totalRecords: holders.length,
@@ -2107,6 +2111,128 @@ class AdminController {
                         totalUnrealizedProfitUsd: currentLiabilityUsd - totalPaidUsd,
                     },
                     holders,
+                },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Update Avora Token ($AVR) valuation pricing, effective timing, display percentage, and policy
+     */
+    async updateTokenPolicy(req, res, next) {
+        try {
+            const adminUserId = req.user?.id || 'ADMIN';
+            const { priceUsd, effectiveTiming, scheduledPriceUsd, scheduledEffectiveAt, displayChangePct, lockinDays, redemptionEnabled, unlockAllNow, } = req.body || {};
+            const changes = [];
+            // 1. Price & Timing
+            if (effectiveTiming === 'SCHEDULED' && scheduledPriceUsd && scheduledEffectiveAt) {
+                const numSched = parseFloat(scheduledPriceUsd);
+                const effDate = new Date(scheduledEffectiveAt);
+                if (!isNaN(numSched) && numSched > 0 && !isNaN(effDate.getTime())) {
+                    await prisma_1.prisma.cmsSetting.upsert({
+                        where: { key: 'avr_token_scheduled_price_usd' },
+                        update: { value: numSched.toFixed(4), group: 'TOKEN' },
+                        create: { key: 'avr_token_scheduled_price_usd', value: numSched.toFixed(4), group: 'TOKEN' },
+                    });
+                    await prisma_1.prisma.cmsSetting.upsert({
+                        where: { key: 'avr_token_scheduled_effective_at' },
+                        update: { value: effDate.toISOString(), group: 'TOKEN' },
+                        create: { key: 'avr_token_scheduled_effective_at', value: effDate.toISOString(), group: 'TOKEN' },
+                    });
+                    changes.push(`Scheduled price $${numSched.toFixed(4)} USD effective at ${effDate.toISOString()}`);
+                }
+            }
+            else {
+                // Immediate price update or cancel schedule
+                if (priceUsd !== undefined && priceUsd !== null && priceUsd !== '') {
+                    const numPrice = parseFloat(priceUsd);
+                    if (!isNaN(numPrice) && numPrice > 0) {
+                        await prisma_1.prisma.cmsSetting.upsert({
+                            where: { key: 'avr_token_price_usd' },
+                            update: { value: numPrice.toFixed(4), group: 'TOKEN' },
+                            create: { key: 'avr_token_price_usd', value: numPrice.toFixed(4), group: 'TOKEN' },
+                        });
+                        changes.push(`Active price set to $${numPrice.toFixed(4)} USD`);
+                    }
+                }
+                // If immediate, clear any pending future schedule
+                await prisma_1.prisma.cmsSetting
+                    .deleteMany({
+                    where: { key: { in: ['avr_token_scheduled_price_usd', 'avr_token_scheduled_effective_at'] } },
+                })
+                    .catch(() => { });
+            }
+            // 2. Display Percentage Metric
+            if (displayChangePct !== undefined && displayChangePct !== null) {
+                const strVal = String(displayChangePct).trim();
+                await prisma_1.prisma.cmsSetting.upsert({
+                    where: { key: 'avr_token_display_change_pct' },
+                    update: { value: strVal, group: 'TOKEN' },
+                    create: { key: 'avr_token_display_change_pct', value: strVal, group: 'TOKEN' },
+                });
+                changes.push(`Display % metric set to '${strVal}'`);
+            }
+            // 3. Lock-in Days
+            if (lockinDays !== undefined && lockinDays !== null && lockinDays !== '') {
+                const numLock = parseInt(lockinDays, 10);
+                if (!isNaN(numLock) && numLock >= 0) {
+                    await prisma_1.prisma.cmsSetting.upsert({
+                        where: { key: 'avr_lockin_days' },
+                        update: { value: String(numLock), group: 'TOKEN' },
+                        create: { key: 'avr_lockin_days', value: String(numLock), group: 'TOKEN' },
+                    });
+                    changes.push(`Lock-in set to ${numLock} days`);
+                }
+            }
+            // 4. Redemption Enabled
+            if (redemptionEnabled !== undefined && redemptionEnabled !== null) {
+                const boolVal = String(redemptionEnabled).toLowerCase() !== 'false';
+                await prisma_1.prisma.cmsSetting.upsert({
+                    where: { key: 'avr_redemption_enabled' },
+                    update: { value: String(boolVal), group: 'TOKEN' },
+                    create: { key: 'avr_redemption_enabled', value: String(boolVal), group: 'TOKEN' },
+                });
+                changes.push(`Redemption enabled: ${boolVal}`);
+            }
+            // 5. Unlock All Now
+            if (unlockAllNow !== undefined && unlockAllNow !== null) {
+                const boolVal = String(unlockAllNow).toLowerCase() === 'true';
+                await prisma_1.prisma.cmsSetting.upsert({
+                    where: { key: 'avr_unlock_all_now' },
+                    update: { value: String(boolVal), group: 'TOKEN' },
+                    create: { key: 'avr_unlock_all_now', value: String(boolVal), group: 'TOKEN' },
+                });
+                changes.push(`Immediate unlock override: ${boolVal}`);
+            }
+            // Audit Log
+            await prisma_1.prisma.adminAuditLog
+                .create({
+                data: {
+                    userId: adminUserId,
+                    action: 'AVR_TOKEN_POLICY_UPDATE',
+                    entity: 'TokenPolicy',
+                    entityId: 'AVR',
+                    details: changes.join('; ') || 'Updated token policy',
+                },
+            })
+                .catch(() => { });
+            const updatedPolicy = await token_service_1.tokenService.getTokenPolicyConfig();
+            res.json({
+                success: true,
+                message: 'Avora Token ($AVR) policy, valuation, and metrics updated successfully!',
+                data: {
+                    priceUsd: Number(updatedPolicy.currentPriceUsd),
+                    displayChangePct: updatedPolicy.displayChangePct,
+                    scheduledPriceUsd: updatedPolicy.scheduledPriceUsd ? Number(updatedPolicy.scheduledPriceUsd) : null,
+                    scheduledEffectiveAt: updatedPolicy.scheduledEffectiveAt
+                        ? updatedPolicy.scheduledEffectiveAt.toISOString()
+                        : null,
+                    isScheduledPending: updatedPolicy.isScheduledPending,
+                    lockinDays: updatedPolicy.lockinDays,
+                    redemptionEnabled: updatedPolicy.redemptionEnabled,
+                    unlockAllNow: updatedPolicy.unlockAllNow,
                 },
             });
         }
@@ -2401,6 +2527,9 @@ class AdminController {
                 'enable_virtual_cards',
                 'virtual_card_issuance_fee',
                 'avr_token_price_usd',
+                'avr_token_display_change_pct',
+                'avr_token_scheduled_price_usd',
+                'avr_token_scheduled_effective_at',
                 'avr_lockin_days',
                 'avr_redemption_enabled',
                 'avr_unlock_all_now',

@@ -488,11 +488,26 @@ export default function AutoContentPublisher({
         if (stripped.length >= 3 && !/^(you|i|we|my|please|act)\b/i.test(stripped)) {
           effectiveTopic = stripped;
         } else {
-          effectiveTopic = 'Financial & Market Intelligence';
+          effectiveTopic = /technology|tech/i.test(rawPrompt)
+            ? 'Next-Gen Financial & Enterprise Technology'
+            : 'Financial & Market Intelligence';
         }
       }
     } else {
-      effectiveTopic = rawTopic || 'Financial & Market Intelligence';
+      const sanitizedTopic = (rawTopic || '')
+        .replace(
+          /^(?:you\s+are\s+(?:writing|drafting|creating|generating|authoring)(?:\s+(?:a|an)\s+[^.,\n]+)?|act\s+as\s+[^.,\n]+(?:\s+and\s+(?:write|draft|generate))?|please\s+(?:write|generate|draft|create)|write|draft|generate|create)\s*(?:a|an)?\s*(?:publication-ready|in-depth|detailed|breaking|comprehensive)?\s*(?:blog|article|post|report|news(?:\s+article)?|briefing|dispatch|analysis|memo|piece)?\s*(?:for\s+(?:my\s+)?website)?\s*(?:about|on|covering|regarding|focusing\s+on)?\s*/i,
+          ''
+        )
+        .split(/[.!?\n]/)[0]
+        .trim();
+
+      effectiveTopic =
+        sanitizedTopic && sanitizedTopic.length >= 3 && !/^(you|i|we|my|please|act)\b/i.test(sanitizedTopic)
+          ? sanitizedTopic
+          : /technology|tech/i.test(rawTopic)
+          ? 'Next-Gen Financial & Enterprise Technology'
+          : 'Financial & Market Intelligence';
     }
 
     if (!effectiveTopic || publishing) return;

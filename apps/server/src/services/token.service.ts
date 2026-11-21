@@ -74,19 +74,31 @@ export class TokenService {
   }
 
   /**
-   * Read dynamic Avora Token ($AVR) pricing, lock-in duration, and redemption toggles from CmsSetting
+   * Read dynamic Avora Token ($AVR) pricing, lock-in duration, percentage metrics, and scheduled price changes from CmsSetting
    */
   async getTokenPolicyConfig(): Promise<{
     currentPriceUsd: Decimal;
     lockinDays: number;
     redemptionEnabled: boolean;
     unlockAllNow: boolean;
+    displayChangePct: string;
+    scheduledPriceUsd: Decimal | null;
+    scheduledEffectiveAt: Date | null;
+    isScheduledPending: boolean;
   }> {
     const settings = await prisma.cmsSetting
       .findMany({
         where: {
           key: {
-            in: ['avr_token_price_usd', 'avr_lockin_days', 'avr_redemption_enabled', 'avr_unlock_all_now'],
+            in: [
+              'avr_token_price_usd',
+              'avr_lockin_days',
+              'avr_redemption_enabled',
+              'avr_unlock_all_now',
+              'avr_token_display_change_pct',
+              'avr_token_scheduled_price_usd',
+              'avr_token_scheduled_effective_at',
+            ],
           },
         },
       })
@@ -96,7 +108,43 @@ export class TokenService {
       map[s.key] = s.value;
     });
 
-    const parsedPrice = parseFloat(map.avr_token_price_usd || '');
+    let activePriceStr = map.avr_token_price_usd || '';
+    let scheduledPriceUsd: Decimal | null = null;
+    let scheduledEffectiveAt: Date | null = null;
+    let isScheduledPending = false;
+
+    // Check if a scheduled price change was set
+    if (map.avr_token_scheduled_price_usd && map.avr_token_scheduled_effective_at) {
+      const effDate = new Date(map.avr_token_scheduled_effective_at);
+      if (!isNaN(effDate.getTime())) {
+        if (effDate.getTime() <= Date.now()) {
+          // Scheduled price has become effective! Promote to active price
+          activePriceStr = map.avr_token_scheduled_price_usd;
+          prisma.cmsSetting
+            .upsert({
+              where: { key: 'avr_token_price_usd' },
+              update: { value: activePriceStr, group: 'TOKEN' },
+              create: { key: 'avr_token_price_usd', value: activePriceStr, group: 'TOKEN' },
+            })
+            .catch(() => {});
+          prisma.cmsSetting
+            .deleteMany({
+              where: { key: { in: ['avr_token_scheduled_price_usd', 'avr_token_scheduled_effective_at'] } },
+            })
+            .catch(() => {});
+        } else {
+          // Scheduled price is pending in the future
+          const parsedSched = parseFloat(map.avr_token_scheduled_price_usd);
+          if (Number.isFinite(parsedSched) && parsedSched > 0) {
+            scheduledPriceUsd = new Decimal(parsedSched.toFixed(6));
+            scheduledEffectiveAt = effDate;
+            isScheduledPending = true;
+          }
+        }
+      }
+    }
+
+    const parsedPrice = parseFloat(activePriceStr);
     const currentPriceUsd =
       Number.isFinite(parsedPrice) && parsedPrice > 0
         ? new Decimal(parsedPrice.toFixed(6))
@@ -108,7 +156,23 @@ export class TokenService {
     const redemptionEnabled = String(map.avr_redemption_enabled || 'true').toLowerCase() !== 'false';
     const unlockAllNow = String(map.avr_unlock_all_now || 'false').toLowerCase() === 'true';
 
-    return { currentPriceUsd, lockinDays, redemptionEnabled, unlockAllNow };
+    // Displayed % change: custom admin setting, or calculated dynamically from baseline $0.10
+    let displayChangePct = (map.avr_token_display_change_pct || '').trim();
+    if (!displayChangePct) {
+      const delta = ((Number(currentPriceUsd) - 0.10) / 0.10) * 100;
+      displayChangePct = `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`;
+    }
+
+    return {
+      currentPriceUsd,
+      lockinDays,
+      redemptionEnabled,
+      unlockAllNow,
+      displayChangePct,
+      scheduledPriceUsd,
+      scheduledEffectiveAt,
+      isScheduledPending,
+    };
   }
 
   /**
@@ -120,13 +184,17 @@ export class TokenService {
   }
 
   /**
-   * Get public token specifications, live price, lock-in policy, and roadmap
+   * Get public token specifications, live price, lock-in policy, percentage change, schedule, and roadmap
    */
   async getTokenInfo() {
     const cfg = await this.getTokenPolicyConfig();
     return {
       ...TOKEN_SPEC,
       currentPriceUsd: Number(cfg.currentPriceUsd),
+      displayChangePct: cfg.displayChangePct,
+      scheduledPriceUsd: cfg.scheduledPriceUsd ? Number(cfg.scheduledPriceUsd) : null,
+      scheduledEffectiveAt: cfg.scheduledEffectiveAt ? cfg.scheduledEffectiveAt.toISOString() : null,
+      isScheduledPending: cfg.isScheduledPending,
       lockinDays: cfg.lockinDays,
       redemptionEnabled: cfg.redemptionEnabled,
       unlockAllNow: cfg.unlockAllNow,

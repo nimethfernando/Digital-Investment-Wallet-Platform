@@ -64,6 +64,7 @@ export default function AdminActionModals({
   const [pkgAmount, setPkgAmount] = useState('5000');
   const [pkgCurrency, setPkgCurrency] = useState('USD');
   const [pkgTenureMonths, setPkgTenureMonths] = useState('6');
+  const [pkgMonthlyPct, setPkgMonthlyPct] = useState('1.0');
   const [pkgRate, setPkgRate] = useState('0.0100');
   const [pkgFundingSource, setPkgFundingSource] = useState<'DIRECT_CREDIT' | 'WALLET'>('DIRECT_CREDIT');
   const [pkgLoading, setPkgLoading] = useState(false);
@@ -489,29 +490,77 @@ export default function AdminActionModals({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Lock-In Tenure</label>
                   <select
                     value={pkgTenureMonths}
                     onChange={(e) => setPkgTenureMonths(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-amber-500"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-amber-500 font-mono"
                   >
+                    <option value="1">1 Month (Flex / Trial)</option>
                     <option value="3">3 Months (Quarterly)</option>
                     <option value="6">6 Months (Standard FD)</option>
                     <option value="12">12 Months (Annual FD)</option>
                     <option value="24">24 Months (2-Year Institutional)</option>
+                    <option value="36">36 Months (3-Year Premium)</option>
                   </select>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Monthly Yield Rate</label>
-                  <input
-                    type="text"
-                    value={`${(parseFloat(pkgRate) * 100).toFixed(1)}% / mo`}
-                    readOnly
-                    className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-xl text-emerald-400 font-bold text-xs font-mono"
-                  />
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Monthly Yield Rate (%)</label>
+                    <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                      {((parseFloat(pkgMonthlyPct || '0') * 12)).toFixed(1)}% APY
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.05"
+                      min="0.01"
+                      max="100"
+                      value={pkgMonthlyPct}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setPkgMonthlyPct(val);
+                        const num = parseFloat(val) || 0;
+                        setPkgRate((num / 100).toFixed(4));
+                      }}
+                      placeholder="e.g. 1.25"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-emerald-400 font-bold text-xs font-mono outline-none focus:border-emerald-500 pr-16"
+                    />
+                    <span className="absolute right-3 top-2 text-xs font-mono text-slate-400 pointer-events-none">
+                      % / mo
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Yield Rate Presets */}
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 font-mono uppercase font-bold">Quick Yield Presets:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 5.0].map((rate) => {
+                    const isSelected = Math.abs(parseFloat(pkgMonthlyPct || '0') - rate) < 0.001;
+                    return (
+                      <button
+                        key={rate}
+                        type="button"
+                        onClick={() => {
+                          setPkgMonthlyPct(String(rate));
+                          setPkgRate((rate / 100).toFixed(4));
+                        }}
+                        className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer border ${
+                          isSelected
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                        }`}
+                      >
+                        {rate.toFixed(rate % 1 === 0 ? 1 : 2)}%
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -545,14 +594,30 @@ export default function AdminActionModals({
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl text-xs space-y-1">
+              <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs space-y-1.5">
                 <div className="flex justify-between text-slate-400">
-                  <span>Monthly Yield Payout:</span>
-                  <span className="font-mono font-bold text-emerald-400">+${(parseFloat(pkgAmount || '0') * 0.01).toFixed(2)} USD / mo</span>
+                  <span>Monthly Yield Rate:</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {parseFloat(pkgMonthlyPct || '0').toFixed(2)}% / mo ({(parseFloat(pkgMonthlyPct || '0') * 12).toFixed(1)}% APY)
+                  </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Total Lock-In Payout ({pkgTenureMonths} mo):</span>
-                  <span className="font-mono font-bold text-white">+${(parseFloat(pkgAmount || '0') * 0.01 * parseInt(pkgTenureMonths, 10)).toFixed(2)} USD</span>
+                  <span>Monthly Yield Payout:</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    +${(parseFloat(pkgAmount || '0') * (parseFloat(pkgMonthlyPct || '0') / 100)).toFixed(2)} {pkgCurrency} / mo
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Total Lock-In Yields ({pkgTenureMonths} mo):</span>
+                  <span className="font-mono font-bold text-amber-300">
+                    +${(parseFloat(pkgAmount || '0') * (parseFloat(pkgMonthlyPct || '0') / 100) * parseInt(pkgTenureMonths, 10)).toFixed(2)} {pkgCurrency}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-400 border-t border-slate-800/80 pt-1.5">
+                  <span className="font-bold text-slate-300">Total Return at Maturity:</span>
+                  <span className="font-mono font-bold text-white">
+                    ${(parseFloat(pkgAmount || '0') * (1 + (parseFloat(pkgMonthlyPct || '0') / 100) * parseInt(pkgTenureMonths, 10))).toFixed(2)} {pkgCurrency}
+                  </span>
                 </div>
               </div>
 

@@ -208,6 +208,7 @@ export default function AdminPortalPage() {
   const [tenureModalOpen, setTenureModalOpen] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<any | null>(null);
   const [editLockMonths, setEditLockMonths] = useState(6);
+  const [editReturnRatePct, setEditReturnRatePct] = useState('1.0');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customMaturityDate, setCustomMaturityDate] = useState('');
   const [tenureNotes, setTenureNotes] = useState('');
@@ -1024,12 +1025,13 @@ export default function AdminPortalPage() {
           lockInMonths: editLockMonths,
           newStartDate: customStartDate || undefined,
           newEndDate: customMaturityDate || undefined,
+          returnRateSnapshot: editReturnRatePct ? (parseFloat(editReturnRatePct) / 100).toFixed(4) : undefined,
           adminNotes: tenureNotes || undefined,
         },
         { headers: admin2FaCode ? { 'x-admin-2fa': admin2FaCode } : {} }
       );
       if (res.data?.success) {
-        showToast(res.data.message || 'FD tenure updated successfully!', 'success');
+        showToast(res.data.message || 'FD plan and yield rate updated successfully!', 'success');
         setTenureModalOpen(false);
         setSelectedPackage(null);
         setCustomStartDate('');
@@ -1038,7 +1040,7 @@ export default function AdminPortalPage() {
         loadData();
       }
     } catch (err: any) {
-      showToast(err.response?.data?.message || 'Failed to update tenure', 'error');
+      showToast(err.response?.data?.message || 'Failed to update FD plan', 'error');
     } finally {
       setSavingTenure(false);
     }
@@ -4757,6 +4759,9 @@ export default function AdminPortalPage() {
                                   onClick={() => {
                                     setSelectedPackage(pkg);
                                     setEditLockMonths(pkg.lockInMonths || 6);
+                                    setEditReturnRatePct(
+                                      pkg.returnRateSnapshot ? (parseFloat(pkg.returnRateSnapshot) * 100).toFixed(2) : '1.0'
+                                    );
                                     const startRaw = pkg.lockInStart || pkg.purchaseDate;
                                     setCustomStartDate(
                                       startRaw ? new Date(startRaw).toISOString().split('T')[0] : ''
@@ -4768,10 +4773,10 @@ export default function AdminPortalPage() {
                                     setTenureModalOpen(true);
                                   }}
                                   className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white font-bold text-[11px] border border-slate-700 hover:border-amber-500/50 flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
-                                  title="Change FD Lock-In Tenure and Maturity Date"
+                                  title="Modify FD Plan, Yield Rate, Lock-In Tenure and Maturity Date"
                                 >
                                   <Clock className="w-3.5 h-3.5 text-amber-400" />
-                                  <span>Edit FD Tenure</span>
+                                  <span>Edit FD Plan &amp; Yield</span>
                                 </button>
 
                                 {pkg.status === 'PENDING_PAYMENT' && (
@@ -5305,6 +5310,9 @@ export default function AdminPortalPage() {
                           setSelectedFdInspect(null);
                           setSelectedPackage(fd);
                           setEditLockMonths(fd.lockInMonths || 6);
+                          setEditReturnRatePct(
+                            fd.returnRateSnapshot ? (parseFloat(fd.returnRateSnapshot) * 100).toFixed(2) : '1.0'
+                          );
                           const startRawVal = fd.lockInStart || fd.purchaseDate;
                           setCustomStartDate(
                             startRawVal ? new Date(startRawVal).toISOString().split('T')[0] : ''
@@ -5318,7 +5326,7 @@ export default function AdminPortalPage() {
                         className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
                       >
                         <Clock className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Edit FD Tenure &amp; Dates</span>
+                        <span>Edit FD Plan &amp; Yield</span>
                       </button>
 
                       <div className="flex flex-wrap items-center gap-2">
@@ -5402,6 +5410,7 @@ export default function AdminPortalPage() {
             loading={tokenHoldersLoading}
             onRefresh={loadData}
             onNavigateTab={(tab) => setActiveTab(tab as any)}
+            onFeedback={({ text, type }) => showToast(text, type)}
           />
         )}
 
@@ -6940,7 +6949,7 @@ export default function AdminPortalPage() {
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-amber-400" />
-                <h3 className="font-extrabold text-base">Modify FD Lock-In Tenure</h3>
+                <h3 className="font-extrabold text-base">Modify FD Plan, Yield Rate &amp; Tenure</h3>
               </div>
               <button
                 type="button"
@@ -6967,9 +6976,66 @@ export default function AdminPortalPage() {
                 </span>
               </div>
               <div className="flex justify-between border-t border-slate-800/80 pt-1">
-                <span className="text-slate-400">Current Lock:</span>
-                <span className="text-amber-300 font-bold">
-                  {selectedPackage.lockInMonths || 6} Months (Matures: {selectedPackage.lockInEnd ? new Date(selectedPackage.lockInEnd).toLocaleDateString() : 'Active'})
+                <span className="text-slate-400">Current Rate &amp; Lock:</span>
+                <span className="text-amber-300 font-bold font-mono">
+                  {(parseFloat(selectedPackage.returnRateSnapshot || '0.01') * 100).toFixed(2)}%/mo · {selectedPackage.lockInMonths || 6} Months (Matures: {selectedPackage.lockInEnd ? new Date(selectedPackage.lockInEnd).toLocaleDateString() : 'Active'})
+                </span>
+              </div>
+            </div>
+
+            {/* Monthly Yield Rate Selector & Custom Input */}
+            <div className="space-y-2 p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-300">
+                  Monthly Yield Rate (% / month)
+                </label>
+                <span className="text-[11px] font-mono font-bold text-emerald-400">
+                  {(parseFloat(editReturnRatePct || '0') * 12).toFixed(1)}% APY
+                </span>
+              </div>
+
+              {/* Quick Rate Presets */}
+              <div className="flex flex-wrap gap-1.5">
+                {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 5.0].map((rate) => {
+                  const isSelected = Math.abs(parseFloat(editReturnRatePct || '0') - rate) < 0.001;
+                  return (
+                    <button
+                      key={rate}
+                      type="button"
+                      onClick={() => setEditReturnRatePct(String(rate))}
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer border ${
+                        isSelected
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      {rate.toFixed(rate % 1 === 0 ? 1 : 2)}%
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Custom Rate Input */}
+              <div className="relative mt-1">
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0.01"
+                  max="100"
+                  value={editReturnRatePct}
+                  onChange={(e) => setEditReturnRatePct(e.target.value)}
+                  placeholder="e.g. 1.25"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2 text-xs text-emerald-400 font-mono font-bold outline-none pr-16"
+                />
+                <span className="absolute right-3 top-2 text-xs font-mono text-slate-400 pointer-events-none">
+                  % / mo
+                </span>
+              </div>
+
+              <div className="flex justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                <span>Monthly Payout:</span>
+                <span className="font-mono font-bold text-emerald-400">
+                  +${(parseFloat(selectedPackage.amount || '0') * (parseFloat(editReturnRatePct || '0') / 100)).toFixed(2)} USD / mo
                 </span>
               </div>
             </div>
@@ -7028,7 +7094,7 @@ export default function AdminPortalPage() {
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white outline-none font-mono"
               />
               <p className="text-[10px] text-slate-500 mt-1">
-                Monthly 1% yield cycles are calculated from this deployment start date.
+                Monthly yield cycles ({parseFloat(editReturnRatePct || '1.0').toFixed(2)}%/mo) are calculated from this deployment start date.
               </p>
             </div>
 
@@ -7045,12 +7111,28 @@ export default function AdminPortalPage() {
               />
             </div>
 
+            {/* Projected Summary */}
+            <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs space-y-1">
+              <div className="flex justify-between text-slate-400">
+                <span>Total Lock-In Yields ({editLockMonths} mo):</span>
+                <span className="font-mono font-bold text-amber-300">
+                  +${(parseFloat(selectedPackage.amount || '0') * (parseFloat(editReturnRatePct || '0') / 100) * editLockMonths).toFixed(2)} USD
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Total at Maturity:</span>
+                <span className="font-mono font-bold text-white">
+                  ${(parseFloat(selectedPackage.amount || '0') * (1 + (parseFloat(editReturnRatePct || '0') / 100) * editLockMonths)).toFixed(2)} USD
+                </span>
+              </div>
+            </div>
+
             {/* Admin Audit Reason */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">Reason / Admin Notes</label>
               <input
                 type="text"
-                placeholder="e.g. VIP tenure extension request or custom agreement"
+                placeholder="e.g. VIP custom rate agreement or tenure adjustment"
                 value={tenureNotes}
                 onChange={(e) => setTenureNotes(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white outline-none"
@@ -7071,7 +7153,7 @@ export default function AdminPortalPage() {
                 className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
               >
                 {savingTenure && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Save FD Tenure</span>
+                <span>Save FD Plan &amp; Rate</span>
               </button>
             </div>
           </form>

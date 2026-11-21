@@ -237,9 +237,30 @@ export default function AvoraTokenPage() {
         </div>
 
         <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Live Reference Price</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Live Reference Price</span>
+            {tokenInfo?.displayChangePct && (
+              <span
+                className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${
+                  tokenInfo.displayChangePct.startsWith('-')
+                    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                }`}
+              >
+                {tokenInfo.displayChangePct}
+              </span>
+            )}
+          </div>
           <div className="text-lg font-black font-mono text-slate-900 dark:text-white">${livePriceUsd.toFixed(2)} USD</div>
-          <div className="text-[11px] text-slate-500">Seed ref: $0.10 • Live buy &amp; redeem rate</div>
+          <div className="text-[11px] text-slate-500">
+            {tokenInfo?.isScheduledPending && tokenInfo?.scheduledPriceUsd ? (
+              <span className="text-amber-500 dark:text-amber-400 font-semibold">
+                Scheduled: ${Number(tokenInfo.scheduledPriceUsd).toFixed(2)} on {new Date(tokenInfo.scheduledEffectiveAt).toLocaleDateString()}
+              </span>
+            ) : (
+              'Live buy & redeem rate • Backed by Treasury'
+            )}
+          </div>
         </div>
 
         <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
