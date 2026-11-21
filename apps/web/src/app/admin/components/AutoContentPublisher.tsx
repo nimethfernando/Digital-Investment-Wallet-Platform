@@ -446,28 +446,54 @@ export default function AutoContentPublisher({
   const executeAutoPublish = async () => {
     const rawTopic = topic.trim();
     const rawPrompt = customPrompt.trim();
-    const promptSubject = rawPrompt
-      .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
-      .split(/[.!?\n]/)[0]
-      .trim()
-      .slice(0, 110);
 
-    // If user typed an explicit subject in the prompt box (e.g. "About Nvidia market and Gold market") and either left topic empty or left an unrelated quick topic selected, use the prompt subject!
-    const topicWords = rawTopic
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !['inc', 'corp', 'the'].includes(w));
-    const promptLower = rawPrompt.toLowerCase();
-    const topicMentionedInPrompt =
-      topicWords.length > 0 && topicWords.some((w) => promptLower.includes(w));
+    // Multi-stage topic extraction that never allows conversational directives ("You are writing...", "Act as...") to pollute article titles
+    const metaAboutRegex =
+      /^(?:(?:you\s+are\s+(?:writing|drafting|creating|generating|authoring)(?:\s+(?:a|an)\s+[^.,\n]+)?|act\s+as\s+[^.,\n]+(?:\s+and\s+(?:write|draft|generate))?|please\s+(?:write|generate|draft|create)|write|draft|generate|create)\s+(?:a|an)?\s*(?:publication-ready|in-depth|detailed|breaking|comprehensive)?\s*(?:blog|article|post|report|news(?:\s+article)?|briefing|dispatch|analysis|memo|piece)?\s*(?:about|on|covering|regarding|focusing\s+on)|(?:about|regarding|covering|focusing\s+on))\s+(.+)$/is;
 
-    const effectiveTopic =
-      !rawTopic
-        ? promptSubject
-        : rawPrompt && (!topicMentionedInPrompt || /^(about|write|blog|article|topic)\b/i.test(rawPrompt))
-        ? promptSubject || rawTopic
-        : rawTopic;
+    let extractedEntityFromPrompt = '';
+    const candidateClauses = [rawPrompt, ...rawPrompt.split(/(?<=[.!?\n])\s+/)];
+    for (const clause of candidateClauses) {
+      const match = clause.trim().match(metaAboutRegex);
+      if (match && match[1]) {
+        extractedEntityFromPrompt = match[1]
+          .split(/[.!?\n]/)[0]
+          .trim()
+          .replace(/^["'`]|["'`]$/g, '')
+          .slice(0, 100);
+        if (extractedEntityFromPrompt.length >= 2) break;
+      }
+    }
+
+    const isTopicMetaSentence =
+      /^(?:you\s+are|act\s+as|please\s+write|write\s+(?:a|an)|generate\s+(?:a|an)|i\s+want\s+you\s+to)\b/i.test(rawTopic);
+
+    let effectiveTopic = '';
+    if (extractedEntityFromPrompt && extractedEntityFromPrompt.length >= 2) {
+      effectiveTopic = extractedEntityFromPrompt;
+      if (/nvidia/i.test(effectiveTopic) && /gold/i.test(effectiveTopic)) {
+        effectiveTopic = 'NVIDIA & Gold Market';
+      }
+    } else if (rawTopic && !isTopicMetaSentence) {
+      effectiveTopic = rawTopic;
+    } else if (rawPrompt) {
+      if (/nvidia/i.test(rawPrompt) && /gold/i.test(rawPrompt)) {
+        effectiveTopic = 'NVIDIA & Gold Market';
+      } else {
+        const stripped = rawPrompt
+          .replace(/^(?:you\s+are\s+writing\s+[^.,\n]+|act\s+as\s+[^.,\n]+|please\s+write\s+[^.,\n]+|write\s+[^.,\n]+)\s*(?:about|on|covering|regarding)?\s*/i, '')
+          .split(/[.!?\n]/)[0]
+          .trim()
+          .slice(0, 70);
+        if (stripped.length >= 3 && !/^(you|i|we|my|please|act)\b/i.test(stripped)) {
+          effectiveTopic = stripped;
+        } else {
+          effectiveTopic = 'Financial & Market Intelligence';
+        }
+      }
+    } else {
+      effectiveTopic = rawTopic || 'Financial & Market Intelligence';
+    }
 
     if (!effectiveTopic || publishing) return;
 
@@ -509,6 +535,26 @@ export default function AutoContentPublisher({
     await executeAutoPublish();
   };
 
+  const handlePublishNextFreshTopic = async () => {
+    if (publishingNextFresh || publishing) return;
+    setPublishingNextFresh(true);
+    setLastResult(null);
+    try {
+      const res = await api.post('/cms/admin/blogs/auto-publish-fresh', {
+        customPrompt: customPrompt.trim() || undefined,
+      });
+      if (res.data?.success) {
+        setLastResult(res.data);
+        onFeedback?.(res.data.message || 'Published fresh announcement from watchlist!', 'success');
+        await loadPostsAndStatus();
+      }
+    } catch (err: any) {
+      onFeedback?.(extractErrorMessage(err, 'Failed to publish next fresh topic'), 'error');
+    } finally {
+      setPublishingNextFresh(false);
+    }
+  };
+
   const handleSyncSingle = async (postId: string) => {
     setSyncingId(postId);
     try {
@@ -539,24 +585,6 @@ export default function AutoContentPublisher({
       onFeedback?.(extractErrorMessage(err, 'Global news sync failed'), 'error');
     } finally {
       setSyncingAll(false);
-    }
-  };
-
-  const handlePublishNextFreshTopic = async () => {
-    if (publishingNextFresh || publishing) return;
-    setPublishingNextFresh(true);
-    setLastResult(null);
-    try {
-      const res = await api.post('/cms/admin/blogs/auto-publish-fresh');
-      if (res.data?.success) {
-        setLastResult(res.data);
-        onFeedback?.(res.data.message || 'Published fresh announcement from watchlist!', 'success');
-        await loadPostsAndStatus();
-      }
-    } catch (err: any) {
-      onFeedback?.(extractErrorMessage(err, 'Failed to publish next fresh topic'), 'error');
-    } finally {
-      setPublishingNextFresh(false);
     }
   };
 
@@ -970,6 +998,19 @@ export default function AutoContentPublisher({
                         Active in DB: {aiStatus.geminiKeyMask}
                       </div>
                     )}
+                    {(Boolean(aiStatus?.geminiKeyMask && String(aiStatus.geminiKeyMask).startsWith('AQ.')) || geminiKey.startsWith('AQ.')) && (
+                      <div className="mt-2 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-[11px] text-amber-200 space-y-1">
+                        <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                          <span>⚠️ Antigravity Session Token Detected</span>
+                        </div>
+                        <p className="leading-snug">
+                          The saved key begins with <code className="px-1 py-0.5 rounded bg-black/40 font-mono text-amber-300 font-bold">AQ.Ab...</code> which is an internal Antigravity session token, NOT a Google Gemini API Key.
+                        </p>
+                        <p className="leading-snug">
+                          Google Gemini keys start with <code className="px-1 py-0.5 rounded bg-black/40 font-mono text-emerald-300 font-bold">AIzaSy...</code>. To enable Gemini AI generation, generate a free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-emerald-400 underline font-bold">Google AI Studio (aistudio.google.com)</a> and paste it here.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1208,7 +1249,8 @@ export default function AutoContentPublisher({
                   <button
                     type="submit"
                     disabled={publishing || publishingNextFresh || (!topic.trim() && !customPrompt.trim())}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-md shadow-emerald-950/40"
+                    title="Generate & Publish an in-depth article specifically from your entered prompt and topic"
                   >
                     {publishing ? (
                       <>
@@ -1218,7 +1260,7 @@ export default function AutoContentPublisher({
                     ) : (
                       <>
                         <Rocket className="w-4 h-4" />
-                        <span>Auto-Generate &amp; Publish</span>
+                        <span>Auto-Generate &amp; Publish from Prompt / Topic</span>
                       </>
                     )}
                   </button>
@@ -1227,17 +1269,17 @@ export default function AutoContentPublisher({
                     onClick={handlePublishNextFreshTopic}
                     disabled={publishingNextFresh || publishing}
                     className="px-4 py-2.5 rounded-xl bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                    title="Automatically pick the next rotating watchlist topic and publish a fresh edition now"
+                    title="Automatically cycle to the next topic in your Rotating Watchlist (Apple, NVDA, Bitcoin, etc.)"
                   >
                     {publishingNextFresh ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Publishing Next...</span>
+                        <span>Publishing Watchlist...</span>
                       </>
                     ) : (
                       <>
                         <Sparkles className="w-4 h-4" />
-                        <span>Publish Next Watchlist Topic</span>
+                        <span>⚡ Cycle Watchlist (AAPL, NVDA, BTC...)</span>
                       </>
                     )}
                   </button>
@@ -1253,27 +1295,37 @@ export default function AutoContentPublisher({
             )}
 
             {lastResult?.post && (
-              <div className="p-4 rounded-xl bg-slate-900 border border-emerald-500/40 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <span className="text-emerald-400 font-bold">
-                  Published: {lastResult.post.title}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openEditModal(lastResult.post)}
-                    className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer"
-                  >
-                    Edit Article
-                  </button>
-                  <Link
-                    href={`/blog/${lastResult.post.slug}`}
-                    target="_blank"
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center gap-1"
-                  >
-                    <span>Open Live</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </Link>
+              <div className="p-4 rounded-xl bg-slate-900 border border-emerald-500/40 space-y-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-emerald-400 font-bold">
+                    Published: {lastResult.post.title}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(lastResult.post)}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer"
+                    >
+                      Edit Article
+                    </button>
+                    <Link
+                      href={`/blog/${lastResult.post.slug}`}
+                      target="_blank"
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center gap-1"
+                    >
+                      <span>Open Live</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </Link>
+                  </div>
                 </div>
+                {lastResult?.stats && (
+                  <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-3 pt-1 border-t border-slate-800">
+                    <span>Ticker: <span className="font-mono text-emerald-300 font-bold">{lastResult.stats.tickerResolved}</span></span>
+                    <span>Company / Topic: <span className="text-white font-semibold">{lastResult.stats.companyName}</span></span>
+                    <span>Engine: <span className="text-slate-300 font-semibold">{lastResult.stats.usedAi ? 'Gemini 2.5 Flash / OpenAI' : 'Avora Offline Research Desk'}</span></span>
+                    <span>News Gathered: <span className="text-emerald-300 font-bold">{lastResult.stats.newsGathered}</span></span>
+                  </div>
+                )}
               </div>
             )}
           </div>

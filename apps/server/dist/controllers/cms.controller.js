@@ -235,20 +235,13 @@ exports.getBlogMemeMedia = getBlogMemeMedia;
 const autoPublishBlog = async (req, res, next) => {
     try {
         const { topic, customPrompt, includeMeme, autoTrackNews, categoryOverride } = req.body;
-        const rawTopic = typeof topic === 'string' ? topic.trim() : '';
-        const rawPrompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
-        const derivedTopic = rawTopic ||
-            rawPrompt
-                .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
-                .split(/[.!?\n]/)[0]
-                .trim()
-                .slice(0, 110);
+        const { topic: derivedTopic, brief: derivedPrompt } = (0, autoContent_service_1.extractEditorialTopicAndBrief)(typeof topic === 'string' ? topic : '', typeof customPrompt === 'string' ? customPrompt : '');
         if (!derivedTopic || derivedTopic.length < 2) {
             return res.status(400).json({ success: false, message: 'Please enter a valid blog topic, ticker, or AI prompt.' });
         }
         const result = await autoContent_service_1.autoContentService.publishAutomatedPost({
             topic: derivedTopic,
-            customPrompt: rawPrompt || undefined,
+            customPrompt: derivedPrompt || undefined,
             includeMeme: includeMeme !== false,
             autoTrackNews: autoTrackNews !== false,
             categoryOverride: typeof categoryOverride === 'string' && categoryOverride.trim() ? categoryOverride.trim() : undefined,
@@ -295,7 +288,8 @@ const syncAllTrackedBlogs = async (req, res, next) => {
 exports.syncAllTrackedBlogs = syncAllTrackedBlogs;
 const triggerAutonomousFreshPublish = async (req, res, next) => {
     try {
-        const result = await autoContent_service_1.autoContentService.runAutonomousFreshPublisher(true);
+        const { customPrompt } = req.body || {};
+        const result = await autoContent_service_1.autoContentService.runAutonomousFreshPublisher(true, typeof customPrompt === 'string' && customPrompt.trim() ? customPrompt.trim() : undefined);
         res.status(201).json({
             success: true,
             message: result.published

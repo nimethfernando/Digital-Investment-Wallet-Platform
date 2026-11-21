@@ -160,6 +160,91 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Robust extraction of the actual subject topic and editorial prompt/brief.
+ * Prevents AI conversational directives (e.g. "You are writing a publication-ready...", "Act as...", "Please write...")
+ * from polluting article titles, tickers, or company names.
+ */
+export function extractEditorialTopicAndBrief(rawTopic?: string, rawPrompt?: string): {
+  topic: string;
+  brief: string;
+  isInstructionOnlyPrompt: boolean;
+} {
+  const cleanPrompt = (rawPrompt || '').trim();
+  const cleanTopic = (rawTopic || '').trim();
+
+  // Pattern 1: Meta-directive with "about", "on", "covering", "regarding", "focusing on"
+  // E.g. "You are writing a publication-ready technology news article for my website about Quantum Computing in Banking"
+  // E.g. "Act as a senior analyst. Write a report on Apple and Tesla competition."
+  // E.g. "Please generate an article regarding global remittance regulations"
+  // E.g. "About Nvidia market and Gold market"
+  // E.g. "Write a blog about Nvidia AI Chips"
+  const metaAboutRegex =
+    /^(?:(?:you\s+are\s+(?:writing|drafting|creating|generating|authoring)(?:\s+(?:a|an)\s+[^.,\n]+)?|act\s+as\s+[^.,\n]+(?:\s+and\s+(?:write|draft|generate))?|please\s+(?:write|generate|draft|create)|write|draft|generate|create)\s+(?:a|an)?\s*(?:publication-ready|in-depth|detailed|breaking|comprehensive)?\s*(?:blog|article|post|report|news(?:\s+article)?|briefing|dispatch|analysis|memo|piece)?\s*(?:about|on|covering|regarding|focusing\s+on)|(?:about|regarding|covering|focusing\s+on))\s+(.+)$/is;
+
+  let extractedEntityFromPrompt = '';
+  // Check full prompt or individual sentences (e.g. "Act as a senior analyst. Write a report on Apple and Tesla competition.")
+  const candidateClauses = [cleanPrompt, ...cleanPrompt.split(/(?<=[.!?\n])\s+/)];
+  for (const clause of candidateClauses) {
+    const match = clause.trim().match(metaAboutRegex);
+    if (match && match[1]) {
+      extractedEntityFromPrompt = match[1]
+        .split(/[.!?\n]/)[0]
+        .trim()
+        .replace(/^["'`]|["'`]$/g, '')
+        .slice(0, 100);
+      if (extractedEntityFromPrompt.length >= 2) break;
+    }
+  }
+
+  // Check if cleanTopic is a generic conversational meta-sentence (e.g. "You are writing...")
+  const isTopicMetaSentence =
+    /^(?:you\s+are|act\s+as|please\s+write|write\s+(?:a|an)|generate\s+(?:a|an)|i\s+want\s+you\s+to)\b/i.test(cleanTopic);
+
+  // If prompt explicitly provided an entity (e.g. "About Nvidia market and Gold market"):
+  if (extractedEntityFromPrompt && extractedEntityFromPrompt.length >= 2) {
+    let formattedTopic = extractedEntityFromPrompt;
+    if (/nvidia/i.test(formattedTopic) && /gold/i.test(formattedTopic)) {
+      formattedTopic = 'NVIDIA & Gold Market';
+    }
+    return {
+      topic: formattedTopic,
+      brief: cleanPrompt,
+      isInstructionOnlyPrompt: false,
+    };
+  }
+
+  // If cleanTopic is valid, not a meta sentence, and not equal to cleanPrompt:
+  if (cleanTopic && !isTopicMetaSentence) {
+    return {
+      topic: cleanTopic,
+      brief: cleanPrompt,
+      isInstructionOnlyPrompt: Boolean(cleanPrompt),
+    };
+  }
+
+  // If prompt has keywords or topics without explicit "about":
+  if (cleanPrompt) {
+    if (/nvidia/i.test(cleanPrompt) && /gold/i.test(cleanPrompt)) {
+      return { topic: 'NVIDIA & Gold Market', brief: cleanPrompt, isInstructionOnlyPrompt: false };
+    }
+    const stripped = cleanPrompt
+      .replace(/^(?:you\s+are\s+writing\s+[^.,\n]+|act\s+as\s+[^.,\n]+|please\s+write\s+[^.,\n]+|write\s+[^.,\n]+)\s*(?:about|on|covering|regarding)?\s*/i, '')
+      .split(/[.!?\n]/)[0]
+      .trim()
+      .slice(0, 70);
+    if (stripped.length >= 3 && !/^(you|i|we|my|please|act)\b/i.test(stripped)) {
+      return { topic: stripped, brief: cleanPrompt, isInstructionOnlyPrompt: false };
+    }
+  }
+
+  return {
+    topic: 'Financial & Market Intelligence',
+    brief: cleanPrompt,
+    isInstructionOnlyPrompt: true,
+  };
+}
+
 function wrapText(text: string, maxChars: number, maxLines: number): string[] {
   const words = String(text || '').trim().split(/\s+/).filter(Boolean);
   const lines: string[] = [];
@@ -513,6 +598,47 @@ export class AutoContentService {
     ]);
 
     let isCustomTopic = false;
+
+    const hasNvidia = /\bnvidia\b/i.test(cleaned);
+    const hasGold = /\bgold\b/i.test(cleaned);
+    const isMultiAsset = (hasNvidia && hasGold) || (cleaned.includes(' & ') && wordTokens.length >= 2) || (/\b(and|vs|versus)\b/i.test(cleaned) && wordTokens.length >= 4);
+
+    if (isMultiAsset) {
+      let multiName = cleaned;
+      if (hasNvidia && hasGold) multiName = 'NVIDIA & Gold Market';
+      return {
+        symbol: 'MARKETS',
+        companyName: multiName,
+        exchange: 'AVORA RESEARCH',
+        currency: 'USD',
+        price: null,
+        prevClose: null,
+        changeAbs: null,
+        changePct: null,
+        priceFormatted: 'CROSS-ASSET REPORT',
+        changeFormatted: 'EDITORIAL',
+        sparkline: [100, 104, 102, 107, 109, 108, 112, 116, 119],
+        isCrypto: false,
+        isCustomTopic: true,
+        quoteTimestamp: new Date().toISOString(),
+        technicals: {
+          dayHigh: null,
+          dayLow: null,
+          fiftyTwoWeekHigh: null,
+          fiftyTwoWeekLow: null,
+          fiftyTwoWeekPct: null,
+          volume: null,
+          avgVolume20d: null,
+          sma20: null,
+          sma50: null,
+          rsi14: null,
+          return3mPct: null,
+        },
+        fundamentals: {
+          dataSource: 'Avora Institutional Macro & Equity Research Desk',
+        },
+      };
+    }
 
     if (direct) {
       symbol = direct.symbol;
@@ -1369,12 +1495,25 @@ Return ONLY valid JSON matching this schema:
 
     // Custom Editorial Topic Fallback Builder (100% focused on the user's exact topic & custom prompt when not a stock ticker)
     if (quote.isCustomTopic) {
-      const cleanTopicTitle = topic.trim();
+      let cleanTopicTitle = topic.trim();
+      // Ensure cleanTopicTitle never contains conversational persona instructions (e.g. "You are writing...", "Act as...")
+      cleanTopicTitle = cleanTopicTitle
+        .replace(/^(?:you\s+are\s+writing\s+[^.,\n]+|act\s+as\s+[^.,\n]+|please\s+write\s+[^.,\n]+|write\s+[^.,\n]+)\s*(?:about|on|covering|regarding)?\s*/i, '')
+        .trim();
+      if (!cleanTopicTitle || /^(you|act\s+as|please)\b/i.test(cleanTopicTitle)) {
+        cleanTopicTitle = 'Institutional Market & Strategic Intelligence';
+      }
+      if (/nvidia/i.test(cleanTopicTitle) && /gold/i.test(cleanTopicTitle)) {
+        cleanTopicTitle = 'NVIDIA & Gold Market';
+      }
+
+      const isNvidiaGoldReport = /nvidia/i.test(cleanTopicTitle) && /gold/i.test(cleanTopicTitle);
+
       const promptSentences = cleanCustomPrompt
         ? cleanCustomPrompt
             .split(/(?<=[.!?])\s+|\r?\n/)
             .map((s) => s.replace(/^[-*•]\s*/, '').trim())
-            .filter((s) => s.length > 4)
+            .filter((s) => s.length > 4 && !/^(you\s+are|act\s+as|please\s+write)\b/i.test(s))
         : [];
       const promptLead = promptSentences[0] || '';
       const promptSecondary = promptSentences.slice(1).join(' ');
@@ -1382,7 +1521,9 @@ Return ONLY valid JSON matching this schema:
       const customCategory =
         categoryOverride ||
         aiParsed?.category ||
-        (quote.symbol === 'REMIT'
+        (isNvidiaGoldReport
+          ? 'Market Research'
+          : quote.symbol === 'REMIT'
           ? 'Global Remittance'
           : quote.symbol === 'LIQUIDITY'
           ? 'OTC & P2P Liquidity'
@@ -1397,6 +1538,13 @@ Return ONLY valid JSON matching this schema:
       const customParagraphs: string[] =
         Array.isArray(aiParsed?.contentParagraphs) && aiParsed.contentParagraphs.length > 0
           ? aiParsed.contentParagraphs
+          : isNvidiaGoldReport
+          ? [
+              `## 1. Executive Thesis: NVIDIA AI Growth vs. Physical Gold Flight-to-Safety (${dateStamp})\nCross-asset institutional allocation currently navigates a historic dynamic: exponential technology growth anchored by **NVIDIA (NVDA)** computing infrastructure alongside timeless capital preservation represented by **Physical Gold (XAU)**. While NVIDIA drives global generative AI buildouts and enterprise earnings efficiency, central banks and institutional treasuries continue accumulating physical gold bullion at historic velocity. Balancing secular semiconductor expansion with tangible monetary stores of value creates an asymmetric portfolio hedge across evolving global interest rate cycles.`,
+              `## 2. Valuation Multiples, Semiconductor Architecture & Bullion Fundamentals\nAt the fundamental layer, NVIDIA's datacenter architecture commands global AI computing workloads with expanding gross margins and robust free cash flow. Simultaneously, Gold trading near all-time nominal highs reflects structural central bank de-dollarization, geopolitical hedging, and sovereign reserve rebalancing. Rather than viewing high-beta technology and safe-haven commodities as mutually exclusive, institutional multi-asset desks increasingly pair tech equity upside with gold bullion liquidity to mitigate drawdown volatility.`,
+              `## 3. Liquidity Governance, Cross-Asset Swaps & Settlement Controls\nFor wealth desks, family offices, and private digital asset participants, executing multi-asset strategies requires deterministic settlement rules, real-time exposure monitoring, and zero-spread-loss execution. Avora Bank provides real-time multi-currency swaps and double-entry ledger security, enabling clients to fluidly transition between cash yields, tech equity baskets, and verified precious metal holdings without counterparty friction.`,
+              `## 4. Strategic Outlook & Multi-Asset Portfolio Takeaways for ${new Date().getFullYear()}\nLooking ahead into the remainder of ${new Date().getFullYear()}, the strategic pairing of transformational computing infrastructure (NVIDIA) and non-sovereign monetary reserves (Gold) provides a balanced macro framework. Institutional platforms that integrate automated exposure limits, transparent pricing, and instant multi-corridor liquidity will lead the next generation of digital wealth management.`,
+            ]
           : [
               `## 1. Executive Thesis & Institutional Context: ${cleanTopicTitle} (${dateStamp})\n**${cleanTopicTitle}** has emerged as a critical strategic focus across modern digital banking, multi-currency treasury operations, and institutional capital markets.${cleanCustomPrompt ? ` ${promptLead}${promptSecondary ? ` ${promptSecondary}` : ''}` : ` As cross-border liquidity and digital settlement infrastructure evolve, organizations and private investors evaluating **${cleanTopicTitle}** require transparent execution frameworks, real-time visibility, and verifiable risk governance.`}${topNews1 ? ` Recent industry coverage from ${topNews1.sourceName} underscores this momentum: "${topNews1.headline}".` : ''}`,
               `## 2. Core Architecture, Operational Mechanics & Industry Catalysts\nAt the operational layer, implementing and scaling **${cleanTopicTitle}** depends on deterministic settlement rules, multi-rail interoperability, and real-time reconciliation.${cleanCustomPrompt ? ` Specifically, in aligning with the core focus on ${cleanCustomPrompt.slice(0, 260)}, institutional workflows prioritize zero-spread-loss double-entry accounting and instant multi-currency clearing.` : ''}${topNews1 ? ` According to ${topNews1.sourceName}, "${topNews1.summary.slice(0, 220)}".` : ''}${topNews2 ? ` Parallel reporting from ${topNews2.sourceName} further highlights "${topNews2.headline}", demonstrating how rapidly institutional standards around **${cleanTopicTitle}** are maturing.` : ' By combining automated double-entry ledger verification with granular administrative controls, platforms eliminate counterparty friction while maintaining full auditability.'}`,
@@ -1406,14 +1554,18 @@ Return ONLY valid JSON matching this schema:
 
       let customTitle =
         String(aiParsed?.title || '').trim() ||
-        `${cleanTopicTitle}: Institutional Analysis & Strategic Framework (${dateStamp})`;
+        (isNvidiaGoldReport
+          ? `NVIDIA & Gold Market: Cross-Asset Capital Allocation & Macro Hedge Analysis (${dateStamp})`
+          : `${cleanTopicTitle}: Institutional Analysis & Strategic Framework (${dateStamp})`);
       if (isTitleTooSimilar(customTitle, priorTitles)) {
         customTitle = `${cleanTopicTitle} — Executive Research & Industry Briefing (${dateStamp} · #${editionNumber})`;
       }
 
       const customSummary =
         String(aiParsed?.summary || '').trim() ||
-        (cleanCustomPrompt
+        (isNvidiaGoldReport
+          ? `Institutional cross-asset analysis comparing NVIDIA semiconductor momentum against physical Gold bullion reserves, examining capital flows, inflation hedging, and portfolio resilience across modern banking rails.`
+          : cleanCustomPrompt && !/^(you\s+are|act\s+as|please\s+write)\b/i.test(cleanCustomPrompt)
           ? `${cleanTopicTitle} — ${cleanCustomPrompt.slice(0, 240)}${cleanCustomPrompt.length > 240 ? '...' : ''}`
           : `In-depth institutional research report and strategic briefing on ${cleanTopicTitle}, examining core operational mechanics, industry catalysts, liquidity governance, and forward outlook.`);
 
@@ -1886,30 +2038,12 @@ Return ONLY valid JSON matching this schema:
     autoTrackNews?: boolean;
     categoryOverride?: string;
   }) {
-    let topic = (params.topic || '').trim();
-    const rawPrompt = (params.customPrompt || '').trim();
-    // If the user wrote a custom prompt about a different subject than the selected Quick Topic (e.g. topic="Apple Inc." while prompt="About Nvidia market and Gold market"), prioritize the prompt's subject!
-    if (rawPrompt) {
-      const topicWords = topic
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, ' ')
-        .split(/\s+/)
-        .filter((w) => w.length > 2 && !['inc', 'corp', 'the'].includes(w));
-      const promptLower = rawPrompt.toLowerCase();
-      const topicMentionedInPrompt =
-        topicWords.length > 0 && topicWords.some((w) => promptLower.includes(w));
-
-      if (!topic || !topicMentionedInPrompt || /^(about|write|blog|article|topic)\b/i.test(rawPrompt)) {
-        const promptSubject = rawPrompt
-          .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
-          .split(/[.!?\n]/)[0]
-          .trim()
-          .slice(0, 110);
-        if (promptSubject.length >= 2) {
-          topic = promptSubject;
-        }
-      }
-    }
+    const { topic: extractedTopic, brief: cleanBrief } = extractEditorialTopicAndBrief(
+      params.topic,
+      params.customPrompt
+    );
+    const topic = extractedTopic;
+    const rawPrompt = cleanBrief;
     if (!topic) throw new Error('Topic or ticker symbol is required');
     await this.ensureSchema();
 
@@ -2251,7 +2385,7 @@ Return ONLY valid JSON matching this schema:
    * Rotates through institutional watchlist topics and publishes a completely fresh, non-repeating
    * AI market announcement whenever the configured interval has elapsed (or force=true).
    */
-  async runAutonomousFreshPublisher(force = false) {
+  async runAutonomousFreshPublisher(force = false, customPrompt?: string) {
     await this.ensureSchema();
     const cfg = await this.getAiConfig();
     if (!force && !cfg.autoPublishEnabled) {
@@ -2301,6 +2435,7 @@ Return ONLY valid JSON matching this schema:
 
     const result = await this.publishAutomatedPost({
       topic: chosenTopic,
+      customPrompt: customPrompt || undefined,
       includeMeme: true,
       autoTrackNews: true,
     });

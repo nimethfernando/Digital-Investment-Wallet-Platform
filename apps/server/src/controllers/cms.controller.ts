@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { cmsService } from '../services/cms.service';
-import { autoContentService } from '../services/autoContent.service';
+import { autoContentService, extractEditorialTopicAndBrief } from '../services/autoContent.service';
 import { prisma } from '../lib/prisma';
 import { InquiryType } from '@prisma/client';
 
@@ -221,15 +221,10 @@ export const getBlogMemeMedia = async (req: Request, res: Response, next: NextFu
 export const autoPublishBlog = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { topic, customPrompt, includeMeme, autoTrackNews, categoryOverride } = req.body;
-    const rawTopic = typeof topic === 'string' ? topic.trim() : '';
-    const rawPrompt = typeof customPrompt === 'string' ? customPrompt.trim() : '';
-    const derivedTopic =
-      rawTopic ||
-      rawPrompt
-        .replace(/^(write\s+(a\s+)?(blog|article|post|report)\s+(about|on)\s+|(blog|article|post)\s+(about|on)\s+|about\s+)/i, '')
-        .split(/[.!?\n]/)[0]
-        .trim()
-        .slice(0, 110);
+    const { topic: derivedTopic, brief: derivedPrompt } = extractEditorialTopicAndBrief(
+      typeof topic === 'string' ? topic : '',
+      typeof customPrompt === 'string' ? customPrompt : ''
+    );
 
     if (!derivedTopic || derivedTopic.length < 2) {
       return res.status(400).json({ success: false, message: 'Please enter a valid blog topic, ticker, or AI prompt.' });
@@ -237,7 +232,7 @@ export const autoPublishBlog = async (req: Request, res: Response, next: NextFun
 
     const result = await autoContentService.publishAutomatedPost({
       topic: derivedTopic,
-      customPrompt: rawPrompt || undefined,
+      customPrompt: derivedPrompt || undefined,
       includeMeme: includeMeme !== false,
       autoTrackNews: autoTrackNews !== false,
       categoryOverride: typeof categoryOverride === 'string' && categoryOverride.trim() ? categoryOverride.trim() : undefined,
@@ -282,7 +277,11 @@ export const syncAllTrackedBlogs = async (req: Request, res: Response, next: Nex
 
 export const triggerAutonomousFreshPublish = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const result = await autoContentService.runAutonomousFreshPublisher(true);
+    const { customPrompt } = req.body || {};
+    const result = await autoContentService.runAutonomousFreshPublisher(
+      true,
+      typeof customPrompt === 'string' && customPrompt.trim() ? customPrompt.trim() : undefined
+    );
     res.status(201).json({
       success: true,
       message: result.published

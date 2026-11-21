@@ -180,7 +180,7 @@ export default function GlobalMoneyTransferPage() {
     if (cleaned.startsWith('.')) {
       cleaned = '0' + cleaned;
     }
-    // Strip leading zeros before non-zero digits (e.g. "0100" -> "100", "00" -> "0", keep "0.5")
+    // If the input was '0' and the user types another non-decimal digit (e.g. typing '1' becomes '1', not '01' or '0100')
     if (/^0+[1-9]/.test(cleaned)) {
       cleaned = cleaned.replace(/^0+/, '');
     } else if (/^0{2,}$/.test(cleaned)) {
@@ -708,7 +708,7 @@ export default function GlobalMoneyTransferPage() {
           </div>
 
           {/* Right Summary: Transparent Pricing Card */}
-          <div className="lg:col-span-5 p-6 sm:p-8 rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-xl space-y-6">
+          <div className="lg:col-span-5 p-5 sm:p-6 lg:p-7 rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-xl space-y-5 overflow-hidden">
             <div className="space-y-1">
               <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
                 Transparent Fee Breakdown
@@ -717,40 +717,40 @@ export default function GlobalMoneyTransferPage() {
             </div>
 
             {displayQuote && (
-              <div className="space-y-3.5 text-xs text-slate-300 border-t border-slate-800 pt-4">
-                <div className="flex justify-between items-center gap-2">
-                  <span className="text-slate-400">Transfer Principal:</span>
-                  <span className="font-mono font-bold text-white shrink-0">${displayQuote.sendingAmount} USD</span>
+              <div className="space-y-3 text-xs text-slate-300 border-t border-slate-800 pt-4">
+                <div className="flex justify-between items-baseline gap-2">
+                  <span className="text-slate-400 shrink-0">Transfer Principal:</span>
+                  <span className="font-mono font-bold text-white text-right">${displayQuote.sendingAmount} USD</span>
                 </div>
 
-                <div className="flex justify-between items-center gap-2">
-                  <span className="text-slate-400">Reference Exchange Rate:</span>
-                  <span className="font-mono text-slate-300 shrink-0">1 USD = {displayQuote.referenceRate} {displayQuote.recipientCurrency}</span>
+                <div className="flex justify-between items-baseline gap-2">
+                  <span className="text-slate-400 shrink-0">Reference Rate:</span>
+                  <span className="font-mono text-slate-300 text-right">1 USD = {displayQuote.referenceRate} {displayQuote.recipientCurrency}</span>
                 </div>
 
-                <div className="flex justify-between items-center gap-2 text-emerald-400">
-                  <span>Exchange Rate Adjustment:</span>
-                  <span className="font-mono font-bold shrink-0">-{displayQuote.rateAdjustmentPct}% margin</span>
+                <div className="flex justify-between items-baseline gap-2 text-emerald-400">
+                  <span className="shrink-0">Exchange Rate Adjustment:</span>
+                  <span className="font-mono font-bold text-right">-{displayQuote.rateAdjustmentPct}% margin</span>
                 </div>
 
-                <div className="flex justify-between items-center gap-2 font-bold text-white">
-                  <span>Effective Client Rate:</span>
-                  <span className="font-mono text-emerald-400 shrink-0">1 USD = {displayQuote.effectiveRate} {displayQuote.recipientCurrency}</span>
+                <div className="flex justify-between items-baseline gap-2 font-bold text-white">
+                  <span className="shrink-0">Effective Client Rate:</span>
+                  <span className="font-mono text-emerald-400 text-right">1 USD = {displayQuote.effectiveRate} {displayQuote.recipientCurrency}</span>
                 </div>
 
-                <div className="flex justify-between items-center gap-2 text-amber-300 border-t border-slate-800/80 pt-2">
-                  <span>Transfer Fee ({displayQuote.transferFeePct}%):</span>
-                  <span className="font-mono font-bold shrink-0">+${displayQuote.transferFeeAmount} USD</span>
+                <div className="flex justify-between items-baseline gap-2 text-amber-300 border-t border-slate-800/80 pt-2">
+                  <span className="shrink-0">Transfer Fee ({displayQuote.transferFeePct}%):</span>
+                  <span className="font-mono font-bold text-right">+${displayQuote.transferFeeAmount} USD</span>
                 </div>
 
-                <div className="flex justify-between items-center gap-2 text-sm font-black text-white border-t border-slate-800 pt-2">
-                  <span>Total Amount Paid:</span>
-                  <span className="font-mono text-emerald-400 shrink-0">${displayQuote.totalPaidAmount} USD</span>
+                <div className="flex justify-between items-baseline gap-2 text-sm font-black text-white border-t border-slate-800 pt-2">
+                  <span className="shrink-0">Total Amount Paid:</span>
+                  <span className="font-mono text-emerald-400 text-right">${displayQuote.totalPaidAmount} USD</span>
                 </div>
 
-                <div className="flex justify-between items-center gap-2 text-sm font-black text-emerald-400 border-t border-slate-800 pt-2">
-                  <span>Recipient Receives:</span>
-                  <span className="font-mono shrink-0">
+                <div className="flex justify-between items-baseline gap-2 text-sm font-black text-emerald-400 border-t border-slate-800 pt-2">
+                  <span className="shrink-0">Recipient Receives:</span>
+                  <span className="font-mono text-right">
                     {Number(displayQuote.recipientAmount || 0).toLocaleString('en-US', {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
