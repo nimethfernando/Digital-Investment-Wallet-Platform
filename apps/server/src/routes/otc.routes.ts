@@ -29,7 +29,9 @@ router.post('/quote', requireOtcDesk, (req, res, next) => otcController.requestQ
 router.post('/trades/accept-quote', requireOtcDesk, (req, res, next) => otcController.acceptQuote(req, res, next));
 router.get('/trades/:id', (req, res, next) => otcController.getTrade(req, res, next));
 router.post('/trades/:id/messages', (req, res, next) => otcController.sendMessage(req, res, next));
+router.post('/trades/:id/mark-paid', (req, res, next) => otcController.markPaid(req, res, next));
 router.post('/trades/:id/release', (req, res, next) => otcController.releaseEscrow(req, res, next));
+router.post('/trades/:id/complete', (req, res, next) => otcController.releaseEscrow(req, res, next));
 router.post('/trades/:id/dispute', (req, res, next) => otcController.disputeTrade(req, res, next));
 router.post('/trades/:id/cancel', (req, res, next) => otcController.cancelTrade(req, res, next));
 

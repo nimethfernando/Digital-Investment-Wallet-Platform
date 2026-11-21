@@ -1080,7 +1080,7 @@ export default function ExchangeDeskPage() {
     if (!activeTrade) return;
     if (
       !confirm(
-        'Are you sure you want to release the escrow? Ensure fiat payment has been confirmed in full.'
+        'Confirm receipt of fiat funds and complete this transaction? This will release the escrowed USDT to the buyer and disburse broker commissions.'
       )
     ) {
       return;
@@ -1097,7 +1097,7 @@ export default function ExchangeDeskPage() {
             id: `sys-${Date.now()}`,
             senderName: 'Avora Security Escrow',
             message:
-              `Escrow released! Trade marked COMPLETED. Net crypto delivered to buyer and ${otcCommission.operatorFeePct}% OTC Broker commission distributed.`,
+              `Transaction completed! Escrow released and trade marked COMPLETED. Net crypto delivered to buyer and ${otcCommission.operatorFeePct}% OTC Broker commission distributed.`,
             createdAt: new Date().toISOString(),
           },
         ]);
@@ -1171,6 +1171,40 @@ export default function ExchangeDeskPage() {
     }
   };
 
+  const handleMarkPaid = async () => {
+    if (!activeTrade) return;
+    const fiatDisplay = `${parseFloat(activeTrade.fiatAmount).toFixed(2)} ${activeTrade.fiatCurrency}`;
+    if (
+      !confirm(
+        `Confirm that you have completed payment of ${fiatDisplay} to the OTC desk operator (via physical counter cash or bank wire)?`
+      )
+    ) {
+      return;
+    }
+    setTradeActionLoading(true);
+    setQuoteError(null);
+    try {
+      const res = await api.post(`/otc/trades/${activeTrade.id}/mark-paid`);
+      if (res.data?.success) {
+        setActiveTrade((prev: any) => ({ ...prev, status: 'PAID' }));
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `sys-${Date.now()}`,
+            senderName: 'Avora Security Escrow',
+            message: `[PAYMENT COMPLETED]: Buyer marked payment of ${fiatDisplay} as completed. Desk operator, please confirm receipt and complete trade / release escrow.`,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        fetchMyTrades();
+      }
+    } catch (err: any) {
+      setQuoteError(extractErrorMessage(err, 'Failed to mark payment completed.'));
+    } finally {
+      setTradeActionLoading(false);
+    }
+  };
+
   const isSellerOnActiveTrade = useMemo(() => {
     if (!activeTrade || !user) return false;
     const sellerId =
@@ -1178,6 +1212,15 @@ export default function ExchangeDeskPage() {
         ? activeTrade.customerId
         : activeTrade.operatorId;
     return user.id === sellerId || user.role === 'ADMIN';
+  }, [activeTrade, user]);
+
+  const isBuyerOnActiveTrade = useMemo(() => {
+    if (!activeTrade || !user) return false;
+    const buyerId =
+      activeTrade.tradeType === 'SELL_USDT'
+        ? activeTrade.operatorId
+        : activeTrade.customerId;
+    return user.id === buyerId || user.role === 'ADMIN';
   }, [activeTrade, user]);
 
   const desksPagination = usePagination(filteredDesks, 50);
@@ -2731,6 +2774,8 @@ export default function ExchangeDeskPage() {
                         className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] ${
                           activeTrade.status === 'COMPLETED'
                             ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                            : activeTrade.status === 'PAID'
+                            ? 'bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300'
                             : activeTrade.status === 'DISPUTED'
                             ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
                             : activeTrade.status === 'CANCELLED'
@@ -2738,7 +2783,11 @@ export default function ExchangeDeskPage() {
                             : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
                         }`}
                       >
-                        {activeTrade.status === 'IN_PROGRESS'
+                        {activeTrade.status === 'COMPLETED'
+                          ? 'TRADE COMPLETED'
+                          : activeTrade.status === 'PAID'
+                          ? 'PAYMENT SENT (AWAITING RELEASE)'
+                          : activeTrade.status === 'IN_PROGRESS'
                           ? 'ESCROW LOCKED'
                           : activeTrade.status}
                       </span>
@@ -2755,45 +2804,113 @@ export default function ExchangeDeskPage() {
                           +{Number(activeTrade.platformFee || 0).toFixed(2)} USDT
                         </strong>
                       </span>
-                      <span className={activeTrade.status === 'COMPLETED' ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'}>
+                      <span className={activeTrade.status === 'COMPLETED' ? 'text-emerald-500 font-bold' : activeTrade.status === 'PAID' ? 'text-sky-500 font-bold' : 'text-amber-500 font-bold'}>
                         {activeTrade.status === 'COMPLETED'
                           ? 'Credited to Wallet'
+                          : activeTrade.status === 'PAID'
+                          ? 'Payment Sent'
                           : activeTrade.status === 'CANCELLED'
                           ? 'Cancelled'
                           : 'Releases on Settlement'}
                       </span>
                     </div>
 
-                    {activeTrade.status === 'IN_PROGRESS' && (
-                      <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200 dark:border-slate-800">
-                        {isSellerOnActiveTrade && (
+                    {(activeTrade.status === 'IN_PROGRESS' || activeTrade.status === 'PAID') && (
+                      <div className="flex flex-col gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                        {/* Status Guideline Note */}
+                        {activeTrade.status === 'PAID' ? (
+                          <div className="p-2.5 rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-400/30 flex items-center gap-2 text-[11px] text-sky-800 dark:text-sky-200">
+                            <CheckCircle2 className="w-4 h-4 text-sky-500 shrink-0" />
+                            <span>
+                              {isSellerOnActiveTrade
+                                ? 'Buyer has marked fiat payment completed. Please verify receipt in your bank/cash register and click "Confirm Payment Received & Complete Trade" below.'
+                                : 'You have marked payment as sent. Waiting for desk operator to verify receipt and release your USDT escrow.'}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-400/30 flex items-center gap-2 text-[11px] text-amber-800 dark:text-amber-200">
+                            <Clock className="w-4 h-4 text-amber-500 shrink-0" />
+                            <span>
+                              {isBuyerOnActiveTrade
+                                ? `Pay ${parseFloat(activeTrade.fiatAmount).toFixed(2)} ${activeTrade.fiatCurrency} to the desk counter or bank wire, then click "Transaction Completed (I Have Paid)".`
+                                : `Awaiting buyer payment of ${parseFloat(activeTrade.fiatAmount).toFixed(2)} ${activeTrade.fiatCurrency}. Do not release escrow until fiat is received.`}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          {/* BUYER ACTION: Transaction Completed */}
+                          {isBuyerOnActiveTrade && activeTrade.status === 'IN_PROGRESS' && (
+                            <button
+                              type="button"
+                              onClick={handleMarkPaid}
+                              disabled={releasing || tradeActionLoading}
+                              className="px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md flex items-center gap-1.5 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>{tradeActionLoading ? 'Marking Completed...' : 'Transaction Completed (I Have Paid)'}</span>
+                            </button>
+                          )}
+
+                          {isBuyerOnActiveTrade && activeTrade.status === 'PAID' && (
+                            <div className="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-500/15 border border-sky-500/30 text-sky-600 dark:text-sky-400 flex items-center gap-1.5 shadow-sm">
+                              <CheckCircle2 className="w-4 h-4 text-sky-500" />
+                              <span>Payment Sent — Waiting for Operator to Complete Trade</span>
+                            </div>
+                          )}
+
+                          {/* SELLER / OPERATOR / ADMIN ACTION: Confirm Payment Received & Complete Trade */}
+                          {isSellerOnActiveTrade && (
+                            <button
+                              type="button"
+                              onClick={handleReleaseEscrow}
+                              disabled={releasing || tradeActionLoading}
+                              className={`px-4 py-2 rounded-xl text-xs font-black text-white shadow-md flex items-center gap-1.5 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 ${
+                                activeTrade.status === 'PAID'
+                                  ? 'bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 ring-2 ring-emerald-400 animate-pulse'
+                                  : 'bg-emerald-600 hover:bg-emerald-700'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>
+                                {releasing
+                                  ? 'Completing & Releasing...'
+                                  : user?.role === 'ADMIN'
+                                  ? 'Admin Confirm & Complete Trade'
+                                  : 'Confirm Payment Received & Complete Trade'}
+                              </span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
-                            onClick={handleReleaseEscrow}
+                            onClick={handleDisputeTrade}
                             disabled={releasing || tradeActionLoading}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all disabled:opacity-50 cursor-pointer shadow-sm"
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600/20 hover:bg-amber-600 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/30 transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1"
                           >
-                            {releasing ? 'Releasing...' : 'Release Escrow'}
+                            <Scale className="w-3.5 h-3.5" />
+                            <span>Raise Dispute</span>
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={handleDisputeTrade}
-                          disabled={releasing || tradeActionLoading}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600/20 hover:bg-amber-600 text-amber-700 dark:text-amber-300 hover:text-white border border-amber-500/30 transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1"
-                        >
-                          <Scale className="w-3.5 h-3.5" />
-                          <span>Raise Dispute</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCancelTrade}
-                          disabled={releasing || tradeActionLoading}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600/15 hover:bg-rose-600 text-rose-600 dark:text-rose-300 hover:text-white border border-rose-500/30 transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1"
-                        >
-                          <Ban className="w-3.5 h-3.5" />
-                          <span>Cancel Trade</span>
-                        </button>
+
+                          {activeTrade.status === 'IN_PROGRESS' && (
+                            <button
+                              type="button"
+                              onClick={handleCancelTrade}
+                              disabled={releasing || tradeActionLoading}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600/15 hover:bg-rose-600 text-rose-600 dark:text-rose-300 hover:text-white border border-rose-500/30 transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                            >
+                              <Ban className="w-3.5 h-3.5" />
+                              <span>Cancel Trade</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTrade.status === 'COMPLETED' && (
+                      <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <span>✓ Transaction Completed Successfully! Net crypto delivered to buyer and broker commission disbursed.</span>
                       </div>
                     )}
                   </div>

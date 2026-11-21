@@ -810,7 +810,7 @@ export class OtcService {
         const openTrades = await tx.otcTrade.count({
           where: {
             deskId: desk.id,
-            status: { in: ['IN_PROGRESS', 'DISPUTED'] },
+            status: { in: ['IN_PROGRESS', 'PAID', 'DISPUTED'] },
           },
         });
         if (openTrades > 0) {
@@ -1200,7 +1200,7 @@ export class OtcService {
     });
 
     if (!trade) throw new Error('Trade not found');
-    if (trade.status !== 'IN_PROGRESS') {
+    if (trade.status !== 'IN_PROGRESS' && trade.status !== 'PAID') {
       throw new Error(`Trade is already ${trade.status.toLowerCase()}`);
     }
 
@@ -1245,7 +1245,7 @@ export class OtcService {
         }
 
         const freshTrade = await tx.otcTrade.findUnique({ where: { id: tradeId } });
-        if (!freshTrade || freshTrade.status !== 'IN_PROGRESS') {
+        if (!freshTrade || (freshTrade.status !== 'IN_PROGRESS' && freshTrade.status !== 'PAID')) {
           throw new Error(
             `Trade ${trade.tradeCode} cannot be released (current status: ${freshTrade?.status || 'NOT_FOUND'}).`
           );
@@ -1473,7 +1473,89 @@ export class OtcService {
   }
 
   /**
-   * Raise a dispute on an active IN_PROGRESS OTC trade
+   * Buyer or Operator marks fiat payment as completed (handed cash or completed bank wire)
+   */
+  async markPaid(tradeId: string, actorId: string, note?: string) {
+    const trade = await prisma.otcTrade.findUnique({
+      where: { id: tradeId },
+      include: {
+        desk: { include: { user: true } },
+        customer: true,
+        operator: true,
+      },
+    });
+
+    if (!trade) throw new Error('Trade not found');
+    if (trade.status === 'COMPLETED') {
+      throw new Error('Trade is already completed.');
+    }
+    if (trade.status === 'CANCELLED') {
+      throw new Error('Trade has been cancelled.');
+    }
+
+    const buyerUserId = trade.tradeType === 'SELL_USDT' ? trade.operatorId : trade.customerId;
+    const sellerUserId = trade.tradeType === 'SELL_USDT' ? trade.customerId : trade.operatorId;
+
+    const actor = await prisma.user.findUnique({ where: { id: actorId } });
+    if (actorId !== buyerUserId && actorId !== sellerUserId && actor?.role !== 'ADMIN') {
+      throw new Error('Unauthorized to update this trade payment status.');
+    }
+
+    const fiatAmountStr = new Decimal(trade.fiatAmount.toString()).toFixed(2);
+    const buyerName = trade.customer?.firstName
+      ? `${trade.customer.firstName} ${trade.customer.lastName || ''}`.trim()
+      : 'Buyer';
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.otcTrade.update({
+        where: { id: tradeId },
+        data: {
+          status: 'PAID',
+        },
+        include: {
+          desk: true,
+          customer: true,
+          operator: true,
+        },
+      });
+
+      const auditMsg = note?.trim()
+        ? `[PAYMENT COMPLETED]: Payment of ${fiatAmountStr} ${trade.fiatCurrency} marked as sent/handed over. Note: "${note.trim()}". Operator, please verify receipt and complete trade / release escrow.`
+        : `[PAYMENT COMPLETED]: ${buyerName} has marked the payment of ${fiatAmountStr} ${trade.fiatCurrency} as completed. Desk operator, please confirm receipt and complete trade / release escrow.`;
+
+      await tx.otcMessage.create({
+        data: {
+          tradeId,
+          senderId: 'SYSTEM',
+          senderName: 'Avora Security Escrow',
+          message: auditMsg,
+        },
+      });
+
+      return next;
+    });
+
+    // Notify seller
+    try {
+      await prisma.userNotification.create({
+        data: {
+          userId: sellerUserId,
+          category: 'OTC',
+          type: 'OTC_TRADE_PAID',
+          severity: 'INFO',
+          title: `Payment Completed — ${trade.tradeCode}`,
+          message: `${buyerName} marked payment of ${fiatAmountStr} ${trade.fiatCurrency} as completed for ${trade.tradeCode}. Please verify receipt and complete trade.`,
+          actionUrl: `/exchange?tradeId=${trade.id}`,
+          actionLabel: 'Open OTC Trade',
+        },
+      });
+    } catch {}
+
+    return updated;
+  }
+
+  /**
+   * Raise a dispute on an active IN_PROGRESS or PAID OTC trade
    */
   async disputeTrade(tradeId: string, userId: string, reason: string) {
     const cleanReason = (reason || '').trim();
@@ -1486,7 +1568,7 @@ export class OtcService {
     if (trade.customerId !== userId && trade.operatorId !== userId) {
       throw new Error('Unauthorized');
     }
-    if (trade.status !== 'IN_PROGRESS') {
+    if (trade.status !== 'IN_PROGRESS' && trade.status !== 'PAID') {
       throw new Error(`Cannot dispute a trade with status ${trade.status}.`);
     }
 
@@ -2209,7 +2291,7 @@ export class OtcService {
           const openTrades = await tx.otcTrade.count({
             where: {
               deskId: freshDesk.id,
-              status: { in: ['IN_PROGRESS', 'DISPUTED'] },
+              status: { in: ['IN_PROGRESS', 'PAID', 'DISPUTED'] },
             },
           });
           if (openTrades > 0) {
@@ -2439,7 +2521,7 @@ export class OtcService {
       include: { desk: true, customer: true, operator: true },
     });
     if (!trade) throw new Error('OTC Trade not found');
-    if (!['IN_PROGRESS', 'DISPUTED'].includes(trade.status)) {
+    if (!['IN_PROGRESS', 'PAID', 'DISPUTED'].includes(trade.status)) {
       throw new Error(`Trade ${trade.tradeCode} is already ${trade.status} and cannot be resolved again.`);
     }
 
@@ -2473,7 +2555,7 @@ export class OtcService {
         }
 
         const freshTrade = await tx.otcTrade.findUnique({ where: { id: tradeId } });
-        if (!freshTrade || !['IN_PROGRESS', 'DISPUTED'].includes(freshTrade.status)) {
+        if (!freshTrade || !['IN_PROGRESS', 'PAID', 'DISPUTED'].includes(freshTrade.status)) {
           throw new Error(
             `Trade ${trade.tradeCode} was already finalized (${freshTrade?.status || 'NOT_FOUND'}).`
           );

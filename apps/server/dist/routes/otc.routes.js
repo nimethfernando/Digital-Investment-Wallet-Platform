@@ -25,7 +25,9 @@ router.post('/quote', requireOtcDesk, (req, res, next) => otc_controller_1.otcCo
 router.post('/trades/accept-quote', requireOtcDesk, (req, res, next) => otc_controller_1.otcController.acceptQuote(req, res, next));
 router.get('/trades/:id', (req, res, next) => otc_controller_1.otcController.getTrade(req, res, next));
 router.post('/trades/:id/messages', (req, res, next) => otc_controller_1.otcController.sendMessage(req, res, next));
+router.post('/trades/:id/mark-paid', (req, res, next) => otc_controller_1.otcController.markPaid(req, res, next));
 router.post('/trades/:id/release', (req, res, next) => otc_controller_1.otcController.releaseEscrow(req, res, next));
+router.post('/trades/:id/complete', (req, res, next) => otc_controller_1.otcController.releaseEscrow(req, res, next));
 router.post('/trades/:id/dispute', (req, res, next) => otc_controller_1.otcController.disputeTrade(req, res, next));
 router.post('/trades/:id/cancel', (req, res, next) => otc_controller_1.otcController.cancelTrade(req, res, next));
 // Pre-Trade OTC Desk Inquiries (Ask availability / currency before escrow)

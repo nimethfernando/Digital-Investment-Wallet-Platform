@@ -297,6 +297,26 @@ export class OtcController {
   }
 
   /**
+   * POST /api/v1/otc/trades/:id/mark-paid
+   * Mark fiat payment completed by buyer or operator
+   */
+  async markPaid(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const tradeId = Array.isArray(req.params.id) ? req.params.id[0] : String(req.params.id);
+      const { note } = req.body || {};
+      const trade = await otcService.markPaid(tradeId, userId, note);
+      res.json({
+        success: true,
+        message: 'Payment marked as completed! Operator notified to verify and release escrow.',
+        data: trade,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * POST /api/v1/otc/trades/:id/release
    * Release escrow and disburse commissions (1.0% operator, 0.5% platform)
    */

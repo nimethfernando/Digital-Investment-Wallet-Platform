@@ -898,12 +898,14 @@ export default function AdminOtcTab({
                             ? 'bg-emerald-500/20 text-emerald-400'
                             : t.status === 'DISPUTED'
                             ? 'bg-rose-500/20 text-rose-400 animate-pulse'
+                            : t.status === 'PAID'
+                            ? 'bg-sky-500/20 text-sky-400'
                             : t.status === 'IN_PROGRESS'
                             ? 'bg-amber-500/20 text-amber-300'
                             : 'bg-slate-800 text-slate-400'
                         }`}
                       >
-                        {t.status}
+                        {t.status === 'PAID' ? 'PAID (Awaiting Release)' : t.status}
                       </span>
                       {t.disputeReason && (
                         <div className="text-[10px] text-rose-300 max-w-[220px]">
@@ -922,7 +924,7 @@ export default function AdminOtcTab({
                         <span>Chat ({t.messages?.length || 0})</span>
                       </button>
 
-                      {['IN_PROGRESS', 'DISPUTED'].includes(t.status) && (
+                      {['IN_PROGRESS', 'PAID', 'DISPUTED'].includes(t.status) && (
                         <button
                           type="button"
                           onClick={() => handleOpenResolveModal(t)}
