@@ -154,6 +154,7 @@ router.get('/audit-logs', requireRole([Role.ADMIN]), (req, res, next) => adminCo
 // System Controls & Announcement Broadcast
 router.get('/system/status', (req, res, next) => adminController.getSystemStatus(req, res, next));
 router.post('/system/settings', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateSystemStatus(req, res, next));
+router.post('/system/self-test', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.runFinancialSelfTest(req, res, next));
 
 // Platform Analytics Overview & Real-Time Admin Notifications
 router.get('/analytics/overview', (req, res, next) => adminController.getPlatformOverviewAnalytics(req, res, next));

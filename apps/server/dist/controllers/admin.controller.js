@@ -56,6 +56,7 @@ const investments_service_1 = require("../services/investments.service");
 const token_service_1 = require("../services/token.service");
 const liquidityRisk_service_1 = require("../services/liquidityRisk.service");
 const featureControl_service_1 = require("../services/featureControl.service");
+const financialSelfTest_service_1 = require("../services/financialSelfTest.service");
 const wallet_controller_1 = require("./wallet.controller");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class AdminController {
@@ -6275,6 +6276,30 @@ class AdminController {
             return res.status(400).json({
                 success: false,
                 message: err.message || 'Failed to execute bulk feature control update.',
+            });
+        }
+    }
+    /**
+     * POST /api/v1/admin/system/self-test
+     * 1-Click Automated Financial & Mathematical Integrity Self-Test
+     * Runs an isolated, self-cleaning 12-point verification of all financial math & double-entry fund conservation rules
+     */
+    async runFinancialSelfTest(req, res, next) {
+        try {
+            const adminUserId = req.user?.id;
+            const report = await financialSelfTest_service_1.financialSelfTestService.runFullSelfTest(adminUserId);
+            res.json({
+                success: true,
+                message: report.status === 'ALL_PASSED'
+                    ? `All ${report.passedCount}/${report.totalChecks} financial & mathematical conservation checks passed with 0.00000000 discrepancy.`
+                    : `${report.passedCount}/${report.totalChecks} checks passed (${report.failedCount} issue(s) detected).`,
+                data: report,
+            });
+        }
+        catch (err) {
+            return res.status(500).json({
+                success: false,
+                message: err.message || 'Failed to execute financial self-test suite.',
             });
         }
     }

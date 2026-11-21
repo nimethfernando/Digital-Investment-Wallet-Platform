@@ -9,8 +9,44 @@ import {
   Trash2,
   Globe,
   Loader2,
+  ShieldCheck,
+  CheckCircle2,
+  XCircle,
+  Play,
+  Activity,
 } from 'lucide-react';
 import { allLanguageNames, Language } from '../../../context/LanguageContext';
+import { api, extractErrorMessage } from '../../../lib/api';
+
+interface SelfTestCheck {
+  id: string;
+  category: string;
+  title: string;
+  passed: boolean;
+  expectedFormula: string;
+  verifiedNumbers: string;
+  discrepancy: string;
+  durationMs: number;
+  error?: string;
+}
+
+interface SelfTestReport {
+  status: 'ALL_PASSED' | 'ISSUES_DETECTED';
+  passedCount: number;
+  failedCount: number;
+  totalChecks: number;
+  totalDurationMs: number;
+  postCleanupLedgerStatus: {
+    isBalanced: boolean;
+    totalDebit: string;
+    totalCredit: string;
+    difference: string;
+    journalCount: number;
+    entryCount: number;
+  };
+  checks: SelfTestCheck[];
+  executedAt: string;
+}
 
 interface SystemTabProps {
   systemStatus: {
@@ -41,6 +77,31 @@ export default function AdminSystemTab({
     enabledLanguages: systemStatus.enabledLanguages || ['en', 'ka'],
   });
   const [saving, setSaving] = useState(false);
+  const [runningSelfTest, setRunningSelfTest] = useState(false);
+  const [selfTestReport, setSelfTestReport] = useState<SelfTestReport | null>(null);
+
+  const handleRunSelfTest = async () => {
+    setRunningSelfTest(true);
+    try {
+      const res = await api.post('/admin/system/self-test', {});
+      const json = res.data;
+      if (!json?.success) {
+        throw new Error(json?.message || 'Financial self-test failed');
+      }
+      setSelfTestReport(json.data);
+      onFeedback({
+        text: json.message || 'Financial & mathematical integrity self-test completed.',
+        type: json.data?.status === 'ALL_PASSED' ? 'success' : 'error',
+      });
+    } catch (err: any) {
+      onFeedback({
+        text: extractErrorMessage(err, 'Failed to execute financial self-test'),
+        type: 'error',
+      });
+    } finally {
+      setRunningSelfTest(false);
+    }
+  };
 
   useEffect(() => {
     setFormData({
@@ -279,6 +340,158 @@ export default function AdminSystemTab({
         <p className="text-[11px] text-slate-500">
           Click any non-default language card to toggle availability, then click <strong className="text-slate-300">Save System Settings</strong> above to apply across all client views. Adding brand-new languages also requires adding a translation JSON dictionary in <code className="text-slate-300">apps/web/src/locales/</code>.
         </p>
+      </div>
+
+      {/* 1-Click Automated Financial & Mathematical Integrity Self-Test Diagnostics */}
+      <div className="p-6 rounded-3xl bg-slate-900 border border-emerald-500/30 space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="font-black text-white text-sm">
+                  1-Click Platform Financial &amp; Mathematical Integrity Self-Test
+                </h4>
+                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-black uppercase">
+                  8-Decimal Zero-Loss Audit
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1 max-w-3xl">
+                Automatically runs an isolated, self-cleaning 12-point live verification across Deposits, Razorpay 5% Fee Split (3% + 2%), Instant Swaps, High-Risk Swap Queue &amp; Reject Refund, Withdrawals &amp; Reject Refund, Global Remittance (2% FX + 3% Fee) &amp; Reject Refund, P2P Escrow Lock/Cancel/Release, Internal Transfers, FD 1%/mo Yield, Feature Controls, and System-Wide Double-Entry Trial Balance Reconciliation.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleRunSelfTest}
+            disabled={runningSelfTest}
+            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-lg shadow-emerald-600/25 transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2 shrink-0"
+          >
+            {runningSelfTest ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Verifying All 12 Financial Modules...</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4" />
+                <span>Run 1-Click Financial &amp; Math Audit</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {selfTestReport && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                <div className="text-[10px] font-mono uppercase text-slate-400">Audit Status</div>
+                <div
+                  className={`text-sm font-black mt-1 flex items-center gap-1.5 ${
+                    selfTestReport.status === 'ALL_PASSED' ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {selfTestReport.status === 'ALL_PASSED' ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
+                  <span>
+                    {selfTestReport.passedCount} / {selfTestReport.totalChecks} PASSED
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                <div className="text-[10px] font-mono uppercase text-slate-400">Global Trial Balance</div>
+                <div className="text-xs font-black text-white mt-1 font-mono">
+                  D: ${selfTestReport.postCleanupLedgerStatus.totalDebit}
+                </div>
+                <div className="text-[11px] font-mono text-emerald-400">
+                  C: ${selfTestReport.postCleanupLedgerStatus.totalCredit}
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                <div className="text-[10px] font-mono uppercase text-slate-400">Net Ledger Discrepancy</div>
+                <div className="text-sm font-black text-emerald-400 mt-1 font-mono">
+                  ${selfTestReport.postCleanupLedgerStatus.difference}
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  {selfTestReport.postCleanupLedgerStatus.journalCount} Journals •{' '}
+                  {selfTestReport.postCleanupLedgerStatus.entryCount} Entries
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
+                <div className="text-[10px] font-mono uppercase text-slate-400">Execution Time</div>
+                <div className="text-sm font-black text-white mt-1 flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-blue-400" />
+                  <span>{(selfTestReport.totalDurationMs / 1000).toFixed(2)}s</span>
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  Sandbox Auto-Cleaned
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[10px] font-mono uppercase text-slate-400 bg-slate-900/70">
+                    <th className="py-2.5 px-3">Status</th>
+                    <th className="py-2.5 px-3">Module &amp; Financial Invariant</th>
+                    <th className="py-2.5 px-3">Live Verified Numbers</th>
+                    <th className="py-2.5 px-3">Discrepancy</th>
+                    <th className="py-2.5 px-3 text-right">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70 text-xs">
+                  {selfTestReport.checks.map((chk) => (
+                    <tr key={chk.id} className="hover:bg-slate-900/40">
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {chk.passed ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-400 text-[10px] font-black">
+                            <CheckCircle2 className="w-3 h-3" /> PASS
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-400 text-[10px] font-black">
+                            <XCircle className="w-3 h-3" /> FAIL
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-white">{chk.title}</div>
+                        <div className="text-[10px] font-mono text-slate-400">
+                          [{chk.category}] {chk.expectedFormula}
+                        </div>
+                        {chk.error && (
+                          <div className="text-[11px] text-rose-400 font-mono mt-1">
+                            Error: {chk.error}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-[11px] text-slate-300">
+                        {chk.verifiedNumbers}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-[11px] whitespace-nowrap">
+                        <span className={chk.passed ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                          {chk.discrepancy}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-[11px] text-slate-400 whitespace-nowrap">
+                        {chk.durationMs}ms
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Database Lifecycle & Demo Purge */}

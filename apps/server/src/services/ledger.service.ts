@@ -529,26 +529,27 @@ export class LedgerService {
       });
 
       // Double-entry ledger: Debit User Available, Credit User Locked Principal
+      const upperPkgCur = (params.currency || 'USD').toUpperCase();
       await this.recordJournal(tx, {
         idempotencyKey: params.idempotencyKey,
         referenceType: JournalReferenceType.PACKAGE_PURCHASE,
         referenceId: packageCode,
-        notes: `Investment package purchase ${packageCode} for ${amountDec.toFixed(2)} ${params.currency}`,
+        notes: `Investment package purchase ${packageCode} for ${amountDec.toFixed(2)} ${upperPkgCur}`,
         createdBy: params.userId,
         entries: [
           {
-            accountId: 'USER_AVAILABLE_USD',
+            accountId: `USER_AVAILABLE_${upperPkgCur}`,
             userId: params.userId,
             direction: 'DEBIT',
             amount: amountDec.toFixed(8),
-            currency: params.currency,
+            currency: upperPkgCur,
           },
           {
-            accountId: 'USER_LOCKED_PRINCIPAL_USD',
+            accountId: `USER_LOCKED_PRINCIPAL_${upperPkgCur}`,
             userId: params.userId,
             direction: 'CREDIT',
             amount: amountDec.toFixed(8),
-            currency: params.currency,
+            currency: upperPkgCur,
           },
         ],
       });
@@ -621,6 +622,7 @@ export class LedgerService {
       });
 
       // 3. Double-entry ledger: Debit Monthly Returns Expense, Credit User Available Liability
+      const upperRetCur = (params.currency || 'USD').toUpperCase();
       const journal = await this.recordJournal(tx, {
         idempotencyKey: params.idempotencyKey,
         referenceType: JournalReferenceType.MONTHLY_RETURN,
@@ -629,17 +631,17 @@ export class LedgerService {
         createdBy: 'CRON_RETURNS_ENGINE',
         entries: [
           {
-            accountId: 'PLATFORM_RETURNS_EXPENSE_USD',
+            accountId: `PLATFORM_RETURNS_EXPENSE_${upperRetCur}`,
             direction: 'DEBIT',
             amount: returnAmountDec.toFixed(8),
-            currency: params.currency,
+            currency: upperRetCur,
           },
           {
-            accountId: 'USER_AVAILABLE_USD',
+            accountId: `USER_AVAILABLE_${upperRetCur}`,
             userId: params.userId,
             direction: 'CREDIT',
             amount: returnAmountDec.toFixed(8),
-            currency: params.currency,
+            currency: upperRetCur,
           },
         ],
       });
@@ -740,6 +742,7 @@ export class LedgerService {
       });
 
       // Double-entry: Debit Locked Principal Liability, Credit Available Liability
+      const upperRelCur = (pkg.currency || 'USD').toUpperCase();
       await this.recordJournal(tx, {
         idempotencyKey,
         referenceType: JournalReferenceType.PRINCIPAL_RELEASE,
@@ -748,18 +751,18 @@ export class LedgerService {
         createdBy: adminUserId,
         entries: [
           {
-            accountId: 'USER_LOCKED_PRINCIPAL_USD',
+            accountId: `USER_LOCKED_PRINCIPAL_${upperRelCur}`,
             userId: pkg.userId,
             direction: 'DEBIT',
             amount: amountDec.toFixed(8),
-            currency: pkg.currency,
+            currency: upperRelCur,
           },
           {
-            accountId: 'USER_AVAILABLE_USD',
+            accountId: `USER_AVAILABLE_${upperRelCur}`,
             userId: pkg.userId,
             direction: 'CREDIT',
             amount: amountDec.toFixed(8),
-            currency: pkg.currency,
+            currency: upperRelCur,
           },
         ],
       });
@@ -1185,12 +1188,14 @@ export class LedgerService {
         const lockedBalance = await this.lockWalletBalance(tx, wallet.id, params.currency);
       const balBefore = new Decimal(lockedBalance.availableBalance.toString());
 
+      const upperAdjCur = (params.currency || 'USD').toUpperCase();
+      const adjDecimals = ['BTC', 'ETH'].includes(upperAdjCur) ? 8 : 2;
       let balAfter: Decimal;
       if (params.type === 'CREDIT') {
         balAfter = balBefore.plus(amountDec);
       } else {
         if (balBefore.lessThan(amountDec)) {
-          throw new Error(`Insufficient funds: user has ${balBefore.toFixed(2)} ${params.currency}, cannot debit ${amountDec.toFixed(2)}`);
+          throw new Error(`Insufficient funds: user has ${balBefore.toFixed(adjDecimals)} ${upperAdjCur}, cannot debit ${amountDec.toFixed(adjDecimals)}`);
         }
         balAfter = balBefore.minus(amountDec);
       }
@@ -1200,8 +1205,8 @@ export class LedgerService {
         data: { availableBalance: balAfter.toFixed(8) },
       });
 
-      const assetAccount = params.currency === 'USDT' ? 'PLATFORM_TREASURY_USDT' : 'PLATFORM_TREASURY_USD';
-      const liabilityAccount = 'USER_AVAILABLE_USD';
+      const assetAccount = `PLATFORM_TREASURY_${upperAdjCur}`;
+      const liabilityAccount = `USER_AVAILABLE_${upperAdjCur}`;
 
       await this.recordJournal(tx, {
         idempotencyKey,
@@ -1210,11 +1215,11 @@ export class LedgerService {
         notes: `Admin manual ${params.type}: ${params.reason}`,
         createdBy: params.adminUserId,
         entries: params.type === 'CREDIT' ? [
-          { accountId: assetAccount, direction: 'DEBIT', amount: amountDec.toFixed(8), currency: params.currency },
-          { accountId: liabilityAccount, userId: params.userId, direction: 'CREDIT', amount: amountDec.toFixed(8), currency: params.currency },
+          { accountId: assetAccount, direction: 'DEBIT', amount: amountDec.toFixed(8), currency: upperAdjCur },
+          { accountId: liabilityAccount, userId: params.userId, direction: 'CREDIT', amount: amountDec.toFixed(8), currency: upperAdjCur },
         ] : [
-          { accountId: liabilityAccount, userId: params.userId, direction: 'DEBIT', amount: amountDec.toFixed(8), currency: params.currency },
-          { accountId: assetAccount, direction: 'CREDIT', amount: amountDec.toFixed(8), currency: params.currency },
+          { accountId: liabilityAccount, userId: params.userId, direction: 'DEBIT', amount: amountDec.toFixed(8), currency: upperAdjCur },
+          { accountId: assetAccount, direction: 'CREDIT', amount: amountDec.toFixed(8), currency: upperAdjCur },
         ],
       });
 
@@ -1225,7 +1230,7 @@ export class LedgerService {
           userId: params.userId,
           type: params.type === 'CREDIT' ? TransactionType.DEPOSIT : TransactionType.WITHDRAWAL_SETTLEMENT,
           amount: amountDec.toFixed(8),
-          currency: params.currency,
+          currency: upperAdjCur,
           balanceBefore: balBefore.toFixed(8),
           balanceAfter: balAfter.toFixed(8),
           status: TransactionStatus.COMPLETED,
@@ -1238,10 +1243,10 @@ export class LedgerService {
 
       return {
         walletId: wallet.id,
-        currency: params.currency,
-        balanceBefore: balBefore.toFixed(2),
-        balanceAfter: balAfter.toFixed(2),
-        amount: amountDec.toFixed(2),
+        currency: upperAdjCur,
+        balanceBefore: balBefore.toFixed(adjDecimals),
+        balanceAfter: balAfter.toFixed(adjDecimals),
+        amount: amountDec.toFixed(adjDecimals),
         type: params.type,
       };
     },

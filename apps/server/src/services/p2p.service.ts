@@ -726,6 +726,7 @@ export class P2PService {
         });
 
         // Record balanced double-entry journal: Debit Sender Liability, Credit Recipient Liability
+        const upperXferCur = (currency || 'USD').toUpperCase();
         await ledgerService.recordJournal(tx, {
           idempotencyKey,
           referenceType: JournalReferenceType.P2P_TRANSFER,
@@ -734,18 +735,18 @@ export class P2PService {
           createdBy: senderUserId,
           entries: [
             {
-              accountId: 'USER_AVAILABLE_USD',
+              accountId: `USER_AVAILABLE_${upperXferCur}`,
               userId: senderUserId,
               direction: 'DEBIT',
               amount: amountDec.toFixed(8),
-              currency,
+              currency: upperXferCur,
             },
             {
-              accountId: 'USER_AVAILABLE_USD',
+              accountId: `USER_AVAILABLE_${upperXferCur}`,
               userId: recipient.id,
               direction: 'CREDIT',
               amount: amountDec.toFixed(8),
-              currency,
+              currency: upperXferCur,
             },
           ],
         });

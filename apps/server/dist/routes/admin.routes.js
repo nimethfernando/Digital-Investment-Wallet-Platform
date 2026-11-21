@@ -93,6 +93,7 @@ router.get('/audit-logs', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, 
 // System Controls & Announcement Broadcast
 router.get('/system/status', (req, res, next) => admin_controller_1.adminController.getSystemStatus(req, res, next));
 router.post('/system/settings', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateSystemStatus(req, res, next));
+router.post('/system/self-test', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.runFinancialSelfTest(req, res, next));
 // Platform Analytics Overview & Real-Time Admin Notifications
 router.get('/analytics/overview', (req, res, next) => admin_controller_1.adminController.getPlatformOverviewAnalytics(req, res, next));
 router.get('/notifications', (req, res, next) => admin_controller_1.adminController.getAdminNotifications(req, res, next));

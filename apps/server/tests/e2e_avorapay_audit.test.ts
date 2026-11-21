@@ -1,6 +1,7 @@
 process.env.NODE_ENV = 'test';
 import Decimal from 'decimal.js';
-import { PrismaClient, P2PSide, P2POfferStatus } from '@prisma/client';
+import { P2PSide, P2POfferStatus } from '@prisma/client';
+import { prisma } from '../src/lib/prisma';
 import { config } from '../src/config';
 import { notificationService } from '../src/adapters/notification/notification.provider';
 import { ledgerService } from '../src/services/ledger.service';
@@ -12,7 +13,6 @@ import { ticketService } from '../src/services/ticket.service';
 import { adminController } from '../src/controllers/admin.controller';
 import { walletController } from '../src/controllers/wallet.controller';
 
-const prisma = new PrismaClient();
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
 async function runAuditSuite() {

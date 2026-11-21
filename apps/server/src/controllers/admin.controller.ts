@@ -23,6 +23,7 @@ import { investmentsService } from '../services/investments.service';
 import { tokenService } from '../services/token.service';
 import { liquidityRiskService } from '../services/liquidityRisk.service';
 import { featureControlService } from '../services/featureControl.service';
+import { financialSelfTestService } from '../services/financialSelfTest.service';
 import { walletController } from './wallet.controller';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -6892,6 +6893,31 @@ export class AdminController {
       return res.status(400).json({
         success: false,
         message: err.message || 'Failed to execute bulk feature control update.',
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/admin/system/self-test
+   * 1-Click Automated Financial & Mathematical Integrity Self-Test
+   * Runs an isolated, self-cleaning 12-point verification of all financial math & double-entry fund conservation rules
+   */
+  async runFinancialSelfTest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id;
+      const report = await financialSelfTestService.runFullSelfTest(adminUserId);
+      res.json({
+        success: true,
+        message:
+          report.status === 'ALL_PASSED'
+            ? `All ${report.passedCount}/${report.totalChecks} financial & mathematical conservation checks passed with 0.00000000 discrepancy.`
+            : `${report.passedCount}/${report.totalChecks} checks passed (${report.failedCount} issue(s) detected).`,
+        data: report,
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        message: err.message || 'Failed to execute financial self-test suite.',
       });
     }
   }
