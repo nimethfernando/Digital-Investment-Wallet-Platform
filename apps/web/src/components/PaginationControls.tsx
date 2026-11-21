@@ -4,11 +4,19 @@ import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export interface PaginationControlsProps {
-  currentPage: number;
-  totalItems: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
+  currentPage?: number;
+  totalItems?: number;
+  pageSize?: number;
+  onPageChange?: (page: number) => void;
   onPageSizeChange?: (size: number) => void;
+  pagination?: {
+    page: number;
+    totalItems: number;
+    pageSize: number;
+    setPage: (page: number) => void;
+    setPageSize?: (size: number) => void;
+    totalPages?: number;
+  };
   pageSizeOptions?: number[];
   itemLabel?: string;
   theme?: 'dark' | 'auto';
@@ -45,20 +53,21 @@ export function usePagination<T>(items: T[], defaultPageSize = 50) {
     totalItems,
     totalPages,
     pagedItems,
+    pageItems: pagedItems,
   };
 }
 
-export default function PaginationControls({
-  currentPage,
-  totalItems,
-  pageSize,
-  onPageChange,
-  onPageSizeChange,
-  pageSizeOptions = [25, 50, 100],
-  itemLabel = 'records',
-  theme = 'auto',
-  className = '',
-}: PaginationControlsProps) {
+export default function PaginationControls(props: PaginationControlsProps) {
+  const currentPage = props.pagination ? props.pagination.page : (props.currentPage ?? 1);
+  const totalItems = props.pagination ? props.pagination.totalItems : (props.totalItems ?? 0);
+  const pageSize = props.pagination ? props.pagination.pageSize : (props.pageSize ?? 50);
+  const onPageChange = props.pagination ? props.pagination.setPage : (props.onPageChange ?? (() => {}));
+  const onPageSizeChange = props.pagination?.setPageSize || props.onPageSizeChange;
+  const pageSizeOptions = props.pageSizeOptions || [25, 50, 100];
+  const itemLabel = props.itemLabel || 'records';
+  const theme = props.theme || 'auto';
+  const className = props.className || '';
+
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const safePage = Math.min(Math.max(1, currentPage), totalPages);
 

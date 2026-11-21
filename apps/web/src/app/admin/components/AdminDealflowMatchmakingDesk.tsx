@@ -282,7 +282,7 @@ export default function AdminDealflowMatchmakingDesk({ onFeedback }: AdminDealfl
         </div>
       ) : (
         <div className="space-y-4">
-          {paginatedApps.pageItems.map((app) => (
+          {((paginatedApps as any).pagedItems || (paginatedApps as any).pageItems || []).map((app: any) => (
             <div
               key={app.id}
               className="p-5 sm:p-6 rounded-3xl bg-slate-900 border border-slate-800 hover:border-slate-700 shadow-xl space-y-4 text-xs transition-all"
@@ -309,7 +309,7 @@ export default function AdminDealflowMatchmakingDesk({ onFeedback }: AdminDealfl
                     </span>
                     <span>•</span>
                     <span>
-                      Target: <strong>${app.opportunity?.targetAmount?.toLocaleString()} USD</strong>
+                      Target: <strong>${Number(app.opportunity?.targetAmount || 0).toLocaleString()} USD</strong>
                     </span>
                     <span>•</span>
                     <span>
@@ -399,7 +399,7 @@ export default function AdminDealflowMatchmakingDesk({ onFeedback }: AdminDealfl
                         Proposed Amount
                       </span>
                       <span className="text-lg font-black font-mono text-emerald-400">
-                        ${app.proposedAmount?.toLocaleString()} USD
+                        ${Number(app.proposedAmount || 0).toLocaleString()} USD
                       </span>
                     </div>
 
@@ -563,7 +563,7 @@ export default function AdminDealflowMatchmakingDesk({ onFeedback }: AdminDealfl
               <div className="flex justify-between">
                 <span className="text-slate-400">Proposed Amount:</span>
                 <strong className="text-emerald-400 font-mono">
-                  ${selectedAppForConnect.proposedAmount?.toLocaleString()} USD
+                  ${Number(selectedAppForConnect.proposedAmount || 0).toLocaleString()} USD
                 </strong>
               </div>
               <div className="flex justify-between">

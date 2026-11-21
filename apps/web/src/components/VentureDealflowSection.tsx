@@ -546,7 +546,7 @@ export default function VentureDealflowSection() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {paginatedOpps.pageItems.map((opp) => {
+          {((paginatedOpps as any).pagedItems || (paginatedOpps as any).pageItems || []).map((opp: any) => {
             const hasApplied = appliedOppMap.has(opp.id);
             const myApp = appliedOppMap.get(opp.id);
             const isCreator = user && opp.userId === user.id;
@@ -603,7 +603,7 @@ export default function VentureDealflowSection() {
                         {opp.intent === 'OFFERING_CAPITAL' ? 'Capital Offering:' : 'Funding Required:'}
                       </span>
                       <span className="font-mono font-black text-slate-900 dark:text-emerald-400 text-sm">
-                        ${opp.targetAmount.toLocaleString()} {opp.currency}
+                        ${Number(opp.targetAmount || 0).toLocaleString()} {opp.currency}
                       </span>
                     </div>
 
@@ -1019,7 +1019,7 @@ export default function VentureDealflowSection() {
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">Target Opportunity:</span>
                 <span className="font-mono font-bold text-slate-900 dark:text-white">
-                  ${selectedOppForApply.targetAmount.toLocaleString()} {selectedOppForApply.currency}
+                  ${Number(selectedOppForApply.targetAmount || 0).toLocaleString()} {selectedOppForApply.currency}
                 </span>
               </div>
               <div className="flex justify-between items-center text-[11px] text-slate-400">
@@ -1213,7 +1213,7 @@ export default function VentureDealflowSection() {
                         <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
                           <span>Application Code: {app.applicationCode}</span>
                           <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                            Proposed: ${app.proposedAmount.toLocaleString()} USD
+                            Proposed: ${Number(app.proposedAmount || 0).toLocaleString()} USD
                           </span>
                         </div>
 
@@ -1263,7 +1263,7 @@ export default function VentureDealflowSection() {
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
                             {opp.opportunityCode} • {opp.intent === 'OFFERING_CAPITAL' ? 'Offering' : 'Seeking'}{' '}
-                            ${opp.targetAmount.toLocaleString()} USD ({opp.industry})
+                            ${Number(opp.targetAmount || 0).toLocaleString()} USD ({opp.industry})
                           </div>
                         </div>
 
