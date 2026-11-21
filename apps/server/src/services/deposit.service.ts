@@ -3,6 +3,7 @@ import { DepositStatus, PackageStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { ledgerService } from './ledger.service';
+import { rateService } from './rate.service';
 import { notificationService } from '../adapters/notification/notification.provider';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
@@ -274,8 +275,11 @@ export class DepositService {
     const checkoutCurrency = (params.checkoutCurrency || 'USD').toUpperCase();
     const depositCode = `RZP-${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
     const purposeLabel = params.purpose || 'WALLET_DEPOSIT';
+    const unitPurchasePriceUsd = targetCreditAmount.greaterThan(0)
+      ? netWalletCredit.dividedBy(targetCreditAmount)
+      : new Decimal(1);
 
-    const feeSummaryNote = `Razorpay (${purposeLabel}) | Gross Charged: $${grossPayableAmount.toFixed(2)} USD | Total Commission ${totalCommPct.toFixed(1)}%: $${totalCommission.toFixed(2)} (${gatewayFeePct.toFixed(1)}% Razorpay Fee: $${razorpayGatewayFee.toFixed(2)} + ${platformSpreadPct.toFixed(1)}% Avora Margin: $${avoraPlatformFee.toFixed(2)}) | Net Wallet Credit: ${targetCreditAmount.toFixed(creditDecimals)} ${walletCurrency} ($${netWalletCredit.toFixed(2)} USD eq.)`;
+    const feeSummaryNote = `Razorpay (${purposeLabel}) | Gross Charged: $${grossPayableAmount.toFixed(2)} USD | Total Commission ${totalCommPct.toFixed(1)}%: $${totalCommission.toFixed(2)} (${gatewayFeePct.toFixed(1)}% Razorpay Fee: $${razorpayGatewayFee.toFixed(2)} + ${platformSpreadPct.toFixed(1)}% Avora Margin: $${avoraPlatformFee.toFixed(2)}) | Net Wallet Credit: ${targetCreditAmount.toFixed(creditDecimals)} ${walletCurrency} ($${netWalletCredit.toFixed(2)} USD eq.) (Buy Price: 1 ${walletCurrency} = $${unitPurchasePriceUsd.toFixed(2)} USD | Cost Basis: $${netWalletCredit.toFixed(2)} USD)`;
 
     let razorpayOrderId = `order_avr_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`;
     let mode: 'LIVE' | 'ASSISTED' = 'ASSISTED';
@@ -457,10 +461,12 @@ export class DepositService {
         `,
       }).catch(() => {});
 
+      const depDp = ['BTC', 'ETH'].includes(deposit.currency.toUpperCase()) ? 6 : 2;
       notificationService.sendAdminAlert(
-        `Razorpay Deposit Verified & Credited [${deposit.depositCode}]`,
-        `${deposit.user.email} completed a verified Razorpay payment of ${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency} (Payment ID: ${paymentIdClean}).`,
-        { depositCode: deposit.depositCode, userId: deposit.userId, paymentId: paymentIdClean, amount: deposit.amount.toString(), currency: deposit.currency }
+        `Crypto/Currency Purchase Credited via Razorpay: ${new Decimal(deposit.amount.toString()).toFixed(depDp)} ${deposit.currency} @ $${approval.unitBuyPriceUsd}/${deposit.currency} [${deposit.depositCode}]`,
+        `${deposit.user.email} purchased ${new Decimal(deposit.amount.toString()).toFixed(depDp)} ${deposit.currency} at Purchase Price: 1 ${deposit.currency} = $${approval.unitBuyPriceUsd} USD (Cost Basis: $${approval.costBasisUsd} USD | Payment ID: ${paymentIdClean}).\n` +
+          `Liquidity Action Required: Maintain ${new Decimal(deposit.amount.toString()).toFixed(depDp)} ${deposit.currency} in platform reserve to cover future sell requests against this $${approval.unitBuyPriceUsd}/${deposit.currency} entry price.`,
+        { depositCode: deposit.depositCode, userId: deposit.userId, paymentId: paymentIdClean, amount: deposit.amount.toString(), currency: deposit.currency, unitBuyPriceUsd: approval.unitBuyPriceUsd, costBasisUsd: approval.costBasisUsd }
       ).catch(() => {});
 
       return {
@@ -494,10 +500,15 @@ export class DepositService {
       `,
     }).catch(() => {});
 
+    const depDpPending = ['BTC', 'ETH'].includes(deposit.currency.toUpperCase()) ? 6 : 2;
+    const priceMatchPending = updatedNotes.match(/Buy Price:\s*1\s+[A-Z0-9]+\s*=\s*\$?([\d,]+(?:\.\d+)?)/i);
+    const unitPriceLabelPending = priceMatchPending ? `$${priceMatchPending[1]}/${deposit.currency}` : `Market Rate`;
     notificationService.sendAdminAlert(
-      `New Razorpay Deposit Pending Review [${deposit.depositCode}]`,
-      `${deposit.user.email} submitted Razorpay payment reference ${paymentIdClean} for ${new Decimal(deposit.amount.toString()).toFixed(2)} ${deposit.currency}. Review in Admin → Deposits.`,
-      { depositCode: deposit.depositCode, userId: deposit.userId, paymentId: paymentIdClean, amount: deposit.amount.toString(), currency: deposit.currency }
+      `New Crypto/Currency Purchase Pending Review: ${new Decimal(deposit.amount.toString()).toFixed(depDpPending)} ${deposit.currency} @ ${unitPriceLabelPending} [${deposit.depositCode}]`,
+      `${deposit.user.email} submitted Razorpay payment reference ${paymentIdClean} to purchase ${new Decimal(deposit.amount.toString()).toFixed(depDpPending)} ${deposit.currency} (Purchase Price: ${unitPriceLabelPending}).\n` +
+        `Details: ${updatedNotes}\n` +
+        `Liquidity Action Required: Verify payment and ensure ${new Decimal(deposit.amount.toString()).toFixed(depDpPending)} ${deposit.currency} reserve liquidity is maintained. Review in Admin → Deposits.`,
+      { depositCode: deposit.depositCode, userId: deposit.userId, paymentId: paymentIdClean, amount: deposit.amount.toString(), currency: deposit.currency, unitPrice: unitPriceLabelPending }
     ).catch(() => {});
 
     return {
@@ -669,15 +680,29 @@ export class DepositService {
       }
     }
 
+    const upperDepCur = currency.toUpperCase();
+    const depLiveRates = await rateService.getLiveRates().catch(() => ({ rates: { USD: 1, USDT: 1 } as Record<string, number> }));
+    const depPerUsd = depLiveRates.rates[upperDepCur] || 1.0;
+    const depUnitBuyPriceUsd =
+      upperDepCur === 'USD' || upperDepCur === 'USDT' || upperDepCur === 'USDC'
+        ? new Decimal(1)
+        : depPerUsd > 0
+        ? new Decimal(1).dividedBy(new Decimal(depPerUsd))
+        : new Decimal(1);
+    const depCostBasisUsd = new Decimal(amountNum).times(depUnitBuyPriceUsd);
+    const depDecimals = ['BTC', 'ETH'].includes(upperDepCur) ? 6 : 2;
+    const depPriceAuditNote = `Purchase/Deposit of ${new Decimal(amountNum).toFixed(depDecimals)} ${upperDepCur} via ${data.depositMethod} (Buy Price: 1 ${upperDepCur} = $${depUnitBuyPriceUsd.toFixed(2)} USD | Cost Basis: $${depCostBasisUsd.toFixed(2)} USD)`;
+
     const deposit = await prisma.depositRequest.create({
       data: {
         depositCode,
         userId,
         amount: new Decimal(amountNum).toFixed(8),
-        currency,
+        currency: upperDepCur,
         depositMethod: data.depositMethod,
         proofUrl: cleanProofUrl,
         txHashOrRef: normalizedHash || `REF-${depositCode}`,
+        adminNotes: depPriceAuditNote,
         status: DepositStatus.PENDING,
       },
     });
@@ -692,7 +717,7 @@ export class DepositService {
           amount: deposit.amount.toString(),
           currency: deposit.currency,
           reviewedBy: 'AUTOMATED_TREASURY_DESK',
-          notes: `Auto-verified (${data.depositMethod} - ${data.txHashOrRef || depositCode})`,
+          notes: `Auto-verified (${data.depositMethod} - ${data.txHashOrRef || depositCode}) | ${depPriceAuditNote}`,
         });
         return approval.deposit;
       } catch (err) {
@@ -705,19 +730,22 @@ export class DepositService {
       to: user.email,
       subject: `Deposit Request Received - ${depositCode}`,
       html: `
-        <h3>Deposit Submitted</h3>
-        <p>Your deposit of <strong>${amountNum.toLocaleString()} ${currency}</strong> via <strong>${data.depositMethod}</strong> has been received.</p>
+        <h3>Deposit / Crypto Purchase Submitted</h3>
+        <p>Your request for <strong>${new Decimal(amountNum).toFixed(depDecimals)} ${upperDepCur}</strong> (Indicative Price: <strong>1 ${upperDepCur} = $${depUnitBuyPriceUsd.toFixed(2)} USD</strong> • Total: <strong>$${depCostBasisUsd.toFixed(2)} USD</strong>) via <strong>${data.depositMethod}</strong> has been received.</p>
         <p>Reference Code: <strong>${depositCode}</strong></p>
-        <p>Transaction Hash: <code>${normalizedHash || data.txHashOrRef || 'N/A'}</code></p>
+        <p>Transaction Hash / Ref: <code>${normalizedHash || data.txHashOrRef || 'N/A'}</code></p>
         ${cleanProofUrl ? `<p>Proof Explorer Link: <a href="${cleanProofUrl}">${cleanProofUrl}</a></p>` : ''}
-        <p>Status: <strong>PENDING REVIEW</strong>. Funds will be credited once confirmed on-chain / bank statement.</p>
+        <p>Status: <strong>PENDING REVIEW</strong>. Note: Displayed cryptocurrency prices may vary due to market fluctuations; final execution is based on the applicable price when your request is processed.</p>
       `,
     }).catch(() => {});
 
     notificationService.sendAdminAlert(
-      `New Deposit Request [${depositCode}]`,
-      `${user.firstName || 'Client'} (${user.email}) submitted a deposit request for ${amountNum} ${currency} via ${data.depositMethod}.\nRef/TX: ${normalizedHash || data.txHashOrRef || 'N/A'}\nReview in Admin → Deposits.`,
-      { depositCode, userId, email: user.email, amount: amountNum, currency, depositMethod: data.depositMethod, txHashOrRef: normalizedHash || data.txHashOrRef || null }
+      `Crypto/Currency Purchase & Deposit Alert: ${new Decimal(amountNum).toFixed(depDecimals)} ${upperDepCur} @ $${depUnitBuyPriceUsd.toFixed(2)}/${upperDepCur} [${depositCode}]`,
+      `${user.firstName || 'Client'} (${user.email}) submitted a purchase/deposit for ${new Decimal(amountNum).toFixed(depDecimals)} ${upperDepCur} via ${data.depositMethod}.\n` +
+        `Purchase Price at Request: 1 ${upperDepCur} = $${depUnitBuyPriceUsd.toFixed(2)} USD (Total Cost Basis: $${depCostBasisUsd.toFixed(2)} USD)\n` +
+        `Ref/TX: ${normalizedHash || data.txHashOrRef || 'N/A'}\n` +
+        `Liquidity Action Required: Ensure ${new Decimal(amountNum).toFixed(depDecimals)} ${upperDepCur} reserve liquidity is maintained for future sell requests. Review in Admin → Deposits.`,
+      { depositCode, userId, email: user.email, amount: amountNum, currency: upperDepCur, unitBuyPriceUsd: depUnitBuyPriceUsd.toFixed(2), costBasisUsd: depCostBasisUsd.toFixed(2), depositMethod: data.depositMethod, txHashOrRef: normalizedHash || data.txHashOrRef || null }
     ).catch(() => {});
 
     return deposit;
@@ -785,6 +813,14 @@ export class DepositService {
         <p>Your new available balance is <strong>$${result.balanceAfter} USD</strong>.</p>
       `,
     }).catch(() => {});
+
+    const depDpApproved = ['BTC', 'ETH'].includes(deposit.currency.toUpperCase()) ? 6 : 2;
+    notificationService.sendAdminAlert(
+      `Crypto/Currency Purchase Approved & Credited: ${new Decimal(deposit.amount.toString()).toFixed(depDpApproved)} ${deposit.currency} @ $${result.unitBuyPriceUsd}/${deposit.currency} [${deposit.depositCode}]`,
+      `Admin approved ${deposit.user.email}'s purchase/deposit of ${new Decimal(deposit.amount.toString()).toFixed(depDpApproved)} ${deposit.currency} at Purchase Price: 1 ${deposit.currency} = $${result.unitBuyPriceUsd} USD (Total Cost Basis: $${result.costBasisUsd} USD).\n` +
+        `Liquidity Action Required: Maintain at least ${new Decimal(deposit.amount.toString()).toFixed(depDpApproved)} ${deposit.currency} in platform reserve to cover future sell requests against this $${result.unitBuyPriceUsd}/${deposit.currency} entry price.`,
+      { depositCode: deposit.depositCode, userId: deposit.userId, email: deposit.user.email, amount: deposit.amount.toString(), currency: deposit.currency, unitBuyPriceUsd: result.unitBuyPriceUsd, costBasisUsd: result.costBasisUsd }
+    ).catch(() => {});
 
     return result;
   }

@@ -256,11 +256,27 @@ class LedgerService {
             });
             // Double-entry ledger: Debit Asset account, Credit User Available Liability (+ Platform Revenue Margin for Razorpay)
             const upperCur = (params.currency || 'USD').toUpperCase();
+            const liveRates = await rate_service_1.rateService.getLiveRates().catch(() => ({ rates: { USD: 1, USDT: 1 } }));
+            const rawPerUsd = liveRates.rates[upperCur] || 1.0;
+            let unitBuyPriceUsd = upperCur === 'USD' || upperCur === 'USDT' || upperCur === 'USDC'
+                ? new decimal_js_1.default(1)
+                : rawPerUsd > 0
+                    ? new decimal_js_1.default(1).dividedBy(new decimal_js_1.default(rawPerUsd))
+                    : new decimal_js_1.default(1);
+            const combinedNotes = `${params.notes || ''} ${freshDeposit.adminNotes || ''}`;
+            const recordedPriceMatch = combinedNotes.match(/Buy Price:\s*1\s+[A-Z0-9]+\s*=\s*\$?([\d,]+(?:\.\d+)?)/i);
+            if (recordedPriceMatch) {
+                const parsedUnit = new decimal_js_1.default(recordedPriceMatch[1].replace(/,/g, ''));
+                if (parsedUnit.isFinite() && parsedUnit.greaterThan(0)) {
+                    unitBuyPriceUsd = parsedUnit;
+                }
+            }
+            const totalCostBasisUsd = amountDec.times(unitBuyPriceUsd);
+            const priceAuditSuffix = `(Buy Price: 1 ${upperCur} = $${unitBuyPriceUsd.toFixed(2)} USD | Cost Basis: $${totalCostBasisUsd.toFixed(2)} USD)`;
             const assetAccount = upperCur === 'USDT' ? 'PLATFORM_TREASURY_USDT' : upperCur === 'USD' ? 'PLATFORM_TREASURY_USD' : `PLATFORM_TREASURY_${upperCur}`;
             const liabilityAccount = upperCur === 'USD' ? 'USER_AVAILABLE_USD' : `USER_AVAILABLE_${upperCur}`;
             const revenueAccount = `PLATFORM_FEE_REVENUE_${upperCur}`;
             let avoraMarginDec = new decimal_js_1.default(0);
-            const combinedNotes = `${params.notes || ''} ${freshDeposit.adminNotes || ''}`;
             if (freshDeposit.depositMethod === 'RAZORPAY' || /Avora Margin:/i.test(combinedNotes)) {
                 const match = combinedNotes.match(/Avora Margin:\s*\$?([\d,]+(?:\.\d+)?)/i);
                 if (match) {
@@ -320,6 +336,9 @@ class LedgerService {
                 entries: journalEntries,
             });
             // Record User-facing Transaction
+            const dpCur = ['BTC', 'ETH'].includes(upperCur) ? 8 : 2;
+            const baseTxNote = params.notes || `Deposit of ${amountDec.toFixed(dpCur)} ${upperCur} approved`;
+            const enrichedTxNote = baseTxNote.includes('Buy Price:') ? baseTxNote : `${baseTxNote} ${priceAuditSuffix}`;
             const transactionCode = `TX-DEP-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
             await tx.transaction.create({
                 data: {
@@ -334,7 +353,7 @@ class LedgerService {
                     settlementReference,
                     createdBy: params.reviewedBy,
                     idempotencyKey,
-                    notes: params.notes || `Deposit of ${amountDec.toFixed(2)} ${upperCur} approved`,
+                    notes: enrichedTxNote,
                 },
             });
             if (avoraMarginDec.greaterThan(0)) {
@@ -366,7 +385,12 @@ class LedgerService {
                     txHashOrRef: settlementReference,
                 },
             });
-            return { deposit: updatedDeposit, balanceAfter: balAfter.toFixed(2) };
+            return {
+                deposit: updatedDeposit,
+                balanceAfter: balAfter.toFixed(dpCur),
+                unitBuyPriceUsd: unitBuyPriceUsd.toFixed(2),
+                costBasisUsd: totalCostBasisUsd.toFixed(2),
+            };
         }, { timeout: 45000, maxWait: 15000 });
     }
     /**
@@ -828,13 +852,34 @@ class LedgerService {
         const toPerUsd = live.rates[toCurUpper] || 1.0;
         const spotRate = new decimal_js_1.default(toPerUsd).dividedBy(new decimal_js_1.default(fromPerUsd));
         const multiplier = decimal_js_1.default.max(new decimal_js_1.default(0.01), new decimal_js_1.default(1).minus(spreadPctDec.dividedBy(100)));
-        const effectiveRate = new decimal_js_1.default(spotRate.times(multiplier).toFixed(12));
+        let effectiveRate = new decimal_js_1.default(spotRate.times(multiplier).toFixed(12));
+        if (params.customEffectiveRate !== undefined && params.customEffectiveRate !== null && String(params.customEffectiveRate).trim() !== '') {
+            const parsedCustomRate = new decimal_js_1.default(String(params.customEffectiveRate));
+            if (parsedCustomRate.isFinite() && parsedCustomRate.greaterThan(0)) {
+                effectiveRate = new decimal_js_1.default(parsedCustomRate.toFixed(12));
+            }
+        }
         const fromCur = params.fromCurrency.toUpperCase();
         const toCur = params.toCurrency.toUpperCase();
         const fromDecimals = ['BTC', 'ETH'].includes(fromCur) ? 8 : 2;
         const toDecimals = ['BTC', 'ETH'].includes(toCur) ? 8 : 2;
         const fromAmtFixed = new decimal_js_1.default(fromAmountDec.toFixed(8));
         const toAmountDec = new decimal_js_1.default(fromAmtFixed.times(effectiveRate).toFixed(8));
+        const fromUsdValueDec = fromCur === 'USD' || fromCur === 'USDT' || fromCur === 'USDC'
+            ? fromAmtFixed
+            : fromPerUsd > 0
+                ? fromAmtFixed.dividedBy(new decimal_js_1.default(fromPerUsd))
+                : fromAmtFixed;
+        const toUnitBuyPriceUsdDec = toAmountDec.greaterThan(0)
+            ? fromUsdValueDec.dividedBy(toAmountDec)
+            : toPerUsd > 0
+                ? new decimal_js_1.default(1).dividedBy(new decimal_js_1.default(toPerUsd))
+                : new decimal_js_1.default(1);
+        const fromUnitSellPriceUsdDec = fromCur === 'USD' || fromCur === 'USDT' || fromCur === 'USDC'
+            ? new decimal_js_1.default(1)
+            : fromPerUsd > 0
+                ? new decimal_js_1.default(1).dividedBy(new decimal_js_1.default(fromPerUsd))
+                : new decimal_js_1.default(1);
         const spreadFeeFromDec = spreadPctDec.greaterThan(0)
             ? decimal_js_1.default.min(fromAmtFixed, new decimal_js_1.default(fromAmtFixed.times(spreadPctDec).dividedBy(100).toFixed(8)))
             : new decimal_js_1.default(0);
@@ -908,8 +953,9 @@ class LedgerService {
                 createdBy: params.userId,
                 entries: swapJournalEntries,
             });
-            // Create user transaction record
+            // Create user transaction record with exact purchase price & cost basis for Admin liquidity/exposure tracking
             const transactionCode = `TX-SWAP-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+            const swapAuditNotes = `Swapped ${fromAmtFixed.toFixed(fromDecimals)} ${fromCur} for ${toAmountDec.toFixed(toDecimals)} ${toCur} at rate ${effectiveRate.toFixed(8)} (Buy Price: 1 ${toCur} = $${toUnitBuyPriceUsdDec.toFixed(2)} USD | Sell Price: 1 ${fromCur} = $${fromUnitSellPriceUsdDec.toFixed(2)} USD | Cost Basis: $${fromUsdValueDec.toFixed(2)} USD)`;
             await tx.transaction.create({
                 data: {
                     transactionCode,
@@ -921,7 +967,7 @@ class LedgerService {
                     balanceBefore: toAvail.toFixed(8),
                     balanceAfter: toBalAfter.toFixed(8),
                     settlementReference: idempotencyKey,
-                    notes: `Swapped ${fromAmtFixed.toFixed(fromDecimals)} ${fromCur} for ${toAmountDec.toFixed(toDecimals)} ${toCur} at rate ${effectiveRate.toFixed(8)}`,
+                    notes: swapAuditNotes,
                 },
             });
             if (spreadFeeFromDec.greaterThan(0)) {
@@ -952,6 +998,10 @@ class LedgerService {
                 feeCurrency: fromCur,
                 spreadPct: spreadPctDec.toFixed(2),
                 rate: effectiveRate.toFixed(8),
+                unitBuyPriceUsd: toUnitBuyPriceUsdDec.toFixed(2),
+                unitSellPriceUsd: fromUnitSellPriceUsdDec.toFixed(2),
+                costBasisUsd: fromUsdValueDec.toFixed(2),
+                priceDisclosureNote: 'Displayed cryptocurrency and foreign exchange prices may vary due to market fluctuations. Because there can be a time difference between submitting a request and actual execution, transactions are executed based on the applicable market price at the time of processing.',
                 balanceAfter: {
                     [fromCur]: fromBalAfter.toFixed(fromDecimals),
                     [toCur]: toBalAfter.toFixed(toDecimals),
@@ -965,7 +1015,9 @@ class LedgerService {
             .findUnique({ where: { id: params.userId }, select: { email: true, firstName: true, lastName: true } })
             .then((u) => {
             const actor = u ? `${`${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Client'} (${u.email})` : params.userId;
-            return notification_provider_1.notificationService.sendAdminAlert(`Instant Currency Swap Executed [${swapResult.transactionCode}]`, `${actor} swapped ${swapResult.fromAmount} ${swapResult.fromCurrency} → ${swapResult.toAmount} ${swapResult.toCurrency}.\nRate: 1 ${swapResult.fromCurrency} = ${swapResult.rate} ${swapResult.toCurrency} | Desk Spread (${swapResult.spreadPct}%): ${swapResult.feeAmount} ${swapResult.feeCurrency}.`, { userId: params.userId, ...swapResult });
+            return notification_provider_1.notificationService.sendAdminAlert(`Crypto/Currency Purchase Alert: ${swapResult.toAmount} ${swapResult.toCurrency} @ $${swapResult.unitBuyPriceUsd}/${swapResult.toCurrency} [${swapResult.transactionCode}]`, `${actor} purchased ${swapResult.toAmount} ${swapResult.toCurrency} at Purchase Price: 1 ${swapResult.toCurrency} = $${swapResult.unitBuyPriceUsd} USD (Paid: ${swapResult.fromAmount} ${swapResult.fromCurrency} / Cost Basis: $${swapResult.costBasisUsd} USD).\n` +
+                `Execution Rate: 1 ${swapResult.fromCurrency} = ${swapResult.rate} ${swapResult.toCurrency} (1 ${swapResult.fromCurrency} = $${swapResult.unitSellPriceUsd} USD) | Desk Spread (${swapResult.spreadPct}%): ${swapResult.feeAmount} ${swapResult.feeCurrency}.\n` +
+                `Liquidity Action Required: Ensure at least ${swapResult.toAmount} ${swapResult.toCurrency} is maintained in platform reserve to cover future sell requests against this $${swapResult.unitBuyPriceUsd}/${swapResult.toCurrency} entry price.`, { userId: params.userId, ...swapResult });
         })
             .catch(() => { });
         return swapResult;

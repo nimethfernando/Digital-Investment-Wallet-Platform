@@ -5072,8 +5072,29 @@ export class AdminController {
     // Pending High-Risk / Large Currency Swap Approvals
     for (const sr of pendingSwapRequestsList as any[]) {
       const custName = `${sr.user?.firstName || ''} ${sr.user?.lastName || ''}`.trim() || sr.user?.email || 'Client';
-      const fromUsd = new Decimal(sr.fromAmountUsd?.toString() || '0').toFixed(2);
-      const estPnl = new Decimal(sr.estPlatformPnlUsd?.toString() || '0').toFixed(2);
+      const fromCur = (sr.fromCurrency || 'USD').toUpperCase();
+      const toCur = (sr.toCurrency || 'USDT').toUpperCase();
+      const fromDp = ['BTC', 'ETH'].includes(fromCur) ? 6 : 2;
+      const toDp = ['BTC', 'ETH'].includes(toCur) ? 6 : 2;
+      const fromAmtDec = new Decimal(sr.fromAmount?.toString() || '0');
+      const toAmtDec = new Decimal(sr.toAmount?.toString() || '0');
+      const fromUsdDec = new Decimal(sr.fromAmountUsd?.toString() || '0');
+      const costBasisDec = new Decimal(sr.userCostBasisUsd?.toString() || '0');
+      const estPnlDec = new Decimal(sr.estimatedPnlImpactUsd?.toString() || '0');
+      const origUnitPrice = fromAmtDec.greaterThan(0) && costBasisDec.greaterThan(0)
+        ? costBasisDec.dividedBy(fromAmtDec).toFixed(2)
+        : fromAmtDec.greaterThan(0)
+        ? fromUsdDec.dividedBy(fromAmtDec).toFixed(2)
+        : '1.00';
+      const reqSellUnitPrice = fromAmtDec.greaterThan(0)
+        ? fromUsdDec.dividedBy(fromAmtDec).toFixed(2)
+        : '1.00';
+      let parsedFlags: string[] = [];
+      try {
+        parsedFlags = sr.riskFlags ? JSON.parse(sr.riskFlags) : [];
+      } catch {
+        parsedFlags = [];
+      }
       const age = this.computeAgeInfo(sr.createdAt, now, 4);
       const item = {
         id: `SWREQ-${sr.id}`,
@@ -5081,13 +5102,13 @@ export class AdminController {
         code: sr.requestCode,
         category: 'SWAP_APPROVAL',
         typeLabel: 'Swap Risk Approval',
-        title: `Swap Approval: ${sr.fromCurrency} -> ${sr.toCurrency} ($${fromUsd})`,
-        description: `${custName} • ${sr.riskReason || 'Manual risk review required'} • Est P&L Impact: $${estPnl}`,
+        title: `Swap Approval: ${fromAmtDec.toFixed(fromDp)} ${fromCur} -> ${toAmtDec.toFixed(toDp)} ${toCur} ($${fromUsdDec.toFixed(2)})`,
+        description: `${custName} • Orig Buy Price: $${origUnitPrice}/${fromCur} → Sell Price: $${reqSellUnitPrice}/${fromCur} • Cost Basis: $${costBasisDec.toFixed(2)} • Est P&L Impact: $${estPnlDec.toFixed(2)}${parsedFlags.length ? ` [${parsedFlags.join(', ')}]` : ''}`,
         customerId: sr.userId,
         customerName: custName,
         customerEmail: sr.user?.email || '',
-        amount: fromUsd,
-        currency: sr.fromCurrency,
+        amount: fromAmtDec.toFixed(fromDp),
+        currency: fromCur,
         status: sr.status,
         targetTab: 'liquidity',
         requestDate: sr.createdAt.toISOString(),
@@ -5104,28 +5125,35 @@ export class AdminController {
       alerts.push(item);
     }
 
-    // Recent Instant Currency Swaps (72h activity visibility)
+    // Recent Instant Currency Swaps & Crypto/Fiat Purchases (72h activity visibility with quantity, purchase price & reserve notice)
     for (const sw of recentSwapsList as any[]) {
       const custName = `${sw.user?.firstName || ''} ${sw.user?.lastName || ''}`.trim() || sw.user?.email || 'Client';
       const cur = (sw.currency || 'USD').toUpperCase();
       const decPlaces = ['BTC', 'ETH'].includes(cur) ? 6 : 2;
       const amtFixed = new Decimal(sw.amount.toString()).toFixed(decPlaces);
+      const notesStr = String(sw.notes || '');
+      const buyPriceMatch = notesStr.match(/Buy Price:\s*1\s+[A-Z0-9]+\s*=\s*\$?([\d,]+(?:\.\d+)?)/i);
+      const costBasisMatch = notesStr.match(/Cost Basis:\s*\$?([\d,]+(?:\.\d+)?)/i);
+      const buyPriceLabel = buyPriceMatch ? `1 ${cur} = $${buyPriceMatch[1]} USD` : 'Live Rate';
+      const costBasisLabel = costBasisMatch ? `Cost Basis: $${costBasisMatch[1]} USD` : '';
       const age = this.computeAgeInfo(sw.createdAt, now, 9999);
       const item = {
         id: `SWAP-${sw.id}`,
         entityId: sw.id,
         code: sw.transactionCode,
         category: 'CURRENCY_SWAP',
-        typeLabel: 'Instant Swap',
-        title: `Currency Swap: ${sw.transactionCode} (+${amtFixed} ${cur})`,
-        description: `${custName} • ${sw.notes || 'Instant OTC Currency Swap'}`,
+        typeLabel: 'Crypto/Currency Purchase',
+        title: `User Purchased ${amtFixed} ${cur} @ ${buyPriceLabel} (${sw.transactionCode})`,
+        description: `${custName} (${sw.user?.email || ''}) • ${costBasisLabel ? `${costBasisLabel} • ` : ''}${notesStr} • Reserve Action: Maintain ${amtFixed} ${cur} liquidity for future sell requests`,
         customerId: sw.userId,
         customerName: custName,
         customerEmail: sw.user?.email || '',
         amount: amtFixed,
         currency: cur,
+        unitPurchasePriceUsd: buyPriceMatch ? buyPriceMatch[1] : null,
+        costBasisUsd: costBasisMatch ? costBasisMatch[1] : null,
         status: sw.status,
-        targetTab: 'users',
+        targetTab: 'liquidity',
         requestDate: sw.createdAt.toISOString(),
         createdDate: sw.createdAt.toISOString(),
         ageMs: age.ageMs,
@@ -5133,8 +5161,8 @@ export class AdminController {
         ageDays: age.ageDays,
         ageLabel: age.ageLabel,
         isOverdue: false,
-        urgency: 'NORMAL',
-        priorityRank: 3,
+        urgency: ['BTC', 'ETH'].includes(cur) ? 'HIGH' : 'NORMAL',
+        priorityRank: ['BTC', 'ETH'].includes(cur) ? 2 : 3,
       };
       alerts.push(item);
     }
@@ -6692,10 +6720,11 @@ export class AdminController {
       const adminId = (req as any).user.id;
       const swapId = String(req.params.id);
       const adminNotes = req.body?.adminNotes || req.body?.notes || req.body?.reason;
-      const result = await liquidityRiskService.approveQueuedSwap(swapId, adminId, adminNotes);
+      const customEffectiveRate = req.body?.customEffectiveRate;
+      const result = await liquidityRiskService.approveQueuedSwap(swapId, adminId, adminNotes, customEffectiveRate);
       res.json({
         success: true,
-        message: `Swap ${result.swapRequest.requestCode} approved and settled (${result.execution.transactionCode}).`,
+        message: `Swap ${result.swapRequest.requestCode} approved and settled (${result.execution.transactionCode}) at rate 1 ${result.execution.fromCurrency} = ${result.execution.rate} ${result.execution.toCurrency}.`,
         data: result,
       });
     } catch (err) {

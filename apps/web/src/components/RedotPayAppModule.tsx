@@ -869,6 +869,14 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               </div>
             </div>
 
+            {/* Indicative Price & Execution Timing Disclosure Note */}
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-800 dark:text-amber-300/95 leading-relaxed flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-bold">Important Price &amp; Execution Timing Notice:</strong> The displayed cryptocurrency and exchange price is indicative and may vary due to market movement. Because there can be a time difference between your request and actual execution, your buy or sell transaction will be executed based on the applicable market price at the time your request is processed.
+              </div>
+            </div>
+
             {/* Execute Swap Button with Smart Deposit & Governance State */}
             <button
               onClick={isInsufficientFromBalance ? onOpenDeposit : handleExecuteSwap}
@@ -1576,6 +1584,10 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                     {isPendingApproval ? 'PENDING ADMIN REVIEW' : 'COMPLETED & AUDITED'}
                   </span>
                 </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-950/90 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                <strong className="text-slate-800 dark:text-slate-200">Execution Price Notice:</strong> Displayed crypto prices may vary between request submission and treasury execution. Queued or reviewed buy/sell orders are settled at the applicable market price when processed.
               </div>
 
               <button

@@ -734,6 +734,14 @@ export default function BuyCryptoPage() {
             </div>
           </div>
 
+          {/* PRICE VARIATION & EXECUTION TIMING DISCLOSURE NOTE */}
+          <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <strong className="font-bold">Important Price &amp; Execution Notice:</strong> The displayed cryptocurrency price (<span className="font-mono font-bold">1 {selectedCrypto.code} = ${selectedCrypto.priceInUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>) may vary due to market volatility. Because there can be a time difference between your purchase/sell request and actual treasury execution, your transaction will be executed based on the applicable market price when your request is processed.
+            </div>
+          </div>
+
           {/* ACTION BUTTONS */}
           <div className="space-y-2.5">
             <button
@@ -869,6 +877,10 @@ export default function BuyCryptoPage() {
                       {isRazorpayRail ? `RAZORPAY (${paymentMethod.replace('_', ' ')})` : paymentMethod.replace('_', ' ')}
                     </span>
                   </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/70 text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                  <strong>Price Execution Disclosure:</strong> Displayed crypto prices may vary between request submission and settlement. Final quantity credited or sold is executed at the applicable market price when our treasury desk processes your request.
                 </div>
 
                 <div className="space-y-1.5">

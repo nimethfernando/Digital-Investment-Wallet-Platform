@@ -78,6 +78,8 @@ export default function AdminLiquidityTab({
   // Swap Approval / Reject decision modal
   const [reviewSwapModal, setReviewSwapModal] = useState<{ swap: any; decision: 'APPROVE' | 'REJECT' } | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
+  const [customExecutionRate, setCustomExecutionRate] = useState('');
+  const [purchaseBookSearch, setPurchaseBookSearch] = useState('');
 
   // Asset Risk Policy edit modal
   const [editingAsset, setEditingAsset] = useState<any | null>(null);
@@ -110,8 +112,22 @@ export default function AdminLiquidityTab({
 
   const summary = data?.summary || {};
   const assets: any[] = Array.isArray(data?.assets) ? data.assets : [];
+  const userPurchaseBook: any[] = Array.isArray(data?.userPurchaseBook) ? data.userPurchaseBook : [];
   const pendingSwaps: any[] = Array.isArray(data?.pendingSwaps) ? data.pendingSwaps : [];
   const auditTrail: any[] = Array.isArray(data?.auditTrail) ? data.auditTrail : [];
+
+  const filteredPurchaseBook = useMemo(() => {
+    return userPurchaseBook.filter((row) => {
+      if (!purchaseBookSearch.trim()) return true;
+      const q = purchaseBookSearch.trim().toLowerCase();
+      return (
+        String(row.userEmail || '').toLowerCase().includes(q) ||
+        String(row.userName || '').toLowerCase().includes(q) ||
+        String(row.currency || '').toLowerCase().includes(q) ||
+        String(row.assetClass || '').toLowerCase().includes(q)
+      );
+    });
+  }, [userPurchaseBook, purchaseBookSearch]);
 
   const filteredAssets = useMemo(() => {
     return assets.filter((a) => {
@@ -216,7 +232,12 @@ export default function AdminLiquidityTab({
           : `/admin/liquidity-risk/swaps/${swap.id}/reject`;
       const res = await api.post(
         endpoint,
-        { notes: reviewNotes.trim() || undefined },
+        {
+          notes: reviewNotes.trim() || undefined,
+          ...(decision === 'APPROVE' && customExecutionRate.trim()
+            ? { customEffectiveRate: customExecutionRate.trim() }
+            : {}),
+        },
         { headers: effective2FaHeaders() }
       );
       if (res.data?.success) {
@@ -665,6 +686,118 @@ export default function AdminLiquidityTab({
               </tbody>
             </table>
           </div>
+
+          {/* User Crypto & Currency Purchase Price Book & Required Reserve Ledger */}
+          <div className="border-t border-gray-800 p-5 space-y-4 bg-[#0a1018]">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-amber-400" />
+                  <span>User Crypto &amp; Currency Purchase Price Book (Entry Price vs Live Price &amp; Required Reserve)</span>
+                </h4>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Tracks what each user purchased, exact quantity held, original purchase price ($/unit), current market price, unrealized P&amp;L, and required reserve liquidity for future sell requests.
+                </p>
+              </div>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={purchaseBookSearch}
+                  onChange={(e) => setPurchaseBookSearch(e.target.value)}
+                  placeholder="Filter by user email, name, or asset (BTC, ETH, EUR...)"
+                  className="bg-[#080d14] border border-gray-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 w-72"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-gray-800">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#090e17] text-[10px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-800">
+                    <th className="py-2.5 px-3">Client</th>
+                    <th className="py-2.5 px-3">Asset &amp; Quantity Held</th>
+                    <th className="py-2.5 px-3">Original Purchase Price</th>
+                    <th className="py-2.5 px-3">Current Market Price</th>
+                    <th className="py-2.5 px-3">Cost Basis vs Current Value</th>
+                    <th className="py-2.5 px-3">User Unrealized P&amp;L</th>
+                    <th className="py-2.5 px-3">Required Reserve Liquidity</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/70 text-xs">
+                  {filteredPurchaseBook.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-6 text-center text-gray-500">
+                        No non-USD crypto or foreign currency holdings match the current filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredPurchaseBook.slice(0, 50).map((row, idx) => {
+                      const pnlNum = Number(row.unrealizedPnlUsd || 0);
+                      return (
+                        <tr key={`${row.userId}_${row.currency}_${idx}`} className="hover:bg-[#131d2c]/60">
+                          <td className="py-2.5 px-3">
+                            <p className="font-semibold text-white">{row.userName}</p>
+                            <p className="text-[11px] text-gray-400">{row.userEmail}</p>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <p className="font-bold text-white">
+                              {row.quantityHeld} {row.currency}
+                            </p>
+                            <p className="text-[10px] text-gray-400">
+                              Avail: {row.availableQty} {Number(row.pendingQty) > 0 ? `• Pending Sell: ${row.pendingQty}` : ''}
+                            </p>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <p className="font-bold text-amber-300">
+                              ${Number(row.avgPurchasePriceUsd).toLocaleString()} / {row.currency}
+                            </p>
+                            {row.lastPurchaseAt && (
+                              <p className="text-[10px] text-gray-500">
+                                Last Buy: {new Date(row.lastPurchaseAt).toLocaleDateString()}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <p className="font-bold text-cyan-300">
+                              ${Number(row.currentMarketPriceUsd).toLocaleString()} / {row.currency}
+                            </p>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <p className="text-gray-300">Paid: {fmtUsd(row.totalCostBasisUsd)}</p>
+                            <p className="text-white font-semibold">Now: {fmtUsd(row.currentMarketValueUsd)}</p>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <p className={`font-bold ${pnlNum > 0 ? 'text-amber-400' : pnlNum < 0 ? 'text-emerald-400' : 'text-gray-300'}`}>
+                              {pnlNum > 0 ? '+' : ''}
+                              {fmtUsd(pnlNum)} ({pnlNum > 0 ? '+' : ''}
+                              {row.unrealizedPnlPct}%)
+                            </p>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono">
+                            <p className="text-white font-bold">
+                              Maintain &ge; {row.requiredReserveQty} {row.currency}
+                            </p>
+                            <span
+                              className={`inline-block mt-0.5 px-2 py-0.5 rounded text-[10px] font-bold ${
+                                row.reserveCoverageStatus === 'COVERED'
+                                  ? 'bg-emerald-500/15 text-emerald-400'
+                                  : 'bg-red-500/20 text-red-400'
+                              }`}
+                            >
+                              {row.reserveCoverageStatus === 'COVERED'
+                                ? `Reserve Covered (${row.platformAvailableLiquidity} ${row.currency})`
+                                : `Hedge Needed (Avail: ${row.platformAvailableLiquidity} ${row.currency})`}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
@@ -737,9 +870,12 @@ export default function AdminLiquidityTab({
                       </p>
                     </div>
                     <div className="bg-[#090e17] border border-gray-800 rounded-xl p-3">
-                      <p className="text-[10px] text-gray-400 uppercase font-bold">2. Current {sw.fromCurrency} Price</p>
-                      <p className="text-xs font-mono font-bold text-cyan-300 mt-1">
-                        ${Number(snap.currentFromPriceUsd || 0).toLocaleString()}
+                      <p className="text-[10px] text-gray-400 uppercase font-bold">2. Orig Buy vs Live Price</p>
+                      <p className="text-[11px] font-mono font-bold text-amber-300 mt-1">
+                        Buy: ${Number(sw.originalPurchaseUnitPriceUsd || snap.originalPurchaseUnitPriceUsd || snap.currentFromPriceUsd || 0).toLocaleString()}
+                      </p>
+                      <p className="text-[11px] font-mono font-bold text-cyan-300">
+                        Now: ${Number(sw.liveApplicableUnitPriceUsd || snap.currentFromPriceUsd || 0).toLocaleString()}
                       </p>
                     </div>
                     <div className="bg-[#090e17] border border-gray-800 rounded-xl p-3">
@@ -806,7 +942,8 @@ export default function AdminLiquidityTab({
                     <button
                       onClick={() => {
                         setReviewSwapModal({ swap: sw, decision: 'APPROVE' });
-                        setReviewNotes('Verified reserve coverage & price spread; approved by Treasury.');
+                        setCustomExecutionRate(String(sw.liveApplicableEffectiveRate || sw.effectiveRate || ''));
+                        setReviewNotes('Verified original purchase price, reserve coverage & live applicable price; approved by Treasury.');
                       }}
                       disabled={processingId === sw.id}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition-all shadow-lg shadow-emerald-500/20"
@@ -1177,15 +1314,61 @@ export default function AdminLiquidityTab({
               </button>
             </div>
 
-            <div className="bg-[#090e17] border border-gray-800 rounded-xl p-3 text-xs space-y-1">
+            <div className="bg-[#090e17] border border-gray-800 rounded-xl p-3 text-xs space-y-1.5">
               <p className="text-white font-semibold">
                 {reviewSwapModal.swap.fromAmount} {reviewSwapModal.swap.fromCurrency} &rarr;{' '}
-                {reviewSwapModal.swap.toAmount} {reviewSwapModal.swap.toCurrency} ({fmtUsd(reviewSwapModal.swap.fromAmountUsd)})
+                {reviewSwapModal.swap.liveApplicableToAmount || reviewSwapModal.swap.toAmount} {reviewSwapModal.swap.toCurrency} ({fmtUsd(reviewSwapModal.swap.fromAmountUsd)})
               </p>
               <p className="text-gray-400">
                 Client: {reviewSwapModal.swap.userEmail} • Est P&amp;L Impact: {fmtUsd(reviewSwapModal.swap.estimatedPnlImpactUsd)}
               </p>
+              <div className="grid grid-cols-3 gap-2 pt-1.5 border-t border-gray-800/80 font-mono text-[11px]">
+                <div>
+                  <span className="text-gray-500 block text-[10px]">Original Buy Price</span>
+                  <span className="text-amber-300 font-bold">
+                    ${Number(reviewSwapModal.swap.originalPurchaseUnitPriceUsd || 0).toLocaleString()}/{reviewSwapModal.swap.fromCurrency}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block text-[10px]">Request-Time Price</span>
+                  <span className="text-gray-300 font-bold">
+                    ${Number(reviewSwapModal.swap.requestUnitPriceUsd || 0).toLocaleString()}/{reviewSwapModal.swap.fromCurrency}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block text-[10px]">Live Applicable Price</span>
+                  <span className="text-cyan-300 font-bold">
+                    ${Number(reviewSwapModal.swap.liveApplicableUnitPriceUsd || 0).toLocaleString()}/{reviewSwapModal.swap.fromCurrency}
+                  </span>
+                </div>
+              </div>
             </div>
+
+            {reviewSwapModal.decision === 'APPROVE' && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  Applicable Execution Conversion Rate (1 {reviewSwapModal.swap.fromCurrency} = X {reviewSwapModal.swap.toCurrency})
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  value={customExecutionRate}
+                  onChange={(e) => setCustomExecutionRate(e.target.value)}
+                  className="w-full bg-[#090e17] border border-gray-700 rounded-xl px-3 py-2 text-xs text-emerald-400 font-mono font-bold focus:outline-none focus:border-emerald-500"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Pre-filled with the current live applicable market rate at processing time. Executing at this rate credits{' '}
+                  <strong className="text-white font-mono">
+                    {(
+                      parseFloat(reviewSwapModal.swap.fromAmount || '0') *
+                      (parseFloat(customExecutionRate || '0') || parseFloat(reviewSwapModal.swap.effectiveRate || '0'))
+                    ).toFixed(['BTC', 'ETH'].includes(reviewSwapModal.swap.toCurrency) ? 6 : 2)}{' '}
+                    {reviewSwapModal.swap.toCurrency}
+                  </strong>
+                  .
+                </p>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-gray-300 mb-1">Admin Audit Note</label>

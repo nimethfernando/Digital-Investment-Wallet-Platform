@@ -2073,6 +2073,13 @@ export default function ExchangeDeskPage() {
               </div>
             </div>
           </div>
+
+          <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <strong className="font-bold">Important Price &amp; Execution Timing Notice:</strong> Displayed cryptocurrency and foreign exchange rates may vary due to live market fluctuations. Because there can be a time difference between submitting your buy or sell request and actual execution, your transaction will be processed and settled based on the applicable price when we process the request.
+            </div>
+          </div>
         </div>
 
         {/* RIGHT: DESK OPERATOR PROGRAM & CONCIERGE */}

@@ -177,6 +177,9 @@ export default function GlobalMoneyTransferPage() {
     if (parts.length > 2) {
       cleaned = `${parts[0]}.${parts.slice(1).join('')}`;
     }
+    if (cleaned.startsWith('.')) {
+      cleaned = '0' + cleaned;
+    }
     // Strip leading zeros before non-zero digits (e.g. "0100" -> "100", "00" -> "0", keep "0.5")
     if (/^0+[1-9]/.test(cleaned)) {
       cleaned = cleaned.replace(/^0+/, '');
@@ -715,39 +718,39 @@ export default function GlobalMoneyTransferPage() {
 
             {displayQuote && (
               <div className="space-y-3.5 text-xs text-slate-300 border-t border-slate-800 pt-4">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Transfer Principal:</span>
-                  <span className="font-mono font-bold text-white">${displayQuote.sendingAmount} USD</span>
+                  <span className="font-mono font-bold text-white shrink-0">${displayQuote.sendingAmount} USD</span>
                 </div>
 
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Reference Exchange Rate:</span>
-                  <span className="font-mono text-slate-300">1 USD = {displayQuote.referenceRate} {displayQuote.recipientCurrency}</span>
+                  <span className="font-mono text-slate-300 shrink-0">1 USD = {displayQuote.referenceRate} {displayQuote.recipientCurrency}</span>
                 </div>
 
-                <div className="flex justify-between text-emerald-400">
+                <div className="flex justify-between items-center gap-2 text-emerald-400">
                   <span>Exchange Rate Adjustment:</span>
-                  <span className="font-mono font-bold">-{displayQuote.rateAdjustmentPct}% margin</span>
+                  <span className="font-mono font-bold shrink-0">-{displayQuote.rateAdjustmentPct}% margin</span>
                 </div>
 
-                <div className="flex justify-between font-bold text-white">
+                <div className="flex justify-between items-center gap-2 font-bold text-white">
                   <span>Effective Client Rate:</span>
-                  <span className="font-mono text-emerald-400">1 USD = {displayQuote.effectiveRate} {displayQuote.recipientCurrency}</span>
+                  <span className="font-mono text-emerald-400 shrink-0">1 USD = {displayQuote.effectiveRate} {displayQuote.recipientCurrency}</span>
                 </div>
 
-                <div className="flex justify-between text-amber-300 border-t border-slate-800/80 pt-2">
+                <div className="flex justify-between items-center gap-2 text-amber-300 border-t border-slate-800/80 pt-2">
                   <span>Transfer Fee ({displayQuote.transferFeePct}%):</span>
-                  <span className="font-mono font-bold">+${displayQuote.transferFeeAmount} USD</span>
+                  <span className="font-mono font-bold shrink-0">+${displayQuote.transferFeeAmount} USD</span>
                 </div>
 
-                <div className="flex justify-between text-sm font-black text-white border-t border-slate-800 pt-2">
+                <div className="flex justify-between items-center gap-2 text-sm font-black text-white border-t border-slate-800 pt-2">
                   <span>Total Amount Paid:</span>
-                  <span className="font-mono text-emerald-400">${displayQuote.totalPaidAmount} USD</span>
+                  <span className="font-mono text-emerald-400 shrink-0">${displayQuote.totalPaidAmount} USD</span>
                 </div>
 
-                <div className="flex justify-between text-sm font-black text-emerald-400 border-t border-slate-800 pt-2">
+                <div className="flex justify-between items-center gap-2 text-sm font-black text-emerald-400 border-t border-slate-800 pt-2">
                   <span>Recipient Receives:</span>
-                  <span className="font-mono">
+                  <span className="font-mono shrink-0">
                     {Number(displayQuote.recipientAmount || 0).toLocaleString('en-US', {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,

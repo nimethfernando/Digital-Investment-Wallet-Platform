@@ -261,8 +261,24 @@ class LiquidityRiskService {
         return usdAmount.times(new decimal_js_1.default(rate));
     }
     parseSwapTransactionUsdCost(notes, toCur, toAmt, rates) {
-        // Parse notes like: "Swapped 63000.00 USD for 1.00000000 BTC at rate ..."
         if (notes) {
+            // 1. Explicit Cost Basis recorded at purchase time: "(... | Cost Basis: $31500.00 USD)"
+            const cbMatch = notes.match(/Cost Basis:\s*\$?([\d,]+(?:\.\d+)?)/i);
+            if (cbMatch) {
+                const parsedCb = new decimal_js_1.default(cbMatch[1].replace(/,/g, '') || '0');
+                if (parsedCb.isFinite() && parsedCb.greaterThan(0)) {
+                    return parsedCb;
+                }
+            }
+            // 2. Explicit Unit Buy Price recorded at purchase time: "Buy Price: 1 BTC = $63000.00 USD"
+            const bpMatch = notes.match(/Buy Price:\s*1\s+[A-Z0-9]+\s*=\s*\$?([\d,]+(?:\.\d+)?)/i);
+            if (bpMatch) {
+                const parsedUnit = new decimal_js_1.default(bpMatch[1].replace(/,/g, '') || '0');
+                if (parsedUnit.isFinite() && parsedUnit.greaterThan(0)) {
+                    return toAmt.times(parsedUnit);
+                }
+            }
+            // 3. Parse notes like: "Swapped 63000.00 USD for 1.00000000 BTC at rate ..."
             const m = notes.match(/Swapped\s+([\d.,]+)\s+([A-Z]{2,6})\s+for/i);
             if (m) {
                 const srcAmt = new decimal_js_1.default(m[1].replace(/,/g, '') || '0');
@@ -273,37 +289,44 @@ class LiquidityRiskService {
         return this.toUsdDec(toAmt, toCur, rates);
     }
     /**
-     * Compute live per-user BTC/ETH acquisition cost basis & unrealized P&L
+     * Compute live per-user acquisition cost basis, original purchase price, & unrealized P&L
+     * across all cryptocurrencies and foreign fiat currencies
      */
     async computeAllUsersCryptoCostBasis(rates) {
         const txs = await prisma_1.prisma.transaction.findMany({
             where: {
-                currency: { in: ['BTC', 'ETH'] },
+                currency: { in: ['BTC', 'ETH', 'USDT', 'USDC', 'EUR', 'GEL', 'INR'] },
                 status: 'COMPLETED',
                 type: { in: ['DEPOSIT', 'EXCHANGE_BUY', 'P2P_TRANSFER_IN', 'ADJUSTMENT'] },
             },
-            select: { userId: true, type: true, amount: true, currency: true, notes: true },
+            select: { userId: true, type: true, amount: true, currency: true, notes: true, createdAt: true },
             orderBy: { createdAt: 'asc' },
         });
         const map = new Map();
         for (const tx of txs) {
             const cur = (tx.currency || '').toUpperCase();
-            if (!exports.VOLATILE_CRYPTO_ASSETS.has(cur))
-                continue;
             const amt = new decimal_js_1.default(tx.amount.toString());
             if (amt.lessThanOrEqualTo(0))
                 continue;
-            let costUsd = this.toUsdDec(amt, cur, rates);
-            if (tx.type === 'EXCHANGE_BUY') {
-                costUsd = this.parseSwapTransactionUsdCost(tx.notes, cur, amt, rates);
-            }
+            const costUsd = this.parseSwapTransactionUsdCost(tx.notes, cur, amt, rates);
+            const unitPurchasePrice = amt.greaterThan(0) ? costUsd.dividedBy(amt) : new decimal_js_1.default(0);
             if (!map.has(tx.userId))
                 map.set(tx.userId, {});
             const userMap = map.get(tx.userId);
-            if (!userMap[cur])
-                userMap[cur] = { qty: new decimal_js_1.default(0), costUsd: new decimal_js_1.default(0) };
+            if (!userMap[cur]) {
+                userMap[cur] = {
+                    qty: new decimal_js_1.default(0),
+                    costUsd: new decimal_js_1.default(0),
+                    lastPurchasePriceUsd: unitPurchasePrice,
+                    lastPurchaseAt: tx.createdAt,
+                };
+            }
             userMap[cur].qty = userMap[cur].qty.plus(amt);
             userMap[cur].costUsd = userMap[cur].costUsd.plus(costUsd);
+            if (unitPurchasePrice.greaterThan(0)) {
+                userMap[cur].lastPurchasePriceUsd = unitPurchasePrice;
+                userMap[cur].lastPurchaseAt = tx.createdAt;
+            }
         }
         return map;
     }
@@ -488,6 +511,66 @@ class LiquidityRiskService {
             };
         });
         const assetMap = new Map(assets.map((a) => [a.currency, a]));
+        // Build User Crypto & Currency Purchase Price Book so Admin can see every user's holding,
+        // original purchase price, current market price, unrealized P&L, and required reserve liquidity
+        const userPurchaseBook = [];
+        for (const w of wallets) {
+            const email = (w.user?.email || '').toLowerCase();
+            if (exports.INSTITUTIONAL_INTERNAL_EMAILS.has(email))
+                continue;
+            const userName = `${w.user?.firstName || ''} ${w.user?.lastName || ''}`.trim() || w.user?.email || 'Client';
+            for (const b of w.balances) {
+                const cur = (b.currency || 'USD').toUpperCase();
+                if (cur === 'USD')
+                    continue;
+                const avail = new decimal_js_1.default(b.availableBalance.toString());
+                const locked = new decimal_js_1.default(b.lockedPrincipal.toString());
+                const pending = new decimal_js_1.default(b.pendingSettlement.toString());
+                const totalQty = avail.plus(locked).plus(pending);
+                if (totalQty.lessThanOrEqualTo(0))
+                    continue;
+                const dp = exports.VOLATILE_CRYPTO_ASSETS.has(cur) ? 6 : 2;
+                const entry = costBasisMap.get(w.userId)?.[cur];
+                const currentUnitPriceUsd = this.toUsdDec(new decimal_js_1.default(1), cur, liveRates.rates);
+                const avgPurchasePriceUsd = entry && entry.qty.greaterThan(0)
+                    ? entry.costUsd.dividedBy(entry.qty)
+                    : currentUnitPriceUsd;
+                const lastPurchasePriceUsd = entry && entry.lastPurchasePriceUsd.greaterThan(0)
+                    ? entry.lastPurchasePriceUsd
+                    : avgPurchasePriceUsd;
+                const totalCostBasisUsd = totalQty.times(avgPurchasePriceUsd);
+                const currentMarketValueUsd = this.toUsdDec(totalQty, cur, liveRates.rates);
+                const unrealizedPnlUsd = currentMarketValueUsd.minus(totalCostBasisUsd);
+                const unrealizedPnlPct = totalCostBasisUsd.greaterThan(0)
+                    ? unrealizedPnlUsd.dividedBy(totalCostBasisUsd).times(100)
+                    : new decimal_js_1.default(0);
+                const assetRow = assetMap.get(cur);
+                const platformAvailQty = new decimal_js_1.default(assetRow?.availableLiquidity || '0');
+                const isCovered = platformAvailQty.greaterThanOrEqualTo(totalQty);
+                userPurchaseBook.push({
+                    userId: w.userId,
+                    userEmail: w.user?.email || w.userId,
+                    userName,
+                    currency: cur,
+                    assetClass: exports.VOLATILE_CRYPTO_ASSETS.has(cur) ? 'CRYPTO' : exports.STABLECOIN_ASSETS.has(cur) ? 'STABLECOIN' : 'FIAT',
+                    quantityHeld: totalQty.toFixed(dp),
+                    availableQty: avail.toFixed(dp),
+                    pendingQty: pending.toFixed(dp),
+                    avgPurchasePriceUsd: avgPurchasePriceUsd.toFixed(cur === 'BTC' || cur === 'ETH' ? 2 : 4),
+                    lastPurchasePriceUsd: lastPurchasePriceUsd.toFixed(cur === 'BTC' || cur === 'ETH' ? 2 : 4),
+                    lastPurchaseAt: entry?.lastPurchaseAt || null,
+                    totalCostBasisUsd: totalCostBasisUsd.toFixed(2),
+                    currentMarketPriceUsd: currentUnitPriceUsd.toFixed(cur === 'BTC' || cur === 'ETH' ? 2 : 4),
+                    currentMarketValueUsd: currentMarketValueUsd.toFixed(2),
+                    unrealizedPnlUsd: unrealizedPnlUsd.toFixed(2),
+                    unrealizedPnlPct: unrealizedPnlPct.toFixed(2),
+                    requiredReserveQty: totalQty.toFixed(dp),
+                    platformAvailableLiquidity: platformAvailQty.toFixed(dp),
+                    reserveCoverageStatus: isCovered ? 'COVERED' : 'HEDGE_REQUIRED',
+                });
+            }
+        }
+        userPurchaseBook.sort((a, b) => Number(b.currentMarketValueUsd) - Number(a.currentMarketValueUsd));
         const enrichSwapRow = (sw) => {
             const fromCur = sw.fromCurrency.toUpperCase();
             const toCur = sw.toCurrency.toUpperCase();
@@ -503,9 +586,29 @@ class LiquidityRiskService {
             catch {
                 parsedFlags = [];
             }
+            const fromAmt = new decimal_js_1.default(sw.fromAmount.toString());
             const toAmt = new decimal_js_1.default(sw.toAmount.toString());
             const toLiquidityBefore = new decimal_js_1.default(toAsset?.availableLiquidity || '0');
             const toLiquidityAfter = toLiquidityBefore.minus(toAmt);
+            const userCostBasisDec = new decimal_js_1.default(sw.userCostBasisUsd?.toString() || '0');
+            const costEntry = costBasisMap.get(sw.userId)?.[fromCur];
+            const originalPurchaseUnitPriceUsd = fromAmt.greaterThan(0) && userCostBasisDec.greaterThan(0)
+                ? userCostBasisDec.dividedBy(fromAmt)
+                : costEntry && costEntry.qty.greaterThan(0)
+                    ? costEntry.costUsd.dividedBy(costEntry.qty)
+                    : new decimal_js_1.default(fromAsset?.unitPriceUsd || 1);
+            const requestUnitPriceUsd = fromAmt.greaterThan(0)
+                ? new decimal_js_1.default(sw.fromAmountUsd.toString()).dividedBy(fromAmt)
+                : new decimal_js_1.default(fromAsset?.unitPriceUsd || 1);
+            const liveApplicableUnitPriceUsd = new decimal_js_1.default(fromAsset?.unitPriceUsd || 1);
+            // Compute live applicable conversion rate & payout amount at current processing time
+            const fromPerUsd = liveRates.rates[fromCur] || 1.0;
+            const toPerUsd = liveRates.rates[toCur] || 1.0;
+            const liveSpotRate = new decimal_js_1.default(toPerUsd).dividedBy(new decimal_js_1.default(fromPerUsd));
+            const spreadDec = new decimal_js_1.default(sw.spreadPct?.toString() || '1.0');
+            const liveMultiplier = decimal_js_1.default.max(new decimal_js_1.default(0.01), new decimal_js_1.default(1).minus(spreadDec.dividedBy(100)));
+            const liveApplicableEffectiveRate = new decimal_js_1.default(liveSpotRate.times(liveMultiplier).toFixed(8));
+            const liveApplicableToAmount = fromAmt.times(liveApplicableEffectiveRate);
             return {
                 id: sw.id,
                 requestCode: sw.requestCode,
@@ -514,15 +617,20 @@ class LiquidityRiskService {
                 userName: `${sw.user?.firstName || ''} ${sw.user?.lastName || ''}`.trim() || sw.user?.email || 'Client',
                 fromCurrency: fromCur,
                 toCurrency: toCur,
-                fromAmount: new decimal_js_1.default(sw.fromAmount.toString()).toFixed(fromDp),
+                fromAmount: fromAmt.toFixed(fromDp),
                 toAmount: toAmt.toFixed(toDp),
                 spotRate: sw.spotRate.toString(),
                 effectiveRate: sw.effectiveRate.toString(),
-                spreadPct: new decimal_js_1.default(sw.spreadPct.toString()).toFixed(2),
+                spreadPct: spreadDec.toFixed(2),
                 feeAmount: new decimal_js_1.default(sw.feeAmount.toString()).toFixed(fromDp),
                 fromAmountUsd: new decimal_js_1.default(sw.fromAmountUsd.toString()).toFixed(2),
                 toAmountUsd: new decimal_js_1.default(sw.toAmountUsd.toString()).toFixed(2),
-                userCostBasisUsd: new decimal_js_1.default(sw.userCostBasisUsd.toString()).toFixed(2),
+                userCostBasisUsd: userCostBasisDec.toFixed(2),
+                originalPurchaseUnitPriceUsd: originalPurchaseUnitPriceUsd.toFixed(2),
+                requestUnitPriceUsd: requestUnitPriceUsd.toFixed(2),
+                liveApplicableUnitPriceUsd: liveApplicableUnitPriceUsd.toFixed(2),
+                liveApplicableEffectiveRate: liveApplicableEffectiveRate.toFixed(8),
+                liveApplicableToAmount: liveApplicableToAmount.toFixed(toDp),
                 estimatedPnlImpactUsd: new decimal_js_1.default(sw.estimatedPnlImpactUsd.toString()).toFixed(2),
                 status: sw.status,
                 riskFlags: parsedFlags,
@@ -533,6 +641,8 @@ class LiquidityRiskService {
                 createdAt: sw.createdAt,
                 riskSnapshot: {
                     userCurrentBalance: userBalCur.toFixed(fromDp),
+                    originalPurchaseUnitPriceUsd: originalPurchaseUnitPriceUsd.toFixed(2),
+                    requestUnitPriceUsd: requestUnitPriceUsd.toFixed(2),
                     currentFromPriceUsd: fromAsset?.unitPriceUsd || 1,
                     platformFromLiquidity: fromAsset?.availableLiquidity || '0.00',
                     totalUserFromExposureUsd: fromAsset?.totalUserHoldingsUsd || '0.00',
@@ -562,6 +672,7 @@ class LiquidityRiskService {
                 criticalLiquidityAlertsCount,
             },
             assets,
+            userPurchaseBook,
             pendingSwaps: pendingSwaps.map(enrichSwapRow),
             auditTrail: auditTrail.map(enrichSwapRow),
             config,
@@ -1073,8 +1184,10 @@ class LiquidityRiskService {
     }
     /**
      * Admin Approves & Settles a Queued Swap Request from pendingSettlement
+     * Executes based on the live applicable price at the time the Admin processes the request
+     * (or an explicit customEffectiveRate provided by Admin).
      */
-    async approveQueuedSwap(swapRequestId, adminId, adminNotes) {
+    async approveQueuedSwap(swapRequestId, adminId, adminNotes, customEffectiveRate) {
         await this.ensureSchema();
         const req = await prisma_1.prisma.swapRequest.findUnique({
             where: { id: swapRequestId },
@@ -1091,7 +1204,8 @@ class LiquidityRiskService {
             toCurrency: req.toCurrency,
             fromAmount: req.fromAmount.toString(),
             consumeFromPending: true,
-            notes: adminNotes || `Admin Approved Swap ${req.requestCode}`,
+            customEffectiveRate,
+            notes: adminNotes || `Admin Approved Swap ${req.requestCode} at applicable processing-time rate`,
         });
         const updated = await prisma_1.prisma.swapRequest.update({
             where: { id: swapRequestId },

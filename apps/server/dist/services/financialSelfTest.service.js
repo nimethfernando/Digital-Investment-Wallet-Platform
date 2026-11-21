@@ -530,6 +530,93 @@ class FinancialSelfTestService {
                 };
             });
             // -----------------------------------------------------------------------
+            // CHECK 12: Crypto Purchase -> Admin Notification -> Price Recorded -> Liquidity Reserve -> Future Sell Request Lifecycle
+            // -----------------------------------------------------------------------
+            await runCheck('CRYPTO_BUY_NOTIFY_HOLD_SELL_LIFECYCLE', 'Liquidity & Swap Risk Governance', 'User Crypto Purchase -> Real-Time Admin Notification (Qty & Buy Price) -> Reserve Book -> Future Sell at Applicable Price', 'BuyBTC -> RecordBuyPrice & CostBasis -> AdminPurchaseBook & ReserveCheck -> SellRequest Shows OrigBuyPrice vs ExecutionPrice', async () => {
+                // 1. User A buys BTC using $1,000.00 USD
+                const btcBuy = await ledger_service_1.ledgerService.executeCurrencySwap({
+                    userId: userAId,
+                    fromCurrency: 'USD',
+                    toCurrency: 'BTC',
+                    fromAmount: '1000.00',
+                    notes: 'Self-Test User BTC Purchase',
+                });
+                const boughtBtcDec = new decimal_js_1.default(btcBuy.toAmount);
+                const recordedBuyPriceUsd = new decimal_js_1.default(btcBuy.unitBuyPriceUsd || '0');
+                const recordedCostBasisUsd = new decimal_js_1.default(btcBuy.costBasisUsd || '0');
+                if (boughtBtcDec.lessThanOrEqualTo(0) || recordedBuyPriceUsd.lessThanOrEqualTo(0) || !recordedCostBasisUsd.equals(new decimal_js_1.default('1000.00'))) {
+                    throw new Error(`BTC purchase price/cost basis not recorded properly: qty=${boughtBtcDec}, unitPrice=${recordedBuyPriceUsd}, costBasis=${recordedCostBasisUsd}`);
+                }
+                // 2. Verify Admin Liquidity & Exposure Overview records userA's BTC holding, original purchase price, and required reserve
+                const riskOverview = await liquidityRisk_service_1.liquidityRiskService.getLiquidityAndExposureOverview();
+                const bookEntry = (riskOverview.userPurchaseBook || []).find((r) => r.userId === userAId && r.currency === 'BTC');
+                if (!bookEntry) {
+                    throw new Error('User BTC holding was not found in Admin userPurchaseBook');
+                }
+                const bookPriceDec = new decimal_js_1.default(bookEntry.avgPurchasePriceUsd || '0');
+                const priceDiff = bookPriceDec.minus(recordedBuyPriceUsd).abs();
+                if (priceDiff.greaterThan(new decimal_js_1.default('1.00'))) {
+                    throw new Error(`Admin purchase book price ($${bookPriceDec}) does not match user purchase price ($${recordedBuyPriceUsd})`);
+                }
+                // 3. Simulate future user sell request (BTC -> USDT) queued for Admin review when BTC price moves to $80,000
+                const wallet = await ledger_service_1.ledgerService.ensureWallet(userAId);
+                const sellReqId = `swp-btcsell-${ts}`;
+                const sellReqCode = `SWP-SELL-${ts.toString().slice(-6)}`;
+                await prisma_1.prisma.$transaction(async (tx) => {
+                    const lockedBtc = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, 'BTC');
+                    const availBtc = new decimal_js_1.default(lockedBtc.availableBalance.toString());
+                    await tx.walletBalance.update({
+                        where: { id: lockedBtc.id },
+                        data: {
+                            availableBalance: availBtc.minus(boughtBtcDec).toFixed(8),
+                            pendingSettlement: new decimal_js_1.default(lockedBtc.pendingSettlement.toString()).plus(boughtBtcDec).toFixed(8),
+                        },
+                    });
+                    const sellAt80kUsdt = boughtBtcDec.times(new decimal_js_1.default('80000'));
+                    const estPnl = sellAt80kUsdt.minus(recordedCostBasisUsd);
+                    await tx.swapRequest.create({
+                        data: {
+                            id: sellReqId,
+                            requestCode: sellReqCode,
+                            userId: userAId,
+                            fromCurrency: 'BTC',
+                            toCurrency: 'USDT',
+                            fromAmount: boughtBtcDec.toFixed(8),
+                            toAmount: sellAt80kUsdt.toFixed(8),
+                            spotRate: '80000.000000000000',
+                            effectiveRate: '79200.000000000000',
+                            spreadPct: '1.0000',
+                            feeAmount: '0.00010000',
+                            fromAmountUsd: sellAt80kUsdt.toFixed(4),
+                            toAmountUsd: sellAt80kUsdt.times('0.99').toFixed(4),
+                            userCostBasisUsd: recordedCostBasisUsd.toFixed(4),
+                            estimatedPnlImpactUsd: estPnl.toFixed(4),
+                            platformLiquidityBefore: '500000.00000000',
+                            userExposureBeforeUsd: recordedCostBasisUsd.toFixed(4),
+                            status: 'PENDING_APPROVAL',
+                            riskFlags: JSON.stringify(['VOLATILE_CRYPTO_SELL']),
+                        },
+                    });
+                });
+                createdSwapRequestIds.push(sellReqId);
+                // 4. Verify Admin sees Original Purchase Price vs Execution Price on the pending sell request, then executes at applicable processing rate
+                const afterQueueOverview = await liquidityRisk_service_1.liquidityRiskService.getLiquidityAndExposureOverview();
+                const pendingSell = (afterQueueOverview.pendingSwaps || []).find((s) => s.id === sellReqId);
+                if (!pendingSell || !pendingSell.originalPurchaseUnitPriceUsd) {
+                    throw new Error('Pending sell request missing originalPurchaseUnitPriceUsd in Admin review queue');
+                }
+                const approvedSell = await liquidityRisk_service_1.liquidityRiskService.approveQueuedSwap(sellReqId, adminUserId || userAId, 'Approved BTC sale at applicable processing-time rate');
+                const btcAfterSell = await getBalanceRow(userAId, 'BTC');
+                const btcDiff = btcAfterSell.available.plus(btcAfterSell.pending);
+                if (!btcDiff.isZero()) {
+                    throw new Error(`Expected 0 BTC remaining after sell execution, got avail=${btcAfterSell.available}, pending=${btcAfterSell.pending}`);
+                }
+                return {
+                    verifiedNumbers: `Bought ${boughtBtcDec.toFixed(6)} BTC @ $${recordedBuyPriceUsd.toFixed(2)}/BTC (Basis: $${recordedCostBasisUsd.toFixed(2)}) -> Recorded in Admin Reserve Book -> Sold ${boughtBtcDec.toFixed(6)} BTC -> +${approvedSell.execution.toAmount} USDT @ Applicable Rate`,
+                    discrepancy: btcDiff.toFixed(8),
+                };
+            });
+            // -----------------------------------------------------------------------
             // CHECK 12: System-Wide Double-Entry Ledger Reconciliation
             // -----------------------------------------------------------------------
             await runCheck('SYSTEM_LEDGER_RECONCILIATION', 'Core Double-Entry Ledger', 'Global Double-Entry Trial Balance Reconciliation (SUM Debits === SUM Credits)', 'SUM(diw_ledger_entries.DEBIT) - SUM(diw_ledger_entries.CREDIT) === 0.00000000', async () => {
