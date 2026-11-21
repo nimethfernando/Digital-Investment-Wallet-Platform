@@ -189,7 +189,7 @@ export default function InvestmentsMarketplacePage() {
   const [contactSending, setContactSending] = useState<boolean>(false);
   const [contactFeedback, setContactFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [investModalOpen, setInvestModalOpen] = useState<boolean>(false);
-  const [investAmount, setInvestAmount] = useState<number>(1000);
+  const [investAmount, setInvestAmount] = useState<string>('1000');
   const [investRiskAccepted, setInvestRiskAccepted] = useState<boolean>(false);
   const [investLoading, setInvestLoading] = useState<boolean>(false);
   const [investMsg, setInvestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -248,8 +248,8 @@ export default function InvestmentsMarketplacePage() {
   const [founderCountryCode, setFounderCountryCode] = useState<string>('US');
   const [founderCity, setFounderCity] = useState<string>('San Francisco');
   const [founderIndustry, setFounderIndustry] = useState<string>('AI & DeepTech');
-  const [founderTarget, setFounderTarget] = useState<number>(500000);
-  const [founderValuation, setFounderValuation] = useState<number>(5000000);
+  const [founderTarget, setFounderTarget] = useState<string>('500000');
+  const [founderValuation, setFounderValuation] = useState<string>('5000000');
   const [founderInstrument, setFounderInstrument] = useState<string>('SAFE');
   const [founderPitch, setFounderPitch] = useState<string>('');
   const [applyLoading, setApplyLoading] = useState<boolean>(false);
@@ -388,8 +388,9 @@ export default function InvestmentsMarketplacePage() {
   }, [user]);
 
   // Calculate Dynamic Allocation Fee Added On Top
-  const allocationFee = investAmount * (feeConfig.allocationFeePct / 100);
-  const totalRequired = investAmount + allocationFee;
+  const numericInvestAmount = parseFloat(investAmount) || 0;
+  const allocationFee = numericInvestAmount * (feeConfig.allocationFeePct / 100);
+  const totalRequired = numericInvestAmount + allocationFee;
 
   // Handle Invest Submit
   const handleExecuteInvest = async (e: React.FormEvent) => {
@@ -413,7 +414,7 @@ export default function InvestmentsMarketplacePage() {
     try {
       const res = await api.post('/investments/invest', {
         listingId: selectedCampaign.id,
-        grossAmount: investAmount,
+        grossAmount: numericInvestAmount,
         instrument: selectedCampaign.instrument,
         riskAcknowledged: true,
       });
@@ -458,8 +459,8 @@ export default function InvestmentsMarketplacePage() {
         industry: founderIndustry,
         stage: 'SEED',
         instrument: founderInstrument,
-        valuation: founderValuation,
-        fundingTarget: founderTarget,
+        valuation: parseFloat(founderValuation) || 0,
+        fundingTarget: parseFloat(founderTarget) || 0,
         minInvestment: 250,
         pitchOverview: founderPitch,
       });
@@ -1513,11 +1514,19 @@ export default function InvestmentsMarketplacePage() {
                 <div className="relative mt-1">
                   <span className="absolute left-4 top-3 text-lg font-bold text-slate-400">$</span>
                   <input
-                    type="number"
-                    min={selectedCampaign.minInvestment}
-                    step="50"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
                     value={investAmount}
-                    onChange={(e) => setInvestAmount(Number(e.target.value))}
+                    onChange={(e) => {
+                      let val = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = val.split('.');
+                      if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                      if (investAmount === '0' && val.length > 1 && !val.includes('.')) {
+                        val = val.replace(/^0+/, '');
+                      }
+                      setInvestAmount(val);
+                    }}
                     required
                     className="w-full pl-9 pr-4 py-3 rounded-2xl text-2xl font-black font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                   />
@@ -1528,7 +1537,7 @@ export default function InvestmentsMarketplacePage() {
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
                 <div className="flex justify-between font-bold text-slate-900 dark:text-white">
                   <span>Investment Allocated to Startup:</span>
-                  <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">${investAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
+                  <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">${numericInvestAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span>
                 </div>
                 <div className="flex justify-between text-slate-600 dark:text-slate-400 font-medium">
                   <span>+ {feeConfig.allocationFeePct}% Platform Allocation Fee:</span>
@@ -1738,20 +1747,40 @@ export default function InvestmentsMarketplacePage() {
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Funding Target (USD)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
                     required
                     value={founderTarget}
-                    onChange={(e) => setFounderTarget(Number(e.target.value))}
+                    onChange={(e) => {
+                      let val = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = val.split('.');
+                      if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                      if (founderTarget === '0' && val.length > 1 && !val.includes('.')) {
+                        val = val.replace(/^0+/, '');
+                      }
+                      setFounderTarget(val);
+                    }}
                     className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-mono"
                   />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Valuation Cap (USD)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
                     required
                     value={founderValuation}
-                    onChange={(e) => setFounderValuation(Number(e.target.value))}
+                    onChange={(e) => {
+                      let val = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = val.split('.');
+                      if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                      if (founderValuation === '0' && val.length > 1 && !val.includes('.')) {
+                        val = val.replace(/^0+/, '');
+                      }
+                      setFounderValuation(val);
+                    }}
                     className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-mono"
                   />
                 </div>

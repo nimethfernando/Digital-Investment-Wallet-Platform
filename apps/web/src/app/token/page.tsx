@@ -34,7 +34,7 @@ export default function AvoraTokenPage() {
   const [loading, setLoading] = useState<boolean>(true);
 
   // Purchase & Whitelist State
-  const [allocAmount, setAllocAmount] = useState<number>(1000);
+  const [allocAmount, setAllocAmount] = useState<string>('1000');
   const [payCurrency, setPayCurrency] = useState<'USD' | 'USDT' | 'USDC'>('USD');
   const [allocNotes, setAllocNotes] = useState<string>('');
   const [tokenRiskAccepted, setTokenRiskAccepted] = useState<boolean>(false);
@@ -42,6 +42,8 @@ export default function AvoraTokenPage() {
   const [allocMsg, setAllocMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [lastReceipt, setLastReceipt] = useState<any | null>(null);
   const [showWhitelistOnly, setShowWhitelistOnly] = useState<boolean>(false);
+
+  const numericAllocAmount = parseFloat(allocAmount) || 0;
 
   // Redemption / Cashout State ($AVR -> Wallet USD/USDT/USDC)
   const [redeemAmountTokens, setRedeemAmountTokens] = useState<string>('');
@@ -110,7 +112,7 @@ export default function AvoraTokenPage() {
     setLastReceipt(null);
     try {
       const res = await api.post('/token/purchase', {
-        amountUsd: allocAmount,
+        amountUsd: numericAllocAmount,
         currency: payCurrency,
         notes: allocNotes,
       });
@@ -177,7 +179,7 @@ export default function AvoraTokenPage() {
     setAllocMsg(null);
     try {
       const res = await api.post('/token/early-access/register', {
-        requestedAllocationUsd: allocAmount,
+        requestedAllocationUsd: numericAllocAmount,
         notes: allocNotes,
       });
       if (res.data?.success) {
@@ -366,7 +368,7 @@ export default function AvoraTokenPage() {
                 items={[
                   {
                     label: 'Instant Wallet Settlement',
-                    detail: `Debits your selected USD, USDT, or USDC balance and credits ${Math.round((allocAmount || 0) / (livePriceUsd || 0.1)).toLocaleString()} $AVR tokens to your Avora vault immediately.`,
+                    detail: `Debits your selected USD, USDT, or USDC balance and credits ${Math.round((numericAllocAmount || 0) / (livePriceUsd || 0.1)).toLocaleString()} $AVR tokens to your Avora vault immediately.`,
                   },
                   {
                     label: 'How You Earn Profit',
@@ -486,24 +488,31 @@ export default function AvoraTokenPage() {
               <div className="relative mt-1.5">
                 <span className="absolute left-4 top-2.5 text-base font-bold text-slate-400">$</span>
                 <input
-                  type="number"
-                  min="10"
-                  max="1000000"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
                   value={allocAmount}
-                  onChange={(e) => setAllocAmount(Number(e.target.value))}
+                  onChange={(e) => {
+                    let val = e.target.value.replace(/[^0-9.]/g, '');
+                    const parts = val.split('.');
+                    if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                    if (allocAmount === '0' && val.length > 1 && !val.includes('.')) {
+                      val = val.replace(/^0+/, '');
+                    }
+                    setAllocAmount(val);
+                  }}
                   required
                   className="w-full pl-8 pr-4 py-2.5 rounded-xl text-base font-mono font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                 />
               </div>
               <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1.5">
                 <span>
-                  You receive: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{Math.round((allocAmount || 0) / (livePriceUsd || 0.10)).toLocaleString()} AVR</strong> @ ${livePriceUsd.toFixed(2)}
+                  You receive: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{Math.round((numericAllocAmount || 0) / (livePriceUsd || 0.10)).toLocaleString()} AVR</strong> @ ${livePriceUsd.toFixed(2)}
                 </span>
                 {user && (
                   <span className="font-mono">
                     After purchase: <strong className="text-slate-700 dark:text-slate-200">
-                      {Math.max(0, Number(userStatus?.purchasingBalances?.[payCurrency] ?? 0) - (allocAmount || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })} {payCurrency}
+                      {Math.max(0, Number(userStatus?.purchasingBalances?.[payCurrency] ?? 0) - numericAllocAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })} {payCurrency}
                     </strong>
                   </span>
                 )}
@@ -524,7 +533,7 @@ export default function AvoraTokenPage() {
             </div>
 
             <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-200 text-xs">
-              Debits <strong>{Number(allocAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} {payCurrency}</strong> from your available wallet balance immediately and records your funded $AVR token allocation in your Portfolio &amp; Ledger.
+              Debits <strong>{numericAllocAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} {payCurrency}</strong> from your available wallet balance immediately and records your funded $AVR token allocation in your Portfolio &amp; Ledger.
             </div>
 
             <div className="p-3.5 rounded-xl bg-rose-50/75 dark:bg-rose-950/30 border border-rose-500/40 space-y-2 text-xs">
@@ -552,11 +561,11 @@ export default function AvoraTokenPage() {
 
           <button
             type="submit"
-            disabled={allocLoading || !tokenRiskAccepted || !allocAmount || allocAmount < 10}
+            disabled={allocLoading || !tokenRiskAccepted || numericAllocAmount < 10}
             className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
           >
             <Coins className="w-4 h-4" />
-            <span>{allocLoading ? 'Processing Wallet Deduction...' : `Buy ${Math.round((allocAmount || 0) / (livePriceUsd || 0.10)).toLocaleString()} $AVR ($${Number(allocAmount || 0).toLocaleString()} ${payCurrency})`}</span>
+            <span>{allocLoading ? 'Processing Wallet Deduction...' : `Buy ${Math.round((numericAllocAmount || 0) / (livePriceUsd || 0.10)).toLocaleString()} $AVR ($${numericAllocAmount.toLocaleString()} ${payCurrency})`}</span>
           </button>
 
           {lastReceipt && (
@@ -584,7 +593,7 @@ export default function AvoraTokenPage() {
                 </p>
                 <button
                   type="button"
-                  disabled={allocLoading || !allocAmount || allocAmount < 100}
+                  disabled={allocLoading || numericAllocAmount < 100}
                   onClick={handleRegisterEarlyAccess}
                   className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold cursor-pointer disabled:opacity-50"
                 >

@@ -138,7 +138,7 @@ export default function ExchangeDeskPage() {
   const [calcFiatCurrency, setCalcFiatCurrency] = useState<
     'USD' | 'EUR' | 'LKR' | 'AED' | 'GEL' | 'INR'
   >('USD');
-  const [calcAmount, setCalcAmount] = useState<number>(1000);
+  const [calcAmount, setCalcAmount] = useState<string>('1000');
   const [quoteTimer, setQuoteTimer] = useState<number>(60);
 
   // Apply Desk Modal State ($1,000 Security Deposit + Required Google Maps Location + Optional Landmark)
@@ -484,12 +484,15 @@ export default function ExchangeDeskPage() {
       ? baseRate * (1 + marginPct / 100)
       : baseRate * (1 - marginPct / 100);
 
-  const operatorCommission = calcAmount * (otcCommission.operatorFeePct / 100);
-  const platformCommission = calcAmount * (otcCommission.platformFeePct / 100);
-  const totalCommission = calcAmount * (otcCommission.totalFeePct / 100);
+  const numericCalcAmount = parseFloat(calcAmount) || 0;
+  const operatorCommission = numericCalcAmount * (otcCommission.operatorFeePct / 100);
+  const platformCommission = numericCalcAmount * (otcCommission.platformFeePct / 100);
+  const totalCommission = numericCalcAmount * (otcCommission.totalFeePct / 100);
 
   const receiveAmount =
-    calcDirection === 'BUY' ? calcAmount / effectiveRate : calcAmount * effectiveRate;
+    calcDirection === 'BUY'
+      ? (effectiveRate > 0 ? numericCalcAmount / effectiveRate : 0)
+      : numericCalcAmount * effectiveRate;
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -888,6 +891,9 @@ export default function ExchangeDeskPage() {
   // Open Chat & Request Quote Modal
   const handleOpenQuoteModal = (desk: OtcDeskItem) => {
     setActiveDeskForQuote(desk);
+    if (numericCalcAmount > 0) {
+      setChatCryptoAmount(String(numericCalcAmount));
+    }
     setChatFiatCurrency(desk.supportedCurrencies.find((c) => c !== 'USDT') || 'USD');
     setActiveQuote(null);
     setActiveTrade(null);
@@ -1997,16 +2003,49 @@ export default function ExchangeDeskPage() {
               </div>
               <div className="flex items-center justify-between">
                 <input
-                  type="number"
-                  min="100"
-                  max="100000"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
                   value={calcAmount}
-                  onChange={(e) => setCalcAmount(Number(e.target.value))}
+                  onChange={(e) => {
+                    let val = e.target.value.replace(/[^0-9.]/g, '');
+                    const parts = val.split('.');
+                    if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                    if (calcAmount === '0' && val.length > 1 && !val.includes('.')) {
+                      val = val.replace(/^0+/, '');
+                    }
+                    setCalcAmount(val);
+                  }}
                   className="bg-transparent font-mono text-2xl font-black text-slate-900 dark:text-white outline-none w-full"
                 />
                 <span className="font-bold text-sm text-slate-500 shrink-0 ml-2">
                   {calcDirection === 'BUY' ? calcFiatCurrency : 'USDT'}
                 </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+                {[100, 500, 1000, 5000, 10000].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setCalcAmount(String(preset))}
+                    className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition-colors cursor-pointer ${
+                      numericCalcAmount === preset
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    ${preset.toLocaleString()}
+                  </button>
+                ))}
+                {calcAmount !== '' && (
+                  <button
+                    type="button"
+                    onClick={() => setCalcAmount('')}
+                    className="ml-auto text-[11px] font-semibold text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2602,11 +2641,19 @@ export default function ExchangeDeskPage() {
                       Crypto Amount (USDT)
                     </label>
                     <input
-                      type="number"
-                      min="100"
-                      max="100000"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0.00"
                       value={chatCryptoAmount}
-                      onChange={(e) => setChatCryptoAmount(e.target.value)}
+                      onChange={(e) => {
+                        let val = e.target.value.replace(/[^0-9.]/g, '');
+                        const parts = val.split('.');
+                        if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                        if (chatCryptoAmount === '0' && val.length > 1 && !val.includes('.')) {
+                          val = val.replace(/^0+/, '');
+                        }
+                        setChatCryptoAmount(val);
+                      }}
                       className="w-full mt-1 px-4 py-2.5 rounded-xl text-sm font-mono font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
                     />
                   </div>
