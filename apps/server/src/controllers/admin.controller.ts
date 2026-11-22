@@ -4111,13 +4111,19 @@ export class AdminController {
         },
       });
 
+      const netReleasedStr = releasedSummary
+        ? (releasedSummary as any).buyerNetCrypto.toFixed(2)
+        : cryptoAmountDec.toFixed(2);
+
       await Promise.all([
         createP2PNotification({
           userId: order.buyerId,
           type: 'P2P_DISPUTE_RESOLVED',
           severity: resolution === 'RELEASE_TO_BUYER' ? 'SUCCESS' : 'CRITICAL',
-          title: `Dispute Ruling on #${order.orderCode}: ${resolution === 'RELEASE_TO_BUYER' ? 'Released to Buyer' : 'Refunded to Seller'}`,
-          message: reason || `Admin finalized order ${order.orderCode} via ${resolution}.`,
+          title: `Dispute Ruling on #${order.orderCode}: ${resolution === 'RELEASE_TO_BUYER' ? 'Released to Your Wallet' : 'Refunded to Seller'}`,
+          message: resolution === 'RELEASE_TO_BUYER'
+            ? `Dispute ruled in your favor (${resolution}). ${netReleasedStr} ${cryptoCur} has been released from escrow and credited to your available wallet balance.${reason ? ` Note: ${reason}` : ''}`
+            : `Dispute ruled in favor of the seller (${resolution}). Escrow was unlocked back to the seller's balance.${reason ? ` Note: ${reason}` : ''}`,
           referenceCode: order.orderCode,
           amount: cryptoAmountDec.toFixed(2),
           currency: cryptoCur,
@@ -4127,8 +4133,10 @@ export class AdminController {
           userId: order.sellerId,
           type: 'P2P_DISPUTE_RESOLVED',
           severity: resolution === 'REFUND_TO_SELLER' ? 'SUCCESS' : 'WARNING',
-          title: `Dispute Ruling on #${order.orderCode}: ${resolution === 'RELEASE_TO_BUYER' ? 'Released to Buyer' : 'Refunded to Seller'}`,
-          message: reason || `Admin finalized order ${order.orderCode} via ${resolution}.`,
+          title: `Dispute Ruling on #${order.orderCode}: ${resolution === 'REFUND_TO_SELLER' ? 'Escrow Refunded to Your Wallet' : 'Released to Buyer'}`,
+          message: resolution === 'REFUND_TO_SELLER'
+            ? `Dispute ruled in your favor (${resolution}). +${cryptoAmountDec.toFixed(2)} ${cryptoCur} has been unlocked and credited back to your available balance.${reason ? ` Note: ${reason}` : ''}`
+            : `Dispute ruled in favor of the buyer (${resolution}). Escrow was released to the buyer.${reason ? ` Note: ${reason}` : ''}`,
           referenceCode: order.orderCode,
           amount: cryptoAmountDec.toFixed(2),
           currency: cryptoCur,

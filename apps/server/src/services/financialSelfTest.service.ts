@@ -443,6 +443,10 @@ export class FinancialSelfTestService {
             recipientBankName: 'HDFC Bank',
             recipientAccount: '001122334455',
             recipientBicSwift: 'HDFC0000123',
+            recipientAddress: '123 MG Road, Fort',
+            recipientCity: 'Mumbai',
+            recipientPostalCode: '400001',
+            recipientCountry: 'India',
             termsAccepted: true,
           });
           createdTransferIds.push(transfer.id);
@@ -529,6 +533,81 @@ export class FinancialSelfTestService {
 
           return {
             verifiedNumbers: `Escrow Locked 50.00000000 USDT -> Order Cancelled -> Restored 50.00000000 USDT to Seller`,
+            discrepancy: diff.toFixed(8),
+          };
+        }
+      );
+
+      // -----------------------------------------------------------------------
+      // CHECK 7B: P2P Dispute Raised & Admin REFUND_TO_SELLER Ruling
+      // -----------------------------------------------------------------------
+      await runCheck(
+        'P2P_DISPUTE_REFUND_CONSERVATION',
+        'P2P Marketplace & Escrow',
+        'P2P Dispute Resolution (REFUND_TO_SELLER) 100% Balance & Ledger Conservation',
+        'SellerAvailBefore = SellerAvailAfterRefund && ReversalTxCreated = true',
+        async () => {
+          const sellerBefore = await getBalanceRow(userAId, 'USDT');
+          const disputeOrder = await p2pService.createP2POrder(userBId, {
+            offerId: testOfferId,
+            cryptoAmount: '35.00',
+            fiatAmount: '35.00',
+            takerSide: 'BUY',
+            selectedPaymentMethod: 'Bank Transfer',
+          });
+
+          await p2pService.acceptOrder(disputeOrder.id, userAId);
+          await p2pService.markPaymentSent(disputeOrder.id, userBId, undefined, `DISP-REF-${ts}`);
+          await p2pService.disputeOrder(disputeOrder.id, userAId, 'Payment not received in bank account');
+
+          const orderInDispute = await prisma.p2POrder.findUnique({ where: { id: disputeOrder.id } });
+          if (orderInDispute?.status !== 'DISPUTED') {
+            throw new Error(`Expected order to be in DISPUTED status, got ${orderInDispute?.status}`);
+          }
+
+          // Admin resolves dispute via REFUND_TO_SELLER
+          const sellerWallet = await ledgerService.ensureWallet(userAId);
+          await prisma.$transaction(async (tx) => {
+            const { unlockEscrowToSellerTx } = require('./p2p.helpers');
+            await unlockEscrowToSellerTx(tx, {
+              sellerWalletId: sellerWallet.id,
+              sellerId: userAId,
+              cryptoCurrency: 'USDT',
+              cryptoAmountDec: new Decimal('35.00000000'),
+              offerId: testOfferId,
+              orderCode: disputeOrder.orderCode,
+              journalIdempotencyKey: `SELFTEST-DISP-REFUND-${disputeOrder.orderCode}`,
+              actorUserId: adminUserId || userAId,
+            });
+
+            await tx.p2POrder.update({
+              where: { id: disputeOrder.id },
+              data: {
+                status: 'CANCELLED',
+                disputeResolvedBy: adminUserId || userAId,
+                disputeReason: '[Admin REFUND_TO_SELLER]: Self-test dispute refund verification',
+              },
+            });
+          });
+
+          const sellerAfter = await getBalanceRow(userAId, 'USDT');
+          const diff = sellerAfter.available.minus(sellerBefore.available).abs();
+          if (!diff.isZero()) {
+            throw new Error(`Dispute refund balance mismatch! Before=${sellerBefore.available}, After=${sellerAfter.available}`);
+          }
+
+          const reversalTx = await prisma.transaction.findFirst({
+            where: {
+              settlementReference: disputeOrder.orderCode,
+              type: 'REVERSAL',
+            },
+          });
+          if (!reversalTx) {
+            throw new Error(`Reversal transaction row was not generated in diw_transactions for ${disputeOrder.orderCode}`);
+          }
+
+          return {
+            verifiedNumbers: `Locked 35.00 USDT -> Disputed -> Admin REFUND_TO_SELLER -> 100% Restored (${sellerAfter.available.toFixed(2)} USDT) & Ledger Recorded (${reversalTx.transactionCode})`,
             discrepancy: diff.toFixed(8),
           };
         }

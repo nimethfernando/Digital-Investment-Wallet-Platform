@@ -1699,9 +1699,10 @@ function P2PPageContent() {
         if (activeChatOrder && activeChatOrder.id === orderId) {
           setActiveChatOrder((prev) => (prev ? { ...prev, status: 'COMPLETED', statusBadge: 'Completed • Crypto Released' } : null));
         }
-        fetchOrders();
+        await Promise.all([fetchOrders(), fetchWalletBalances()]);
         fetchActiveChatMessages(orderId);
         window.dispatchEvent(new Event('avora-notifications-refresh'));
+        window.dispatchEvent(new Event('avora-balance-refresh'));
       }
     } catch (e: any) {
       setRoomActionError(extractErrorMessage(e) || 'Failed to release escrow');
@@ -1721,9 +1722,10 @@ function P2PPageContent() {
         if (activeChatOrder && activeChatOrder.id === orderId) {
           setActiveChatOrder((prev) => (prev ? { ...prev, status: 'CANCELLED', statusBadge: 'Cancelled' } : null));
         }
-        await fetchOrders();
+        await Promise.all([fetchOrders(), fetchWalletBalances()]);
         fetchActiveChatMessages(orderId);
         window.dispatchEvent(new Event('avora-notifications-refresh'));
+        window.dispatchEvent(new Event('avora-balance-refresh'));
       }
     } catch (e: any) {
       const msg = extractErrorMessage(e) || 'Failed to cancel order';

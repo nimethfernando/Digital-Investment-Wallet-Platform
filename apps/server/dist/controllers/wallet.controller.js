@@ -993,7 +993,13 @@ class WalletController {
                 tx.type === client_1.TransactionType.DEPOSIT ||
                 tx.type === client_1.TransactionType.PRINCIPAL_RELEASE ||
                 tx.type === client_1.TransactionType.INVESTMENT_DISTRIBUTION ||
-                tx.type === client_1.TransactionType.EXCHANGE_BUY;
+                tx.type === client_1.TransactionType.EXCHANGE_BUY ||
+                tx.type === client_1.TransactionType.REVERSAL ||
+                tx.type === client_1.TransactionType.P2P_DEPOSIT_REFUND ||
+                tx.type === client_1.TransactionType.OTC_DEPOSIT_REFUND;
+            const isP2pReversal = tx.transactionCode?.includes('P2PR') || tx.settlementReference?.startsWith('OTC');
+            const isSwapReversal = tx.transactionCode?.includes('SWPR') || tx.settlementReference?.startsWith('SWP');
+            const isGmtReversal = tx.transactionCode?.includes('GMTR');
             const labelMap = {
                 P2P_TRANSFER_IN: 'Incoming P2P Transfer Received',
                 P2P_TRANSFER_OUT: 'P2P Transfer Sent',
@@ -1001,14 +1007,27 @@ class WalletController {
                 EXCHANGE_SELL: 'Instant Swap Conversion',
                 CARD_PAYMENT: 'Virtual Card Charge',
                 ADJUSTMENT: 'Treasury Balance Adjustment',
-                REVERSAL: 'Ledger Reversal Processed',
+                REVERSAL: isP2pReversal
+                    ? 'P2P Escrow Refund Credited'
+                    : isSwapReversal
+                        ? 'Swap Refund Credited'
+                        : isGmtReversal
+                            ? 'Remittance Refund Credited'
+                            : 'Payment Refund / Escrow Reversal',
+                P2P_DEPOSIT_REFUND: 'P2P Merchant Deposit Refund',
+                OTC_DEPOSIT_REFUND: 'OTC Security Deposit Refund',
                 PRINCIPAL_RELEASE: 'FD Principal Released to Wallet',
                 INVESTMENT_ALLOCATION: 'Venture Allocation Executed',
                 INVESTMENT_DISTRIBUTION: 'Venture Distribution Credited',
                 DEPOSIT: 'Institutional Wallet Credit',
             };
-            const isP2pTx = tx.type === client_1.TransactionType.P2P_TRANSFER_IN || tx.type === client_1.TransactionType.P2P_TRANSFER_OUT;
-            const isSwapTx = tx.type === client_1.TransactionType.EXCHANGE_BUY || tx.type === client_1.TransactionType.EXCHANGE_SELL;
+            const isP2pTx = tx.type === client_1.TransactionType.P2P_TRANSFER_IN ||
+                tx.type === client_1.TransactionType.P2P_TRANSFER_OUT ||
+                tx.type === client_1.TransactionType.P2P_DEPOSIT_REFUND ||
+                isP2pReversal;
+            const isSwapTx = tx.type === client_1.TransactionType.EXCHANGE_BUY ||
+                tx.type === client_1.TransactionType.EXCHANGE_SELL ||
+                isSwapReversal;
             rawItems.push({
                 id: `tx-${tx.id}`,
                 category: isP2pTx ? 'P2P' : isSwapTx ? 'SWAP' : 'TRANSACTION',

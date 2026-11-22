@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { TransactionType, TransactionStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { rateService } from './rate.service';
 import { ledgerService } from './ledger.service';
@@ -1542,6 +1543,27 @@ export class LiquidityRiskService {
             pendingSettlement: newPending.toFixed(8),
           },
         });
+
+        try {
+          await tx.transaction.create({
+            data: {
+              transactionCode: `TX-SWPR-${req.requestCode}`,
+              userId: req.userId,
+              type: TransactionType.REVERSAL,
+              amount: unlockAmt.toFixed(8),
+              currency: fromCur,
+              status: TransactionStatus.COMPLETED,
+              balanceBefore: new Decimal(locked.availableBalance.toString()).toFixed(8),
+              balanceAfter: newAvail.toFixed(8),
+              settlementReference: req.requestCode,
+              createdBy: adminId,
+              idempotencyKey: `TX-SWPR-${req.requestCode}`,
+              notes: `Swap request rejected & refunded: +${unlockAmt.toFixed(4)} ${fromCur} returned to available balance for ${req.requestCode}. Reason: ${cleanReason}`,
+            },
+          });
+        } catch (txErr: any) {
+          console.warn(`[rejectQueuedSwap] Non-fatal duplicate transaction record on ${req.requestCode}:`, txErr?.message || txErr);
+        }
 
         return await tx.swapRequest.update({
           where: { id: swapRequestId },

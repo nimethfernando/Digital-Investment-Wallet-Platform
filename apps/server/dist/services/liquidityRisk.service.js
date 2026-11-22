@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.liquidityRiskService = exports.LiquidityRiskService = exports.INSTITUTIONAL_INTERNAL_EMAILS = exports.STABLECOIN_ASSETS = exports.VOLATILE_CRYPTO_ASSETS = exports.SUPPORTED_LIQUIDITY_ASSETS = void 0;
 const decimal_js_1 = __importDefault(require("decimal.js"));
+const client_1 = require("@prisma/client");
 const prisma_1 = require("../lib/prisma");
 const rate_service_1 = require("./rate.service");
 const ledger_service_1 = require("./ledger.service");
@@ -1317,6 +1318,27 @@ class LiquidityRiskService {
                     pendingSettlement: newPending.toFixed(8),
                 },
             });
+            try {
+                await tx.transaction.create({
+                    data: {
+                        transactionCode: `TX-SWPR-${req.requestCode}`,
+                        userId: req.userId,
+                        type: client_1.TransactionType.REVERSAL,
+                        amount: unlockAmt.toFixed(8),
+                        currency: fromCur,
+                        status: client_1.TransactionStatus.COMPLETED,
+                        balanceBefore: new decimal_js_1.default(locked.availableBalance.toString()).toFixed(8),
+                        balanceAfter: newAvail.toFixed(8),
+                        settlementReference: req.requestCode,
+                        createdBy: adminId,
+                        idempotencyKey: `TX-SWPR-${req.requestCode}`,
+                        notes: `Swap request rejected & refunded: +${unlockAmt.toFixed(4)} ${fromCur} returned to available balance for ${req.requestCode}. Reason: ${cleanReason}`,
+                    },
+                });
+            }
+            catch (txErr) {
+                console.warn(`[rejectQueuedSwap] Non-fatal duplicate transaction record on ${req.requestCode}:`, txErr?.message || txErr);
+            }
             return await tx.swapRequest.update({
                 where: { id: swapRequestId },
                 data: {

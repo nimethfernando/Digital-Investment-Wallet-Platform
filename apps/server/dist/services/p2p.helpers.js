@@ -338,15 +338,38 @@ async function unlockEscrowToSellerTx(tx, params) {
     if (currentLocked.lessThan(params.cryptoAmountDec)) {
         throw new Error(`Insufficient escrowed ${currency} in seller locked balance (${currentLocked.toFixed(2)} ${currency} locked, ${params.cryptoAmountDec.toFixed(2)} required) on order ${params.orderCode}.`);
     }
+    const sellerAvailBefore = new decimal_js_1.default(sellerBal.availableBalance.toString());
+    const sellerAvailAfter = sellerAvailBefore.plus(params.cryptoAmountDec);
     await tx.walletBalance.update({
         where: { id: sellerBal.id },
         data: {
             lockedPrincipal: currentLocked.minus(params.cryptoAmountDec).toFixed(8),
-            availableBalance: new decimal_js_1.default(sellerBal.availableBalance.toString())
-                .plus(params.cryptoAmountDec)
-                .toFixed(8),
+            availableBalance: sellerAvailAfter.toFixed(8),
         },
     });
+    if (params.sellerId) {
+        try {
+            await tx.transaction.create({
+                data: {
+                    transactionCode: `TX-P2PR-${params.orderCode}`,
+                    userId: params.sellerId,
+                    type: client_1.TransactionType.REVERSAL,
+                    amount: params.cryptoAmountDec.toFixed(8),
+                    currency,
+                    status: client_1.TransactionStatus.COMPLETED,
+                    balanceBefore: sellerAvailBefore.toFixed(8),
+                    balanceAfter: sellerAvailAfter.toFixed(8),
+                    settlementReference: params.orderCode,
+                    createdBy: params.actorUserId || params.sellerId,
+                    idempotencyKey: `TX-UNLOCK-${params.journalIdempotencyKey || params.orderCode}`,
+                    notes: `P2P escrow refunded: +${params.cryptoAmountDec.toFixed(4)} ${currency} credited back to available balance on ${params.orderCode}`,
+                },
+            });
+        }
+        catch (txErr) {
+            console.warn(`[unlockEscrowToSellerTx] Non-fatal duplicate transaction record on ${params.orderCode}:`, txErr?.message || txErr);
+        }
+    }
     if (params.sellerId && params.journalIdempotencyKey) {
         await ledger_service_1.ledgerService.recordJournal(tx, {
             idempotencyKey: params.journalIdempotencyKey,

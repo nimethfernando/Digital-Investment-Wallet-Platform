@@ -2338,6 +2338,27 @@ class OtcService {
                         },
                     ],
                 });
+                try {
+                    await tx.transaction.create({
+                        data: {
+                            transactionCode: `TX-OTCR-${trade.tradeCode}`,
+                            userId: sellerUserId,
+                            type: client_1.TransactionType.REVERSAL,
+                            amount: cryptoAmountDec.toFixed(8),
+                            currency: 'USDT',
+                            status: client_1.TransactionStatus.COMPLETED,
+                            balanceBefore: sellerAvailBefore.toFixed(8),
+                            balanceAfter: sellerAvailAfter.toFixed(8),
+                            settlementReference: trade.tradeCode,
+                            createdBy: adminId,
+                            idempotencyKey: `TX-OTC-DISP-REFUND-${trade.tradeCode}`,
+                            notes: `OTC trade dispute refund: +${cryptoAmountDec.toFixed(4)} USDT returned to available balance for ${trade.tradeCode}. Reason: ${cleanReason}`,
+                        },
+                    });
+                }
+                catch (txErr) {
+                    console.warn(`[resolveOtcDispute] Non-fatal duplicate transaction record on ${trade.tradeCode}:`, txErr?.message || txErr);
+                }
                 await tx.otcDesk.update({
                     where: { id: trade.deskId },
                     data: {
