@@ -1186,8 +1186,8 @@ function P2PPageContent() {
 
   const fetchWalletBalances = async () => {
     try {
-      const res = await api.get('/wallet/portfolio');
-      const rawBals = res.data?.data?.balances || res.data?.balances || [];
+      const res = await api.get('/wallet').catch(() => api.get('/wallet/portfolio'));
+      const rawBals = res.data?.data?.balances || res.data?.wallet?.balances || res.data?.balances || [];
       if (Array.isArray(rawBals)) {
         const mapped: Record<string, number> = {};
         for (const b of rawBals) {
@@ -2468,6 +2468,24 @@ function P2PPageContent() {
               );
             })}
           </div>
+
+          <div className="flex items-center gap-2">
+            <Link
+              href="/dashboard?tab=swap"
+              className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 font-bold text-[11px] text-slate-700 dark:text-slate-200 flex items-center gap-1 transition-colors"
+              title="Convert fiat or other crypto instantly to extend trading limits"
+            >
+              <span>⇄ Instant Swap</span>
+            </Link>
+            <Link
+              href="/buy-crypto"
+              className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-[11px] text-white flex items-center gap-1 shadow-sm transition-colors"
+              title="Deposit or buy crypto directly"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Deposit / Buy</span>
+            </Link>
+          </div>
         </div>
       )}
 
@@ -2577,14 +2595,37 @@ function P2PPageContent() {
               <span className="text-xl sm:text-2xl text-zinc-400 font-sans font-bold shrink-0">{expressCurrency}</span>
             </div>
 
-            {/* Real-time Exchange Rate & Limits */}
-            <div className="pt-2 text-xs text-zinc-400 space-y-0.5">
-              <div className="flex items-center gap-1.5 text-zinc-300 font-medium">
+            {/* Real-time Available Balance, Exchange Rate & Limits */}
+            <div className="pt-2 text-xs text-zinc-400 space-y-1.5">
+              {user && (
+                <div className="flex items-center justify-between text-[11px] p-2.5 rounded-xl bg-zinc-900 border border-zinc-800">
+                  <span className="text-zinc-400">
+                    Available {expressSide === 'SELL' ? `${expressCrypto} Balance` : 'Wallet Funds'}:
+                  </span>
+                  <span className="font-mono font-bold text-white flex items-center gap-1.5">
+                    {expressSide === 'SELL' ? (
+                      <strong className={(walletBalances[expressCrypto] ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                        {(walletBalances[expressCrypto] ?? 0).toFixed(2)} {expressCrypto}
+                      </strong>
+                    ) : (
+                      <span className="text-emerald-400">
+                        ${(walletBalances['USD'] ?? 0).toFixed(2)} USD • {(walletBalances['USDT'] ?? 0).toFixed(2)} USDT
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-zinc-300 font-medium">
                 <span className="text-zinc-500">⇅ {expressCrypto}</span>
                 <span>1 {expressCrypto} ≈ {expressRate.toLocaleString()} {expressCurrency}</span>
               </div>
-              <div className="text-[11px] text-zinc-500 font-mono">
-                Limit: {expressMinLimit} - {expressMaxLimit} {expressCurrency}
+              <div className="flex items-center justify-between text-[11px] text-zinc-500 font-mono">
+                <span>Limit: {expressMinLimit} - {expressMaxLimit} {expressCurrency}</span>
+                {user && (
+                  <Link href="/dashboard?tab=swap" className="text-emerald-400 hover:underline font-sans text-[10px] font-bold">
+                    Extend Limit via Swap →
+                  </Link>
+                )}
               </div>
             </div>
 
@@ -2613,10 +2654,19 @@ function P2PPageContent() {
             ))}
             <button
               type="button"
-              onClick={() => setExpressAmount('500000')}
+              onClick={() => {
+                if (expressSide === 'SELL') {
+                  const avail = walletBalances[expressCrypto] ?? 0;
+                  const fiatMax = avail * expressRate;
+                  const finalAmt = Math.min(fiatMax, expressMaxLimit);
+                  setExpressAmount(finalAmt > 0 ? Math.floor(finalAmt).toString() : '0');
+                } else {
+                  setExpressAmount(String(expressMaxLimit));
+                }
+              }}
               className="px-3 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-rose-400 hover:text-rose-300 text-[11px] font-bold transition-colors shrink-0 cursor-pointer"
             >
-              Max
+              Max {expressSide === 'SELL' ? 'Available' : 'Limit'}
             </button>
           </div>
 
@@ -3862,11 +3912,33 @@ function P2PPageContent() {
                 </div>
               </div>
 
-              {/* Total USDT Amount */}
+              {/* Total Crypto Amount */}
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
-                  Total {newAdCrypto} to Trade
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold">
+                    Total {newAdCrypto} to Trade
+                  </label>
+                  {user && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Available:{' '}
+                        <strong className={(walletBalances[newAdCrypto] ?? 0) > 0 ? 'text-emerald-600 dark:text-emerald-400 font-mono' : 'text-slate-400 font-mono'}>
+                          {(walletBalances[newAdCrypto] ?? 0).toFixed(2)} {newAdCrypto}
+                        </strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const avail = walletBalances[newAdCrypto] ?? 0;
+                          if (avail > 0) setNewAdAmount(avail.toString());
+                        }}
+                        className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-emerald-500/20 text-slate-700 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 text-[10px] font-bold transition-colors cursor-pointer"
+                      >
+                        Use Max
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <input
                   type="number"
                   required
@@ -3875,6 +3947,14 @@ function P2PPageContent() {
                   placeholder="e.g. 1000"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono font-bold outline-none"
                 />
+                {newAdSide === 'BUY' && user && parseFloat(newAdAmount || '0') > (walletBalances[newAdCrypto] ?? 0) && (
+                  <p className="mt-1.5 text-[11px] text-amber-500 dark:text-amber-300">
+                    Entered amount exceeds your available {newAdCrypto} balance. You have ${(walletBalances['USD'] ?? 0).toFixed(2)} USD available.{' '}
+                    <Link href="/dashboard?tab=swap" className="underline font-bold text-emerald-600 dark:text-emerald-400">
+                      Swap USD → {newAdCrypto} to extend limit →
+                    </Link>
+                  </p>
+                )}
               </div>
 
               {/* Limits */}
@@ -4279,34 +4359,123 @@ function P2PPageContent() {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-slate-300 font-bold">{selectedOfferForTrade.cryptoCurrency} to Trade</label>
-                  {marketSide === 'SELL' && user && (
+                  {user && (
                     <span className="text-[11px] font-mono text-slate-400">
-                      Available:{' '}
-                      <strong className={(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0) >= (parseFloat(tradeCryptoAmount || '0') || 0) ? 'text-emerald-400' : 'text-rose-400'}>
-                        {(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0).toFixed(2)} {selectedOfferForTrade.cryptoCurrency}
-                      </strong>
+                      {marketSide === 'SELL' ? (
+                        <>
+                          Available:{' '}
+                          <strong className={(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0) >= (parseFloat(tradeCryptoAmount || '0') || 0) ? 'text-emerald-400' : 'text-rose-400'}>
+                            {(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0).toFixed(2)} {selectedOfferForTrade.cryptoCurrency}
+                          </strong>
+                        </>
+                      ) : (
+                        <span className="text-slate-400">
+                          Wallet: <strong className="text-emerald-400 font-mono">${(walletBalances['USD'] ?? 0).toFixed(2)} USD</strong>
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
-                <input
-                  type="number"
-                  step="any"
-                  required
-                  value={tradeCryptoAmount}
-                  onChange={(e) => setTradeCryptoAmount(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 font-mono font-bold text-white outline-none"
-                />
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={tradeCryptoAmount}
+                    onChange={(e) => setTradeCryptoAmount(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 font-mono font-bold text-white outline-none pr-20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetMax = marketSide === 'SELL'
+                        ? Math.min(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0, parseFloat(selectedOfferForTrade.availableAmount || '0'))
+                        : parseFloat(selectedOfferForTrade.availableAmount || '0');
+                      if (targetMax > 0) {
+                        setTradeCryptoAmount(targetMax.toString());
+                      }
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white text-[11px] font-mono font-bold border border-emerald-500/30 transition-colors cursor-pointer"
+                  >
+                    MAX
+                  </button>
+                </div>
+
+                {/* Quick Fill Percentage Chips & Limit Extenders */}
+                <div className="flex items-center gap-1.5 mt-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase mr-0.5">Quick Fill:</span>
+                  {[0.25, 0.5, 0.75].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => {
+                        const targetMax = marketSide === 'SELL'
+                          ? Math.min(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0, parseFloat(selectedOfferForTrade.availableAmount || '0'))
+                          : parseFloat(selectedOfferForTrade.availableAmount || '0');
+                        if (targetMax > 0) {
+                          setTradeCryptoAmount((targetMax * pct).toFixed(selectedOfferForTrade.cryptoCurrency === 'BTC' || selectedOfferForTrade.cryptoCurrency === 'ETH' ? 4 : 2));
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-[10px] font-mono font-bold text-slate-300 hover:text-white border border-slate-800 transition-colors cursor-pointer"
+                    >
+                      {(pct * 100).toFixed(0)}%
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetMax = marketSide === 'SELL'
+                        ? Math.min(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0, parseFloat(selectedOfferForTrade.availableAmount || '0'))
+                        : parseFloat(selectedOfferForTrade.availableAmount || '0');
+                      if (targetMax > 0) {
+                        setTradeCryptoAmount(targetMax.toString());
+                      }
+                    }}
+                    className="ml-auto px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-mono font-bold text-slate-300 hover:text-white border border-slate-700 transition-colors cursor-pointer"
+                  >
+                    100% {marketSide === 'SELL' ? 'Available' : 'Offer'}
+                  </button>
+                </div>
+
                 {marketSide === 'SELL' &&
                   user &&
                   (walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0) < (parseFloat(tradeCryptoAmount || '0') || 0) && (
-                    <p className="mt-1.5 text-[11px] text-amber-300 leading-snug">
-                      Insufficient {selectedOfferForTrade.cryptoCurrency} in your wallet (USD: $
-                      {(walletBalances['USD'] ?? 0).toFixed(2)}).{' '}
-                      <Link href="/dashboard?tab=swap" className="underline font-bold text-emerald-400 hover:text-emerald-300">
-                        Swap USD → {selectedOfferForTrade.cryptoCurrency} first →
-                      </Link>
-                    </p>
+                    <div className="mt-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 space-y-2 text-[11px] text-amber-200">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-amber-300">Insufficient {selectedOfferForTrade.cryptoCurrency} in your wallet</span>
+                        <span className="font-mono">
+                          Available: <strong>{(walletBalances[selectedOfferForTrade.cryptoCurrency] ?? 0).toFixed(2)} {selectedOfferForTrade.cryptoCurrency}</strong>
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400">
+                        You have <strong className="text-white">${(walletBalances['USD'] ?? 0).toFixed(2)} USD</strong> and <strong className="text-white">{(walletBalances['USDC'] ?? 0).toFixed(2)} USDC</strong> available in other balances. Extend your trading limit:
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-amber-500/20">
+                        <Link
+                          href="/dashboard?tab=swap"
+                          className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] transition-colors flex items-center gap-1 shadow-xs"
+                        >
+                          <span>⇄ Instant Swap USD → {selectedOfferForTrade.cryptoCurrency}</span>
+                        </Link>
+                        <Link
+                          href="/buy-crypto"
+                          className="px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] transition-colors flex items-center gap-1 shadow-xs"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Deposit / Buy Crypto</span>
+                        </Link>
+                      </div>
+                    </div>
                   )}
+
+                {marketSide === 'BUY' && user && (
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                    <span>Merchant Limit: {selectedOfferForTrade.minLimit} - {selectedOfferForTrade.maxLimit} {selectedOfferForTrade.fiatCurrency}</span>
+                    <Link href="/dashboard?tab=swap" className="text-emerald-400 hover:underline text-[10px] font-bold">
+                      Need higher capacity? Swap/Deposit →
+                    </Link>
+                  </div>
+                )}
               </div>
 
               <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-500/20 space-y-1.5">

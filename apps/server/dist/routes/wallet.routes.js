@@ -13,6 +13,7 @@ router.post('/card/webhook/authorize', (req, res) => wallet_controller_1.walletC
 router.post('/razorpay/webhook', (req, res) => wallet_controller_1.walletController.handleRazorpayWebhook(req, res));
 router.use(auth_1.authenticateToken);
 router.get('/', (req, res, next) => wallet_controller_1.walletController.getWalletOverview(req, res, next));
+router.get('/portfolio', (req, res, next) => wallet_controller_1.walletController.getWalletOverview(req, res, next));
 router.get('/notifications', (req, res, next) => wallet_controller_1.walletController.getNotifications(req, res, next));
 router.post('/notifications/read', (req, res, next) => wallet_controller_1.walletController.markNotificationsRead(req, res, next));
 router.get('/transactions', (req, res, next) => wallet_controller_1.walletController.getTransactions(req, res, next));

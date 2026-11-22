@@ -276,6 +276,29 @@ export default function ExchangeDeskPage() {
   const [activeQuote, setActiveQuote] = useState<any>(null);
   const [quoteLoading, setQuoteLoading] = useState<boolean>(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [walletBalances, setWalletBalances] = useState<Record<string, number>>({});
+
+  // Sync wallet balances for live available checks & limit extension
+  useEffect(() => {
+    if (!user) return;
+    const fetchBals = async () => {
+      try {
+        const res = await api.get('/wallet').catch(() => api.get('/wallet/portfolio'));
+        const rawBals = res.data?.data?.balances || res.data?.wallet?.balances || res.data?.balances || [];
+        if (Array.isArray(rawBals)) {
+          const mapped: Record<string, number> = {};
+          for (const b of rawBals) {
+            const cur = String(b.currency || '').toUpperCase();
+            if (cur) mapped[cur] = parseFloat(String(b.availableBalance ?? b.available ?? '0')) || 0;
+          }
+          setWalletBalances(mapped);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    fetchBals();
+  }, [user]);
 
   // Active Trade & Chat Room State
   const [activeTrade, setActiveTrade] = useState<any>(null);
@@ -2691,25 +2714,92 @@ export default function ExchangeDeskPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Crypto Amount (USDT)
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0.00"
-                      value={chatCryptoAmount}
-                      onChange={(e) => {
-                        let val = e.target.value.replace(/[^0-9.]/g, '');
-                        const parts = val.split('.');
-                        if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
-                        if (chatCryptoAmount === '0' && val.length > 1 && !val.includes('.')) {
-                          val = val.replace(/^0+/, '');
-                        }
-                        setChatCryptoAmount(val);
-                      }}
-                      className="w-full mt-1 px-4 py-2.5 rounded-xl text-sm font-mono font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
-                    />
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Crypto Amount (USDT)
+                      </label>
+                      {user && (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-slate-500 dark:text-slate-400">
+                            Available:{' '}
+                            <strong className={(walletBalances['USDT'] ?? 0) >= (parseFloat(chatCryptoAmount || '0') || 0) ? 'text-emerald-600 dark:text-emerald-400 font-mono' : 'text-rose-500 font-mono'}>
+                              {(walletBalances['USDT'] ?? 0).toFixed(2)} USDT
+                            </strong>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        value={chatCryptoAmount}
+                        onChange={(e) => {
+                          let val = e.target.value.replace(/[^0-9.]/g, '');
+                          const parts = val.split('.');
+                          if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                          if (chatCryptoAmount === '0' && val.length > 1 && !val.includes('.')) {
+                            val = val.replace(/^0+/, '');
+                          }
+                          setChatCryptoAmount(val);
+                        }}
+                        className="w-full px-4 py-2.5 rounded-xl text-sm font-mono font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none pr-20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const avail = walletBalances['USDT'] ?? 0;
+                          if (avail > 0) setChatCryptoAmount(avail.toString());
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-emerald-500/20 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 text-[10px] font-bold transition-colors cursor-pointer"
+                      >
+                        Use Max
+                      </button>
+                    </div>
+
+                    {/* Quick Percentage Chips */}
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">Quick Fill:</span>
+                      {[0.25, 0.5, 0.75].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => {
+                            const avail = walletBalances['USDT'] ?? 0;
+                            if (avail > 0) setChatCryptoAmount((avail * pct).toFixed(2));
+                          }}
+                          className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-[10px] font-mono text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                        >
+                          {(pct * 100).toFixed(0)}%
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const avail = walletBalances['USDT'] ?? 0;
+                          if (avail > 0) setChatCryptoAmount(avail.toString());
+                        }}
+                        className="ml-auto px-2 py-0.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition-colors cursor-pointer"
+                      >
+                        MAX Available
+                      </button>
+                    </div>
+
+                    {/* Insufficient or Extend Limit alert */}
+                    {chatTradeType === 'SELL_USDT' && user && (walletBalances['USDT'] ?? 0) < (parseFloat(chatCryptoAmount || '0') || 0) && (
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-800 dark:text-amber-200 space-y-1">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span>Insufficient USDT in wallet</span>
+                          <span className="font-mono font-bold">USD: ${(walletBalances['USD'] ?? 0).toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1 border-t border-amber-500/20 text-[10px]">
+                          <Link href="/dashboard?tab=swap" className="underline font-bold text-emerald-600 dark:text-emerald-400">
+                            ⇄ Swap USD to USDT to extend limit →
+                          </Link>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {!activeQuote ? (

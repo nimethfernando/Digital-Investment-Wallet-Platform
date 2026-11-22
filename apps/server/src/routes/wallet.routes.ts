@@ -16,6 +16,7 @@ router.post('/razorpay/webhook', (req, res) => walletController.handleRazorpayWe
 router.use(authenticateToken);
 
 router.get('/', (req, res, next) => walletController.getWalletOverview(req, res, next));
+router.get('/portfolio', (req, res, next) => walletController.getWalletOverview(req, res, next));
 router.get('/notifications', (req, res, next) => walletController.getNotifications(req, res, next));
 router.post('/notifications/read', (req, res, next) => walletController.markNotificationsRead(req, res, next));
 router.get('/transactions', (req, res, next) => walletController.getTransactions(req, res, next));

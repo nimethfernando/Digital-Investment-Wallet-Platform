@@ -1051,18 +1051,52 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                       placeholder="0.00"
                       className="bg-transparent text-right font-mono text-2xl sm:text-3xl font-black text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-700 outline-none w-full"
                     />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUserEditedSwapAmount(true);
-                        setSendAmount(floorSwapAmount(parseFloat(currentFromBalance || '0'), sendFromCurrency));
-                      }}
-                      className="text-[11px] font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white px-2 py-0.5 mt-1 rounded bg-slate-200/80 hover:bg-slate-300/80 dark:bg-slate-800/80 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                    >
-                      Use Max
-                    </button>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {[0.25, 0.5, 0.75].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => {
+                            setUserEditedSwapAmount(true);
+                            const avail = parseFloat(currentFromBalance || '0');
+                            if (avail > 0) {
+                              setSendAmount(floorSwapAmount(avail * pct, sendFromCurrency));
+                            }
+                          }}
+                          className="text-[10px] font-mono font-bold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white px-1.5 py-0.5 rounded bg-slate-200/60 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        >
+                          {(pct * 100).toFixed(0)}%
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserEditedSwapAmount(true);
+                          setSendAmount(floorSwapAmount(parseFloat(currentFromBalance || '0'), sendFromCurrency));
+                        }}
+                        className="text-[11px] font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white px-2 py-0.5 rounded bg-slate-200/80 hover:bg-slate-300/80 dark:bg-slate-800/80 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                      >
+                        Use Max
+                      </button>
+                    </div>
                   </div>
                 </div>
+
+                {isInsufficientFromBalance && (
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-700 dark:text-amber-300">
+                    <span>
+                      Insufficient {sendFromCurrency} balance (Available: {parseFloat(currentFromBalance).toFixed(sendFromCurrency === 'BTC' || sendFromCurrency === 'ETH' ? 6 : 4)}).
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onOpenDeposit}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Deposit to Extend Limit</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Invert Button */}
