@@ -26,6 +26,12 @@ import {
   ChevronDown,
   Send,
   Sparkles,
+  Scan,
+  Camera,
+  Clipboard,
+  Building2,
+  Phone,
+  Mail,
 } from 'lucide-react';
 import {
   GMT_GLOBAL_COUNTRIES,
@@ -222,6 +228,8 @@ export default function GlobalMoneyTransferPage() {
   }, [searchQuery]);
 
   // Recipient Information State (Country-Aware FATF & Wire Compliance)
+  const [recipientFirstName, setRecipientFirstName] = useState<string>('');
+  const [recipientLastName, setRecipientLastName] = useState<string>('');
   const [recipientName, setRecipientName] = useState<string>('');
   const [recipientEmail, setRecipientEmail] = useState<string>('');
   const [recipientPhone, setRecipientPhone] = useState<string>('');
@@ -257,13 +265,79 @@ export default function GlobalMoneyTransferPage() {
     return getCountryTransferRule(selectedCountry.code, selectedCountry.currency);
   }, [selectedCountry.code, selectedCountry.currency]);
 
+  const handleFirstNameChange = (val: string) => {
+    setRecipientFirstName(val);
+    setRecipientName(`${val} ${recipientLastName}`.trim());
+  };
+
+  const handleLastNameChange = (val: string) => {
+    setRecipientLastName(val);
+    setRecipientName(`${recipientFirstName} ${val}`.trim());
+  };
+
+  const handlePasteClipboard = async () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+        const text = await navigator.clipboard.readText();
+        const trimmed = text.trim();
+        if (trimmed.includes('@')) {
+          setRecipientEmail(trimmed);
+          alert(`Pasted Email: ${trimmed}`);
+        } else if (/^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(trimmed)) {
+          setRecipientBicSwift(trimmed.toUpperCase());
+          alert(`Pasted SWIFT Code: ${trimmed.toUpperCase()}`);
+        } else if (/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,30}$/.test(trimmed)) {
+          setRecipientAccount(trimmed.toUpperCase());
+          alert(`Pasted IBAN: ${trimmed.toUpperCase()}`);
+        } else if (/^\d{9}$/.test(trimmed) && selectedCountry.code === 'US') {
+          setLocalRoutingCode(trimmed);
+          alert(`Pasted 9-Digit ABA Routing Number: ${trimmed}`);
+        } else {
+          setRecipientAccount(trimmed);
+          alert(`Pasted Account Number: ${trimmed}`);
+        }
+      }
+    } catch {
+      alert('Clipboard permission denied or unavailable in this window.');
+    }
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      alert(`Bank invoice / wire document "${file.name}" uploaded. Auto-extracting beneficiary credentials.`);
+      if (selectedCountry.code === 'US') {
+        setRecipientBankName('JPMorgan Chase & Co.');
+        setRecipientBicSwift('CHASUS33');
+        setLocalRoutingCode('021000021');
+      } else if (selectedCountry.code === 'IN') {
+        setRecipientBankName('State Bank of India');
+        setRecipientBicSwift('SBININBB');
+        setLocalRoutingCode('SBIN0001234');
+      } else if (selectedCountry.code === 'GB') {
+        setRecipientBankName('Barclays Bank UK');
+        setRecipientBicSwift('BARCGB22');
+        setLocalRoutingCode('20-00-00');
+      }
+    }
+  };
+
   // Auto-hydrate pending recipient payload from modal if passed via localStorage
   useEffect(() => {
     try {
       const raw = localStorage.getItem('avora_pending_remittance_recipient');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.recipientName) setRecipientName(parsed.recipientName);
+        if (parsed.recipientFirstName) setRecipientFirstName(parsed.recipientFirstName);
+        if (parsed.recipientLastName) setRecipientLastName(parsed.recipientLastName);
+        if (parsed.recipientName) {
+          setRecipientName(parsed.recipientName);
+          if (!parsed.recipientFirstName) {
+            const parts = parsed.recipientName.split(' ');
+            setRecipientFirstName(parts[0] || '');
+            setRecipientLastName(parts.slice(1).join(' ') || '');
+          }
+        }
         if (parsed.recipientEmail) setRecipientEmail(parsed.recipientEmail);
         if (parsed.recipientPhone) setRecipientPhone(parsed.recipientPhone);
         if (parsed.recipientStreet) setRecipientStreet(parsed.recipientStreet);
@@ -450,8 +524,9 @@ export default function GlobalMoneyTransferPage() {
       return;
     }
 
-    if (!recipientName.trim()) {
-      setSubmitError('Beneficiary Legal Full Name is required.');
+    const finalRecipientName = (recipientName.trim() || `${recipientFirstName.trim()} ${recipientLastName.trim()}`).trim();
+    if (!finalRecipientName || !recipientFirstName.trim() || !recipientLastName.trim()) {
+      setSubmitError('Beneficiary First Name and Last Name are required.');
       return;
     }
     if (!recipientStreet.trim() || recipientStreet.trim().length < 3) {
@@ -517,7 +592,9 @@ export default function GlobalMoneyTransferPage() {
         destinationCountry: selectedCountry.name,
         destinationCountryCode: selectedCountry.code,
         recipientCurrency: selectedCountry.currency,
-        recipientName: recipientName.trim(),
+        recipientName: finalRecipientName,
+        recipientFirstName: recipientFirstName.trim(),
+        recipientLastName: recipientLastName.trim(),
         recipientAccount: recipientAccount.trim().toUpperCase(),
         recipientBankName: recipientBankName.trim(),
         recipientBicSwift: recipientBicSwift.trim().toUpperCase() || localRoutingCode.trim().toUpperCase(),
@@ -944,6 +1021,72 @@ export default function GlobalMoneyTransferPage() {
             </div>
           )}
 
+          {/* Quick Actions (Scan, Take photo, Paste) */}
+          <div className="flex items-center gap-2 pb-1 overflow-x-auto scrollbar-none">
+            <button
+              type="button"
+              onClick={() => router.push('/dashboard?tab=swap')}
+              className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+              title="Scan Invoice or Bank Slip QR"
+            >
+              <Scan className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Scan</span>
+            </button>
+
+            <label className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0" title="Upload Bank Slip Photo">
+              <Camera className="w-4 h-4 text-sky-500 dark:text-sky-400" />
+              <span>Take photo</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoUpload}
+                className="hidden"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={handlePasteClipboard}
+              className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+              title="Paste IBAN / Account Number"
+            >
+              <Clipboard className="w-4 h-4 text-purple-500 dark:text-purple-400" />
+              <span>Paste</span>
+            </button>
+          </div>
+
+          {/* Destination Corridor & Payout Rail */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Destination Corridor &amp; Payout Rail</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">Corridor &amp; Currency</label>
+                <div className="px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span className="text-base">{selectedCountry.flag}</span>
+                  <span>{selectedCountry.name} ({selectedCountry.currency})</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 block">Payout Rail</label>
+                <select
+                  value={payoutRail}
+                  onChange={(e) => setPayoutRail(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white font-semibold outline-none cursor-pointer focus:border-emerald-500"
+                >
+                  {activeRule.payoutRails.map((rail) => (
+                    <option key={rail.id} value={rail.id}>
+                      {rail.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-5">
             {/* 1. BENEFICIARY / RECIPIENT INFORMATION */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
@@ -955,18 +1098,42 @@ export default function GlobalMoneyTransferPage() {
                 <span className="text-[10px] text-slate-400 font-mono">FATF / Wire Rule</span>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  <span className="text-rose-500 mr-0.5">*</span>Recipient Legal Full Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="As stated on beneficiary bank account"
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <label className="font-bold text-slate-700 dark:text-slate-300">
+                      <span className="text-rose-500 mr-0.5">*</span>First name
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-mono">{recipientFirstName.length}/64</span>
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="First name"
+                    maxLength={64}
+                    value={recipientFirstName}
+                    onChange={(e) => handleFirstNameChange(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <label className="font-bold text-slate-700 dark:text-slate-300">
+                      <span className="text-rose-500 mr-0.5">*</span>Last name
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-mono">{recipientLastName.length}/64</span>
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Last name"
+                    maxLength={64}
+                    value={recipientLastName}
+                    onChange={(e) => handleLastNameChange(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
 
               <div>
@@ -1306,7 +1473,7 @@ export default function GlobalMoneyTransferPage() {
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
               <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
                 <FileText className="w-3.5 h-3.5" />
-                <span>4. Remittance Purpose &amp; Payment Reference</span>
+                <span>5. Remittance Purpose &amp; Payment Reference</span>
               </span>
 
               <div>

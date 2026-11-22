@@ -1825,7 +1825,11 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
         onClose={() => setChooseMethodModalOpen(false)}
         onSelectInternational={() => {
           setChooseMethodModalOpen(false);
-          setIntlRecipientModalOpen(true);
+          if (onOpenInternationalTransfer) {
+            onOpenInternationalTransfer();
+          } else {
+            router.push('/transfer');
+          }
         }}
         onSelectAvoraUser={() => {
           setChooseMethodModalOpen(false);
