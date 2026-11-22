@@ -31,8 +31,12 @@ class WithdrawalService {
     async requestWithdrawal(userId, params) {
         const amountDec = new decimal_js_1.default(params.amount.toString());
         const currency = (params.currency || 'USD').toUpperCase();
-        if (amountDec.lessThanOrEqualTo(0)) {
-            throw this.validationError('Withdrawal amount must be strictly greater than 0');
+        const minSetting = await prisma_1.prisma.cmsSetting
+            .findUnique({ where: { key: 'withdrawal_min_amount_usd' } })
+            .catch(() => null);
+        const minWithdrawalLimit = new decimal_js_1.default(minSetting?.value || '10.00');
+        if (amountDec.lessThan(minWithdrawalLimit)) {
+            throw this.validationError(`Minimum withdrawal amount is $${minWithdrawalLimit.toFixed(2)} ${currency}.`);
         }
         // 1. Enforce 24-48h Security Cooldown
         await auth_service_1.authService.checkWithdrawalLock(userId);

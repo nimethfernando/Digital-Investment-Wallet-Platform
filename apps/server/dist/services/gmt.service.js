@@ -244,17 +244,22 @@ class GlobalMoneyTransferService {
         const toPerUsd = live.rates[toCur] || 1.0;
         const refRate = new decimal_js_1.default(toPerUsd).dividedBy(new decimal_js_1.default(fromPerUsd));
         // Dynamic Admin Exchange Rate Margin, Platform Fee & Delivery Window from database
-        const [marginSetting, feeSetting, deliverySetting] = await Promise.all([
+        const [marginSetting, feeSetting, deliverySetting, minAmountSetting] = await Promise.all([
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'remittance_delivery_days' } }).catch(() => null),
+            prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'remittance_min_amount_usd' } }).catch(() => null),
         ]);
+        const minSendingLimit = new decimal_js_1.default(minAmountSetting?.value || '10.00');
+        const sendAmtDec = new decimal_js_1.default(sendingAmount);
+        if (sendAmtDec.lessThan(minSendingLimit)) {
+            throw new Error(`Minimum sending amount is $${minSendingLimit.toFixed(2)} ${fromCur}.`);
+        }
         // Admin Exchange Rate Adjustment (reduction to recipient currency rate so bank never incurs forex loss)
         const rateAdjustmentPct = new decimal_js_1.default(marginSetting?.value || '2.00');
         const effectiveRate = refRate.times(new decimal_js_1.default(1).minus(rateAdjustmentPct.dividedBy(100)));
         // Platform Transfer Fee % (deducted on total send)
         const transferFeePct = new decimal_js_1.default(feeSetting?.value || '3.00');
-        const sendAmtDec = new decimal_js_1.default(sendingAmount);
         const transferFeeAmount = sendAmtDec.times(transferFeePct.dividedBy(100));
         const totalPaidAmount = sendAmtDec.plus(transferFeeAmount);
         // Recipient receives
@@ -275,6 +280,7 @@ class GlobalMoneyTransferService {
             transferFeePct: transferFeePct.toFixed(2),
             transferFeeAmount: transferFeeAmount.toFixed(2),
             totalPaidAmount: totalPaidAmount.toFixed(2),
+            minSendingAmount: minSendingLimit.toFixed(2),
             rateSource: live.source,
             rateLastUpdated: live.lastUpdated,
             estimatedDeliveryWindow: `Up to ${deliveryDaysNum} business day${deliveryDaysNum === 1 ? '' : 's'}`,

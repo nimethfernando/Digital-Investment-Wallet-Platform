@@ -40,8 +40,15 @@ export class WithdrawalService {
     const amountDec = new Decimal(params.amount.toString());
     const currency = (params.currency || 'USD').toUpperCase();
 
-    if (amountDec.lessThanOrEqualTo(0)) {
-      throw this.validationError('Withdrawal amount must be strictly greater than 0');
+    const minSetting = await prisma.cmsSetting
+      .findUnique({ where: { key: 'withdrawal_min_amount_usd' } })
+      .catch(() => null);
+    const minWithdrawalLimit = new Decimal(minSetting?.value || '10.00');
+
+    if (amountDec.lessThan(minWithdrawalLimit)) {
+      throw this.validationError(
+        `Minimum withdrawal amount is $${minWithdrawalLimit.toFixed(2)} ${currency}.`
+      );
     }
 
     // 1. Enforce 24-48h Security Cooldown

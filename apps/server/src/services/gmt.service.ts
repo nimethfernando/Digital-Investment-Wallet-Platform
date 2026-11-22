@@ -292,11 +292,18 @@ export class GlobalMoneyTransferService {
     const refRate = new Decimal(toPerUsd).dividedBy(new Decimal(fromPerUsd));
 
     // Dynamic Admin Exchange Rate Margin, Platform Fee & Delivery Window from database
-    const [marginSetting, feeSetting, deliverySetting] = await Promise.all([
+    const [marginSetting, feeSetting, deliverySetting, minAmountSetting] = await Promise.all([
       prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
       prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
       prisma.cmsSetting.findUnique({ where: { key: 'remittance_delivery_days' } }).catch(() => null),
+      prisma.cmsSetting.findUnique({ where: { key: 'remittance_min_amount_usd' } }).catch(() => null),
     ]);
+
+    const minSendingLimit = new Decimal(minAmountSetting?.value || '10.00');
+    const sendAmtDec = new Decimal(sendingAmount);
+    if (sendAmtDec.lessThan(minSendingLimit)) {
+      throw new Error(`Minimum sending amount is $${minSendingLimit.toFixed(2)} ${fromCur}.`);
+    }
 
     // Admin Exchange Rate Adjustment (reduction to recipient currency rate so bank never incurs forex loss)
     const rateAdjustmentPct = new Decimal(marginSetting?.value || '2.00');
@@ -304,7 +311,6 @@ export class GlobalMoneyTransferService {
 
     // Platform Transfer Fee % (deducted on total send)
     const transferFeePct = new Decimal(feeSetting?.value || '3.00');
-    const sendAmtDec = new Decimal(sendingAmount);
     const transferFeeAmount = sendAmtDec.times(transferFeePct.dividedBy(100));
     const totalPaidAmount = sendAmtDec.plus(transferFeeAmount);
 
@@ -328,6 +334,7 @@ export class GlobalMoneyTransferService {
       transferFeePct: transferFeePct.toFixed(2),
       transferFeeAmount: transferFeeAmount.toFixed(2),
       totalPaidAmount: totalPaidAmount.toFixed(2),
+      minSendingAmount: minSendingLimit.toFixed(2),
       rateSource: live.source,
       rateLastUpdated: live.lastUpdated,
       estimatedDeliveryWindow: `Up to ${deliveryDaysNum} business day${deliveryDaysNum === 1 ? '' : 's'}`,

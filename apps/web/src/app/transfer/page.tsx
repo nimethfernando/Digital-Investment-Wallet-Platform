@@ -187,14 +187,16 @@ export default function GlobalMoneyTransferPage() {
     if (parts.length > 2) {
       cleaned = `${parts[0]}.${parts.slice(1).join('')}`;
     }
-    if (cleaned.startsWith('.')) {
-      cleaned = '0' + cleaned;
+    // Disallow user putting 0 first
+    if (cleaned === '0') {
+      return;
     }
-    // If the input was '0' and the user types another non-decimal digit (e.g. typing '1' becomes '1', not '01' or '0100')
+    if (cleaned === '.') {
+      cleaned = '0.';
+    }
+    // If the input had leading zero followed by digits (e.g. 05 -> 5)
     if (/^0+[1-9]/.test(cleaned)) {
       cleaned = cleaned.replace(/^0+/, '');
-    } else if (/^0{2,}$/.test(cleaned)) {
-      cleaned = '0';
     }
     setSendingAmountInput(cleaned);
   };
@@ -411,6 +413,10 @@ export default function GlobalMoneyTransferPage() {
       .catch(() => {});
   }, []);
 
+  const minSendingLimit = useMemo(() => {
+    return parseFloat(cmsSettings?.remittance_min_amount_usd || '10.00') || 10;
+  }, [cmsSettings?.remittance_min_amount_usd]);
+
   // Instant client-side synchronous quote calculation so left & right sides never lag or show stale values
   const liveComputedQuote = useMemo(() => {
     const fromCur = (sendingCurrency || 'USD').toUpperCase();
@@ -521,6 +527,11 @@ export default function GlobalMoneyTransferPage() {
     e.preventDefault();
     if (!user) {
       router.push('/login?redirect=/transfer');
+      return;
+    }
+
+    if (sendingAmount < minSendingLimit) {
+      setSubmitError(`Minimum sending amount is $${minSendingLimit.toFixed(2)} ${sendingCurrency}.`);
       return;
     }
 
@@ -873,19 +884,27 @@ export default function GlobalMoneyTransferPage() {
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-slate-500 font-semibold">
                 <span>You Send ({sendingCurrency})</span>
-                <span>From Avora Available Balance</span>
+                <span className="font-mono text-amber-600 dark:text-amber-400 font-bold">
+                  Min: ${minSendingLimit.toFixed(2)} {sendingCurrency}
+                </span>
               </div>
               <div className="relative">
                 <span className="absolute left-4 top-3 text-lg font-bold text-slate-400">$</span>
                 <input
                   type="text"
                   inputMode="decimal"
-                  placeholder="0.00"
+                  placeholder={`${minSendingLimit.toFixed(2)}`}
                   value={sendingAmountInput}
                   onChange={(e) => handleSendingAmountChange(e.target.value)}
                   className="w-full pl-9 pr-4 py-3 rounded-2xl text-2xl font-black font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                 />
               </div>
+              {sendingAmount > 0 && sendingAmount < minSendingLimit && (
+                <p className="text-xs font-semibold text-rose-500 flex items-center gap-1 mt-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Minimum sending amount is ${minSendingLimit.toFixed(2)} ${sendingCurrency}.</span>
+                </p>
+              )}
             </div>
 
             {/* Recipient Estimated Receive */}
@@ -905,13 +924,17 @@ export default function GlobalMoneyTransferPage() {
 
             <button
               onClick={() => {
+                if (sendingAmount < minSendingLimit) {
+                  setSubmitError(`Minimum sending amount is $${minSendingLimit.toFixed(2)} ${sendingCurrency}.`);
+                  return;
+                }
                 setSubmitError(null);
                 setConfirmDetailsAccurate(false);
                 setAgreeTerms(false);
                 setShowTermsBox(false);
                 setStep(2);
               }}
-              disabled={sendingAmount <= 0}
+              disabled={sendingAmount < minSendingLimit}
               className="w-full py-4 rounded-2xl font-bold text-sm bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <span>Continue to Recipient Information</span>

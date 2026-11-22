@@ -375,6 +375,30 @@ function DashboardContent() {
   const [wthType, setWthType] = useState<'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE'>('MONTHLY_RETURNS');
   const [wthPackageId, setWthPackageId] = useState('');
   const [wthAmount, setWthAmount] = useState('');
+  const handleWthAmountChange = (rawVal: string) => {
+    if (rawVal === '') {
+      setWthAmount('');
+      setWthError(null);
+      return;
+    }
+    let cleaned = rawVal.replace(/[^0-9.]/g, '');
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      cleaned = `${parts[0]}.${parts.slice(1).join('')}`;
+    }
+    // Prevent user from putting 0 first
+    if (cleaned === '0') {
+      return;
+    }
+    if (cleaned === '.') {
+      cleaned = '0.';
+    }
+    if (/^0+[1-9]/.test(cleaned)) {
+      cleaned = cleaned.replace(/^0+/, '');
+    }
+    setWthAmount(cleaned);
+    setWthError(null);
+  };
   const [wthCurrency, setWthCurrency] = useState('USD');
   const [wthMethod, setWthMethod] = useState<'USDT_WALLET' | 'BANK_TRANSFER'>('USDT_WALLET');
   const [wthWalletAddress, setWthWalletAddress] = useState('');
@@ -1026,9 +1050,10 @@ function DashboardContent() {
       wthSource === 'FD_PRINCIPAL' ? 'PRINCIPAL_RELEASE' : 'MONTHLY_RETURNS';
     const effectiveCurrency = wthSource === 'USDT_WALLET_BAL' ? 'USDT' : 'USD';
     const parsedAmount = parseFloat(wthAmount);
+    const minWthLimit = 10;
 
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      setWthError('Please enter a valid withdrawal amount greater than 0.');
+    if (isNaN(parsedAmount) || parsedAmount < minWthLimit) {
+      setWthError(`Minimum withdrawal amount is $${minWthLimit.toFixed(2)} ${effectiveCurrency}.`);
       return;
     }
 
@@ -5181,6 +5206,9 @@ function DashboardContent() {
                     3. Withdrawal Amount ({wthSelectedCurrency})
                   </label>
                   <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold">
+                      Min: $10.00 {wthSelectedCurrency}
+                    </span>
                     <span className="text-[11px] text-slate-500">
                       Available:{' '}
                       <strong className="font-mono text-emerald-600 dark:text-emerald-400">
@@ -5214,19 +5242,25 @@ function DashboardContent() {
 
                 <div className="relative">
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
+                    type="text"
+                    inputMode="decimal"
                     required
-                    placeholder={`Enter amount in ${wthSelectedCurrency} (e.g. 1000)`}
+                    placeholder={`Enter amount (Min: $10.00 ${wthSelectedCurrency})`}
                     value={wthAmount}
-                    onChange={(e) => setWthAmount(e.target.value)}
+                    onChange={(e) => handleWthAmountChange(e.target.value)}
                     className="w-full px-3.5 py-2.5 pr-16 rounded-xl text-sm border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono font-bold text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                   />
                   <span className="absolute right-3.5 top-2.5 text-xs font-mono font-bold text-slate-400">
                     {wthSelectedCurrency}
                   </span>
                 </div>
+
+                {parseFloat(wthAmount || '0') > 0 && parseFloat(wthAmount || '0') < 10 && (
+                  <p className="text-[11px] font-semibold text-rose-500 flex items-center gap-1 mt-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Minimum withdrawal amount is $10.00 {wthSelectedCurrency}.</span>
+                  </p>
+                )}
 
                 {wthSource !== 'FD_PRINCIPAL' && parseFloat(wthAmount || '0') > wthSelectedAvailableNum && (
                   <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-[11px] text-rose-700 dark:text-rose-300 flex flex-wrap items-center justify-between gap-2">

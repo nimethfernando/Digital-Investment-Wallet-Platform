@@ -996,13 +996,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
 
                   <div className="flex flex-col items-end flex-1">
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       value={sendAmount}
                       onChange={(e) => {
                         setUserEditedSwapAmount(true);
                         let val = e.target.value.replace(/[^0-9.]/g, '');
+                        if (val === '0') return;
+                        if (val === '.') val = '0.';
                         if (/^0+[1-9]/.test(val)) val = val.replace(/^0+/, '');
-                        else if (/^0{2,}$/.test(val)) val = '0';
                         setSendAmount(val);
                       }}
                       placeholder="0.00"
