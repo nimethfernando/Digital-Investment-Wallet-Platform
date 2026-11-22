@@ -202,8 +202,8 @@ export const DepositModal: React.FC<DepositModalProps> = ({
       });
   }, [isOpen]);
 
-  // Generate QR code whenever the selected network/address changes
-  const activeConfig = networks[selectedNetwork] || DEFAULT_NETWORKS.TRC20;
+  // Generate QR code whenever the selected network/address changes (BEP-20 active rail)
+  const activeConfig = networks['BEP20'] || DEFAULT_NETWORKS.BEP20;
   const currentAddress = activeConfig.address;
 
   useEffect(() => {
@@ -653,42 +653,40 @@ export const DepositModal: React.FC<DepositModalProps> = ({
               /* ================= USDT CRYPTO DEPOSIT WITH QR CODE ================= */
               <div className="space-y-4">
                 
-                {/* Network Chips */}
+                {/* Network Selection - BEP20 BNB Smart Chain Only (TRON & Ethereum hidden to eliminate high gas fees) */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Select Deposit Network
+                      Deposit Network
                     </label>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                      {activeConfig.tagline}
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                      Recommended • Lowest Network Fees (&lt; $0.15)
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['BEP20', 'TRC20', 'ERC20'] as CryptoNetwork[]).map((net) => (
-                      <button
-                        key={net}
-                        type="button"
-                        onClick={() => setSelectedNetwork(net)}
-                        className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer relative ${
-                          selectedNetwork === net
-                            ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-100 shadow-sm'
-                            : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-400 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="font-mono font-bold text-xs">{net}</div>
-                          {net === 'BEP20' && (
-                            <span className="text-[8px] font-black uppercase px-1 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400">
-                              Trust
-                            </span>
-                          )}
+                  <div className="p-3.5 rounded-2xl border-2 border-emerald-500/60 bg-emerald-50/80 dark:bg-emerald-950/40 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-amber-400/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black text-xs font-mono border border-amber-500/30">
+                        BSC
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-slate-900 dark:text-white">BEP-20 (BNB Smart Chain)</span>
+                          <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                            Active
+                          </span>
+                          <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400">
+                            Trust Wallet
+                          </span>
                         </div>
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                          {net === 'BEP20' ? 'BNB Chain' : net === 'TRC20' ? 'TRON' : 'Ethereum'}
-                        </div>
-                      </button>
-                    ))}
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Instant EVM finality • Compatible with Binance, Trust Wallet, MetaMask &amp; OKX
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                      ~0.05s / block
+                    </span>
                   </div>
                 </div>
 
@@ -711,7 +709,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                     )}
                     
                     <div className="text-[10px] text-slate-500 font-mono font-semibold pt-1">
-                      Scan via Binance / Trust / OKX / TronLink
+                      Scan via Binance / Trust / OKX / MetaMask / SafePal
                     </div>
                   </div>
 

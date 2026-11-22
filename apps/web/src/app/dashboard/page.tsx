@@ -371,7 +371,7 @@ function DashboardContent() {
 
   // Withdrawal Form State
   const [wthSource, setWthSource] = useState<'USD_WALLET' | 'USDT_WALLET_BAL' | 'FD_PRINCIPAL'>('USD_WALLET');
-  const [wthCryptoNetwork, setWthCryptoNetwork] = useState<'TRC20' | 'BEP20'>('TRC20');
+  const [wthCryptoNetwork, setWthCryptoNetwork] = useState<'BEP20' | 'TRC20'>('BEP20');
   const [wthType, setWthType] = useState<'MONTHLY_RETURNS' | 'PRINCIPAL_RELEASE'>('MONTHLY_RETURNS');
   const [wthPackageId, setWthPackageId] = useState('');
   const [wthAmount, setWthAmount] = useState('');
@@ -1113,44 +1113,29 @@ function DashboardContent() {
     if (wthMethod === 'USDT_WALLET') {
       const trimmedAddr = wthWalletAddress.trim();
       if (!trimmedAddr) {
-        setWthError(`Please enter your destination ${wthCryptoNetwork} USDT wallet address.`);
+        setWthError('Please enter your destination BEP20 USDT wallet address.');
         return;
       }
 
-      if (wthCryptoNetwork === 'TRC20') {
-        if (trimmedAddr.startsWith('0x')) {
-          setWthError(
-            'This looks like a BEP20 (0x...) address. Please select the BEP20 (BNB Smart Chain) network option or enter a TRC20 (T...) address.'
-          );
-          return;
-        }
-        if (!/^T[1-9A-HJ-NP-Za-km-z]{32,35}$/.test(trimmedAddr)) {
-          setWthError(
-            'Invalid TRC20 wallet address. TRON (TRC20) addresses must start with "T" and be 34 characters long.'
-          );
-          return;
-        }
-      } else {
-        if (trimmedAddr.startsWith('T')) {
-          setWthError(
-            'This looks like a TRC20 (T...) address. Please select the TRC20 (TRON) network option or enter a BEP20 (0x...) address.'
-          );
-          return;
-        }
-        if (!/^0x[a-fA-F0-9]{40}$/.test(trimmedAddr)) {
-          setWthError(
-            'Invalid BEP20 wallet address. BNB Smart Chain (BEP20) addresses must start with "0x" and be 42 hexadecimal characters long.'
-          );
-          return;
-        }
+      if (trimmedAddr.startsWith('T')) {
+        setWthError(
+          'TRON (TRC20) network is disabled due to high network gas fees. Please enter a valid BEP20 (BNB Smart Chain) 0x address.'
+        );
+        return;
+      }
+      if (!/^0x[a-fA-F0-9]{40}$/.test(trimmedAddr)) {
+        setWthError(
+          'Invalid BEP20 wallet address. BNB Smart Chain (BEP20) addresses must start with "0x" and be 42 hexadecimal characters long.'
+        );
+        return;
       }
 
       const cryptoFee = wthPricingConfig.cryptoFeePct || 0;
       payoutDetails = {
         ...payoutDetails,
         address: trimmedAddr,
-        network: wthCryptoNetwork,
-        networkLabel: wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain (BEP20)' : 'TRON Network (TRC20)',
+        network: 'BEP20',
+        networkLabel: 'BNB Smart Chain (BEP20)',
         payoutCurrency: 'USDT',
         withdrawalRail: 'USDT_BLOCKCHAIN',
         withdrawalFeePct: cryptoFee,
@@ -3514,21 +3499,10 @@ function DashboardContent() {
               <div>
                 <h3 className="text-xl font-bold">Withdrawal Queue &amp; Settlement</h3>
                 <p className="text-xs text-slate-500">
-                  Withdraw available USD, USDT (TRC20 / BEP20), or matured FD principal to your crypto wallet or linked bank account
+                  Withdraw available USD, USDT (BEP20 BNB Smart Chain), or matured FD principal to your crypto wallet or linked bank account
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setWthMethod('USDT_WALLET');
-                    setWthCryptoNetwork('TRC20');
-                    setWithdrawModalOpen(true);
-                  }}
-                  className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer"
-                >
-                  + USDT (TRC20)
-                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -3589,22 +3563,6 @@ function DashboardContent() {
                     type="button"
                     onClick={() => {
                       setWthMethod('USDT_WALLET');
-                      setWthCryptoNetwork('TRC20');
-                      setWithdrawModalOpen(true);
-                      setTimeout(() => {
-                        setWthSource('USDT_WALLET_BAL');
-                        setWthCurrency('USDT');
-                      }, 0);
-                    }}
-                    className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                  >
-                    TRC20 →
-                  </button>
-                  <span className="text-slate-400">•</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWthMethod('USDT_WALLET');
                       setWthCryptoNetwork('BEP20');
                       setWithdrawModalOpen(true);
                       setTimeout(() => {
@@ -3614,7 +3572,7 @@ function DashboardContent() {
                     }}
                     className="text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
                   >
-                    BEP20 →
+                    Withdraw USDT (BEP20) →
                   </button>
                 </div>
               </div>
@@ -4940,29 +4898,7 @@ function DashboardContent() {
                 <label className="block text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
                   2. Choose Payout Network / Method
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWthMethod('USDT_WALLET');
-                      setWthCryptoNetwork('TRC20');
-                      setWthError(null);
-                    }}
-                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                      wthMethod === 'USDT_WALLET' && wthCryptoNetwork === 'TRC20'
-                        ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 ring-2 ring-emerald-500/20'
-                        : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-slate-300 dark:hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-black text-slate-900 dark:text-white">USDT (TRC20)</span>
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[9px] font-black">
-                        TRON
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 block font-mono">Address starts with T...</span>
-                  </button>
-
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={() => {
@@ -4971,7 +4907,7 @@ function DashboardContent() {
                       setWthError(null);
                     }}
                     className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                      wthMethod === 'USDT_WALLET' && wthCryptoNetwork === 'BEP20'
+                      wthMethod === 'USDT_WALLET'
                         ? 'border-amber-500 bg-amber-50/70 dark:bg-amber-950/40 ring-2 ring-amber-500/20'
                         : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-slate-300 dark:hover:border-slate-700'
                     }`}
@@ -4979,10 +4915,10 @@ function DashboardContent() {
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[11px] font-black text-slate-900 dark:text-white">USDT (BEP20)</span>
                       <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[9px] font-black">
-                        BSC
+                        BNB Chain
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-500 block font-mono">Address starts with 0x...</span>
+                    <span className="text-[10px] text-slate-500 block font-mono">0x... address • Lowest gas fees (&lt; $0.15)</span>
                   </button>
 
                   <button
@@ -5001,7 +4937,7 @@ function DashboardContent() {
                       <span className="text-[11px] font-black text-slate-900 dark:text-white">Bank Wire</span>
                       <Landmark className="w-3.5 h-3.5 text-blue-500" />
                     </div>
-                    <span className="text-[10px] text-slate-500 block">SWIFT / SEPA / Local</span>
+                    <span className="text-[10px] text-slate-500 block">SWIFT Wire / Domestic Clearing</span>
                   </button>
                 </div>
               </div>
@@ -5011,45 +4947,24 @@ function DashboardContent() {
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <Coins className={`w-4 h-4 ${wthCryptoNetwork === 'BEP20' ? 'text-amber-500' : 'text-emerald-500'}`} />
+                      <Coins className="w-4 h-4 text-amber-500" />
                       <span className="font-bold text-slate-900 dark:text-white">
-                        USDT Crypto Destination ({wthCryptoNetwork})
+                        USDT Crypto Destination (BEP20 BNB Smart Chain)
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => setWthCryptoNetwork('TRC20')}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                          wthCryptoNetwork === 'TRC20'
-                            ? 'bg-emerald-600 text-white'
-                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                      >
-                        TRC20 (TRON)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setWthCryptoNetwork('BEP20')}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                          wthCryptoNetwork === 'BEP20'
-                            ? 'bg-amber-600 text-white'
-                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                      >
-                        BEP20 (BSC)
-                      </button>
-                    </div>
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                      Lowest Network Fees (&lt; $0.15)
+                    </span>
                   </div>
 
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      Destination {wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain (BEP20)' : 'TRON (TRC20)'} Address
+                      Destination BNB Smart Chain (BEP20) Address (0x...)
                     </label>
                     <input
                       type="text"
                       required
-                      placeholder={wthCryptoNetwork === 'BEP20' ? '0x71C7656EC7ab88b098defB751B7401B5f6d8976F' : 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb'}
+                      placeholder="0x71C7656EC7ab88b098defB751B7401B5f6d8976F"
                       value={wthWalletAddress}
                       onChange={(e) => setWthWalletAddress(e.target.value)}
                       className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono outline-none focus:border-emerald-500"
@@ -5058,33 +4973,18 @@ function DashboardContent() {
 
                   {wthWalletAddress.trim() && (
                     <div className="flex items-center justify-between text-[11px]">
-                      {wthCryptoNetwork === 'TRC20' && wthWalletAddress.trim().startsWith('0x') ? (
-                        <div className="flex items-center justify-between w-full p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300">
-                          <span>This looks like a BEP20 (0x...) address.</span>
-                          <button
-                            type="button"
-                            onClick={() => setWthCryptoNetwork('BEP20')}
-                            className="underline font-bold cursor-pointer"
-                          >
-                            Switch to BEP20 →
-                          </button>
+                      {wthWalletAddress.trim().startsWith('T') ? (
+                        <div className="flex items-center justify-between w-full p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300">
+                          <span>TRON (TRC20) network is disabled due to high network gas fees. Please enter a BEP20 (0x...) address.</span>
                         </div>
-                      ) : wthCryptoNetwork === 'BEP20' && wthWalletAddress.trim().startsWith('T') ? (
-                        <div className="flex items-center justify-between w-full p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300">
-                          <span>This looks like a TRC20 (T...) address.</span>
-                          <button
-                            type="button"
-                            onClick={() => setWthCryptoNetwork('TRC20')}
-                            className="underline font-bold cursor-pointer"
-                          >
-                            Switch to TRC20 →
-                          </button>
-                        </div>
+                      ) : !/^0x[a-fA-F0-9]{40}$/.test(wthWalletAddress.trim()) ? (
+                        <span className="text-amber-600 dark:text-amber-400">
+                          Must be a valid BNB Smart Chain (BEP20) 0x address (42 hex characters).
+                        </span>
                       ) : (
-                        <span className="text-slate-500">
-                          {wthCryptoNetwork === 'BEP20'
-                            ? 'Must be a valid BNB Smart Chain (BEP20) 0x address (42 hex characters).'
-                            : 'Must be a valid TRON (TRC20) address starting with T (34 characters).'}
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" />
+                          Valid BEP20 address detected
                         </span>
                       )}
                     </div>
@@ -5406,7 +5306,7 @@ function DashboardContent() {
                   <span className="text-slate-400">Payout Network / Rail:</span>
                   <span className="font-bold text-emerald-400">
                     {wthMethod === 'USDT_WALLET'
-                      ? `USDT Wallet • ${wthCryptoNetwork} (${wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain' : 'TRON'}) • ${wthPricingConfig.cryptoFeePct || 0}% fee`
+                      ? `USDT Wallet • BNB Smart Chain (BEP20) • ${wthPricingConfig.cryptoFeePct || 0}% fee`
                       : wthBankRail === 'DOMESTIC_LOCAL'
                       ? `Domestic Clearing (ACH / Local) • ${wthPricingConfig.domesticFeePct}% fee`
                       : `International Wire (SWIFT) • ${wthPricingConfig.internationalFeePct}% fee`}

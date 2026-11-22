@@ -6596,12 +6596,12 @@ export default function AdminPortalPage() {
                         <span className="w-3 h-3 rounded-full bg-amber-400"></span>
                         <span className="font-bold text-sm text-white">USDT (BEP-20)</span>
                       </div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                        BNB Chain
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        Active Primary Rail (&lt; $0.15)
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      Recommended for Trust Wallet &amp; Binance. Fast confirmation and ultra-low gas fee (&lt; $0.15).
+                      Recommended for Trust Wallet &amp; Binance. Fast confirmation and ultra-low gas fee (&lt; $0.15). Active for client deposits.
                     </p>
 
                     <div>
@@ -6664,12 +6664,12 @@ export default function AdminPortalPage() {
                         <span className="w-3 h-3 rounded-full bg-blue-400"></span>
                         <span className="font-bold text-sm text-white">USDT (ERC-20)</span>
                       </div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30">
-                        Ethereum Mainnet
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                        Hidden on Client Side
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      Compatible with Trust Wallet, MetaMask, and institutional custodians. Higher gas fees apply.
+                      Ethereum Mainnet custodian address. Currently hidden from user deposits to prevent high Ethereum gas fee issues.
                     </p>
 
                     <div>
@@ -6733,11 +6733,11 @@ export default function AdminPortalPage() {
                         <span className="font-bold text-sm text-white">USDT (TRC-20)</span>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
-                        TRON Rail
+                        Hidden on Client Side (High Gas Fees)
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      Popular low-fee retail transfer rail with sub-$1.50 network fees and instant 1-block finality.
+                      TRON rail address. Hidden from user deposit and withdrawal options to prevent high network/gas fee friction.
                     </p>
 
                     <div>

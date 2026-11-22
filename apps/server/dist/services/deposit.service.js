@@ -86,23 +86,6 @@ class DepositService {
         const bankSwift = bankSwiftSetting?.value || 'BAGAGE22';
         return {
             usdt: {
-                TRC20: {
-                    id: 'USDT_TRC20',
-                    network: 'TRC-20 (TRON)',
-                    chain: 'TRON',
-                    currency: 'USDT',
-                    address: trc20Address,
-                    minDeposit: 50,
-                    confirmationBlocks: 1,
-                    tagline: 'Recommended • Lowest Network Fees (< $1.50)',
-                    explorerUrl: `https://tronscan.org/#/address/${trc20Address}`,
-                    instructions: [
-                        'Send only USDT (Tether) via the TRC-20 (TRON) network to this address.',
-                        'Sending any other coin or token to this address will result in permanent loss.',
-                        'Minimum deposit: 50 USDT. Deposits below the minimum cannot be recovered.',
-                        'Your ledger balance will be credited upon 1 network confirmation and review.',
-                    ],
-                },
                 BEP20: {
                     id: 'USDT_BEP20',
                     network: 'BEP-20 (BNB Smart Chain)',
@@ -111,13 +94,30 @@ class DepositService {
                     address: bep20Address,
                     minDeposit: 50,
                     confirmationBlocks: 15,
-                    tagline: 'Fast Confirmation • Low Gas Fee • Trust Wallet Compatible',
+                    tagline: 'Recommended • Lowest Network Fees (< $0.15) • Trust Wallet Compatible',
                     explorerUrl: `https://bscscan.com/address/${bep20Address}`,
                     instructions: [
                         'Send only USDT via BEP-20 (BNB Smart Chain) network to this address.',
                         'Compatible with Trust Wallet, Binance, MetaMask, and SafePal.',
                         'Ensure the selected network in your sending wallet is BSC / BEP-20.',
                         'Minimum deposit: 50 USDT.',
+                    ],
+                },
+                TRC20: {
+                    id: 'USDT_TRC20',
+                    network: 'TRC-20 (TRON)',
+                    chain: 'TRON',
+                    currency: 'USDT',
+                    address: trc20Address,
+                    minDeposit: 50,
+                    confirmationBlocks: 1,
+                    tagline: 'TRON Network (High Gas Fees)',
+                    explorerUrl: `https://tronscan.org/#/address/${trc20Address}`,
+                    instructions: [
+                        'Send only USDT (Tether) via the TRC-20 (TRON) network to this address.',
+                        'Sending any other coin or token to this address will result in permanent loss.',
+                        'Minimum deposit: 50 USDT. Deposits below the minimum cannot be recovered.',
+                        'Your ledger balance will be credited upon 1 network confirmation and review.',
                     ],
                 },
                 ERC20: {
