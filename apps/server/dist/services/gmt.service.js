@@ -294,15 +294,69 @@ class GlobalMoneyTransferService {
         if (!user || user.status !== 'ACTIVE') {
             throw new Error('User account is inactive or not found.');
         }
-        // Recipient detail validation
-        if (!data.recipientName?.trim() || !data.recipientAccount?.trim() || !data.recipientBankName?.trim()) {
-            throw new Error('Recipient legal name, bank account number/IBAN, and bank name are required.');
+        // Recipient & bank core validation
+        if (!data.recipientName?.trim()) {
+            throw new Error('Beneficiary legal full name is required.');
+        }
+        if (!data.recipientAccount?.trim()) {
+            throw new Error('Beneficiary bank account number or IBAN is required.');
+        }
+        if (!data.recipientBankName?.trim()) {
+            throw new Error('Beneficiary bank name is required.');
         }
         if (data.termsAccepted !== true) {
             throw new Error('You must confirm the accuracy of your beneficiary bank details and accept the Remittance Terms & Conditions before funding this transfer.');
         }
+        const cc = (data.destinationCountryCode || 'US').toUpperCase().trim();
+        // Beneficiary physical address validation (mandated by international AML/FATF guidelines)
+        const recStreet = (data.recipientStreet || data.recipientAddress || '').trim();
+        if (!recStreet || recStreet.length < 3) {
+            throw new Error('Beneficiary physical street address is required for international AML compliance.');
+        }
+        // State / Province validation where strictly required
+        if (['US', 'CA', 'AU', 'IN'].includes(cc)) {
+            if (!data.recipientState?.trim() && !data.recipientAddress?.includes(',')) {
+                const stateLabel = cc === 'US' ? 'State' : cc === 'CA' ? 'Province' : cc === 'IN' ? 'State' : 'State / Territory';
+                throw new Error(`Beneficiary ${stateLabel} is required for international transfers to ${data.destinationCountry}.`);
+            }
+        }
+        // Postal / ZIP code validation where strictly required
+        if (['US', 'GB', 'CA', 'AU', 'IN', 'DE', 'FR', 'EU'].includes(cc)) {
+            if (!data.recipientPostalCode?.trim() && !data.recipientAddress?.match(/\d{3,}/)) {
+                const zipLabel = cc === 'US' ? 'ZIP code' : cc === 'GB' ? 'Postcode' : cc === 'IN' ? 'PIN code' : 'Postal code';
+                throw new Error(`Beneficiary ${zipLabel} is required for international transfers to ${data.destinationCountry}.`);
+            }
+        }
+        // Country-specific local routing code validation
+        if (cc === 'US' && data.localRoutingCode?.trim()) {
+            const cleanedAba = data.localRoutingCode.trim().replace(/\D/g, '');
+            if (cleanedAba.length !== 9) {
+                throw new Error('US bank routing number must be exactly 9 digits (ABA / Fedwire).');
+            }
+        }
+        else if (cc === 'GB' && data.localRoutingCode?.trim()) {
+            const cleanedSort = data.localRoutingCode.trim().replace(/[-\s]/g, '');
+            if (cleanedSort.length !== 6 || !/^\d{6}$/.test(cleanedSort)) {
+                throw new Error('UK bank sort code must be exactly 6 digits (e.g. 20-00-00).');
+            }
+        }
+        else if (cc === 'IN' && data.localRoutingCode?.trim()) {
+            const cleanedIfsc = data.localRoutingCode.trim().toUpperCase();
+            if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(cleanedIfsc)) {
+                throw new Error('Indian bank IFSC code must be 11 characters with the 5th character being 0 (e.g. SBIN0001234).');
+            }
+        }
+        // Intermediary bank validation
+        if (data.hasIntermediaryBank) {
+            if (!data.intermediaryBankName?.trim()) {
+                throw new Error('Intermediary bank name is required when intermediary bank option is selected.');
+            }
+            if (!data.intermediarySwift?.trim()) {
+                throw new Error('Intermediary bank SWIFT / BIC code is required.');
+            }
+        }
         const normalizedAccount = this.validateAccountOrIban(data.recipientAccount, data.destinationCountryCode);
-        const normalizedRouting = this.validateRoutingOrSwift(data.recipientBicSwift || '', data.destinationCountryCode);
+        const normalizedRouting = this.validateRoutingOrSwift(data.recipientBicSwift || data.localRoutingCode || '', data.destinationCountryCode);
         const quote = await this.calculateQuote({
             sendingCurrency: data.sendingCurrency,
             sendingAmount: data.sendingAmount,
@@ -314,9 +368,55 @@ class GlobalMoneyTransferService {
         const sendingAmtDec = totalToDebit.minus(feeAmtDec);
         const wallet = await ledger_service_1.ledgerService.ensureWallet(userId);
         const transferCode = `GMT-${Date.now().toString().slice(-6)}`;
-        const formattedAddress = data.recipientAddress
-            ? (data.recipientEmail ? `${data.recipientAddress} | Tracking Email: ${data.recipientEmail}` : data.recipientAddress)
+        const fullStreet = (data.recipientStreet || data.recipientAddress || '').trim();
+        const addressComponents = [
+            fullStreet,
+            data.recipientCity?.trim(),
+            data.recipientState?.trim(),
+            data.recipientPostalCode?.trim(),
+            data.recipientCountry?.trim() || data.destinationCountry,
+        ].filter(Boolean);
+        const combinedAddress = addressComponents.join(', ');
+        const formattedAddress = combinedAddress
+            ? (data.recipientEmail ? `${combinedAddress} | Tracking Email: ${data.recipientEmail}` : combinedAddress)
             : (data.recipientEmail ? `Tracking Email: ${data.recipientEmail}` : null);
+        const structuredBeneficiaryBank = {
+            beneficiary: {
+                fullName: data.recipientName.trim(),
+                country: data.recipientCountry || data.destinationCountry,
+                countryCode: cc,
+                streetAddress: fullStreet,
+                city: data.recipientCity?.trim() || '',
+                stateProvince: data.recipientState?.trim() || '',
+                postalZipCode: data.recipientPostalCode?.trim() || '',
+                phone: data.recipientPhone?.trim() || '',
+                email: data.recipientEmail?.trim() || '',
+            },
+            bank: {
+                name: data.recipientBankName.trim(),
+                country: data.bankCountry || data.destinationCountry,
+                streetAddress: data.bankStreet?.trim() || '',
+                city: data.bankCity?.trim() || '',
+                stateProvince: data.bankState?.trim() || '',
+                postalZipCode: data.bankPostalCode?.trim() || '',
+                accountOrIban: normalizedAccount,
+                swiftBic: normalizedRouting,
+                localRoutingCode: data.localRoutingCode?.trim() || '',
+                localRoutingType: data.localRoutingType?.trim() || '',
+            },
+            intermediary: data.hasIntermediaryBank ? {
+                bankName: data.intermediaryBankName?.trim() || '',
+                swiftBic: data.intermediarySwift?.trim().toUpperCase() || '',
+                country: data.intermediaryCountry?.trim() || '',
+                city: data.intermediaryCity?.trim() || '',
+                account: data.intermediaryAccount?.trim() || '',
+            } : null,
+            payment: {
+                purpose: data.transferReason?.trim() || 'Family Support & Living Expenses',
+                reference: data.paymentReference?.trim() || '',
+                payoutRail: data.payoutRail || 'SWIFT',
+            },
+        };
         const initialTimeline = [
             {
                 stage: 'SUBMITTED',
@@ -386,6 +486,7 @@ class GlobalMoneyTransferService {
                     transferFeeAmount: new decimal_js_1.default(quote.transferFeeAmount),
                     totalPaidAmount: totalToDebit,
                     status: 'PROCESSING',
+                    complianceNotes: JSON.stringify(structuredBeneficiaryBank),
                     estimatedDeliveryDate: new Date(quote.estimatedDeliveryDate),
                     trackingTimeline: JSON.stringify(initialTimeline),
                 },

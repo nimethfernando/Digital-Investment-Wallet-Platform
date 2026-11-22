@@ -55,9 +55,15 @@ import {
   Copy,
   QrCode,
   Search,
+  MapPin,
+  Building2,
+  Phone,
+  Mail,
 } from 'lucide-react';
 import { SupportTicketModule } from './SupportTicketModule';
 import { ChooseSendMethodModal } from './ChooseSendMethodModal';
+import { getCountryTransferRule, TRANSFER_PURPOSE_OPTIONS } from '../lib/country-transfer-rules';
+import { GMT_GLOBAL_COUNTRIES } from '../lib/gmt-countries';
 
 interface RedotPayAppModuleProps {
   user: any;
@@ -103,25 +109,57 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const [scanInvoiceModalOpen, setScanInvoiceModalOpen] = useState(false);
   const [scannedInvoiceAmount, setScannedInvoiceAmount] = useState<string>('4500');
 
-  // International Bank Recipient Form Modal matching Screenshots a133598e & 48db6857
+  // International Bank Recipient Form States (Country-Aware FATF & Clearing Compliance)
   const [intlRecipientModalOpen, setIntlRecipientModalOpen] = useState(false);
+  const [intlCountryCode, setIntlCountryCode] = useState('US');
   const [intlCurrency, setIntlCurrency] = useState('USD');
-  const [intlRail, setIntlRail] = useState('Swift');
+  const [intlRail, setIntlRail] = useState('SWIFT');
   const [intlEmail, setIntlEmail] = useState('');
+  const [intlPhone, setIntlPhone] = useState('');
   const [intlFirstName, setIntlFirstName] = useState('');
   const [intlLastName, setIntlLastName] = useState('');
+  const [intlStreetAddress, setIntlStreetAddress] = useState('');
+  const [intlCity, setIntlCity] = useState('');
+  const [intlState, setIntlState] = useState('');
+  const [intlPostalCode, setIntlPostalCode] = useState('');
+  const [intlBankName, setIntlBankName] = useState('JPMorgan Chase & Co.');
+  const [intlBankCountry, setIntlBankCountry] = useState('United States');
+  const [intlBankStreet, setIntlBankStreet] = useState('');
+  const [intlBankCity, setIntlBankCity] = useState('');
+  const [intlBankState, setIntlBankState] = useState('');
+  const [intlBankPostalCode, setIntlBankPostalCode] = useState('');
   const [intlSwiftCode, setIntlSwiftCode] = useState('');
   const [intlIban, setIntlIban] = useState('');
-  const [intlBankName, setIntlBankName] = useState('JPMorgan Chase & Co.');
   const [intlRoutingNumber, setIntlRoutingNumber] = useState('');
   const [intlAccountNumber, setIntlAccountNumber] = useState('');
   const [intlAccountType, setIntlAccountType] = useState('Checking');
-  const [intlNationality, setIntlNationality] = useState('United States');
-  const [intlDob, setIntlDob] = useState('1990-01-01');
+  const [intlHasIntermediary, setIntlHasIntermediary] = useState(false);
+  const [intlIntermediaryBank, setIntlIntermediaryBank] = useState('');
+  const [intlIntermediarySwift, setIntlIntermediarySwift] = useState('');
+  const [intlIntermediaryCountry, setIntlIntermediaryCountry] = useState('');
+  const [intlIntermediaryCity, setIntlIntermediaryCity] = useState('');
+  const [intlIntermediaryAccount, setIntlIntermediaryAccount] = useState('');
+  const [intlPurpose, setIntlPurpose] = useState('Family Support & Living Expenses');
+  const [intlReference, setIntlReference] = useState('');
+  const [intlFormError, setIntlFormError] = useState<string | null>(null);
   const [intlSaving, setIntlSaving] = useState(false);
   const [intlSavedSuccess, setIntlSavedSuccess] = useState(false);
 
-  // Quick Action Clipboard & Photo Handlers matching Screenshot 43caf055
+  const activeIntlRule = React.useMemo(() => {
+    return getCountryTransferRule(intlCountryCode, intlCurrency);
+  }, [intlCountryCode, intlCurrency]);
+
+  const handleCountryChange = (code: string) => {
+    setIntlCountryCode(code);
+    const country = GMT_GLOBAL_COUNTRIES.find((c) => c.code === code);
+    if (country) {
+      setIntlCurrency(country.currency);
+      setIntlBankCountry(country.name);
+    }
+    setIntlFormError(null);
+  };
+
+  // Quick Action Clipboard & Photo Handlers
   const handlePasteClipboard = async () => {
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
@@ -131,13 +169,16 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           setIntlEmail(trimmed);
           alert(`Pasted Email: ${trimmed}`);
         } else if (/^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(trimmed)) {
-          setIntlSwiftCode(trimmed);
-          alert(`Pasted SWIFT Code: ${trimmed}`);
+          setIntlSwiftCode(trimmed.toUpperCase());
+          alert(`Pasted SWIFT Code: ${trimmed.toUpperCase()}`);
         } else if (/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,30}$/.test(trimmed)) {
-          setIntlIban(trimmed);
-          alert(`Pasted IBAN: ${trimmed}`);
+          setIntlIban(trimmed.toUpperCase());
+          alert(`Pasted IBAN: ${trimmed.toUpperCase()}`);
+        } else if (/^\d{9}$/.test(trimmed) && intlCountryCode === 'US') {
+          setIntlRoutingNumber(trimmed);
+          alert(`Pasted 9-Digit ABA Routing Number: ${trimmed}`);
         } else {
-          setIntlAccountNumber(trimmed);
+          setIntlIban(trimmed);
           alert(`Pasted Account Number: ${trimmed}`);
         }
       }
@@ -149,12 +190,189 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      alert(`Bank invoice / check document "${file.name}" uploaded. Auto-extracting recipient credentials.`);
-      setIntlBankName('JPMorgan Chase & Co.');
-      setIntlSwiftCode('CHASUS33');
-      setIntlRoutingNumber('021000021');
-      setIntlAccountType('Checking');
+      alert(`Bank invoice / wire document "${file.name}" uploaded. Auto-extracting beneficiary credentials.`);
+      if (intlCountryCode === 'US') {
+        setIntlBankName('JPMorgan Chase & Co.');
+        setIntlSwiftCode('CHASUS33');
+        setIntlRoutingNumber('021000021');
+        setIntlAccountType('Checking');
+      } else if (intlCountryCode === 'IN') {
+        setIntlBankName('State Bank of India');
+        setIntlSwiftCode('SBININBB');
+        setIntlRoutingNumber('SBIN0001234');
+      } else if (intlCountryCode === 'GB') {
+        setIntlBankName('Barclays Bank UK');
+        setIntlSwiftCode('BARCGB22');
+        setIntlRoutingNumber('20-00-00');
+      }
     }
+  };
+
+  const handleContinueToTransfer = () => {
+    setIntlFormError(null);
+
+    // 1. Beneficiary name validation
+    const fullName = `${intlFirstName} ${intlLastName}`.trim();
+    if (!intlFirstName.trim() || !intlLastName.trim()) {
+      setIntlFormError('Please enter the beneficiary first and last name as stated on their bank account.');
+      return;
+    }
+
+    // 2. Beneficiary physical street address (FATF / AML mandatory)
+    if (!intlStreetAddress.trim() || intlStreetAddress.trim().length < 3) {
+      setIntlFormError('Beneficiary street address is required for international AML compliance.');
+      return;
+    }
+    if (!intlCity.trim()) {
+      setIntlFormError('Beneficiary city is required.');
+      return;
+    }
+    if (activeIntlRule.requiresState && !intlState.trim()) {
+      setIntlFormError(`Beneficiary ${activeIntlRule.stateLabel} is required for international transfers to ${activeIntlRule.countryName}.`);
+      return;
+    }
+    if (activeIntlRule.requiresPostalCode && !intlPostalCode.trim()) {
+      setIntlFormError(`Beneficiary ${activeIntlRule.postalCodeLabel} is required for international transfers to ${activeIntlRule.countryName}.`);
+      return;
+    }
+
+    // 3. Bank details
+    if (!intlBankName.trim()) {
+      setIntlFormError('Please enter the receiving bank name.');
+      return;
+    }
+
+    // 4. Account Number / IBAN validation
+    const cleanedAccount = intlIban.replace(/[\s-]/g, '').toUpperCase();
+    if (!cleanedAccount) {
+      setIntlFormError(`Beneficiary ${activeIntlRule.accountLabel} is required.`);
+      return;
+    }
+    if (cleanedAccount.startsWith('DE') || cleanedAccount.startsWith('FR') || cleanedAccount.startsWith('GB') || /^[A-Z]{2}/.test(cleanedAccount)) {
+      if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(cleanedAccount)) {
+        setIntlFormError('Invalid IBAN format. Must start with 2-letter country code, 2 check digits, and 11–30 characters.');
+        return;
+      }
+    } else if (intlCountryCode === 'IN') {
+      if (!/^\d{9,18}$/.test(cleanedAccount)) {
+        setIntlFormError('India transfers require a 9 to 18-digit bank account number.');
+        return;
+      }
+    }
+
+    // 5. Local routing / SWIFT validation
+    if (intlCountryCode === 'US' && intlRail === 'LOCAL') {
+      const cleanedAba = intlRoutingNumber.replace(/\D/g, '');
+      if (cleanedAba.length !== 9) {
+        setIntlFormError('US Domestic ACH / Fedwire requires a 9-digit ABA routing number.');
+        return;
+      }
+    } else if (intlCountryCode === 'GB' && intlRail === 'LOCAL') {
+      const cleanedSort = intlRoutingNumber.replace(/[-\s]/g, '');
+      if (cleanedSort.length !== 6) {
+        setIntlFormError('UK Faster Payments requires a 6-digit Sort Code (e.g. 20-00-00).');
+        return;
+      }
+    } else if (intlCountryCode === 'IN') {
+      const cleanedIfsc = intlRoutingNumber.trim().toUpperCase();
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(cleanedIfsc) && !intlSwiftCode.trim()) {
+        setIntlFormError('Indian bank transfer requires an 11-char IFSC code (5th char 0) or SWIFT/BIC.');
+        return;
+      }
+    }
+
+    // SWIFT required if rail is SWIFT
+    if (intlRail === 'SWIFT' || (!intlRoutingNumber.trim() && !['EU', 'DE', 'FR'].includes(intlCountryCode))) {
+      const cleanedSwift = intlSwiftCode.replace(/[\s-]/g, '').toUpperCase();
+      if (!cleanedSwift || !/^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(cleanedSwift)) {
+        setIntlFormError('Please enter a valid 8 or 11-character SWIFT / BIC code (e.g. CHASUS33).');
+        return;
+      }
+    }
+
+    // 6. Intermediary bank validation
+    if (intlHasIntermediary) {
+      if (!intlIntermediaryBank.trim()) {
+        setIntlFormError('Intermediary bank name is required when intermediary bank option is enabled.');
+        return;
+      }
+      const cleanedInterSwift = intlIntermediarySwift.replace(/[\s-]/g, '').toUpperCase();
+      if (!cleanedInterSwift || !/^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(cleanedInterSwift)) {
+        setIntlFormError('Valid 8 or 11-character Intermediary SWIFT / BIC code is required.');
+        return;
+      }
+    }
+
+    // 7. Purpose of transfer
+    if (!intlPurpose.trim()) {
+      setIntlFormError('Please select the remittance purpose / regulatory reason.');
+      return;
+    }
+
+    const countryObj = GMT_GLOBAL_COUNTRIES.find((c) => c.code === intlCountryCode) || {
+      code: intlCountryCode,
+      name: activeIntlRule.countryName,
+      currency: intlCurrency,
+      flag: activeIntlRule.flag,
+    };
+
+    const pendingRecipient = {
+      destinationCountry: countryObj.name,
+      destinationCountryCode: countryObj.code,
+      destinationFlag: countryObj.flag,
+      recipientCurrency: intlCurrency,
+      payoutRail: intlRail,
+      recipientName: fullName,
+      recipientFirstName: intlFirstName.trim(),
+      recipientLastName: intlLastName.trim(),
+      recipientEmail: intlEmail.trim(),
+      recipientPhone: intlPhone.trim(),
+      recipientStreet: intlStreetAddress.trim(),
+      recipientCity: intlCity.trim(),
+      recipientState: intlState.trim(),
+      recipientPostalCode: intlPostalCode.trim(),
+      recipientCountry: countryObj.name,
+      recipientAddress: [intlStreetAddress.trim(), intlCity.trim(), intlState.trim(), intlPostalCode.trim(), countryObj.name].filter(Boolean).join(', '),
+      recipientBankName: intlBankName.trim(),
+      bankCountry: intlBankCountry || countryObj.name,
+      bankStreet: intlBankStreet.trim(),
+      bankCity: intlBankCity.trim(),
+      bankState: intlBankState.trim(),
+      bankPostalCode: intlBankPostalCode.trim(),
+      recipientAccount: cleanedAccount,
+      recipientBicSwift: intlSwiftCode.trim().toUpperCase() || intlRoutingNumber.trim().toUpperCase(),
+      localRoutingCode: intlRoutingNumber.trim(),
+      localRoutingType: activeIntlRule.localCodeLabel,
+      hasIntermediaryBank: intlHasIntermediary,
+      intermediaryBankName: intlIntermediaryBank.trim(),
+      intermediarySwift: intlIntermediarySwift.trim().toUpperCase(),
+      intermediaryCountry: intlIntermediaryCountry.trim(),
+      intermediaryCity: intlIntermediaryCity.trim(),
+      intermediaryAccount: intlIntermediaryAccount.trim(),
+      transferReason: intlPurpose,
+      paymentReference: intlReference.trim(),
+    };
+
+    try {
+      localStorage.setItem('avora_pending_remittance_recipient', JSON.stringify(pendingRecipient));
+    } catch (e) {
+      console.error('Failed to store pending remittance recipient in localStorage:', e);
+    }
+
+    setIntlSaving(true);
+    setTimeout(() => {
+      setIntlSaving(false);
+      setIntlSavedSuccess(true);
+      setTimeout(() => {
+        setIntlSavedSuccess(false);
+        setIntlRecipientModalOpen(false);
+        if (onOpenInternationalTransfer) {
+          onOpenInternationalTransfer();
+        } else {
+          router.push('/transfer');
+        }
+      }, 700);
+    }, 600);
   };
 
   // Transactions Filter States
@@ -1619,9 +1837,9 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
       {/* Modal 5: International Bank Recipient Form Modal */}
       {intlRecipientModalOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-black border border-slate-200 dark:border-zinc-800 w-full max-w-lg h-[92vh] sm:h-auto sm:max-h-[88vh] rounded-t-[32px] sm:rounded-3xl p-6 flex flex-col text-slate-900 dark:text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
+          <div className="bg-white dark:bg-black border border-slate-200 dark:border-zinc-800 w-full max-w-xl h-[94vh] sm:h-[88vh] rounded-t-[32px] sm:rounded-3xl p-5 sm:p-6 flex flex-col text-slate-900 dark:text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
             
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-zinc-900 shrink-0">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-900 shrink-0">
               <button
                 onClick={() => setIntlRecipientModalOpen(false)}
                 className="p-1.5 -ml-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-zinc-900 text-slate-500 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition-colors cursor-pointer"
@@ -1629,11 +1847,15 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
               >
                 <ArrowLeft className="w-6 h-6" />
               </button>
-              <h3 className="font-extrabold text-base text-slate-900 dark:text-white">Bank details</h3>
+              <div className="text-center">
+                <h3 className="font-extrabold text-base text-slate-900 dark:text-white">Bank details</h3>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">Complete Country-Aware Beneficiary &amp; Wire Dossier</p>
+              </div>
               <div className="w-6" />
             </div>
 
-            <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+            <div className="flex-1 overflow-y-auto py-3 space-y-4 pr-1">
+              {/* Quick Actions */}
               <div className="flex items-center gap-2 pb-1 overflow-x-auto scrollbar-none">
                 <button
                   type="button"
@@ -1670,240 +1892,309 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 block">Currency</label>
-                  <select
-                    value={intlCurrency}
-                    onChange={(e) => setIntlCurrency(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white font-bold outline-none cursor-pointer"
-                  >
-                    <option value="USD">🇺🇸 USD</option>
-                    <option value="EUR">🇪🇺 EUR</option>
-                    <option value="GBP">🇬🇧 GBP</option>
-                    <option value="GEL">🇬🇪 GEL</option>
-                    <option value="INR">🇮🇳 INR</option>
-                  </select>
+              {/* Form Error Banner */}
+              {intlFormError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/80 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+                  <span>{intlFormError}</span>
                 </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 block">Payout Rail</label>
-                  <select
-                    value={intlRail}
-                    onChange={(e) => setIntlRail(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white font-bold outline-none cursor-pointer"
-                  >
-                    <option value="Swift">🌐 Swift International</option>
-                    <option value="Local">🏛️ Local / Domestic</option>
-                  </select>
+              )}
+
+              {/* SECTION: Corridor, Currency & Rail */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 space-y-3">
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Destination Corridor &amp; Payout Rail</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 block">Country</label>
+                    <select
+                      value={intlCountryCode}
+                      onChange={(e) => handleCountryChange(e.target.value)}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-2.5 py-2 text-xs text-slate-900 dark:text-white font-semibold outline-none cursor-pointer"
+                    >
+                      {GMT_GLOBAL_COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 block">Currency</label>
+                    <select
+                      value={intlCurrency}
+                      onChange={(e) => setIntlCurrency(e.target.value)}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-2.5 py-2 text-xs text-slate-900 dark:text-white font-bold outline-none cursor-pointer"
+                    >
+                      <option value="USD">🇺🇸 USD</option>
+                      <option value="EUR">🇪🇺 EUR</option>
+                      <option value="GBP">🇬🇧 GBP</option>
+                      <option value="INR">🇮🇳 INR</option>
+                      <option value="CAD">🇨🇦 CAD</option>
+                      <option value="AUD">🇦🇺 AUD</option>
+                      <option value="AED">🇦🇪 AED</option>
+                      <option value="GEL">🇬🇪 GEL</option>
+                      <option value="LKR">🇱🇰 LKR</option>
+                      <option value="SGD">🇸🇬 SGD</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 block">Payout Rail</label>
+                    <select
+                      value={intlRail}
+                      onChange={(e) => setIntlRail(e.target.value)}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-2.5 py-2 text-xs text-slate-900 dark:text-white font-semibold outline-none cursor-pointer"
+                    >
+                      {activeIntlRule.payoutRails.map((rail) => (
+                        <option key={rail.id} value={rail.id}>
+                          {rail.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              {intlRail === 'Local' ? (
-                /* LOCAL / DOMESTIC TRANSFER FIELDS (MATCHING SCREENSHOT 43caf055) */
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          <span className="text-rose-500 mr-1">*</span>First name
-                        </label>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{intlFirstName.length}/64</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={intlFirstName}
-                        onChange={(e) => setIntlFirstName(e.target.value)}
-                        placeholder="First name"
-                        maxLength={64}
-                        className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white outline-none mt-1 transition-colors"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          <span className="text-rose-500 mr-1">*</span>Last name
-                        </label>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{intlLastName.length}/64</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={intlLastName}
-                        onChange={(e) => setIntlLastName(e.target.value)}
-                        placeholder="Last name"
-                        maxLength={64}
-                        className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white outline-none mt-1 transition-colors"
-                      />
-                    </div>
+              {/* SECTION 1: Beneficiary Information */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  <div className="flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-blue-500" />
+                    <span>1. Beneficiary Information</span>
                   </div>
+                  <span className="text-[10px] text-slate-400 font-normal">Per bank account registration</span>
+                </div>
 
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                      <span className="text-rose-500 mr-1">*</span>Bank name
-                    </label>
-                    <select
-                      value={intlBankName}
-                      onChange={(e) => setIntlBankName(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white font-semibold outline-none cursor-pointer"
-                    >
-                      <option value="JPMorgan Chase & Co.">JPMorgan Chase & Co.</option>
-                      <option value="Bank of America">Bank of America</option>
-                      <option value="Wells Fargo Bank">Wells Fargo Bank</option>
-                      <option value="Citibank N.A.">Citibank N.A.</option>
-                      <option value="U.S. Bank">U.S. Bank</option>
-                      <option value="PNC Bank">PNC Bank</option>
-                      <option value="Truist Bank">Truist Bank</option>
-                      <option value="Capital One">Capital One</option>
-                      <option value="TD Bank">TD Bank</option>
-                      <option value="Other Domestic Clearing Bank">Other Domestic Clearing Bank</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        <span className="text-rose-500 mr-1">*</span>ABA routing number
+                    <div className="flex items-center justify-between text-xs">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">
+                        <span className="text-rose-500 mr-0.5">*</span>First name
                       </label>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{intlRoutingNumber.length}/9</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{intlFirstName.length}/64</span>
                     </div>
                     <input
                       type="text"
-                      value={intlRoutingNumber}
-                      onChange={(e) => setIntlRoutingNumber(e.target.value.replace(/\D/g, '').slice(0, 9))}
-                      placeholder="9-digit ABA routing number"
-                      maxLength={9}
-                      className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white font-mono outline-none mt-1 transition-colors"
+                      value={intlFirstName}
+                      onChange={(e) => setIntlFirstName(e.target.value)}
+                      placeholder="First name"
+                      maxLength={64}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none mt-1"
                     />
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        <span className="text-rose-500 mr-1">*</span>Account number
+                    <div className="flex items-center justify-between text-xs">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">
+                        <span className="text-rose-500 mr-0.5">*</span>Last name
                       </label>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{intlAccountNumber.length}/32</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{intlLastName.length}/64</span>
                     </div>
                     <input
                       type="text"
-                      value={intlAccountNumber}
-                      onChange={(e) => setIntlAccountNumber(e.target.value.slice(0, 32))}
-                      placeholder="Account number"
-                      maxLength={32}
-                      className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white font-mono outline-none mt-1 transition-colors"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                      <span className="text-rose-500 mr-1">*</span>Account type
-                    </label>
-                    <select
-                      value={intlAccountType}
-                      onChange={(e) => setIntlAccountType(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white font-semibold outline-none cursor-pointer"
-                    >
-                      <option value="Checking">Checking</option>
-                      <option value="Savings">Savings</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                      <span className="text-rose-500 mr-1">*</span>Nationality
-                    </label>
-                    <select
-                      value={intlNationality}
-                      onChange={(e) => setIntlNationality(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white font-semibold outline-none cursor-pointer"
-                    >
-                      <option value="United States">🇺🇸 United States</option>
-                      <option value="United Kingdom">🇬🇧 United Kingdom</option>
-                      <option value="Canada">🇨🇦 Canada</option>
-                      <option value="Australia">🇦🇺 Australia</option>
-                      <option value="Germany">🇩🇪 Germany</option>
-                      <option value="France">🇫🇷 France</option>
-                      <option value="India">🇮🇳 India</option>
-                      <option value="United Arab Emirates">🇦🇪 United Arab Emirates</option>
-                      <option value="Georgia">🇬🇪 Georgia</option>
-                      <option value="Other">🌍 Other</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                      <span className="text-rose-500 mr-1">*</span>Date of birth
-                    </label>
-                    <input
-                      type="date"
-                      value={intlDob}
-                      onChange={(e) => setIntlDob(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white outline-none transition-colors"
+                      value={intlLastName}
+                      onChange={(e) => setIntlLastName(e.target.value)}
+                      placeholder="Last name"
+                      maxLength={64}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none mt-1"
                     />
                   </div>
                 </div>
-              ) : (
-                /* SWIFT INTERNATIONAL WIRE TRANSFER FIELDS (MATCHING SCREENSHOT 48db6857) */
-                <div className="space-y-4">
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                    <span className="text-rose-500 mr-0.5">*</span>Beneficiary Physical Street Address
+                  </label>
+                  <input
+                    type="text"
+                    value={intlStreetAddress}
+                    onChange={(e) => setIntlStreetAddress(e.target.value)}
+                    placeholder="Physical street address (No P.O. Box per FATF wire rule)"
+                    className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Email address <span className="text-slate-400 dark:text-slate-500 font-normal">(optional)</span>
-                      </label>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{intlEmail.length}/64</span>
-                    </div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      <span className="text-rose-500 mr-0.5">*</span>City
+                    </label>
                     <input
-                      type="email"
-                      value={intlEmail}
-                      onChange={(e) => setIntlEmail(e.target.value)}
-                      placeholder="recipient@example.com"
-                      maxLength={64}
-                      className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white outline-none mt-1 transition-colors"
+                      type="text"
+                      value={intlCity}
+                      onChange={(e) => setIntlCity(e.target.value)}
+                      placeholder="City / Town"
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
                     />
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                      We&apos;ll email the recipient to let them know the funds are on the way.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          <span className="text-rose-500 mr-1">*</span>First name
-                        </label>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{intlFirstName.length}/64</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={intlFirstName}
-                        onChange={(e) => setIntlFirstName(e.target.value)}
-                        placeholder="First name"
-                        maxLength={64}
-                        className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white outline-none mt-1 transition-colors"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          <span className="text-rose-500 mr-1">*</span>Last name
-                        </label>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{intlLastName.length}/64</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={intlLastName}
-                        onChange={(e) => setIntlLastName(e.target.value)}
-                        placeholder="Last name"
-                        maxLength={64}
-                        className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white outline-none mt-1 transition-colors"
-                      />
-                    </div>
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        <span className="text-rose-500 mr-1">*</span>SWIFT code
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      {activeIntlRule.requiresState && <span className="text-rose-500 mr-0.5">*</span>}
+                      {activeIntlRule.stateLabel}
+                    </label>
+                    <input
+                      type="text"
+                      value={intlState}
+                      onChange={(e) => setIntlState(e.target.value)}
+                      placeholder={activeIntlRule.stateLabel}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      {activeIntlRule.requiresPostalCode && <span className="text-rose-500 mr-0.5">*</span>}
+                      {activeIntlRule.postalCodeLabel}
+                    </label>
+                    <input
+                      type="text"
+                      value={intlPostalCode}
+                      onChange={(e) => setIntlPostalCode(e.target.value)}
+                      placeholder={activeIntlRule.postalCodeLabel}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      Beneficiary Phone <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={intlPhone}
+                      onChange={(e) => setIntlPhone(e.target.value)}
+                      placeholder="+1 (555) 000-0000"
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <label className="font-semibold text-slate-700 dark:text-slate-300">
+                      Email Address <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Live wire tracking</span>
+                  </div>
+                  <input
+                    type="email"
+                    value={intlEmail}
+                    onChange={(e) => setIntlEmail(e.target.value)}
+                    placeholder="recipient@example.com"
+                    maxLength={64}
+                    className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none mt-1"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    We&apos;ll email the recipient tracking updates so both parties can follow clearings.
+                  </p>
+                </div>
+              </div>
+
+              {/* SECTION 2: Receiving Bank Information */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 space-y-3">
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-purple-500" />
+                  <span>2. Receiving Bank Information</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      <span className="text-rose-500 mr-0.5">*</span>Bank Name
+                    </label>
+                    <input
+                      type="text"
+                      value={intlBankName}
+                      onChange={(e) => setIntlBankName(e.target.value)}
+                      placeholder="e.g. JPMorgan Chase, Barclays, State Bank of India"
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      Bank Country
+                    </label>
+                    <input
+                      type="text"
+                      value={intlBankCountry}
+                      onChange={(e) => setIntlBankCountry(e.target.value)}
+                      placeholder="Country where bank is domiciled"
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      Bank Branch / Street <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={intlBankStreet}
+                      onChange={(e) => setIntlBankStreet(e.target.value)}
+                      placeholder="Branch address"
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      Bank City / State <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={intlBankCity}
+                      onChange={(e) => setIntlBankCity(e.target.value)}
+                      placeholder="City / Clearing branch"
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 3: Clearing & Routing Identifiers */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 space-y-3">
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Landmark className="w-3.5 h-3.5 text-teal-500" />
+                  <span>3. Clearing &amp; Routing Identifiers</span>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <label className="font-semibold text-slate-700 dark:text-slate-300">
+                      <span className="text-rose-500 mr-0.5">*</span>{activeIntlRule.accountLabel}
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-mono">{intlIban.length}/34</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={intlIban}
+                    onChange={(e) => setIntlIban(e.target.value)}
+                    placeholder={activeIntlRule.accountPlaceholder}
+                    maxLength={34}
+                    className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-mono outline-none mt-1"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Direct clearing account identifier. For European countries, starts with 2-letter country code (IBAN).
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <div className="flex items-center justify-between text-xs">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">
+                        <span className="text-rose-500 mr-0.5">*</span>SWIFT / BIC code
                       </label>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{intlSwiftCode.length}/11</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{intlSwiftCode.length}/11</span>
                     </div>
                     <input
                       type="text"
@@ -1911,61 +2202,168 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
                       onChange={(e) => setIntlSwiftCode(e.target.value.toUpperCase())}
                       placeholder="e.g. CHASUS33"
                       maxLength={11}
-                      className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white font-mono uppercase outline-none mt-1 transition-colors"
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-mono uppercase outline-none mt-1"
                     />
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        <span className="text-rose-500 mr-1">*</span>IBAN / Account number
+                    <div className="flex items-center justify-between text-xs">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">
+                        {activeIntlRule.localCodeLabel}
                       </label>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{intlIban.length}/34</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{intlRoutingNumber.length}/15</span>
                     </div>
                     <input
                       type="text"
-                      value={intlIban}
-                      onChange={(e) => setIntlIban(e.target.value)}
-                      placeholder="IBAN or local account number"
-                      maxLength={34}
-                      className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-slate-400 dark:focus:border-zinc-600 rounded-xl px-3.5 py-3 text-sm text-slate-900 dark:text-white font-mono outline-none mt-1 transition-colors"
+                      value={intlRoutingNumber}
+                      onChange={(e) => setIntlRoutingNumber(e.target.value)}
+                      placeholder={activeIntlRule.localCodePlaceholder}
+                      maxLength={15}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-mono outline-none mt-1"
                     />
+                    {activeIntlRule.localCodeHelp && (
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        {activeIntlRule.localCodeHelp}
+                      </p>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
+
+              {/* SECTION 4: Intermediary / Correspondent Bank (Optional) */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={intlHasIntermediary}
+                      onChange={(e) => setIntlHasIntermediary(e.target.checked)}
+                      className="w-4 h-4 rounded text-emerald-600 focus:ring-0 cursor-pointer"
+                    />
+                    <span>Route via Intermediary / Correspondent Bank (Optional)</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">For multi-hop wires</span>
+                </div>
+
+                {intlHasIntermediary && (
+                  <div className="pt-2 border-t border-slate-200 dark:border-zinc-800 space-y-2.5 animate-in fade-in duration-200">
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                          <span className="text-rose-500 mr-0.5">*</span>Intermediary Bank Name
+                        </label>
+                        <input
+                          type="text"
+                          value={intlIntermediaryBank}
+                          onChange={(e) => setIntlIntermediaryBank(e.target.value)}
+                          placeholder="e.g. Citibank N.A. New York"
+                          className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                          <span className="text-rose-500 mr-0.5">*</span>Intermediary SWIFT / BIC
+                        </label>
+                        <input
+                          type="text"
+                          value={intlIntermediarySwift}
+                          onChange={(e) => setIntlIntermediarySwift(e.target.value.toUpperCase())}
+                          placeholder="e.g. CITIUS33"
+                          maxLength={11}
+                          className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-mono uppercase outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                          Intermediary Country / City
+                        </label>
+                        <input
+                          type="text"
+                          value={intlIntermediaryCountry}
+                          onChange={(e) => setIntlIntermediaryCountry(e.target.value)}
+                          placeholder="e.g. United States, New York"
+                          className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                          Account with Intermediary
+                        </label>
+                        <input
+                          type="text"
+                          value={intlIntermediaryAccount}
+                          onChange={(e) => setIntlIntermediaryAccount(e.target.value)}
+                          placeholder="Receiving bank account with intermediary"
+                          className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-mono outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* SECTION 5: Remittance Purpose & Reference */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 space-y-3">
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-amber-500" />
+                  <span>4. Remittance Purpose &amp; Reference</span>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                    <span className="text-rose-500 mr-0.5">*</span>Transfer Purpose / Regulatory Reason
+                  </label>
+                  <select
+                    value={intlPurpose}
+                    onChange={(e) => setIntlPurpose(e.target.value)}
+                    className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-medium outline-none cursor-pointer"
+                  >
+                    {TRANSFER_PURPOSE_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                    Payment Reference / Invoice Number <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={intlReference}
+                    onChange={(e) => setIntlReference(e.target.value)}
+                    placeholder="e.g. Invoice #2026-889 or Client Ref"
+                    className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
+              </div>
+
             </div>
 
+            {/* Sticky Action Footer */}
             <div className="pt-3 border-t border-slate-100 dark:border-zinc-900 shrink-0">
               <button
                 type="button"
-                onClick={() => {
-                  setIntlSaving(true);
-                  setTimeout(() => {
-                    setIntlSaving(false);
-                    setIntlSavedSuccess(true);
-                    setTimeout(() => {
-                      setIntlSavedSuccess(false);
-                      setIntlRecipientModalOpen(false);
-                      if (onOpenInternationalTransfer) {
-                        onOpenInternationalTransfer();
-                      } else {
-                        router.push('/transfer');
-                      }
-                    }, 800);
-                  }, 600);
-                }}
+                onClick={handleContinueToTransfer}
                 disabled={intlSaving || intlSavedSuccess}
-                className="w-full py-4 rounded-2xl bg-slate-900 hover:bg-black text-white dark:bg-white dark:hover:bg-slate-200 dark:text-black font-extrabold text-sm transition-all cursor-pointer shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
+                className="w-full py-3.5 rounded-2xl bg-slate-900 hover:bg-black text-white dark:bg-white dark:hover:bg-slate-200 dark:text-black font-extrabold text-sm transition-all cursor-pointer shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
               >
                 {intlSaving ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-white dark:text-black" />
-                    <span>Verifying Bank Corridor...</span>
+                    <span>Verifying Compliance &amp; Wire Corridor...</span>
                   </>
                 ) : intlSavedSuccess ? (
                   <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>Recipient Saved! Proceeding...</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    <span>Recipient Verified! Proceeding to Transfer...</span>
                   </>
                 ) : (
                   <span>Continue to Transfer</span>

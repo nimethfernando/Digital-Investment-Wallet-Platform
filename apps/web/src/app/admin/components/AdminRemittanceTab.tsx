@@ -55,6 +55,23 @@ function parseTrackingTimeline(raw: any): Array<{ stage?: string; title?: string
   return [];
 }
 
+function parseComplianceDossier(raw?: string | null): {
+  structured: any | null;
+  plainText: string | null;
+} {
+  const s = String(raw || '').trim();
+  if (!s) return { structured: null, plainText: null };
+  if (s.startsWith('{') && s.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(s);
+      return { structured: parsed, plainText: null };
+    } catch {
+      return { structured: null, plainText: s };
+    }
+  }
+  return { structured: null, plainText: s };
+}
+
 export default function AdminRemittanceTab({
   transfers,
   transfersLoading,
@@ -422,6 +439,11 @@ export default function AdminRemittanceTab({
       {modalOpen && selectedTransfer && (() => {
         const { address: modalAddr, trackingEmail: modalTrackEmail } = parseRecipientAddressAndEmail(selectedTransfer.recipientAddress);
         const timeline = parseTrackingTimeline(selectedTransfer.trackingTimeline);
+        const dossier = parseComplianceDossier(selectedTransfer.complianceNotes);
+        const bBen = dossier.structured?.beneficiary;
+        const bBnk = dossier.structured?.bank;
+        const bInt = dossier.structured?.intermediary;
+        const bPay = dossier.structured?.payment;
         const copyBtn = (copyId: string, val?: string | null) => (
           <button
             type="button"
@@ -518,76 +540,158 @@ export default function AdminRemittanceTab({
 
               {/* 2. COMPLETE BENEFICIARY BANK & ROUTING DETAILS */}
               <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl space-y-3">
-                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-300 font-mono">
-                  <Building2 className="w-4 h-4 text-teal-400" />
-                  <span>Beneficiary &amp; Bank Wire Instructions</span>
+                <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-300 font-mono">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-teal-400" />
+                    <span>Beneficiary &amp; Bank Wire Instructions</span>
+                  </div>
+                  {bBen && (
+                    <span className="px-2 py-0.5 rounded bg-teal-500/10 text-teal-300 border border-teal-500/30 text-[10px]">
+                      FATF Dossier Verified
+                    </span>
+                  )}
                 </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                     <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
                       <span>Recipient Legal Full Name</span>
-                      {copyBtn('recName', selectedTransfer.recipientName)}
+                      {copyBtn('recName', bBen?.fullName || selectedTransfer.recipientName)}
                     </div>
-                    <div className="font-bold text-white break-words">{selectedTransfer.recipientName}</div>
+                    <div className="font-bold text-white break-words">{bBen?.fullName || selectedTransfer.recipientName}</div>
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                     <div className="text-[10px] text-slate-500 uppercase">Destination Country &amp; Currency</div>
                     <div className="font-bold text-white">
-                      {selectedTransfer.destinationCountry} ({selectedTransfer.destinationCountryCode || 'N/A'}) · {selectedTransfer.recipientCurrency}
+                      {bBen?.country || selectedTransfer.destinationCountry} ({bBen?.countryCode || selectedTransfer.destinationCountryCode || 'N/A'}) · {selectedTransfer.recipientCurrency}
                     </div>
+                  </div>
+
+                  {/* Beneficiary Physical Street Address */}
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1 sm:col-span-2">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
+                      <span className="flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-emerald-400" />
+                        <span>Beneficiary Physical Address (FATF AML)</span>
+                      </span>
+                      {copyBtn('fullAddr', bBen ? [bBen.streetAddress, bBen.city, bBen.stateProvince, bBen.postalZipCode, bBen.country].filter(Boolean).join(', ') : modalAddr)}
+                    </div>
+                    <div className="text-slate-200 text-xs break-words">
+                      {bBen ? (
+                        <>
+                          <div className="font-semibold text-white">{bBen.streetAddress}</div>
+                          <div className="text-slate-400 text-[11px]">
+                            {[bBen.city, bBen.stateProvince, bBen.postalZipCode, bBen.country].filter(Boolean).join(', ')}
+                          </div>
+                        </>
+                      ) : (
+                        modalAddr || 'Not provided'
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Beneficiary Contact (Phone & Email) */}
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
+                      <span className="flex items-center gap-1">
+                        <Mail className="w-3 h-3 text-cyan-400" />
+                        <span>Tracking Email</span>
+                      </span>
+                      {(bBen?.email || modalTrackEmail) && copyBtn('recEmail', bBen?.email || modalTrackEmail)}
+                    </div>
+                    <div className="text-cyan-300 break-all">{bBen?.email || modalTrackEmail || 'Not provided'}</div>
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                     <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
-                      <span>Receiving Bank Name</span>
-                      {copyBtn('bank', selectedTransfer.recipientBankName)}
+                      <span>Beneficiary Phone</span>
+                      {bBen?.phone && copyBtn('recPhone', bBen.phone)}
                     </div>
-                    <div className="font-bold text-white break-words">{selectedTransfer.recipientBankName}</div>
+                    <div className="text-slate-200 font-mono">{bBen?.phone || 'Not provided'}</div>
+                  </div>
+
+                  {/* Receiving Bank Details */}
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
+                      <span>Receiving Bank Name</span>
+                      {copyBtn('bank', bBnk?.name || selectedTransfer.recipientBankName)}
+                    </div>
+                    <div className="font-bold text-white break-words">{bBnk?.name || selectedTransfer.recipientBankName}</div>
+                    {bBnk?.country && <div className="text-[10px] text-slate-400">Bank Domicile: {bBnk.country}</div>}
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                     <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
                       <span>Account Number / IBAN</span>
-                      {copyBtn('acct', selectedTransfer.recipientAccount)}
+                      {copyBtn('acct', bBnk?.accountOrIban || selectedTransfer.recipientAccount)}
                     </div>
-                    <div className="font-mono font-bold text-white break-all">{selectedTransfer.recipientAccount}</div>
+                    <div className="font-mono font-bold text-white break-all">{bBnk?.accountOrIban || selectedTransfer.recipientAccount}</div>
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                     <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
-                      <span>SWIFT / BIC / IFSC / Routing Code</span>
-                      {selectedTransfer.recipientBicSwift && copyBtn('swift', selectedTransfer.recipientBicSwift)}
+                      <span>SWIFT / BIC Code</span>
+                      {(bBnk?.swiftBic || selectedTransfer.recipientBicSwift) && copyBtn('swift', bBnk?.swiftBic || selectedTransfer.recipientBicSwift)}
                     </div>
                     <div className="font-mono font-bold text-teal-300 break-all">
-                      {selectedTransfer.recipientBicSwift || 'Not provided'}
+                      {bBnk?.swiftBic || selectedTransfer.recipientBicSwift || 'Not provided'}
                     </div>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                    <div className="text-[10px] text-slate-500 uppercase">Transfer Purpose / Source Reason</div>
-                    <div className="font-semibold text-amber-200 break-words">
-                      {selectedTransfer.transferReason || 'Family Support / Trade Remittance'}
-                    </div>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                    <div className="flex items-center gap-1 text-[10px] text-slate-500 uppercase">
-                      <MapPin className="w-3 h-3" />
-                      <span>Recipient Address</span>
-                    </div>
-                    <div className="text-slate-200 break-words">{modalAddr || 'Not provided'}</div>
                   </div>
 
                   <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                     <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
-                      <span className="flex items-center gap-1">
-                        <Mail className="w-3 h-3" />
-                        <span>Recipient Tracking Email</span>
-                      </span>
-                      {modalTrackEmail && copyBtn('recEmail', modalTrackEmail)}
+                      <span>Local Clearing / Routing Code</span>
+                      {(bBnk?.localRoutingCode) && copyBtn('routing', bBnk.localRoutingCode)}
                     </div>
-                    <div className="text-cyan-300 break-all">{modalTrackEmail || 'Not provided'}</div>
+                    <div className="font-mono font-bold text-purple-300 break-all">
+                      {bBnk?.localRoutingCode ? (
+                        <>
+                          <span>{bBnk.localRoutingCode}</span>
+                          {bBnk.localRoutingType && (
+                            <span className="ml-1.5 px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[9px] font-sans">
+                              {bBnk.localRoutingType}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        'Standard SWIFT Clearing'
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Intermediary Bank if present */}
+                  {bInt?.bankName && (
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1 sm:col-span-2">
+                      <div className="flex items-center justify-between gap-2 text-[10px] text-amber-400 uppercase font-mono">
+                        <span>Intermediary / Correspondent Bank</span>
+                        {bInt.swiftBic && copyBtn('interSwift', bInt.swiftBic)}
+                      </div>
+                      <div className="text-white font-semibold">{bInt.bankName}</div>
+                      <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 font-mono">
+                        {bInt.swiftBic && <span>SWIFT: {bInt.swiftBic}</span>}
+                        {bInt.country && <span>Country/City: {bInt.country} {bInt.city || ''}</span>}
+                        {bInt.account && <span>Acct: {bInt.account}</span>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Purpose & Reference */}
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="text-[10px] text-slate-500 uppercase">Transfer Purpose / Reason</div>
+                    <div className="font-semibold text-amber-200 break-words">
+                      {bPay?.purpose || selectedTransfer.transferReason || 'Family Support / Trade Remittance'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 uppercase">
+                      <span>Payment Reference / Invoice #</span>
+                      {bPay?.reference && copyBtn('payRef', bPay.reference)}
+                    </div>
+                    <div className="font-mono text-slate-200 break-words">
+                      {bPay?.reference || 'None specified'}
+                    </div>
                   </div>
                 </div>
               </div>

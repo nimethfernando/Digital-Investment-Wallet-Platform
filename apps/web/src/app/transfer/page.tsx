@@ -32,6 +32,10 @@ import {
   POPULAR_CORRIDORS,
   GmtCountryItem as CountryItem,
 } from '../../lib/gmt-countries';
+import {
+  getCountryTransferRule,
+  TRANSFER_PURPOSE_OPTIONS,
+} from '../../lib/country-transfer-rules';
 
 function verifyIbanMod97(iban: string): boolean {
   const rearranged = iban.slice(4) + iban.slice(0, 4);
@@ -217,14 +221,82 @@ export default function GlobalMoneyTransferPage() {
     );
   }, [searchQuery]);
 
-  // Recipient Information State
+  // Recipient Information State (Country-Aware FATF & Wire Compliance)
   const [recipientName, setRecipientName] = useState<string>('');
   const [recipientEmail, setRecipientEmail] = useState<string>('');
-  const [recipientAccount, setRecipientAccount] = useState<string>('');
-  const [recipientBankName, setRecipientBankName] = useState<string>('');
-  const [recipientBicSwift, setRecipientBicSwift] = useState<string>('');
+  const [recipientPhone, setRecipientPhone] = useState<string>('');
+  const [recipientStreet, setRecipientStreet] = useState<string>('');
+  const [recipientCity, setRecipientCity] = useState<string>('');
+  const [recipientState, setRecipientState] = useState<string>('');
+  const [recipientPostalCode, setRecipientPostalCode] = useState<string>('');
   const [recipientAddress, setRecipientAddress] = useState<string>('');
-  const [transferReason, setTransferReason] = useState<string>('Family Remittance');
+
+  const [recipientBankName, setRecipientBankName] = useState<string>('');
+  const [bankCountry, setBankCountry] = useState<string>('');
+  const [bankStreet, setBankStreet] = useState<string>('');
+  const [bankCity, setBankCity] = useState<string>('');
+  const [bankState, setBankState] = useState<string>('');
+  const [bankPostalCode, setBankPostalCode] = useState<string>('');
+
+  const [recipientAccount, setRecipientAccount] = useState<string>('');
+  const [recipientBicSwift, setRecipientBicSwift] = useState<string>('');
+  const [localRoutingCode, setLocalRoutingCode] = useState<string>('');
+  const [payoutRail, setPayoutRail] = useState<string>('SWIFT');
+
+  const [hasIntermediaryBank, setHasIntermediaryBank] = useState<boolean>(false);
+  const [intermediaryBankName, setIntermediaryBankName] = useState<string>('');
+  const [intermediarySwift, setIntermediarySwift] = useState<string>('');
+  const [intermediaryCountry, setIntermediaryCountry] = useState<string>('');
+  const [intermediaryCity, setIntermediaryCity] = useState<string>('');
+  const [intermediaryAccount, setIntermediaryAccount] = useState<string>('');
+
+  const [transferReason, setTransferReason] = useState<string>('Family Support & Living Expenses');
+  const [paymentReference, setPaymentReference] = useState<string>('');
+
+  const activeRule = useMemo(() => {
+    return getCountryTransferRule(selectedCountry.code, selectedCountry.currency);
+  }, [selectedCountry.code, selectedCountry.currency]);
+
+  // Auto-hydrate pending recipient payload from modal if passed via localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('avora_pending_remittance_recipient');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.recipientName) setRecipientName(parsed.recipientName);
+        if (parsed.recipientEmail) setRecipientEmail(parsed.recipientEmail);
+        if (parsed.recipientPhone) setRecipientPhone(parsed.recipientPhone);
+        if (parsed.recipientStreet) setRecipientStreet(parsed.recipientStreet);
+        if (parsed.recipientCity) setRecipientCity(parsed.recipientCity);
+        if (parsed.recipientState) setRecipientState(parsed.recipientState);
+        if (parsed.recipientPostalCode) setRecipientPostalCode(parsed.recipientPostalCode);
+        if (parsed.recipientBankName) setRecipientBankName(parsed.recipientBankName);
+        if (parsed.bankCountry) setBankCountry(parsed.bankCountry);
+        if (parsed.bankStreet) setBankStreet(parsed.bankStreet);
+        if (parsed.bankCity) setBankCity(parsed.bankCity);
+        if (parsed.bankState) setBankState(parsed.bankState);
+        if (parsed.bankPostalCode) setBankPostalCode(parsed.bankPostalCode);
+        if (parsed.recipientAccount) setRecipientAccount(parsed.recipientAccount);
+        if (parsed.recipientBicSwift) setRecipientBicSwift(parsed.recipientBicSwift);
+        if (parsed.localRoutingCode) setLocalRoutingCode(parsed.localRoutingCode);
+        if (parsed.payoutRail) setPayoutRail(parsed.payoutRail);
+        if (parsed.hasIntermediaryBank) setHasIntermediaryBank(Boolean(parsed.hasIntermediaryBank));
+        if (parsed.intermediaryBankName) setIntermediaryBankName(parsed.intermediaryBankName);
+        if (parsed.intermediarySwift) setIntermediarySwift(parsed.intermediarySwift);
+        if (parsed.intermediaryCountry) setIntermediaryCountry(parsed.intermediaryCountry);
+        if (parsed.intermediaryCity) setIntermediaryCity(parsed.intermediaryCity);
+        if (parsed.intermediaryAccount) setIntermediaryAccount(parsed.intermediaryAccount);
+        if (parsed.transferReason) setTransferReason(parsed.transferReason);
+        if (parsed.paymentReference) setPaymentReference(parsed.paymentReference);
+        if (parsed.destinationCountryCode) {
+          const match = GMT_GLOBAL_COUNTRIES.find((c) => c.code === parsed.destinationCountryCode);
+          if (match) setSelectedCountry(match);
+        }
+      }
+    } catch {
+      // Ignore hydration errors
+    }
+  }, []);
 
   // Mandatory Beneficiary Verification & Terms Agreement State
   const [confirmDetailsAccurate, setConfirmDetailsAccurate] = useState<boolean>(false);
@@ -236,8 +308,8 @@ export default function GlobalMoneyTransferPage() {
     [recipientAccount, selectedCountry.code]
   );
   const routingValidation = useMemo(
-    () => validateRoutingOrSwiftClient(recipientBicSwift, selectedCountry.code),
-    [recipientBicSwift, selectedCountry.code]
+    () => validateRoutingOrSwiftClient(recipientBicSwift || localRoutingCode, selectedCountry.code),
+    [recipientBicSwift, localRoutingCode, selectedCountry.code]
   );
 
   // Submit & Execution State
@@ -378,6 +450,30 @@ export default function GlobalMoneyTransferPage() {
       return;
     }
 
+    if (!recipientName.trim()) {
+      setSubmitError('Beneficiary Legal Full Name is required.');
+      return;
+    }
+    if (!recipientStreet.trim() || recipientStreet.trim().length < 3) {
+      setSubmitError('Beneficiary physical street address is required for international AML compliance.');
+      return;
+    }
+    if (!recipientCity.trim()) {
+      setSubmitError('Beneficiary city is required.');
+      return;
+    }
+    if (activeRule.requiresState && !recipientState.trim()) {
+      setSubmitError(`Beneficiary ${activeRule.stateLabel} is required for international transfers to ${activeRule.countryName}.`);
+      return;
+    }
+    if (activeRule.requiresPostalCode && !recipientPostalCode.trim()) {
+      setSubmitError(`Beneficiary ${activeRule.postalCodeLabel} is required for international transfers to ${activeRule.countryName}.`);
+      return;
+    }
+    if (!recipientBankName.trim()) {
+      setSubmitError('Receiving Bank Name is required.');
+      return;
+    }
     if (!accountValidation.valid) {
       setSubmitError(accountValidation.message);
       return;
@@ -385,6 +481,16 @@ export default function GlobalMoneyTransferPage() {
     if (!routingValidation.valid) {
       setSubmitError(routingValidation.message);
       return;
+    }
+    if (hasIntermediaryBank) {
+      if (!intermediaryBankName.trim()) {
+        setSubmitError('Intermediary Bank Name is required when routing via intermediary bank.');
+        return;
+      }
+      if (!intermediarySwift.trim() || !/^[A-Z0-9]{8,11}$/i.test(intermediarySwift.trim())) {
+        setSubmitError('Valid 8 or 11-character Intermediary SWIFT / BIC code is required.');
+        return;
+      }
     }
     if (!confirmDetailsAccurate || !agreeTerms) {
       setSubmitError(
@@ -397,19 +503,48 @@ export default function GlobalMoneyTransferPage() {
     setSubmitError(null);
 
     try {
+      const combinedAddress = [
+        recipientStreet.trim(),
+        recipientCity.trim(),
+        recipientState.trim(),
+        recipientPostalCode.trim(),
+        selectedCountry.name,
+      ].filter(Boolean).join(', ');
+
       const res = await api.post('/gmt/transfers', {
         sendingCurrency,
         sendingAmount,
         destinationCountry: selectedCountry.name,
         destinationCountryCode: selectedCountry.code,
         recipientCurrency: selectedCountry.currency,
-        recipientName,
-        recipientAccount,
-        recipientBankName,
-        recipientBicSwift,
-        recipientAddress,
-        recipientEmail,
+        recipientName: recipientName.trim(),
+        recipientAccount: recipientAccount.trim().toUpperCase(),
+        recipientBankName: recipientBankName.trim(),
+        recipientBicSwift: recipientBicSwift.trim().toUpperCase() || localRoutingCode.trim().toUpperCase(),
+        recipientCountry: selectedCountry.name,
+        recipientStreet: recipientStreet.trim(),
+        recipientCity: recipientCity.trim(),
+        recipientState: recipientState.trim(),
+        recipientPostalCode: recipientPostalCode.trim(),
+        recipientPhone: recipientPhone.trim(),
+        recipientEmail: recipientEmail.trim(),
+        recipientAddress: combinedAddress || recipientAddress.trim(),
+        bankCountry: bankCountry.trim() || selectedCountry.name,
+        bankStreet: bankStreet.trim(),
+        bankCity: bankCity.trim(),
+        bankState: bankState.trim(),
+        bankPostalCode: bankPostalCode.trim(),
+        localRoutingCode: localRoutingCode.trim(),
+        localRoutingType: activeRule.localCodeLabel,
+        hasIntermediaryBank,
+        intermediaryBankName: intermediaryBankName.trim(),
+        intermediarySwift: intermediarySwift.trim().toUpperCase(),
+        intermediaryCountry: intermediaryCountry.trim(),
+        intermediaryCity: intermediaryCity.trim(),
+        intermediaryAccount: intermediaryAccount.trim(),
         transferReason,
+        paymentReference: paymentReference.trim(),
+        payoutRail,
         termsAccepted: confirmDetailsAccurate && agreeTerms,
       });
 
@@ -809,69 +944,212 @@ export default function GlobalMoneyTransferPage() {
             </div>
           )}
 
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Recipient Legal Full Name
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="As stated on beneficiary bank account"
-                value={recipientName}
-                onChange={(e) => setRecipientName(e.target.value)}
-                className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between text-xs">
-                <label className="font-bold text-slate-700 dark:text-slate-300">
-                  Recipient Email Address <span className="text-slate-400 font-normal">(Optional for Live Tracking)</span>
-                </label>
-                <span className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Live Milestone Tracking
+          <div className="space-y-5">
+            {/* 1. BENEFICIARY / RECIPIENT INFORMATION */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] text-emerald-600 dark:text-emerald-400">
+                  <User className="w-3.5 h-3.5" />
+                  <span>1. Beneficiary Information (As registered on bank account)</span>
                 </span>
+                <span className="text-[10px] text-slate-400 font-mono">FATF / Wire Rule</span>
               </div>
-              <input
-                type="email"
-                placeholder="recipient@example.com"
-                value={recipientEmail}
-                onChange={(e) => setRecipientEmail(e.target.value)}
-                className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
-              />
-              <p className="text-[11px] text-slate-500 mt-1">
-                We'll email the recipient to let them know the funds are on the way and provide a real-time live tracking link so both of you can follow every stage of the transfer.
-              </p>
-            </div>
 
-            <div>
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Bank Name
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. State Bank of India, Commercial Bank of Ceylon, Emirates NBD"
-                value={recipientBankName}
-                onChange={(e) => setRecipientBankName(e.target.value)}
-                className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Account Number / IBAN
+                  <span className="text-rose-500 mr-0.5">*</span>Recipient Legal Full Name
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder={selectedCountry.code === 'IN' ? 'e.g. 9-18 digit Account Number' : 'e.g. DE89370400440532013000 or Account No.'}
+                  placeholder="As stated on beneficiary bank account"
+                  value={recipientName}
+                  onChange={(e) => setRecipientName(e.target.value)}
+                  className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <span className="text-rose-500 mr-0.5">*</span>Beneficiary Physical Street Address
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Physical street address (No P.O. Box per international wire guidelines)"
+                  value={recipientStreet}
+                  onChange={(e) => setRecipientStreet(e.target.value)}
+                  className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <span className="text-rose-500 mr-0.5">*</span>City
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="City / Town"
+                    value={recipientCity}
+                    onChange={(e) => setRecipientCity(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    {activeRule.requiresState && <span className="text-rose-500 mr-0.5">*</span>}
+                    {activeRule.stateLabel}
+                  </label>
+                  <input
+                    type="text"
+                    required={activeRule.requiresState}
+                    placeholder={activeRule.stateLabel}
+                    value={recipientState}
+                    onChange={(e) => setRecipientState(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    {activeRule.requiresPostalCode && <span className="text-rose-500 mr-0.5">*</span>}
+                    {activeRule.postalCodeLabel}
+                  </label>
+                  <input
+                    type="text"
+                    required={activeRule.requiresPostalCode}
+                    placeholder={activeRule.postalCodeLabel}
+                    value={recipientPostalCode}
+                    onChange={(e) => setRecipientPostalCode(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none font-mono focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Beneficiary Phone Number <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="+1 (555) 000-0000"
+                    value={recipientPhone}
+                    onChange={(e) => setRecipientPhone(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none font-mono focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between text-xs">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Recipient Email Address <span className="text-slate-400 font-normal">(Optional for Live Tracking)</span>
+                  </label>
+                  <span className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Milestone Tracking
+                  </span>
+                </div>
+                <input
+                  type="email"
+                  placeholder="recipient@example.com"
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  We'll email the recipient to let them know the funds are on the way and provide a real-time live tracking link so both of you can follow every stage of the transfer.
+                </p>
+              </div>
+            </div>
+
+            {/* 2. RECEIVING BANK INFORMATION */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                <Building className="w-3.5 h-3.5" />
+                <span>2. Receiving Bank Information</span>
+              </span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <span className="text-rose-500 mr-0.5">*</span>Bank Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. JPMorgan Chase, Barclays, State Bank of India"
+                    value={recipientBankName}
+                    onChange={(e) => setRecipientBankName(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Bank Country
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Country where bank is domiciled"
+                    value={bankCountry || selectedCountry.name}
+                    onChange={(e) => setBankCountry(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Bank Branch / Street Address <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Branch address"
+                    value={bankStreet}
+                    onChange={(e) => setBankStreet(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Bank City / State / ZIP <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="City, State, Postal Code"
+                    value={bankCity}
+                    onChange={(e) => setBankCity(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 3. CLEARING & ROUTING IDENTIFIERS */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                <Landmark className="w-3.5 h-3.5" />
+                <span>3. Clearing &amp; Routing Identifiers</span>
+              </span>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <span className="text-rose-500 mr-0.5">*</span>{activeRule.accountLabel}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={activeRule.accountPlaceholder}
                   value={recipientAccount}
                   onChange={(e) => setRecipientAccount(e.target.value.toUpperCase())}
-                  className={`w-full mt-1 px-4 py-2.5 rounded-xl text-xs border bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-mono ${
+                  className={`w-full mt-1 px-4 py-2.5 rounded-xl text-xs border bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none font-mono ${
                     recipientAccount.trim()
                       ? accountValidation.valid
                         ? 'border-emerald-500 focus:border-emerald-500'
@@ -894,79 +1172,172 @@ export default function GlobalMoneyTransferPage() {
                 ) : (
                   <p className="text-[10px] text-slate-500 mt-1">
                     {selectedCountry.code === 'IN'
-                      ? 'Enter 9–18 digit bank account number (no spaces or special chars).'
-                      : 'IBANs undergo live ISO Mod-97 checksum validation to prevent misrouted wires.'}
+                      ? 'Enter 9–18 digit domestic bank account number (no spaces or special chars).'
+                      : 'Direct bank account number or IBAN. European IBANs undergo ISO Mod-97 checksum validation.'}
                   </p>
                 )}
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  SWIFT / BIC / IFSC / Routing
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder={selectedCountry.code === 'IN' ? 'e.g. KKBK0000123 or KKBKINBB' : 'e.g. SBININBB001 or CHASUS33'}
-                  value={recipientBicSwift}
-                  onChange={(e) => setRecipientBicSwift(e.target.value.toUpperCase())}
-                  className={`w-full mt-1 px-4 py-2.5 rounded-xl text-xs border bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-mono ${
-                    recipientBicSwift.trim()
-                      ? routingValidation.valid
-                        ? 'border-emerald-500 focus:border-emerald-500'
-                        : 'border-rose-500 focus:border-rose-500'
-                      : 'border-slate-200 dark:border-slate-800 focus:border-emerald-500'
-                  }`}
-                />
-                {recipientBicSwift.trim() ? (
-                  routingValidation.valid ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <span className="text-rose-500 mr-0.5">*</span>SWIFT / BIC Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. CHASUS33 or SBININBB"
+                    value={recipientBicSwift}
+                    onChange={(e) => setRecipientBicSwift(e.target.value.toUpperCase())}
+                    className={`w-full mt-1 px-4 py-2.5 rounded-xl text-xs border bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none font-mono ${
+                      recipientBicSwift.trim()
+                        ? routingValidation.valid
+                          ? 'border-emerald-500 focus:border-emerald-500'
+                          : 'border-rose-500 focus:border-rose-500'
+                        : 'border-slate-200 dark:border-slate-800 focus:border-emerald-500'
+                    }`}
+                  />
+                  {recipientBicSwift.trim() && routingValidation.valid ? (
                     <p className="text-[11px] text-emerald-500 font-semibold mt-1 flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                       <span>{routingValidation.label}</span>
                     </p>
-                  ) : (
-                    <p className="text-[11px] text-rose-500 font-semibold mt-1 flex items-start gap-1">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span>{routingValidation.message}</span>
+                  ) : null}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    {activeRule.localCodeLabel}
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={activeRule.localCodePlaceholder}
+                    value={localRoutingCode}
+                    onChange={(e) => setLocalRoutingCode(e.target.value)}
+                    className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none font-mono focus:border-emerald-500"
+                  />
+                  {activeRule.localCodeHelp && (
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      {activeRule.localCodeHelp}
                     </p>
-                  )
-                ) : (
-                  <p className="text-[10px] text-slate-500 mt-1">
-                    {selectedCountry.code === 'IN'
-                      ? 'Required: 11-char Indian IFSC (5th char must be 0) or 8/11-char SWIFT/BIC.'
-                      : 'Required: 8 or 11-character SWIFT/BIC, IFSC, or 6–12 digit routing code.'}
-                  </p>
-                )}
+                  )}
+                </div>
               </div>
             </div>
 
-            <div>
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Recipient Address (Optional)
-              </label>
-              <input
-                type="text"
-                placeholder="City, Province, Postal Code"
-                value={recipientAddress}
-                onChange={(e) => setRecipientAddress(e.target.value)}
-                className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
-              />
+            {/* 4. INTERMEDIARY / CORRESPONDENT BANK (OPTIONAL) */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={hasIntermediaryBank}
+                    onChange={(e) => setHasIntermediaryBank(e.target.checked)}
+                    className="w-4 h-4 rounded text-emerald-600 focus:ring-0 cursor-pointer"
+                  />
+                  <span>Route via Intermediary / Correspondent Bank (Optional)</span>
+                </label>
+                <span className="text-[10px] text-slate-400">For multi-hop wires</span>
+              </div>
+
+              {hasIntermediaryBank && (
+                <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        <span className="text-rose-500 mr-0.5">*</span>Intermediary Bank Name
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Citibank N.A. New York"
+                        value={intermediaryBankName}
+                        onChange={(e) => setIntermediaryBankName(e.target.value)}
+                        className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        <span className="text-rose-500 mr-0.5">*</span>Intermediary SWIFT / BIC
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. CITIUS33"
+                        maxLength={11}
+                        value={intermediarySwift}
+                        onChange={(e) => setIntermediarySwift(e.target.value.toUpperCase())}
+                        className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none font-mono uppercase focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Intermediary Country / City
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. United States, New York"
+                        value={intermediaryCountry}
+                        onChange={(e) => setIntermediaryCountry(e.target.value)}
+                        className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Account with Intermediary
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Receiving bank account with intermediary"
+                        value={intermediaryAccount}
+                        onChange={(e) => setIntermediaryAccount(e.target.value)}
+                        className="w-full mt-1 px-4 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none font-mono focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div>
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Transfer Purpose
-              </label>
-              <select
-                value={transferReason}
-                onChange={(e) => setTransferReason(e.target.value)}
-                className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
-              >
-                <option value="Family Remittance">Family & Personal Maintenance</option>
-                <option value="Education / Tuition">Education / University Fees</option>
-                <option value="Commercial Trade / Invoice">Commercial Trade / Consulting Invoice</option>
-                <option value="Medical Expenses">Medical Care / Health Treatment</option>
-              </select>
+            {/* 5. REMITTANCE PURPOSE & REFERENCE */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                <FileText className="w-3.5 h-3.5" />
+                <span>4. Remittance Purpose &amp; Payment Reference</span>
+              </span>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <span className="text-rose-500 mr-0.5">*</span>Transfer Purpose / Regulatory Reason
+                </label>
+                <select
+                  value={transferReason}
+                  onChange={(e) => setTransferReason(e.target.value)}
+                  className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  {TRANSFER_PURPOSE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Payment Reference / Invoice Number <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. INV-2026-904, Tuition fees, or Client Reference"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  className="w-full mt-1 px-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                />
+              </div>
             </div>
           </div>
 
