@@ -35,6 +35,10 @@ router.post(
   featureControlService.requireFeature('GATEWAY_RAZORPAY', async (req) => {
     if (String(req.body?.purpose || '').toUpperCase().includes('CRYPTO')) {
       await featureControlService.assertFeatureEnabled('BUY_CRYPTO_ONRAMP');
+      const checkoutFiat = req.body?.checkoutCurrency || req.body?.currency;
+      if (checkoutFiat) {
+        await featureControlService.assertBuyCryptoCurrencyEnabled(checkoutFiat);
+      }
     } else {
       await featureControlService.assertFeatureEnabled('DEPOSITS');
     }

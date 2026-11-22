@@ -8,8 +8,10 @@ const featureControl_service_1 = require("../services/featureControl.service");
 const router = (0, express_1.Router)();
 const requireP2PTrading = featureControl_service_1.featureControlService.requireFeature('P2P_TRADING', async (req) => {
     await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.cryptoCurrency);
-    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.fiatCurrency);
-    await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.currency);
+    const fiat = req.body?.fiatCurrency || req.body?.currency;
+    if (fiat) {
+        await featureControl_service_1.featureControlService.assertP2pCurrencyEnabled(fiat);
+    }
 });
 /**
  * Public P2P Offers / Market Ads & Trader Profiles (viewable before or after login)

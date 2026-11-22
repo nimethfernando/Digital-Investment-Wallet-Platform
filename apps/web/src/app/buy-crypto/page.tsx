@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -140,10 +140,57 @@ export default function BuyCryptoPage() {
     };
   }, []);
 
-  const fiatList: FiatCurrency[] = BASE_FIAT_META.map((m) => ({
-    ...m,
-    perUsd: perUsdRates[m.code] || 1.0,
-  }));
+  // Fetch dynamic Regional & Currency feature flags
+  const [featureMap, setFeatureMap] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    let active = true;
+    const loadFeatureFlags = async () => {
+      try {
+        const res = await api.get('/cms/feature-flags');
+        if (active && res.data?.success && res.data?.data?.featureMap) {
+          setFeatureMap(res.data.data.featureMap);
+        }
+      } catch {
+        // Silently retain latest
+      }
+    };
+    loadFeatureFlags();
+    const interval = setInterval(loadFeatureFlags, 30000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const fiatList: FiatCurrency[] = useMemo(() => {
+    return BASE_FIAT_META.filter((m) => {
+      const curOff = featureMap[`CURRENCY_${m.code}`]?.enabled === false;
+      const buyOff = featureMap[`BUY_CRYPTO_CURRENCY_${m.code}`]?.enabled === false;
+      const countryCode =
+        m.code === 'INR' ? 'IN' :
+        m.code === 'LKR' ? 'LK' :
+        m.code === 'AED' ? 'AE' :
+        m.code === 'GEL' ? 'GE' :
+        m.code === 'EUR' ? 'EU' :
+        m.code === 'GBP' ? 'GB' : 'US';
+      const countryOff = featureMap[`COUNTRY_${countryCode}`]?.enabled === false;
+      return !curOff && !buyOff && !countryOff;
+    }).map((m) => ({
+      ...m,
+      perUsd: perUsdRates[m.code] || 1.0,
+    }));
+  }, [featureMap, perUsdRates]);
+
+  // Fallback selectedFiatCode if currently selected currency was disabled by Admin
+  useEffect(() => {
+    if (fiatList.length > 0) {
+      const exists = fiatList.some((f) => f.code === selectedFiatCode);
+      if (!exists) {
+        setSelectedFiatCode(fiatList[0].code);
+      }
+    }
+  }, [fiatList, selectedFiatCode]);
 
   const cryptoList: CryptoToken[] = [
     { code: 'USDT', name: 'Tether USD', chain: 'TRC-20', icon: '₮', priceInUsd: cryptoPrices.USDT },
@@ -230,6 +277,13 @@ export default function BuyCryptoPage() {
   const handleExecutePurchase = async () => {
     if (!user) {
       router.push('/login?redirect=/buy-crypto');
+      return;
+    }
+    const isFiatOff =
+      featureMap[`CURRENCY_${selectedFiatCode}`]?.enabled === false ||
+      featureMap[`BUY_CRYPTO_CURRENCY_${selectedFiatCode}`]?.enabled === false;
+    if (isFiatOff) {
+      setOrderError(`Purchases in ${selectedFiatCode} are temporarily disabled by Platform Administration.`);
       return;
     }
     if (fiatValueInUsd < 10) {

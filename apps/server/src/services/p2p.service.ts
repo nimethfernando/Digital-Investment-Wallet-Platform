@@ -5,6 +5,7 @@ import { ledgerService } from './ledger.service';
 import { authService } from './auth.service';
 import { rateService } from './rate.service';
 import { notificationService } from '../adapters/notification/notification.provider';
+import { featureControlService } from './featureControl.service';
 import {
   P2P_TIMERS,
   P2P_PROMOTION_TIERS,
@@ -1830,6 +1831,11 @@ export class P2PService {
       throw new Error('Authentication required. Please sign in before creating a P2P advertisement.');
     }
 
+    await featureControlService.assertP2pCurrencyEnabled(input.fiatCurrency);
+    if (input.cryptoCurrency) {
+      await featureControlService.assertCurrencyEnabled(input.cryptoCurrency);
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -2021,6 +2027,9 @@ export class P2PService {
     if (offer.user.status !== 'ACTIVE' || offer.user.p2pBlocked) {
       throw new Error('This trader is currently unavailable on the P2P desk');
     }
+
+    await featureControlService.assertP2pCurrencyEnabled(offer.fiatCurrency);
+    await featureControlService.assertCurrencyEnabled(offer.cryptoCurrency);
 
     const cryptoAmountDec = new Decimal(params.cryptoAmount.toString());
     if (cryptoAmountDec.lessThanOrEqualTo(0)) {

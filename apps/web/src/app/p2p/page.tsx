@@ -716,6 +716,58 @@ function P2PPageContent() {
   const [loadingMyOffers, setLoadingMyOffers] = useState(false);
   const [walletBalances, setWalletBalances] = useState<Record<string, number>>({});
 
+  // Dynamic Regional & Feature Controls
+  const [featureMap, setFeatureMap] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    let mounted = true;
+    const loadFeatureFlags = async () => {
+      try {
+        const res = await api.get('/cms/feature-flags');
+        if (mounted && res.data?.success && res.data?.data?.featureMap) {
+          setFeatureMap(res.data.data.featureMap);
+        }
+      } catch {
+        // Silently retain latest flags
+      }
+    };
+    loadFeatureFlags();
+    const interval = setInterval(loadFeatureFlags, 30000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const availableCountries = useMemo(() => {
+    return COUNTRIES.filter((c) => {
+      const curDisabled = featureMap[`CURRENCY_${c.currency}`]?.enabled === false;
+      const p2pDisabled = featureMap[`P2P_CURRENCY_${c.currency}`]?.enabled === false;
+      const countryDisabled = featureMap[`COUNTRY_${c.code}`]?.enabled === false;
+      return !curDisabled && !p2pDisabled && !countryDisabled;
+    });
+  }, [featureMap]);
+
+  // Fallback selectedCountry if current selection is disabled
+  useEffect(() => {
+    if (availableCountries.length > 0) {
+      const exists = availableCountries.some((c) => c.id === selectedCountry?.id);
+      if (!exists) {
+        setSelectedCountry(availableCountries[0]);
+      }
+    }
+  }, [availableCountries, selectedCountry]);
+
+  // Fallback expressCurrency if current selection is disabled
+  useEffect(() => {
+    if (availableCountries.length > 0) {
+      const exists = availableCountries.some((c) => c.currency === expressCurrency);
+      if (!exists) {
+        setExpressCurrency(availableCountries[0].currency);
+      }
+    }
+  }, [availableCountries, expressCurrency]);
+
   // Orders State
   const [ordersMainTab, setOrdersMainTab] = useState<'ongoing' | 'fulfilled'>('ongoing');
   const [ordersFilterChip, setOrdersFilterChip] = useState<'all' | 'pending' | 'unpaid' | 'paid' | 'dispute'>('all');
@@ -1272,6 +1324,14 @@ function P2PPageContent() {
 
   const displayedOffers: P2POfferItem[] = (() => {
     const cur = selectedCountry.currency;
+    const isCurPaused =
+      featureMap[`CURRENCY_${cur}`]?.enabled === false ||
+      featureMap[`P2P_CURRENCY_${cur}`]?.enabled === false ||
+      featureMap[`COUNTRY_${selectedCountry.code}`]?.enabled === false;
+    if (isCurPaused) {
+      return [];
+    }
+
     const activeCrypto = marketCryptoFilter !== 'ALL' ? marketCryptoFilter : 'USDT';
     const spot = getCryptoFiatSpotRate(activeCrypto, cur);
     const cryptoUsdSpot = getCryptoUsdSpotRate(activeCrypto) || 1;
@@ -1342,6 +1402,14 @@ function P2PPageContent() {
         return hay.includes(q);
       });
     }
+
+    combined = combined.filter((item) => {
+      const isFiatOff =
+        featureMap[`CURRENCY_${item.fiatCurrency}`]?.enabled === false ||
+        featureMap[`P2P_CURRENCY_${item.fiatCurrency}`]?.enabled === false;
+      return !isFiatOff;
+    });
+
     return combined;
   })();
 
@@ -1689,6 +1757,13 @@ function P2PPageContent() {
     e.preventDefault();
     if (!user || !hasStoredToken()) {
       setNewAdError('Please sign in to your Avora Bank account to publish P2P advertisements.');
+      return;
+    }
+    const isFiatOff =
+      featureMap[`CURRENCY_${newAdCurrency}`]?.enabled === false ||
+      featureMap[`P2P_CURRENCY_${newAdCurrency}`]?.enabled === false;
+    if (isFiatOff) {
+      setNewAdError(`P2P Trading in ${newAdCurrency} is currently disabled by Platform Administration.`);
       return;
     }
     if (!merchantStatus?.isP2pMerchant) {
@@ -2424,12 +2499,11 @@ function P2PPageContent() {
                 onChange={(e) => setExpressCurrency(e.target.value)}
                 className="appearance-none bg-zinc-900 border border-zinc-800 text-white font-extrabold text-xs pl-3 pr-7 py-2 rounded-xl outline-none cursor-pointer hover:border-zinc-700 transition-colors"
               >
-                <option value="INR">INR</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="AED">AED</option>
-                <option value="GEL">GEL</option>
-                <option value="LKR">LKR</option>
+                {availableCountries.map((c) => (
+                  <option key={c.id} value={c.currency}>
+                    {c.flag} {c.currency}
+                  </option>
+                ))}
               </select>
               <ChevronDown className="w-3.5 h-3.5 text-zinc-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
@@ -2647,7 +2721,7 @@ function P2PPageContent() {
 
             {/* Currency Rail Selector Pills */}
             <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1">
-              {COUNTRIES.map((c) => {
+              {availableCountries.map((c) => {
                 const active = selectedCountry.id === c.id;
                 return (
                   <button
@@ -2815,12 +2889,30 @@ function P2PPageContent() {
               </div>
             ) : displayedOffers.length === 0 ? (
               <div className="py-16 px-4 text-center space-y-3">
-                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                  No P2P listings match {selectedCountry.currency} + &ldquo;{marketPaymentFilter}&rdquo;
-                </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                  Clear the payment method filter or post your own custom Buy/Sell advertisement.
-                </p>
+                {featureMap[`P2P_CURRENCY_${selectedCountry.currency}`]?.enabled === false ||
+                featureMap[`CURRENCY_${selectedCountry.currency}`]?.enabled === false ||
+                featureMap[`COUNTRY_${selectedCountry.code}`]?.enabled === false ? (
+                  <>
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto text-xl">
+                      ⚠️
+                    </div>
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                      P2P Trading in {selectedCountry.name} ({selectedCountry.currency}) is Currently Paused
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                      Platform Administration has temporarily paused or restricted this regional corridor for regulatory compliance or local payment rail maintenance. Please switch to an active corridor above.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                      No P2P listings match {selectedCountry.currency} + &ldquo;{marketPaymentFilter}&rdquo;
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                      Clear the payment method filter or be the first to publish an advertisement in this currency.
+                    </p>
+                  </>
+                )}
                 <div className="flex items-center justify-center gap-2 pt-1">
                   <button
                     type="button"
@@ -4339,7 +4431,7 @@ function P2PPageContent() {
                       }}
                       className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-bold outline-none"
                     >
-                      {COUNTRIES.map((c) => (
+                      {availableCountries.map((c) => (
                         <option key={c.id} value={c.currency}>
                           {c.flag} {c.currency} ({c.name})
                         </option>

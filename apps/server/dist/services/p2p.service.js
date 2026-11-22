@@ -12,6 +12,7 @@ const ledger_service_1 = require("./ledger.service");
 const auth_service_1 = require("./auth.service");
 const rate_service_1 = require("./rate.service");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
+const featureControl_service_1 = require("./featureControl.service");
 const p2p_helpers_1 = require("./p2p.helpers");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 function generateAvoraAccountNumber(userId) {
@@ -1569,6 +1570,10 @@ class P2PService {
         if (!userId) {
             throw new Error('Authentication required. Please sign in before creating a P2P advertisement.');
         }
+        await featureControl_service_1.featureControlService.assertP2pCurrencyEnabled(input.fiatCurrency);
+        if (input.cryptoCurrency) {
+            await featureControl_service_1.featureControlService.assertCurrencyEnabled(input.cryptoCurrency);
+        }
         const user = await prisma_1.prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -1722,6 +1727,8 @@ class P2PService {
         if (offer.user.status !== 'ACTIVE' || offer.user.p2pBlocked) {
             throw new Error('This trader is currently unavailable on the P2P desk');
         }
+        await featureControl_service_1.featureControlService.assertP2pCurrencyEnabled(offer.fiatCurrency);
+        await featureControl_service_1.featureControlService.assertCurrencyEnabled(offer.cryptoCurrency);
         const cryptoAmountDec = new decimal_js_1.default(params.cryptoAmount.toString());
         if (cryptoAmountDec.lessThanOrEqualTo(0)) {
             throw new Error('Trade amount must be strictly greater than 0');

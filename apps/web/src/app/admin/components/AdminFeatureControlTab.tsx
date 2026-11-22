@@ -42,6 +42,7 @@ type CategoryFilter =
   | 'CURRENCIES'
   | 'BLOCKCHAIN_NETWORKS'
   | 'TRADING_PAIRS'
+  | 'REGIONAL_CONTROLS'
   | 'AUDIT_LOG';
 
 const CATEGORY_META: Record<
@@ -73,7 +74,99 @@ const CATEGORY_META: Record<
     badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
     icon: ArrowLeftRight,
   },
+  REGIONAL_CONTROLS: {
+    label: 'Regional & Currency Control',
+    badgeClass: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+    icon: Globe,
+  },
 };
+
+const REGIONAL_CORRIDORS = [
+  {
+    code: 'IN',
+    flag: '🇮🇳',
+    country: 'India',
+    currency: 'INR',
+    currencyName: 'Indian Rupee',
+    p2pKey: 'P2P_CURRENCY_INR',
+    buyKey: 'BUY_CRYPTO_CURRENCY_INR',
+    countryKey: 'COUNTRY_IN',
+    curKey: 'CURRENCY_INR',
+    rails: 'UPI, IMPS, Cards, NetBanking, Bank Transfer',
+  },
+  {
+    code: 'LK',
+    flag: '🇱🇰',
+    country: 'Sri Lanka',
+    currency: 'LKR',
+    currencyName: 'Sri Lankan Rupee',
+    p2pKey: 'P2P_CURRENCY_LKR',
+    buyKey: 'BUY_CRYPTO_CURRENCY_LKR',
+    countryKey: 'COUNTRY_LK',
+    curKey: 'CURRENCY_LKR',
+    rails: 'Commercial Bank CEFTS, Sampath, BOC, Cards',
+  },
+  {
+    code: 'AE',
+    flag: '🇦🇪',
+    country: 'United Arab Emirates',
+    currency: 'AED',
+    currencyName: 'UAE Dirham',
+    p2pKey: 'P2P_CURRENCY_AED',
+    buyKey: 'BUY_CRYPTO_CURRENCY_AED',
+    countryKey: 'COUNTRY_AE',
+    curKey: 'CURRENCY_AED',
+    rails: 'AED Domestic Wire, Cards, FAB i-Save, ADCB',
+  },
+  {
+    code: 'GE',
+    flag: '🇬🇪',
+    country: 'Georgia',
+    currency: 'GEL',
+    currencyName: 'Georgian Lari',
+    p2pKey: 'P2P_CURRENCY_GEL',
+    buyKey: 'BUY_CRYPTO_CURRENCY_GEL',
+    countryKey: 'COUNTRY_GE',
+    curKey: 'CURRENCY_GEL',
+    rails: 'Bank of Georgia, TBC Bank, Cards, Tbilisi Desk',
+  },
+  {
+    code: 'EU',
+    flag: '🇪🇺',
+    country: 'European Union',
+    currency: 'EUR',
+    currencyName: 'Euro',
+    p2pKey: 'P2P_CURRENCY_EUR',
+    buyKey: 'BUY_CRYPTO_CURRENCY_EUR',
+    countryKey: 'COUNTRY_EU',
+    curKey: 'CURRENCY_EUR',
+    rails: 'SEPA Instant, Revolut, Cards, Wise, N26',
+  },
+  {
+    code: 'US',
+    flag: '🇺🇸',
+    country: 'United States',
+    currency: 'USD',
+    currencyName: 'US Dollar',
+    p2pKey: 'P2P_CURRENCY_USD',
+    buyKey: 'BUY_CRYPTO_CURRENCY_USD',
+    countryKey: 'COUNTRY_US',
+    curKey: 'CURRENCY_USD',
+    rails: 'ACH, Fedwire, Cards, Zelle, Cash App',
+  },
+  {
+    code: 'GB',
+    flag: '🇬🇧',
+    country: 'United Kingdom',
+    currency: 'GBP',
+    currencyName: 'British Pound',
+    p2pKey: 'P2P_CURRENCY_GBP',
+    buyKey: 'BUY_CRYPTO_CURRENCY_GBP',
+    countryKey: 'COUNTRY_GB',
+    curKey: 'CURRENCY_GBP',
+    rails: 'Faster Payments (FPS), CHAPS, Cards, UK Wire',
+  },
+];
 
 const QUICK_DISABLE_REASONS = [
   'Liquidity & market volatility protection',
@@ -117,8 +210,8 @@ export default function AdminFeatureControlTab({
   const [customKey, setCustomKey] = useState('');
   const [customLabel, setCustomLabel] = useState('');
   const [customCategory, setCustomCategory] = useState<
-    'CORE_MODULES' | 'PAYMENT_GATEWAYS' | 'CURRENCIES' | 'BLOCKCHAIN_NETWORKS' | 'TRADING_PAIRS'
-  >('TRADING_PAIRS');
+    'CORE_MODULES' | 'PAYMENT_GATEWAYS' | 'CURRENCIES' | 'BLOCKCHAIN_NETWORKS' | 'TRADING_PAIRS' | 'REGIONAL_CONTROLS'
+  >('REGIONAL_CONTROLS');
   const [customDescription, setCustomDescription] = useState('');
   const [customEnabled, setCustomEnabled] = useState(false);
   const [customReason, setCustomReason] = useState('Added custom feature control rule');
@@ -148,6 +241,27 @@ export default function AdminFeatureControlTab({
     disabledCount: features.filter((f) => !f.enabled).length,
     sensitiveCount: features.filter((f) => f.isSensitive).length,
     disabledFeatures: features.filter((f) => !f.enabled),
+  };
+
+  const featureMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    for (const f of features) {
+      if (f?.key) map[f.key] = f;
+    }
+    return map;
+  }, [features]);
+
+  const resolveFeature = (key: string, defaultLabel: string, defaultCategory: string = 'REGIONAL_CONTROLS') => {
+    return (
+      featureMap[key] || {
+        key,
+        label: defaultLabel,
+        category: defaultCategory,
+        description: `Control switch for ${defaultLabel}`,
+        enabled: true,
+        isSensitive: false,
+      }
+    );
   };
 
   const filteredFeatures = useMemo(() => {
@@ -428,6 +542,10 @@ export default function AdminFeatureControlTab({
               label: `Trading Pairs (${features.filter((f) => f.category === 'TRADING_PAIRS').length})`,
             },
             {
+              id: 'REGIONAL_CONTROLS',
+              label: `Country & Regional Desk (${features.filter((f) => f.category === 'REGIONAL_CONTROLS').length})`,
+            },
+            {
               id: 'AUDIT_LOG',
               label: `Feature Audit Log (${history.length})`,
             },
@@ -642,6 +760,231 @@ export default function AdminFeatureControlTab({
                 </button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Regional Compliance & Currency Control Matrix */}
+      {(categoryFilter === 'ALL' || categoryFilter === 'REGIONAL_CONTROLS') && (
+        <div className="bg-[#0e1520] border border-indigo-500/30 rounded-2xl p-5 space-y-4 shadow-xl shadow-indigo-950/20">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-gray-800">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center">
+                  <Globe className="w-4 h-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    Regional Compliance &amp; Currency Control Desk
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-[10px] font-mono">
+                      P2P &amp; Purchasing
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Enable, disable, or hide specific jurisdictions and fiat currencies for P2P marketplace trading and Buy Crypto on-ramps in real time.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Regional Protection Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const modal = {
+                    title: 'Pause India (INR) P2P Trading & Purchasing',
+                    description:
+                      'Immediately hides and restricts INR P2P market listings, order creation, and Buy Crypto on-ramp in compliance with Indian regulatory directives.',
+                    featureKeys: ['P2P_CURRENCY_INR', 'BUY_CRYPTO_CURRENCY_INR', 'COUNTRY_IN'],
+                    targetEnabled: false,
+                    defaultReason: 'Regulatory compliance & local payment rail protection (India/INR)',
+                  };
+                  setPlaybookModal(modal);
+                  setPlaybookReason(modal.defaultReason);
+                  setPlaybookConfirmed(false);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <span>🇮🇳</span>
+                <span>Pause INR Region</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const modal = {
+                    title: 'Enable India (INR) P2P Trading & Purchasing',
+                    description:
+                      'Restores INR P2P marketplace trading, express rails, and Buy Crypto on-ramp for Indian users.',
+                    featureKeys: ['P2P_CURRENCY_INR', 'BUY_CRYPTO_CURRENCY_INR', 'COUNTRY_IN', 'CURRENCY_INR'],
+                    targetEnabled: true,
+                    defaultReason: 'Verification complete — restoring normal INR operations',
+                  };
+                  setPlaybookModal(modal);
+                  setPlaybookReason(modal.defaultReason);
+                  setPlaybookConfirmed(false);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <span>🇮🇳</span>
+                <span>Restore INR Region</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Matrix Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-gray-300">
+              <thead>
+                <tr className="border-b border-gray-800 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  <th className="py-2.5 px-3">Jurisdiction &amp; Currency</th>
+                  <th className="py-2.5 px-3">Local Payment Rails</th>
+                  <th className="py-2.5 px-3 text-center">P2P Marketplace</th>
+                  <th className="py-2.5 px-3 text-center">Buy Crypto On-Ramp</th>
+                  <th className="py-2.5 px-3 text-center">Country Allowed</th>
+                  <th className="py-2.5 px-3 text-center">Master Currency</th>
+                  <th className="py-2.5 px-3 text-right">Quick Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800/60 font-medium">
+                {REGIONAL_CORRIDORS.map((corridor) => {
+                  const p2pFeat = resolveFeature(corridor.p2pKey, `P2P Trading: ${corridor.currency}`);
+                  const buyFeat = resolveFeature(corridor.buyKey, `Buy Crypto: ${corridor.currency}`);
+                  const countryFeat = resolveFeature(corridor.countryKey, `Jurisdiction: ${corridor.country} (${corridor.code})`);
+                  const curFeat = resolveFeature(corridor.curKey, `${corridor.currency} Currency Asset`, 'CURRENCIES');
+
+                  const isP2pOn = p2pFeat.enabled;
+                  const isBuyOn = buyFeat.enabled;
+                  const isCountryOn = countryFeat.enabled;
+                  const isCurOn = curFeat.enabled;
+
+                  const allActive = isP2pOn && isBuyOn && isCountryOn && isCurOn;
+
+                  return (
+                    <tr key={corridor.code} className="hover:bg-slate-900/40 transition-colors">
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-xl leading-none">{corridor.flag}</span>
+                          <div>
+                            <p className="font-bold text-white text-xs flex items-center gap-1.5">
+                              {corridor.country}
+                              <span className="font-mono text-[10px] text-gray-400">({corridor.code})</span>
+                            </p>
+                            <p className="text-[11px] font-mono text-emerald-400 font-bold">
+                              {corridor.currency} &bull; <span className="text-gray-400 font-normal">{corridor.currencyName}</span>
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-3">
+                        <p className="text-[11px] text-gray-400 max-w-xs truncate" title={corridor.rails}>
+                          {corridor.rails}
+                        </p>
+                      </td>
+
+                      {/* P2P Switch */}
+                      <td className="py-3 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => openToggleModal(p2pFeat, !isP2pOn)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer border ${
+                            isP2pOn
+                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/40'
+                              : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40'
+                          }`}
+                          title={`Click to ${isP2pOn ? 'DISABLE / HIDE' : 'ENABLE'} P2P in ${corridor.currency}`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${isP2pOn ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                          {isP2pOn ? 'P2P Active' : 'P2P Hidden'}
+                        </button>
+                      </td>
+
+                      {/* Buy Crypto Switch */}
+                      <td className="py-3 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => openToggleModal(buyFeat, !isBuyOn)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer border ${
+                            isBuyOn
+                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/40'
+                              : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40'
+                          }`}
+                          title={`Click to ${isBuyOn ? 'DISABLE / HIDE' : 'ENABLE'} Buy Crypto in ${corridor.currency}`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${isBuyOn ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                          {isBuyOn ? 'Buy Active' : 'Buy Hidden'}
+                        </button>
+                      </td>
+
+                      {/* Country Jurisdiction Switch */}
+                      <td className="py-3 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => openToggleModal(countryFeat, !isCountryOn)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer border ${
+                            isCountryOn
+                              ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/40'
+                              : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-indigo-500/20 hover:text-indigo-300 hover:border-indigo-500/40'
+                          }`}
+                          title={`Click to ${isCountryOn ? 'RESTRICT' : 'ALLOW'} jurisdiction ${corridor.country}`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${isCountryOn ? 'bg-indigo-400' : 'bg-rose-400'}`} />
+                          {isCountryOn ? 'Allowed' : 'Restricted'}
+                        </button>
+                      </td>
+
+                      {/* Master Currency Switch */}
+                      <td className="py-3 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => openToggleModal(curFeat, !isCurOn)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer border ${
+                            isCurOn
+                              ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/40'
+                              : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-slate-800 hover:text-slate-300 hover:border-slate-700'
+                          }`}
+                          title={`Click to ${isCurOn ? 'PAUSE' : 'ACTIVATE'} ${corridor.currency} master currency`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${isCurOn ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                          {isCurOn ? 'Online' : 'Paused'}
+                        </button>
+                      </td>
+
+                      {/* Quick Region Action */}
+                      <td className="py-3 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const keysToToggle = [corridor.p2pKey, corridor.buyKey, corridor.countryKey];
+                            const modal = {
+                              title: `${allActive ? 'Pause' : 'Enable'} All ${corridor.country} (${corridor.currency}) Controls`,
+                              description: `${allActive ? 'Immediately pause and hide' : 'Immediately enable'} P2P trading, Buy Crypto on-ramps, and regional jurisdiction access for ${corridor.country} (${corridor.currency}).`,
+                              featureKeys: keysToToggle,
+                              targetEnabled: !allActive,
+                              defaultReason: allActive
+                                ? `Regulatory & compliance restriction for ${corridor.country} (${corridor.currency})`
+                                : `Restoring full live regional operations for ${corridor.country} (${corridor.currency})`,
+                            };
+                            setPlaybookModal(modal);
+                            setPlaybookReason(modal.defaultReason);
+                            setPlaybookConfirmed(false);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                            allActive
+                              ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                              : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                          }`}
+                        >
+                          {allActive ? `Pause ${corridor.currency}` : `Enable ${corridor.currency}`}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -1064,6 +1407,7 @@ export default function AdminFeatureControlTab({
                 onChange={(e) => setCustomCategory(e.target.value as any)}
                 className="w-full bg-[#090e17] border border-gray-700 rounded-xl px-3 py-2 text-xs text-white"
               >
+                <option value="REGIONAL_CONTROLS">Regional & Currency Control (P2P / Buy / Country)</option>
                 <option value="CORE_MODULES">Core Platform Module</option>
                 <option value="PAYMENT_GATEWAYS">Payment Gateway / Rail</option>
                 <option value="CURRENCIES">Currency / Asset (CURRENCY_XYZ)</option>

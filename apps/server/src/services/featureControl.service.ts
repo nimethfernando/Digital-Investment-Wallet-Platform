@@ -11,7 +11,8 @@ export type FeatureCategory =
   | 'PAYMENT_GATEWAYS'
   | 'CURRENCIES'
   | 'BLOCKCHAIN_NETWORKS'
-  | 'TRADING_PAIRS';
+  | 'TRADING_PAIRS'
+  | 'REGIONAL_CONTROLS';
 
 export interface PlatformFeatureControl {
   key: string;
@@ -431,7 +432,202 @@ const DEFAULT_FEATURES: Omit<
     enabled: true,
     isSensitive: false,
   },
+
+  // 6. REGIONAL & CURRENCY COMPLIANCE CONTROLS
+  // P2P Currency Switches
+  {
+    key: 'P2P_CURRENCY_INR',
+    label: 'P2P Trading: INR (India)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable P2P marketplace listings, order creation, and escrow in Indian Rupee (INR).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'P2P_CURRENCY_LKR',
+    label: 'P2P Trading: LKR (Sri Lanka)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable P2P marketplace listings, order creation, and escrow in Sri Lankan Rupee (LKR).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'P2P_CURRENCY_AED',
+    label: 'P2P Trading: AED (United Arab Emirates)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable P2P marketplace listings, order creation, and escrow in UAE Dirham (AED).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'P2P_CURRENCY_GEL',
+    label: 'P2P Trading: GEL (Georgia)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable P2P marketplace listings, order creation, and escrow in Georgian Lari (GEL).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'P2P_CURRENCY_EUR',
+    label: 'P2P Trading: EUR (European Union)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable P2P marketplace listings, order creation, and escrow in Euro (EUR).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'P2P_CURRENCY_USD',
+    label: 'P2P Trading: USD (United States)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable P2P marketplace listings, order creation, and escrow in US Dollar (USD).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'P2P_CURRENCY_GBP',
+    label: 'P2P Trading: GBP (United Kingdom)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable P2P marketplace listings, order creation, and escrow in British Pound (GBP).',
+    enabled: true,
+    isSensitive: false,
+  },
+
+  // Buy Crypto On-Ramp Currency Switches
+  {
+    key: 'BUY_CRYPTO_CURRENCY_INR',
+    label: 'Buy Crypto: INR (India)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable direct fiat/card cryptocurrency purchases on /buy-crypto in Indian Rupee (INR).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'BUY_CRYPTO_CURRENCY_LKR',
+    label: 'Buy Crypto: LKR (Sri Lanka)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable direct fiat/card cryptocurrency purchases on /buy-crypto in Sri Lankan Rupee (LKR).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'BUY_CRYPTO_CURRENCY_AED',
+    label: 'Buy Crypto: AED (United Arab Emirates)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable direct fiat/card cryptocurrency purchases on /buy-crypto in UAE Dirham (AED).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'BUY_CRYPTO_CURRENCY_GEL',
+    label: 'Buy Crypto: GEL (Georgia)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable direct fiat/card cryptocurrency purchases on /buy-crypto in Georgian Lari (GEL).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'BUY_CRYPTO_CURRENCY_EUR',
+    label: 'Buy Crypto: EUR (European Union)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable direct fiat/card cryptocurrency purchases on /buy-crypto in Euro (EUR).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'BUY_CRYPTO_CURRENCY_USD',
+    label: 'Buy Crypto: USD (United States)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable direct fiat/card cryptocurrency purchases on /buy-crypto in US Dollar (USD).',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'BUY_CRYPTO_CURRENCY_GBP',
+    label: 'Buy Crypto: GBP (United Kingdom)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Enable or disable direct fiat/card cryptocurrency purchases on /buy-crypto in British Pound (GBP).',
+    enabled: true,
+    isSensitive: false,
+  },
+
+  // Country Jurisdiction Controls
+  {
+    key: 'COUNTRY_IN',
+    label: 'Country Jurisdiction: India (IN)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Master country toggle for India. Controls P2P and fiat purchasing access for Indian users and rails.',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'COUNTRY_LK',
+    label: 'Country Jurisdiction: Sri Lanka (LK)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Master country toggle for Sri Lanka. Controls P2P and fiat purchasing access for Sri Lankan users and rails.',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'COUNTRY_AE',
+    label: 'Country Jurisdiction: United Arab Emirates (AE)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Master country toggle for UAE. Controls P2P and fiat purchasing access for UAE users and rails.',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'COUNTRY_GE',
+    label: 'Country Jurisdiction: Georgia (GE)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Master country toggle for Georgia. Controls P2P and fiat purchasing access for Georgian users and rails.',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'COUNTRY_EU',
+    label: 'Country Jurisdiction: European Union (EU)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Master country toggle for European Union. Controls P2P and fiat purchasing access for EU users and SEPA rails.',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'COUNTRY_US',
+    label: 'Country Jurisdiction: United States (US)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Master country toggle for United States. Controls P2P and fiat purchasing access for US users and rails.',
+    enabled: true,
+    isSensitive: false,
+  },
+  {
+    key: 'COUNTRY_GB',
+    label: 'Country Jurisdiction: United Kingdom (GB)',
+    category: 'REGIONAL_CONTROLS',
+    description: 'Master country toggle for United Kingdom. Controls P2P and fiat purchasing access for UK users and rails.',
+    enabled: true,
+    isSensitive: false,
+  },
 ];
+
+export const CURRENCY_COUNTRY_MAP: Record<string, string> = {
+  INR: 'IN',
+  LKR: 'LK',
+  AED: 'AE',
+  GEL: 'GE',
+  EUR: 'EU',
+  USD: 'US',
+  GBP: 'GB',
+};
+
+export const COUNTRY_CURRENCY_MAP: Record<string, string> = {
+  IN: 'INR',
+  LK: 'LKR',
+  AE: 'AED',
+  GE: 'GEL',
+  EU: 'EUR',
+  US: 'USD',
+  GB: 'GBP',
+};
 
 function pairKeyToArrow(key: string): string | null {
   if (!key.startsWith('PAIR_')) return null;
@@ -916,6 +1112,36 @@ export class FeatureControlService {
     await this.assertCurrencyEnabled(from);
     await this.assertCurrencyEnabled(to);
     await this.assertFeatureEnabled(`PAIR_${from}_${to}`);
+  }
+
+  /**
+   * Throw an actionable 403 error if P2P trading in a specific currency/jurisdiction is disabled
+   */
+  async assertP2pCurrencyEnabled(currency?: string | null): Promise<void> {
+    if (!currency) return;
+    const cur = String(currency).trim().toUpperCase();
+    await this.assertFeatureEnabled('P2P_TRADING');
+    await this.assertCurrencyEnabled(cur);
+    await this.assertFeatureEnabled(`P2P_CURRENCY_${cur}`);
+    const countryCode = CURRENCY_COUNTRY_MAP[cur];
+    if (countryCode) {
+      await this.assertFeatureEnabled(`COUNTRY_${countryCode}`);
+    }
+  }
+
+  /**
+   * Throw an actionable 403 error if fiat crypto purchasing on /buy-crypto in a specific currency/jurisdiction is disabled
+   */
+  async assertBuyCryptoCurrencyEnabled(currency?: string | null): Promise<void> {
+    if (!currency) return;
+    const cur = String(currency).trim().toUpperCase();
+    await this.assertFeatureEnabled('BUY_CRYPTO_ONRAMP');
+    await this.assertCurrencyEnabled(cur);
+    await this.assertFeatureEnabled(`BUY_CRYPTO_CURRENCY_${cur}`);
+    const countryCode = CURRENCY_COUNTRY_MAP[cur];
+    if (countryCode) {
+      await this.assertFeatureEnabled(`COUNTRY_${countryCode}`);
+    }
   }
 
   /**

@@ -8,8 +8,10 @@ const router = Router();
 
 const requireP2PTrading = featureControlService.requireFeature('P2P_TRADING', async (req) => {
   await featureControlService.assertCurrencyEnabled(req.body?.cryptoCurrency);
-  await featureControlService.assertCurrencyEnabled(req.body?.fiatCurrency);
-  await featureControlService.assertCurrencyEnabled(req.body?.currency);
+  const fiat = req.body?.fiatCurrency || req.body?.currency;
+  if (fiat) {
+    await featureControlService.assertP2pCurrencyEnabled(fiat);
+  }
 });
 
 /**

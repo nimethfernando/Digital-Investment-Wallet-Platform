@@ -26,6 +26,10 @@ router.get('/deposits', (req, res, next) => wallet_controller_1.walletController
 router.post('/razorpay/create-order', featureControl_service_1.featureControlService.requireFeature('GATEWAY_RAZORPAY', async (req) => {
     if (String(req.body?.purpose || '').toUpperCase().includes('CRYPTO')) {
         await featureControl_service_1.featureControlService.assertFeatureEnabled('BUY_CRYPTO_ONRAMP');
+        const checkoutFiat = req.body?.checkoutCurrency || req.body?.currency;
+        if (checkoutFiat) {
+            await featureControl_service_1.featureControlService.assertBuyCryptoCurrencyEnabled(checkoutFiat);
+        }
     }
     else {
         await featureControl_service_1.featureControlService.assertFeatureEnabled('DEPOSITS');
