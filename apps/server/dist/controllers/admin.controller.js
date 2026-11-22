@@ -2003,6 +2003,35 @@ class AdminController {
         }
     }
     /**
+     * Get audited portfolio valuation & asset allocation breakdown for a user
+     */
+    async getUserPortfolioBreakdown(req, res, next) {
+        try {
+            const id = String(req.params.id);
+            const user = await prisma_1.prisma.user.findUnique({
+                where: { id },
+                select: { id: true, email: true, firstName: true, lastName: true },
+            });
+            if (!user) {
+                return res.status(404).json({ success: false, message: 'User not found' });
+            }
+            const summary = await ledger_service_1.ledgerService.getUserWalletSummary(id);
+            res.json({
+                success: true,
+                data: {
+                    user: {
+                        ...user,
+                        accountNumber: (0, p2p_service_1.generateAvoraAccountNumber)(user.id),
+                    },
+                    ...summary,
+                },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * List all Avora Token ($AVR) buyers, whitelist registrants, and live holding/unlock metrics
      */
     async getTokenHolders(req, res, next) {

@@ -30,6 +30,7 @@ import {
 import { api } from '../../../lib/api';
 import { getExplorerInfo } from '../../../lib/blockchain';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
+import { PortfolioBreakdownModal } from '../../../components/PortfolioBreakdownModal';
 
 interface UsersTabProps {
   users: any[];
@@ -84,6 +85,9 @@ export default function AdminUsersTab({
 
   // Temporary Password Result Modal
   const [tempPassResult, setTempPassResult] = useState<{ email: string; password: string } | null>(null);
+
+  // Portfolio Breakdown Modal Target User
+  const [portfolioBreakdownUser, setPortfolioBreakdownUser] = useState<any | null>(null);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -658,8 +662,15 @@ export default function AdminUsersTab({
                     <td className="py-3.5 px-4">
                       {u.riskMetrics ? (
                         <div className="space-y-1 font-mono text-[11px]">
-                          <div className="font-bold text-white">
-                            Portfolio: ${Number(u.riskMetrics.totalPortfolioValueUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <div
+                            onClick={() => setPortfolioBreakdownUser(u)}
+                            className="font-bold text-white hover:text-emerald-400 cursor-pointer flex items-center gap-1.5 group transition-colors"
+                            title="Click to view full audited portfolio valuation & breakdown"
+                          >
+                            <span>Portfolio: ${Number(u.riskMetrics.totalPortfolioValueUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 opacity-80 group-hover:opacity-100 transition-opacity">
+                              Breakdown ↗
+                            </span>
                           </div>
                           <div className="flex flex-wrap gap-x-2 text-[10px] text-slate-400">
                             <span className="text-amber-300">Crypto: ${Number(u.riskMetrics.cryptoBalanceUsd || 0).toFixed(2)}</span>
@@ -897,13 +908,21 @@ export default function AdminUsersTab({
             {/* Real-Time Risk, Liquidity & P&L Position */}
             {selectedUser.riskMetrics && (
               <div className="space-y-3 bg-slate-900/70 border border-emerald-500/30 rounded-2xl p-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h4 className="text-xs font-bold text-emerald-400 uppercase font-mono">
                     Real-Time Portfolio, Liquidity Exposure &amp; Swap P&amp;L Telemetry
                   </h4>
-                  <span className="text-[11px] font-mono font-bold text-white">
-                    Total Portfolio: ${Number(selectedUser.riskMetrics.totalPortfolioValueUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPortfolioBreakdownUser(selectedUser)}
+                    className="text-[11px] font-mono font-bold text-white hover:text-emerald-400 transition-colors flex items-center gap-1.5 cursor-pointer bg-slate-800/80 hover:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700 shadow-sm"
+                    title="Click to view detailed portfolio calculation & asset breakdown"
+                  >
+                    <span>Total Portfolio: ${Number(selectedUser.riskMetrics.totalPortfolioValueUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-sans font-bold">
+                      Audit Breakdown ↗
+                    </span>
+                  </button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs font-mono">
                   <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl">
@@ -1416,6 +1435,17 @@ export default function AdminUsersTab({
             </button>
           </div>
         </div>
+      )}
+
+      {/* AUDITED PORTFOLIO VALUATION BREAKDOWN MODAL */}
+      {portfolioBreakdownUser && (
+        <PortfolioBreakdownModal
+          isOpen={!!portfolioBreakdownUser}
+          onClose={() => setPortfolioBreakdownUser(null)}
+          user={portfolioBreakdownUser}
+          userId={portfolioBreakdownUser.id}
+          wallet={portfolioBreakdownUser.wallet}
+        />
       )}
     </div>
   );

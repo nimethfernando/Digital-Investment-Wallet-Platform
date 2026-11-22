@@ -13,6 +13,7 @@ router.use(requireRole([Role.ADMIN, Role.STAFF]));
 router.get('/users', (req, res, next) => adminController.getUsers(req, res, next));
 router.post('/users/create', requireRole([Role.ADMIN]), (req, res, next) => adminController.createUser(req, res, next));
 router.get('/users/:id/client-view', (req, res, next) => adminController.getUserClientView(req, res, next));
+router.get('/users/:id/portfolio-breakdown', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.getUserPortfolioBreakdown(req, res, next));
 router.get('/tokens', (req, res, next) => adminController.getTokenHolders(req, res, next));
 router.post('/token/policy', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateTokenPolicy(req, res, next));
 router.patch('/token/policy', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateTokenPolicy(req, res, next));

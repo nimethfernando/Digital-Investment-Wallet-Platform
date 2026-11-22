@@ -12,6 +12,7 @@ router.use((0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]));
 router.get('/users', (req, res, next) => admin_controller_1.adminController.getUsers(req, res, next));
 router.post('/users/create', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.createUser(req, res, next));
 router.get('/users/:id/client-view', (req, res, next) => admin_controller_1.adminController.getUserClientView(req, res, next));
+router.get('/users/:id/portfolio-breakdown', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.getUserPortfolioBreakdown(req, res, next));
 router.get('/tokens', (req, res, next) => admin_controller_1.adminController.getTokenHolders(req, res, next));
 router.post('/token/policy', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateTokenPolicy(req, res, next));
 router.patch('/token/policy', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateTokenPolicy(req, res, next));

@@ -746,11 +746,11 @@ class LedgerService {
         };
     }
     /**
-     * Get user wallet balances with summary
+     * Get user wallet balances with summary and full portfolio valuation breakdown
      */
     async getUserWalletSummary(userId) {
         const wallet = await this.ensureWallet(userId);
-        const [balances, liveRates, returnsAgg] = await Promise.all([
+        const [balances, liveRates, returnsAgg, activePackages, activeCommitments, tokenAccess] = await Promise.all([
             prisma_1.prisma.walletBalance.findMany({
                 where: { walletId: wallet.id },
             }),
@@ -759,6 +759,26 @@ class LedgerService {
                 where: { userId, status: 'CREDITED' },
                 _sum: { returnAmount: true },
             }),
+            prisma_1.prisma.investmentPackage.findMany({
+                where: { userId, status: 'ACTIVE' },
+                select: {
+                    id: true,
+                    packageCode: true,
+                    amount: true,
+                    currency: true,
+                    returnRateSnapshot: true,
+                    lockInMonths: true,
+                    purchaseDate: true,
+                    status: true,
+                },
+            }),
+            prisma_1.prisma.investmentCommitment.findMany({
+                where: { investorUserId: userId, status: { in: ['ACTIVE', 'CLEARED_FUNDS'] } },
+                include: { listing: { select: { companyName: true, industry: true, stage: true, instrument: true } } },
+            }),
+            prisma_1.prisma.tokenEarlyAccess.findUnique({
+                where: { userId },
+            }).catch(() => null),
         ]);
         const toUsd = (amt, currency) => {
             const upper = (currency || 'USD').toUpperCase();
@@ -772,26 +792,141 @@ class LedgerService {
         let available = new decimal_js_1.default(0);
         let locked = new decimal_js_1.default(0);
         let pending = new decimal_js_1.default(0);
+        let cryptoTotalUsd = new decimal_js_1.default(0);
+        let fiatTotalUsd = new decimal_js_1.default(0);
+        let stablecoinTotalUsd = new decimal_js_1.default(0);
+        const assetItems = [];
         for (const b of balances) {
-            available = available.plus(toUsd(new decimal_js_1.default(b.availableBalance.toString()), b.currency));
-            locked = locked.plus(toUsd(new decimal_js_1.default(b.lockedPrincipal.toString()), b.currency));
-            pending = pending.plus(toUsd(new decimal_js_1.default(b.pendingSettlement.toString()), b.currency));
+            const upper = (b.currency || 'USD').toUpperCase();
+            const isVolatileCrypto = ['BTC', 'ETH'].includes(upper);
+            const isStablecoin = ['USDT', 'USDC'].includes(upper);
+            const isCrypto = isVolatileCrypto || isStablecoin;
+            const dp = isVolatileCrypto ? 8 : 2;
+            const availDec = new decimal_js_1.default(b.availableBalance.toString());
+            const lockedDec = new decimal_js_1.default(b.lockedPrincipal.toString());
+            const pendingDec = new decimal_js_1.default(b.pendingSettlement.toString());
+            const totalDec = availDec.plus(lockedDec).plus(pendingDec);
+            const availUsd = toUsd(availDec, upper);
+            const lockedUsd = toUsd(lockedDec, upper);
+            const pendingUsd = toUsd(pendingDec, upper);
+            const totalUsd = availUsd.plus(lockedUsd).plus(pendingUsd);
+            available = available.plus(availUsd);
+            locked = locked.plus(lockedUsd);
+            pending = pending.plus(pendingUsd);
+            if (isVolatileCrypto) {
+                cryptoTotalUsd = cryptoTotalUsd.plus(totalUsd);
+            }
+            else if (isStablecoin) {
+                stablecoinTotalUsd = stablecoinTotalUsd.plus(totalUsd);
+            }
+            else {
+                fiatTotalUsd = fiatTotalUsd.plus(totalUsd);
+            }
+            const rawRate = liveRates.rates[upper] || 1;
+            const unitPriceUsd = upper === 'USD' || upper === 'USDT' || upper === 'USDC'
+                ? 1.0
+                : rawRate > 0
+                    ? Number((1 / rawRate).toFixed(isVolatileCrypto ? 2 : 4))
+                    : 1.0;
+            assetItems.push({
+                currency: upper,
+                category: isVolatileCrypto ? 'CRYPTO' : isStablecoin ? 'STABLECOIN' : 'FIAT',
+                available: availDec.toFixed(dp),
+                availableUsd: availUsd.toFixed(2),
+                locked: lockedDec.toFixed(dp),
+                lockedUsd: lockedUsd.toFixed(2),
+                pending: pendingDec.toFixed(dp),
+                pendingUsd: pendingUsd.toFixed(2),
+                total: totalDec.toFixed(dp),
+                totalUsd: totalUsd.toFixed(2),
+                ratePerUsd: rawRate.toString(),
+                unitPriceUsd: unitPriceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: isVolatileCrypto ? 2 : 4 }),
+                hasBalance: totalDec.greaterThan(0),
+            });
         }
-        const total = available.plus(locked).plus(pending);
+        let ventureTotalUsd = new decimal_js_1.default(0);
+        const ventureDeals = activeCommitments.map((c) => {
+            const val = new decimal_js_1.default(c.currentValuation?.toString() || c.netInvestedAmount.toString());
+            ventureTotalUsd = ventureTotalUsd.plus(val);
+            return {
+                id: c.id,
+                code: c.investmentCode,
+                companyName: c.listing?.companyName || 'Startup Venture',
+                symbol: c.listing?.industry || c.instrument || 'EQUITY',
+                netInvestedUsd: Number(c.netInvestedAmount).toFixed(2),
+                currentValuationUsd: val.toFixed(2),
+                ownershipPct: c.ownershipPct ? `${c.ownershipPct.toString()}%` : 'SAFE Agreement',
+                status: c.status,
+            };
+        });
+        const fdPackagesList = activePackages.map((p) => {
+            const pAmtDec = new decimal_js_1.default(p.amount.toString());
+            const pUsd = toUsd(pAmtDec, p.currency);
+            return {
+                id: p.id,
+                code: p.packageCode,
+                amount: pAmtDec.toFixed(2),
+                currency: p.currency,
+                amountUsd: pUsd.toFixed(2),
+                returnRatePct: (Number(p.returnRateSnapshot) * 100).toFixed(2),
+                lockInMonths: p.lockInMonths,
+                status: p.status,
+            };
+        });
+        const totalWallet = available.plus(locked).plus(pending);
+        const grandTotal = totalWallet.plus(ventureTotalUsd);
         const accumulatedReturns = new decimal_js_1.default(returnsAgg._sum.returnAmount?.toString() || '0');
+        // Add portfolio percentage to each item
+        const formattedItems = assetItems.map((item) => {
+            const itemUsd = new decimal_js_1.default(item.totalUsd);
+            const pct = grandTotal.greaterThan(0)
+                ? Number((itemUsd.dividedBy(grandTotal).times(100)).toFixed(2))
+                : 0;
+            return {
+                ...item,
+                portfolioSharePct: pct,
+            };
+        });
         return {
             walletId: wallet.id,
             baseCurrency: 'USD',
-            totalPortfolioValueUsd: total.toFixed(2),
-            totalActiveInvestmentsUsd: locked.toFixed(2),
+            totalPortfolioValueUsd: grandTotal.toFixed(2),
+            totalActiveInvestmentsUsd: locked.plus(ventureTotalUsd).toFixed(2),
             totalReturnsPaidUsd: accumulatedReturns.toFixed(2),
             totalPendingWithdrawalsUsd: pending.toFixed(2),
             summary: {
                 available: available.toFixed(2),
                 lockedPrincipal: locked.toFixed(2),
                 pendingSettlement: pending.toFixed(2),
-                total: total.toFixed(2),
+                total: grandTotal.toFixed(2),
                 accumulatedReturns: accumulatedReturns.toFixed(2),
+            },
+            portfolioBreakdown: {
+                grandTotalUsd: grandTotal.toFixed(2),
+                liquidAvailableUsd: available.toFixed(2),
+                lockedPrincipalUsd: locked.toFixed(2),
+                pendingSettlementUsd: pending.toFixed(2),
+                cryptoTotalUsd: cryptoTotalUsd.toFixed(2),
+                stablecoinTotalUsd: stablecoinTotalUsd.toFixed(2),
+                fiatTotalUsd: fiatTotalUsd.toFixed(2),
+                activeVentureUsd: ventureTotalUsd.toFixed(2),
+                activeInvestmentsUsd: locked.plus(ventureTotalUsd).toFixed(2),
+                items: formattedItems,
+                activeBalances: formattedItems.filter((i) => i.hasBalance),
+                fixedDeposits: {
+                    count: activePackages.length,
+                    packages: fdPackagesList,
+                },
+                ventureInvestments: {
+                    count: activeCommitments.length,
+                    totalValuationUsd: ventureTotalUsd.toFixed(2),
+                    deals: ventureDeals,
+                },
+                ratesSnapshot: {
+                    lastUpdated: liveRates.lastUpdated,
+                    source: liveRates.source,
+                },
+                formula: 'Total Portfolio Value = Liquid Available Balances ($) + Locked Escrow/Reserves ($) + Pending Settlements ($) + Venture Equity Holdings ($)',
             },
             balances: balances.map((b) => {
                 const dp = ['BTC', 'ETH'].includes((b.currency || '').toUpperCase()) ? 8 : 2;

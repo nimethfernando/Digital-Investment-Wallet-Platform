@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '../lib/api';
+import { PortfolioBreakdownModal } from './PortfolioBreakdownModal';
 import {
   Wallet,
   CreditCard,
@@ -94,6 +95,7 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
 
   const [showBalance, setShowBalance] = useState(true);
   const [assetsSubTab, setAssetsSubTab] = useState<'crypto' | 'fiat'>('crypto');
+  const [portfolioBreakdownModalOpen, setPortfolioBreakdownModalOpen] = useState(false);
 
   // Method Selection Modal: International Transfer vs Transfer to Avora User
   const [chooseMethodModalOpen, setChooseMethodModalOpen] = useState(false);
@@ -557,7 +559,16 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
   const gelInUsd = parseFloat(gelBal) / (livePerUsdRates.GEL || 2.593);
   const inrInUsd = parseFloat(inrBal) / (livePerUsdRates.INR || 93.96);
 
-  const totalEstimatedUsd = (
+  // Audited Multi-Currency Portfolio Value: Uses server-side grand total (available + locked escrow + pending settlements + venture equity)
+  const serverTotalPortfolioVal = wallet?.totalPortfolioValueUsd
+    ? parseFloat(wallet.totalPortfolioValueUsd)
+    : wallet?.portfolioBreakdown?.grandTotalUsd
+    ? parseFloat(wallet.portfolioBreakdown.grandTotalUsd)
+    : wallet?.summary?.total
+    ? parseFloat(wallet.summary.total)
+    : null;
+
+  const fallbackClientTotalUsd =
     parseFloat(usdBal) +
     parseFloat(usdtBal) +
     parseFloat(usdcBal) +
@@ -565,7 +576,12 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
     ethInUsd +
     eurInUsd +
     gelInUsd +
-    inrInUsd
+    inrInUsd;
+
+  const totalEstimatedUsd = (
+    serverTotalPortfolioVal !== null && !isNaN(serverTotalPortfolioVal)
+      ? serverTotalPortfolioVal
+      : fallbackClientTotalUsd
   ).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // Auto-select funded currency for PAY FROM on initial load if default USDT is 0
@@ -750,24 +766,49 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
             </span>
           </div>
 
-          <div>
+          <div
+            onClick={() => setPortfolioBreakdownModalOpen(true)}
+            className="group cursor-pointer rounded-2xl p-3 -m-3 hover:bg-slate-100/70 dark:hover:bg-slate-800/50 transition-all border border-transparent hover:border-slate-300/80 dark:hover:border-slate-700/80 inline-block"
+            title="Click to view detailed calculation and asset allocation breakdown"
+          >
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <span>Total Estimated Portfolio Value</span>
+              <span className="font-semibold group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
+                Total Estimated Portfolio Value
+              </span>
               <button
-                onClick={() => setShowBalance(!showBalance)}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowBalance(!showBalance);
+                }}
                 className="p-1 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
                 title={showBalance ? 'Hide balance' : 'Show balance'}
               >
                 {showBalance ? <Eye className="w-4 h-4 text-slate-400" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
               </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPortfolioBreakdownModalOpen(true);
+                }}
+                className="ml-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all shadow-sm cursor-pointer"
+              >
+                <Sparkles className="w-3 h-3 text-amber-500 dark:text-amber-400" />
+                <span>View Calculation Breakdown ↗</span>
+              </button>
             </div>
-            <div className="flex items-baseline gap-3 mt-1">
-              <span className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight font-sans">
+            <div className="flex items-baseline gap-3 mt-1.5">
+              <span className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight font-sans group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
                 {showBalance ? `$${totalEstimatedUsd}` : '••••••••'}
               </span>
-              <span className="text-xs font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700/60">
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700/60 font-mono">
                 USD Reference
               </span>
+            </div>
+            <div className="text-[11px] text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors mt-1 flex items-center gap-1 font-medium">
+              <span>Audited double-entry calculation • Click to view holdings, rates &amp; formula</span>
             </div>
           </div>
 
@@ -2466,6 +2507,14 @@ export const RedotPayAppModule: React.FC<RedotPayAppModuleProps> = ({
           </div>
         </div>
       )}
+
+      {/* Portfolio Valuation & Asset Breakdown Modal */}
+      <PortfolioBreakdownModal
+        isOpen={portfolioBreakdownModalOpen}
+        onClose={() => setPortfolioBreakdownModalOpen(false)}
+        user={user}
+        wallet={wallet}
+      />
 
     </div>
   );
