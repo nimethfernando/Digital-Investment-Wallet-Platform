@@ -53,6 +53,7 @@ router.post('/orders/:orderId/accept', rate_limiter_1.p2pActionLimiter, (req, re
 router.post('/orders/:orderId/decline', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.declineOrder(req, res, next));
 router.post('/orders/:orderId/paid', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.markPaymentSent(req, res, next));
 router.post('/orders/:orderId/release', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.releaseEscrow(req, res, next));
+router.post('/orders/:orderId/priority-fulfill', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.fulfillPriorityOrder(req, res, next));
 router.post('/orders/:orderId/cancel', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.cancelOrder(req, res, next));
 router.post('/orders/:orderId/dispute', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.disputeOrder(req, res, next));
 router.post('/orders/:orderId/review', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.submitOrderReview(req, res, next));

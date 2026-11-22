@@ -40,6 +40,7 @@ import {
   Delete,
   QrCode,
   Zap,
+  ArrowUpDown,
   ChevronDown,
   ArrowRight,
   Headphones,
@@ -628,14 +629,20 @@ function P2PPageContent() {
   const [p2pTopTab, setP2pTopTab] = useState<'express' | 'marketplace'>('marketplace');
   const [bottomNav, setBottomNav] = useState<'p2p' | 'orders' | 'chat' | 'ads' | 'profile'>('p2p');
 
+  // Saved Preference Storage Keys
+  const SAVED_CURRENCY_KEY = 'avora_p2p_saved_currency';
+  const SAVED_COUNTRY_KEY = 'avora_p2p_saved_country_id';
+
   // Express State
   const [expressSide, setExpressSide] = useState<'BUY' | 'SELL'>('BUY');
-  const [expressCurrency, setExpressCurrency] = useState<string>('INR');
+  const [expressCurrency, setExpressCurrency] = useState<string>('USD');
   const [expressCrypto, setExpressCrypto] = useState<string>('USDT');
   const [expressAmount, setExpressAmount] = useState<string>('');
+  const [expressInputMode, setExpressInputMode] = useState<'FIAT' | 'CRYPTO'>('FIAT');
   const [expressOrderModalOpen, setExpressOrderModalOpen] = useState(false);
   const [expressExecuting, setExpressExecuting] = useState(false);
   const [expressError, setExpressError] = useState<string | null>(null);
+  const [fulfillingPriorityId, setFulfillingPriorityId] = useState<string | null>(null);
 
   // Live Exchange Rates (fiat + live BTC/ETH fetched from /otc/rates + 60s refresh)
   const [liveRates, setLiveRates] = useState<Record<string, number>>({
@@ -706,9 +713,56 @@ function P2PPageContent() {
   // Navigation tab: 'marketplace' | 'orders' | 'member' | 'post-ad' | 'chat'
   const [activeNav, setActiveNav] = useState<'marketplace' | 'orders' | 'member' | 'post-ad' | 'chat'>('marketplace');
 
-  // P2P Market State & Search Filters
+  // P2P Market State & Search Filters (Default to USD / United States)
+  const defaultCountry = COUNTRIES.find((c) => c.currency === 'USD') || COUNTRIES[5] || COUNTRIES[0];
   const [marketSide, setMarketSide] = useState<'BUY' | 'SELL'>('BUY');
-  const [selectedCountry, setSelectedCountry] = useState<CountryRail>(COUNTRIES[0]);
+  const [selectedCountry, setSelectedCountry] = useState<CountryRail>(defaultCountry);
+
+  // Restore user saved country & currency preference from localStorage
+  useEffect(() => {
+    try {
+      const savedCountryId = localStorage.getItem(SAVED_COUNTRY_KEY);
+      const savedCurrency = localStorage.getItem(SAVED_CURRENCY_KEY);
+      if (savedCountryId) {
+        const found = COUNTRIES.find((c) => c.id === savedCountryId);
+        if (found) {
+          setSelectedCountry(found);
+          setExpressCurrency(found.currency);
+          return;
+        }
+      }
+      if (savedCurrency) {
+        const found = COUNTRIES.find((c) => c.currency === savedCurrency);
+        if (found) {
+          setSelectedCountry(found);
+          setExpressCurrency(found.currency);
+        }
+      }
+    } catch {
+      // Ignore storage errors in sandbox/private mode
+    }
+  }, []);
+
+  const handleSelectCountry = (country: CountryRail) => {
+    setSelectedCountry(country);
+    setExpressCurrency(country.currency);
+    try {
+      localStorage.setItem(SAVED_COUNTRY_KEY, country.id);
+      localStorage.setItem(SAVED_CURRENCY_KEY, country.currency);
+    } catch {}
+  };
+
+  const handleExpressCurrencyChange = (newCur: string) => {
+    setExpressCurrency(newCur);
+    const found = COUNTRIES.find((c) => c.currency === newCur);
+    if (found) {
+      setSelectedCountry(found);
+      try {
+        localStorage.setItem(SAVED_COUNTRY_KEY, found.id);
+        localStorage.setItem(SAVED_CURRENCY_KEY, found.currency);
+      } catch {}
+    }
+  };
   const [marketCryptoFilter, setMarketCryptoFilter] = useState<string>('ALL');
   const [marketPaymentFilter, setMarketPaymentFilter] = useState<string>('ALL');
   const [marketAmountFilter, setMarketAmountFilter] = useState<string>('');
@@ -1019,9 +1073,22 @@ function P2PPageContent() {
   const expressMaxLimit = (500000.0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const expressDecimals = expressCrypto === 'USDT' || expressCrypto === 'USDC' ? 2 : 6;
   const expressCryptoCalculated =
-    parseFloat(expressAmount || '0') > 0
+    expressInputMode === 'CRYPTO'
+      ? parseFloat(expressAmount || '0') > 0
+        ? parseFloat(expressAmount).toFixed(expressDecimals)
+        : (0).toFixed(expressDecimals)
+      : parseFloat(expressAmount || '0') > 0
       ? (parseFloat(expressAmount) / (expressSpotRaw || 1)).toFixed(expressDecimals)
       : (0).toFixed(expressDecimals);
+
+  const expressFiatCalculated =
+    expressInputMode === 'CRYPTO'
+      ? parseFloat(expressAmount || '0') > 0
+        ? (parseFloat(expressAmount) * (expressSpotRaw || 1)).toFixed(2)
+        : '0.00'
+      : parseFloat(expressAmount || '0') > 0
+      ? parseFloat(expressAmount).toFixed(2)
+      : '0.00';
 
   const navigateTo = (view: 'express' | 'marketplace' | 'orders' | 'chat' | 'post-ad' | 'member') => {
     setActiveChatOrder(null);
@@ -1139,7 +1206,7 @@ function P2PPageContent() {
     setExpressExecuting(true);
     setExpressError(null);
     try {
-      const fiatNum = parseFloat(expressAmount);
+      const fiatNum = parseFloat(expressFiatCalculated);
       const offersRes = await api.get(
         `/p2p/offers?side=${expressSide}&cryptoCurrency=${expressCrypto}&fiatCurrency=${expressCurrency}&sortBy=price_asc`
       );
@@ -1480,6 +1547,29 @@ function P2PPageContent() {
       return !isFiatOff;
     });
 
+    // Avora Priority P2P Desk is specifically and only configured for India (INR) domestic settlement
+    combined = combined.map((item) => {
+      if ((item.fiatCurrency || '').toUpperCase() !== 'INR' && item.isPriorityDesk) {
+        return {
+          ...item,
+          isPriorityDesk: false,
+          trader: {
+            ...item.trader,
+            name: item.trader.name === 'Avora Priority P2P Desk' ? 'Avora Liquidity Treasury' : item.trader.name,
+          },
+        };
+      }
+      return item;
+    });
+
+    if (cur === 'INR') {
+      combined.sort((a, b) => {
+        if (a.isPriorityDesk && !b.isPriorityDesk) return -1;
+        if (!a.isPriorityDesk && b.isPriorityDesk) return 1;
+        return 0;
+      });
+    }
+
     return combined;
   })();
 
@@ -1705,6 +1795,31 @@ function P2PPageContent() {
       setTradeError(extractErrorMessage(err, 'Failed to create order. Check your wallet balance or limits.'));
     } finally {
       setTradeCreating(false);
+    }
+  };
+
+  const handleAdminPriorityFulfill = async (orderId: string) => {
+    if (!window.confirm('Fulfill this AVORA Priority P2P order (INR)?\n\nThis will release the escrowed crypto directly to the buyer and mark the order COMPLETED.')) {
+      return;
+    }
+    setFulfillingPriorityId(orderId);
+    setRoomActionError(null);
+    try {
+      const res = await api.post(`/p2p/orders/${orderId}/priority-fulfill`, {
+        releaseNote: 'Domestic INR payment verified & fulfilled by Avora Bank Administrator via Client View.',
+      });
+      if (res.data?.success) {
+        if (activeChatOrder?.id === orderId) {
+          setActiveChatOrder(res.data.data || { ...activeChatOrder, status: 'COMPLETED' });
+        }
+        await Promise.all([fetchOrders(), fetchActiveChatMessages(orderId), fetchWalletBalances()]);
+        window.dispatchEvent(new Event('avora-notifications-refresh'));
+        alert(res.data.message || 'Priority order fulfilled! Escrow credited to buyer.');
+      }
+    } catch (e: any) {
+      setRoomActionError(extractErrorMessage(e, 'Failed to fulfill priority order'));
+    } finally {
+      setFulfillingPriorityId(null);
     }
   };
 
@@ -2061,7 +2176,6 @@ function P2PPageContent() {
                 type="text"
                 maxLength={6}
                 required
-                autoFocus
                 placeholder="000000"
                 value={release2FACode}
                 onChange={(e) => setRelease2FACode(e.target.value.replace(/\D/g, ''))}
@@ -2263,6 +2377,26 @@ function P2PPageContent() {
                   Release Crypto Escrow
                 </button>
               )}
+
+              {/* Admin Priority Desk Direct Fulfillment Action (INR transactions) */}
+              {(user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'STAFF') &&
+                activeChatOrder.fiatCurrency === 'INR' &&
+                !['COMPLETED', 'CANCELLED', 'DECLINED', 'EXPIRED'].includes(activeChatOrder.status) && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdminPriorityFulfill(activeChatOrder.id)}
+                    disabled={fulfillingPriorityId === activeChatOrder.id}
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/25 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="Directly fulfill this INR Priority P2P order and release escrow to the buyer"
+                  >
+                    <Zap className="w-3.5 h-3.5 fill-current" />
+                    <span>
+                      {fulfillingPriorityId === activeChatOrder.id
+                        ? 'Fulfilling...'
+                        : '⚡ Fulfill Priority Order (INR)'}
+                    </span>
+                  </button>
+                )}
 
               {/* Cancel Trade: Buyer or Seller before payment; or Buyer during dispute / payment sent */}
               {!isFrozen && canCancelOrder(activeChatOrder) && (
@@ -2610,7 +2744,7 @@ function P2PPageContent() {
             <div className="relative">
               <select
                 value={expressCurrency}
-                onChange={(e) => setExpressCurrency(e.target.value)}
+                onChange={(e) => handleExpressCurrencyChange(e.target.value)}
                 className="appearance-none bg-zinc-900 border border-zinc-800 text-white font-extrabold text-xs pl-3 pr-7 py-2 rounded-xl outline-none cursor-pointer hover:border-zinc-700 transition-colors"
               >
                 {availableCountries.map((c) => (
@@ -2641,14 +2775,18 @@ function P2PPageContent() {
             </select>
           </div>
 
-          {/* Big Editable Amount Display */}
+          {/* Big Editable Amount Display with Fiat/Crypto Switch (Image 9) */}
           <div className="space-y-1">
             <div className="flex items-baseline gap-2 border-b border-zinc-800/80 pb-2">
               <input
                 type="text"
                 inputMode="decimal"
                 value={expressAmount}
-                placeholder="Enter amount"
+                placeholder="0"
+                onWheel={(e) => (e.target as HTMLElement).blur()}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                }}
                 onChange={(e) => {
                   let raw = e.target.value.replace(/[^0-9.]/g, '');
                   const parts = raw.split('.');
@@ -2661,7 +2799,19 @@ function P2PPageContent() {
                 aria-label="Express Trade Amount"
                 className="w-full bg-transparent text-4xl sm:text-5xl font-extrabold text-white placeholder:text-zinc-600 tracking-tight font-mono outline-none"
               />
-              <span className="text-xl sm:text-2xl text-zinc-400 font-sans font-bold shrink-0">{expressCurrency}</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-xl sm:text-2xl text-zinc-300 font-sans font-black">
+                  {expressInputMode === 'FIAT' ? expressCurrency : expressCrypto}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExpressInputMode((prev) => (prev === 'FIAT' ? 'CRYPTO' : 'FIAT'))}
+                  className="p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-emerald-400 hover:text-white transition-all cursor-pointer border border-zinc-700 shadow-sm"
+                  title={`Switch amount mode (Currently entering ${expressInputMode === 'FIAT' ? expressCurrency : expressCrypto})`}
+                >
+                  <ArrowUpDown className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Real-time Available Balance, Exchange Rate & Limits */}
@@ -2698,12 +2848,16 @@ function P2PPageContent() {
               </div>
             </div>
 
-            {/* Crypto Output Preview */}
+            {/* Crypto / Fiat Output Preview */}
             {parseFloat(expressAmount) > 0 && (
               <div className="pt-2 flex items-center justify-between text-xs bg-zinc-900/60 border border-zinc-800/80 px-3 py-2 rounded-xl">
-                <span className="text-zinc-400">You will {expressSide === 'BUY' ? 'receive' : 'sell'}:</span>
+                <span className="text-zinc-400">
+                  You will {expressSide === 'BUY' ? (expressInputMode === 'FIAT' ? 'receive' : 'pay') : (expressInputMode === 'FIAT' ? 'sell' : 'receive')}:
+                </span>
                 <span className="font-mono font-bold text-emerald-400 text-sm">
-                  {expressCryptoCalculated} {expressCrypto}
+                  {expressInputMode === 'FIAT'
+                    ? `${expressCryptoCalculated} ${expressCrypto}`
+                    : `${expressFiatCalculated} ${expressCurrency}`}
                 </span>
               </div>
             )}
@@ -2711,7 +2865,10 @@ function P2PPageContent() {
 
           {/* Quick Amount Suggestion Chips */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none text-xs">
-            {[1000, 5000, 10000, 50000].map((amt) => (
+            {(expressInputMode === 'FIAT'
+              ? (expressCurrency === 'INR' ? [1000, 5000, 10000, 50000] : [50, 100, 500, 1000])
+              : [50, 100, 500, 1000]
+            ).map((amt) => (
               <button
                 key={amt}
                 type="button"
@@ -2726,11 +2883,19 @@ function P2PPageContent() {
               onClick={() => {
                 if (expressSide === 'SELL') {
                   const avail = walletBalances[expressCrypto] ?? 0;
-                  const fiatMax = avail * expressRate;
-                  const finalAmt = Math.min(fiatMax, expressMaxLimit);
-                  setExpressAmount(finalAmt > 0 ? Math.floor(finalAmt).toString() : '0');
+                  if (expressInputMode === 'CRYPTO') {
+                    setExpressAmount(avail > 0 ? avail.toFixed(2) : '0');
+                  } else {
+                    const fiatMax = avail * expressRate;
+                    const finalAmt = Math.min(fiatMax, expressMaxLimit);
+                    setExpressAmount(finalAmt > 0 ? Math.floor(finalAmt).toString() : '0');
+                  }
                 } else {
-                  setExpressAmount(String(expressMaxLimit));
+                  if (expressInputMode === 'CRYPTO') {
+                    setExpressAmount('1000');
+                  } else {
+                    setExpressAmount(String(expressMaxLimit));
+                  }
                 }
               }}
               className="px-3 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-rose-400 hover:text-rose-300 text-[11px] font-bold transition-colors shrink-0 cursor-pointer"
@@ -2876,7 +3041,7 @@ function P2PPageContent() {
                 return (
                   <button
                     key={c.id}
-                    onClick={() => setSelectedCountry(c)}
+                    onClick={() => handleSelectCountry(c)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
                       active
                         ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm'
@@ -2912,12 +3077,20 @@ function P2PPageContent() {
               <div>
                 <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Order Amount ({selectedCountry.currency})</label>
                 <input
-                  type="number"
-                  min="0"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   value={marketAmountFilter}
-                  onChange={(e) => setMarketAmountFilter(e.target.value)}
-                  placeholder={`e.g. ${selectedCountry.currency === 'LKR' ? '25000' : '500'}`}
+                  onWheel={(e) => (e.target as HTMLElement).blur()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                  }}
+                  onChange={(e) => {
+                    let raw = e.target.value.replace(/[^0-9.]/g, '');
+                    const parts = raw.split('.');
+                    if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                    setMarketAmountFilter(raw);
+                  }}
+                  placeholder={`e.g. ${selectedCountry.currency === 'USD' ? '100' : selectedCountry.currency === 'LKR' ? '25000' : '5000'}`}
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-slate-900 dark:text-white outline-none"
                 />
               </div>
@@ -3497,6 +3670,20 @@ function P2PPageContent() {
                       Trader: <span className="font-bold text-slate-700 dark:text-slate-200">{order.counterparty.name}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      {(user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'STAFF') &&
+                        order.fiatCurrency === 'INR' &&
+                        !['COMPLETED', 'CANCELLED', 'DECLINED', 'EXPIRED'].includes(order.status) && (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminPriorityFulfill(order.id)}
+                            disabled={fulfillingPriorityId === order.id}
+                            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
+                            title="Directly fulfill this INR Priority order from Client View"
+                          >
+                            <Zap className="w-3.5 h-3.5 fill-current" />
+                            <span>{fulfillingPriorityId === order.id ? 'Fulfilling...' : '⚡ Fulfill'}</span>
+                          </button>
+                        )}
                       {canCancelOrder(order) && (
                         <button
                           type="button"
@@ -3999,11 +4186,15 @@ function P2PPageContent() {
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Set Margin %:</span>
                     <input
-                      type="number"
-                      step="0.1"
+                      type="text"
+                      inputMode="decimal"
                       value={newAdFloatingMargin}
+                      onWheel={(e) => (e.target as HTMLElement).blur()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                      }}
                       onChange={(e) => {
-                        const m = e.target.value;
+                        let m = e.target.value.replace(/[^0-9.-]/g, '');
                         setNewAdFloatingMargin(m);
                         const spot = getCryptoFiatSpotRate(newAdCrypto, newAdCurrency);
                         const mult = 1 + (parseFloat(m) || 0) / 100;
@@ -4017,11 +4208,20 @@ function P2PPageContent() {
 
                 <div className="relative">
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
                     required
                     value={newAdPrice}
-                    onChange={(e) => setNewAdPrice(e.target.value)}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                    }}
+                    onChange={(e) => {
+                      let raw = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = raw.split('.');
+                      if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                      setNewAdPrice(raw);
+                    }}
                     placeholder="e.g. 95.00"
                     className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono text-base font-black outline-none focus:border-emerald-500 shadow-inner"
                   />
@@ -4125,10 +4325,20 @@ function P2PPageContent() {
                   )}
                 </div>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   required
                   value={newAdAmount}
-                  onChange={(e) => setNewAdAmount(e.target.value)}
+                  onWheel={(e) => (e.target as HTMLElement).blur()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                  }}
+                  onChange={(e) => {
+                    let raw = e.target.value.replace(/[^0-9.]/g, '');
+                    const parts = raw.split('.');
+                    if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                    setNewAdAmount(raw);
+                  }}
                   placeholder="e.g. 1000"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono font-bold outline-none"
                 />
@@ -4150,10 +4360,19 @@ function P2PPageContent() {
                       Min Order ({newAdCurrency}) <span className="text-[10px] font-normal text-slate-400">(Optional)</span>
                     </label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
+                      inputMode="decimal"
                       value={newAdMinLimit}
-                      onChange={(e) => setNewAdMinLimit(e.target.value)}
+                      onWheel={(e) => (e.target as HTMLElement).blur()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                      }}
+                      onChange={(e) => {
+                        let raw = e.target.value.replace(/[^0-9.]/g, '');
+                        const parts = raw.split('.');
+                        if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                        setNewAdMinLimit(raw);
+                      }}
                       placeholder="Auto (No minimum)"
                       className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono outline-none"
                     />
@@ -4163,10 +4382,19 @@ function P2PPageContent() {
                       Max Order ({newAdCurrency}) <span className="text-[10px] font-normal text-slate-400">(Optional)</span>
                     </label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
+                      inputMode="decimal"
                       value={newAdMaxLimit}
-                      onChange={(e) => setNewAdMaxLimit(e.target.value)}
+                      onWheel={(e) => (e.target as HTMLElement).blur()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                      }}
+                      onChange={(e) => {
+                        let raw = e.target.value.replace(/[^0-9.]/g, '');
+                        const parts = raw.split('.');
+                        if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                        setNewAdMaxLimit(raw);
+                      }}
                       placeholder={`Auto (${Math.round((parseFloat(newAdAmount || '0') || 0) * (parseFloat(newAdPrice || '0') || 0)).toLocaleString()} ${newAdCurrency})`}
                       className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono outline-none"
                     />
@@ -4360,13 +4588,21 @@ function P2PPageContent() {
                         {inlineRateOfferId === ad.id ? (
                           <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white dark:bg-slate-900 border-2 border-emerald-500/60 shadow-md animate-in fade-in">
                             <input
-                              type="number"
-                              step="any"
+                              type="text"
+                              inputMode="decimal"
                               value={inlineRateValue}
-                              onChange={(e) => setInlineRateValue(e.target.value)}
+                              onWheel={(e) => (e.target as HTMLElement).blur()}
+                              onKeyDown={(e) => {
+                                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                              }}
+                              onChange={(e) => {
+                                let raw = e.target.value.replace(/[^0-9.]/g, '');
+                                const parts = raw.split('.');
+                                if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                                setInlineRateValue(raw);
+                              }}
                               placeholder="New rate"
                               className="w-28 px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-xs outline-none focus:ring-1 focus:ring-emerald-500"
-                              autoFocus
                             />
                             <span className="text-[11px] font-bold text-slate-400 font-mono">{ad.fiatCurrency}</span>
                             <button
@@ -4894,12 +5130,20 @@ function P2PPageContent() {
                   <div>
                     <label className="block text-slate-400 font-bold mb-1">Amount (USDT)</label>
                     <input
-                      type="number"
-                      step="0.01"
-                      min="5"
+                      type="text"
+                      inputMode="decimal"
                       required
                       value={deskCryptoAmount}
-                      onChange={(e) => setDeskCryptoAmount(e.target.value)}
+                      onWheel={(e) => (e.target as HTMLElement).blur()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                      }}
+                      onChange={(e) => {
+                        let raw = e.target.value.replace(/[^0-9.]/g, '');
+                        const parts = raw.split('.');
+                        if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                        setDeskCryptoAmount(raw);
+                      }}
                       className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white font-mono font-bold outline-none"
                     />
                   </div>
@@ -5176,11 +5420,15 @@ function P2PPageContent() {
                   <div className="flex items-center gap-2 pt-0.5">
                     <span className="text-[11px] font-bold text-slate-300">Margin %:</span>
                     <input
-                      type="number"
-                      step="0.1"
+                      type="text"
+                      inputMode="decimal"
                       value={editAdFloatingMargin}
+                      onWheel={(e) => (e.target as HTMLElement).blur()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                      }}
                       onChange={(e) => {
-                        const m = e.target.value;
+                        const m = e.target.value.replace(/[^0-9.-]/g, '');
                         setEditAdFloatingMargin(m);
                         const spot = getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency);
                         const mult = 1 + (parseFloat(m) || 0) / 100;
@@ -5194,11 +5442,20 @@ function P2PPageContent() {
 
                 <div className="relative">
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
                     required
                     value={editAdPrice}
-                    onChange={(e) => setEditAdPrice(e.target.value)}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                    }}
+                    onChange={(e) => {
+                      let raw = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = raw.split('.');
+                      if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                      setEditAdPrice(raw);
+                    }}
                     placeholder="Enter custom rate"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border-2 border-slate-800 text-white font-mono font-bold text-sm outline-none focus:border-emerald-500 shadow-inner"
                   />
@@ -5318,10 +5575,19 @@ function P2PPageContent() {
                 <div>
                   <label className="block font-bold text-slate-200 mb-1">Available Liquidity ({editingOffer.cryptoCurrency})</label>
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
                     value={editAdAvailable}
-                    onChange={(e) => setEditAdAvailable(e.target.value)}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                    }}
+                    onChange={(e) => {
+                      let raw = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = raw.split('.');
+                      if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                      setEditAdAvailable(raw);
+                    }}
                     className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none"
                   />
                 </div>
@@ -5339,20 +5605,38 @@ function P2PPageContent() {
                 <div>
                   <label className="block font-bold text-slate-200 mb-1">Min Order ({editingOffer.fiatCurrency})</label>
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
                     value={editAdMinLimit}
-                    onChange={(e) => setEditAdMinLimit(e.target.value)}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                    }}
+                    onChange={(e) => {
+                      let raw = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = raw.split('.');
+                      if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                      setEditAdMinLimit(raw);
+                    }}
                     className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none"
                   />
                 </div>
                 <div>
                   <label className="block font-bold text-slate-200 mb-1">Max Order ({editingOffer.fiatCurrency})</label>
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
                     value={editAdMaxLimit}
-                    onChange={(e) => setEditAdMaxLimit(e.target.value)}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                    }}
+                    onChange={(e) => {
+                      let raw = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = raw.split('.');
+                      if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                      setEditAdMaxLimit(raw);
+                    }}
                     className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none"
                   />
                 </div>

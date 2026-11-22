@@ -4185,6 +4185,26 @@ export class AdminController {
   }
 
   /**
+   * Admin: Fulfill an AVORA Priority P2P Order (Specifically and only for INR transactions)
+   */
+  async fulfillP2POrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { releaseNote } = req.body || {};
+
+      const order = await p2pService.fulfillPriorityOrder(id, adminUserId, releaseNote);
+      res.json({
+        success: true,
+        message: 'AVORA Priority P2P Order fulfilled! Escrowed crypto credited to buyer.',
+        data: order,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Get immutable admin audit logs
    */
   async getAdminAuditLogs(req: Request, res: Response, next: NextFunction) {

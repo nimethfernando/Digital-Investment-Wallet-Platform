@@ -88,6 +88,7 @@ router.patch('/dealflow/opportunities/:id', (0, auth_1.requireRole)([client_1.Ro
 router.get('/p2p/applications', (req, res, next) => admin_controller_1.adminController.getP2PApplications(req, res, next));
 router.post('/p2p/applications/:id/review', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.reviewP2PApplication(req, res, next));
 router.get('/p2p/orders', (req, res, next) => admin_controller_1.adminController.getP2POrders(req, res, next));
+router.post('/p2p/orders/:id/fulfill', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.fulfillP2POrder(req, res, next));
 router.post('/p2p/orders/:id/freeze', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.freezeP2POrder(req, res, next));
 router.post('/p2p/orders/:id/resolve', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.resolveP2PDispute(req, res, next));
 // OTC Desks & Escrow Trade Management

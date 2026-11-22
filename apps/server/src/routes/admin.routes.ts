@@ -155,6 +155,7 @@ router.post('/p2p/applications/:id/review', requireRole([Role.ADMIN, Role.STAFF]
   adminController.reviewP2PApplication(req, res, next)
 );
 router.get('/p2p/orders', (req, res, next) => adminController.getP2POrders(req, res, next));
+router.post('/p2p/orders/:id/fulfill', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.fulfillP2POrder(req, res, next));
 router.post('/p2p/orders/:id/freeze', requireRole([Role.ADMIN]), (req, res, next) => adminController.freezeP2POrder(req, res, next));
 router.post('/p2p/orders/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resolveP2PDispute(req, res, next));
 

@@ -375,6 +375,29 @@ export class P2PController {
   }
 
   /**
+   * Admin / Staff: Fulfill an AVORA Priority P2P Order directly from client view or admin view (Specifically for INR)
+   */
+  async fulfillPriorityOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN' && user.role !== 'STAFF')) {
+        return res.status(403).json({ success: false, message: 'Only Avora Bank Administrators can directly fulfill priority desk orders.' });
+      }
+      const orderId = req.params.orderId as string;
+      const { releaseNote } = req.body || {};
+
+      const order = await p2pService.fulfillPriorityOrder(orderId, user.id, releaseNote);
+      res.json({
+        success: true,
+        message: 'AVORA Priority P2P Order fulfilled! Escrowed crypto released to buyer.',
+        data: order,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Open Dispute on order
    */
   async disputeOrder(req: Request, res: Response, next: NextFunction) {
