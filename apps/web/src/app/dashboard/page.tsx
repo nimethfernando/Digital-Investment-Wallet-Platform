@@ -295,6 +295,8 @@ function DashboardContent() {
   const [notifSummary, setNotifSummary] = useState<CustomerNotificationSummary>({
     totalCount: 0,
     unreadCount: 0,
+    p2pCount: 0,
+    swapCount: 0,
     supportCount: 0,
     fdCount: 0,
     depositWithdrawalCount: 0,
@@ -302,7 +304,7 @@ function DashboardContent() {
     accountCount: 0,
     otcCount: 0,
   });
-  const [notifCategoryFilter, setNotifCategoryFilter] = useState<'ALL' | 'UNREAD' | 'OTC' | 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT'>('ALL');
+  const [notifCategoryFilter, setNotifCategoryFilter] = useState<'ALL' | 'UNREAD' | 'P2P' | 'SWAP' | 'OTC' | 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT'>('ALL');
   const [notifSearch, setNotifSearch] = useState('');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [packages, setPackages] = useState<PackageItem[]>([]);
@@ -707,9 +709,28 @@ function DashboardContent() {
       const notifRes = await api.get('/wallet/notifications');
       const payload = notifRes.data?.data || notifRes.data;
       if (Array.isArray(payload?.notifications)) {
-        setCustomerNotifications(payload.notifications);
-      }
-      if (payload?.summary) {
+        const enriched = payload.notifications.map((n: any) => {
+          let cat = n.category;
+          const rawCat = String(cat || '').toUpperCase();
+          const rawType = String(n.type || '').toUpperCase();
+          const rawTitle = String(n.title || '').toUpperCase();
+          const rawUrl = String(n.actionUrl || '').toLowerCase();
+          if (rawCat === 'P2P' || rawType.startsWith('P2P') || rawTitle.includes('P2P') || rawUrl.includes('/p2p')) {
+            cat = 'P2P';
+          } else if (rawCat === 'SWAP' || rawType.startsWith('SWAP') || rawType === 'EXCHANGE_BUY' || rawType === 'EXCHANGE_SELL' || rawTitle.includes('SWAP') || rawUrl.includes('tab=swap')) {
+            cat = 'SWAP';
+          }
+          return { ...n, category: cat };
+        });
+        setCustomerNotifications(enriched);
+        const p2pCount = payload.summary?.p2pCount ?? enriched.filter((n: any) => n.category === 'P2P').length;
+        const swapCount = payload.summary?.swapCount ?? enriched.filter((n: any) => n.category === 'SWAP').length;
+        setNotifSummary({
+          ...(payload.summary || notifSummary),
+          p2pCount,
+          swapCount,
+        });
+      } else if (payload?.summary) {
         setNotifSummary(payload.summary);
       }
     } catch {
@@ -798,9 +819,28 @@ function DashboardContent() {
 
       const notifPayload = notifRes.data?.data || notifRes.data;
       if (Array.isArray(notifPayload?.notifications)) {
-        setCustomerNotifications(notifPayload.notifications);
-      }
-      if (notifPayload?.summary) {
+        const enriched = notifPayload.notifications.map((n: any) => {
+          let cat = n.category;
+          const rawCat = String(cat || '').toUpperCase();
+          const rawType = String(n.type || '').toUpperCase();
+          const rawTitle = String(n.title || '').toUpperCase();
+          const rawUrl = String(n.actionUrl || '').toLowerCase();
+          if (rawCat === 'P2P' || rawType.startsWith('P2P') || rawTitle.includes('P2P') || rawUrl.includes('/p2p')) {
+            cat = 'P2P';
+          } else if (rawCat === 'SWAP' || rawType.startsWith('SWAP') || rawType === 'EXCHANGE_BUY' || rawType === 'EXCHANGE_SELL' || rawTitle.includes('SWAP') || rawUrl.includes('tab=swap')) {
+            cat = 'SWAP';
+          }
+          return { ...n, category: cat };
+        });
+        setCustomerNotifications(enriched);
+        const p2pCount = notifPayload.summary?.p2pCount ?? enriched.filter((n: any) => n.category === 'P2P').length;
+        const swapCount = notifPayload.summary?.swapCount ?? enriched.filter((n: any) => n.category === 'SWAP').length;
+        setNotifSummary({
+          ...(notifPayload.summary || notifSummary),
+          p2pCount,
+          swapCount,
+        });
+      } else if (notifPayload?.summary) {
         setNotifSummary(notifPayload.summary);
       }
       if (typeof window !== 'undefined') {
@@ -4026,47 +4066,67 @@ function DashboardContent() {
         {activeTab === 'notifications' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             {/* KPI Summary Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Unread Updates</span>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+              <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Unread Updates</span>
+                <div className="text-xl font-black text-slate-900 dark:text-white">
                   {notifSummary.unreadCount}
-                  <span className="text-xs font-semibold text-slate-400 ml-1.5">
-                    / {notifSummary.totalCount} total
+                  <span className="text-xs font-semibold text-slate-400 ml-1">
+                    / {notifSummary.totalCount}
                   </span>
                 </div>
-                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                  Real-time ledger &amp; ticket sync active
+                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold truncate">
+                  Real-time sync active
                 </p>
               </div>
 
-              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Support &amp; Ticket Replies</span>
-                <div className="text-2xl font-black text-sky-600 dark:text-sky-400">
+              <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">P2P Trading</span>
+                <div className="text-xl font-black text-violet-600 dark:text-violet-400">
+                  {notifSummary.p2pCount ?? 0}
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                  Escrow orders &amp; trades
+                </p>
+              </div>
+
+              <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Currency Swap</span>
+                <div className="text-xl font-black text-cyan-600 dark:text-cyan-400">
+                  {notifSummary.swapCount ?? 0}
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                  Instant FX &amp; conversions
+                </p>
+              </div>
+
+              <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Support &amp; Tickets</span>
+                <div className="text-xl font-black text-sky-600 dark:text-sky-400">
                   {notifSummary.supportCount}
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Desk replies, status notes &amp; venture responses
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                  Replies &amp; venture notes
                 </p>
               </div>
 
-              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">FD Packages &amp; Monthly Yields</span>
-                <div className="text-2xl font-black text-amber-600 dark:text-amber-400">
+              <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">FD &amp; Monthly Yields</span>
+                <div className="text-xl font-black text-amber-600 dark:text-amber-400">
                   {notifSummary.fdCount}
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Activations, 1% yield credits &amp; maturities
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                  1% yield credits &amp; maturities
                 </p>
               </div>
 
-              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Deposits, Withdrawals &amp; Transfers</span>
-                <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+              <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Funding &amp; Wires</span>
+                <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">
                   {notifSummary.depositWithdrawalCount + notifSummary.transactionCount}
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Funding approvals, payouts, swaps &amp; wires
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                  Deposits, withdrawals, tx
                 </p>
               </div>
             </div>
@@ -4111,6 +4171,8 @@ function DashboardContent() {
                   {[
                     { key: 'ALL', label: `All (${notifSummary.totalCount})` },
                     { key: 'UNREAD', label: `Unread (${notifSummary.unreadCount})` },
+                    { key: 'P2P', label: `P2P Trading (${notifSummary.p2pCount ?? 0})` },
+                    { key: 'SWAP', label: `Currency Swap (${notifSummary.swapCount ?? 0})` },
                     { key: 'OTC', label: `OTC Desk (${notifSummary.otcCount ?? 0})` },
                     { key: 'SUPPORT', label: `Tickets (${notifSummary.supportCount})` },
                     { key: 'FD_PACKAGE', label: `FD & Yields (${notifSummary.fdCount})` },

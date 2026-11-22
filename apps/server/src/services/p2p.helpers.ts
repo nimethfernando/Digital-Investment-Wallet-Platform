@@ -164,7 +164,7 @@ export async function createP2PNotification(params: {
     await prisma.userNotification.create({
       data: {
         userId: params.userId,
-        category: params.category || 'TRANSACTION',
+        category: params.category || 'P2P',
         type: params.type,
         severity: params.severity || 'INFO',
         title: params.title,
@@ -173,8 +173,8 @@ export async function createP2PNotification(params: {
         amount: params.amount || null,
         currency: params.currency || null,
         status: params.status || null,
-        actionUrl: params.actionUrl || '/p2p',
-        actionLabel: params.actionLabel || 'Open P2P',
+        actionUrl: params.actionUrl || '/p2p?tab=orders',
+        actionLabel: params.actionLabel || 'Open P2P Desk',
       },
     });
   } catch (err) {

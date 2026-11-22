@@ -1305,7 +1305,7 @@ export class LiquidityRiskService {
         .create({
           data: {
             userId: params.userId,
-            category: 'TRANSACTION',
+            category: 'SWAP',
             type: 'SWAP_PENDING_APPROVAL',
             severity: 'WARNING',
             title: `Swap #${requestCode} Queued for Admin Risk Review`,
@@ -1378,6 +1378,35 @@ export class LiquidityRiskService {
       })
       .catch(() => {});
 
+    // Create user notification for Instant Currency Swap
+    await prisma.userNotification
+      .create({
+        data: {
+          userId: params.userId,
+          category: 'SWAP',
+          type: 'SWAP_EXECUTED',
+          severity: 'SUCCESS',
+          title: `Currency Swap: ${fromAmtFixed.toFixed(fromDecimals)} ${fromCur} → ${execResult.toAmount} ${toCur}`,
+          message: `Successfully exchanged ${fromAmtFixed.toFixed(fromDecimals)} ${fromCur} to ${execResult.toAmount} ${toCur} (TX: ${execResult.transactionCode}).`,
+          referenceCode: auditCode,
+          amount: fromAmtFixed.toFixed(fromDecimals),
+          currency: fromCur,
+          status: 'COMPLETED',
+          actionUrl: '/dashboard?tab=swap',
+          actionLabel: 'View Swap Desk',
+        },
+      })
+      .catch(() => {});
+
+    // Send real-time admin alert for swap monitoring
+    notificationService
+      .sendAdminAlert(
+        `Instant Currency Swap [${auditCode}]`,
+        `${userRecord?.email || params.userId} swapped ${fromAmtFixed.toFixed(fromDecimals)} ${fromCur} → ${execResult.toAmount} ${toCur} ($${fromAmtUsdDec.toFixed(2)} USD).`,
+        { requestCode: auditCode, fromCur, toCur, amount: fromAmtFixed.toFixed(fromDecimals), transactionCode: execResult.transactionCode }
+      )
+      .catch(() => {});
+
     return {
       ...execResult,
       queued: false,
@@ -1446,7 +1475,7 @@ export class LiquidityRiskService {
       .create({
         data: {
           userId: req.userId,
-          category: 'TRANSACTION',
+          category: 'SWAP',
           type: 'SWAP_APPROVED',
           severity: 'SUCCESS',
           title: `Swap #${req.requestCode} Approved & Settled`,
@@ -1544,7 +1573,7 @@ export class LiquidityRiskService {
       .create({
         data: {
           userId: req.userId,
-          category: 'TRANSACTION',
+          category: 'SWAP',
           type: 'SWAP_REJECTED',
           severity: 'WARNING',
           title: `Swap #${req.requestCode} Declined — Funds Returned`,

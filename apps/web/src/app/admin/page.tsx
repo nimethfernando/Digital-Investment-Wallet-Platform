@@ -1418,6 +1418,12 @@ export default function AdminPortalPage() {
   const filteredAlerts = useMemo(() => {
     const rawAlerts: any[] = Array.isArray(commandCenter?.alerts) ? commandCenter.alerts : [];
     return rawAlerts.filter((item) => {
+      if (alertCategoryFilter === 'P2P') {
+        return ['P2P_ORDER', 'P2P_DISPUTE', 'P2P_TRANSFER', 'P2P_OFFER'].includes(item.category) || String(item.category).startsWith('P2P');
+      }
+      if (alertCategoryFilter === 'SWAP') {
+        return ['CURRENCY_SWAP', 'SWAP_APPROVAL'].includes(item.category) || String(item.category).startsWith('SWAP');
+      }
       if (alertCategoryFilter === 'YIELD_DUE') {
         return item.category === 'FD_YIELD_DUE' || item.category === 'FD_YIELD_SOON';
       }
@@ -2177,6 +2183,8 @@ export default function AdminPortalPage() {
                 <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
                   {[
                     { key: 'ALL', label: 'All Alerts' },
+                    { key: 'P2P', label: '🤝 P2P Trading' },
+                    { key: 'SWAP', label: '💱 Currency Swap' },
                     { key: 'YIELD_DUE', label: '🔔 Yield Due' },
                     { key: 'MATURITY', label: '📅 FD Maturity' },
                     { key: 'DEPOSITS', label: '💰 Deposits' },

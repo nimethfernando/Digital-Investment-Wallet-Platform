@@ -485,6 +485,8 @@ class WalletController {
                 summary: {
                     totalCount: 0,
                     unreadCount: 0,
+                    p2pCount: 0,
+                    swapCount: 0,
                     supportCount: 0,
                     fdCount: 0,
                     depositWithdrawalCount: 0,
@@ -993,8 +995,8 @@ class WalletController {
                 tx.type === client_1.TransactionType.INVESTMENT_DISTRIBUTION ||
                 tx.type === client_1.TransactionType.EXCHANGE_BUY;
             const labelMap = {
-                P2P_TRANSFER_IN: 'Incoming Account Transfer Received',
-                P2P_TRANSFER_OUT: 'Account Transfer Sent',
+                P2P_TRANSFER_IN: 'Incoming P2P Transfer Received',
+                P2P_TRANSFER_OUT: 'P2P Transfer Sent',
                 EXCHANGE_BUY: 'Instant Swap Credit',
                 EXCHANGE_SELL: 'Instant Swap Conversion',
                 CARD_PAYMENT: 'Virtual Card Charge',
@@ -1005,9 +1007,11 @@ class WalletController {
                 INVESTMENT_DISTRIBUTION: 'Venture Distribution Credited',
                 DEPOSIT: 'Institutional Wallet Credit',
             };
+            const isP2pTx = tx.type === client_1.TransactionType.P2P_TRANSFER_IN || tx.type === client_1.TransactionType.P2P_TRANSFER_OUT;
+            const isSwapTx = tx.type === client_1.TransactionType.EXCHANGE_BUY || tx.type === client_1.TransactionType.EXCHANGE_SELL;
             rawItems.push({
                 id: `tx-${tx.id}`,
-                category: 'TRANSACTION',
+                category: isP2pTx ? 'P2P' : isSwapTx ? 'SWAP' : 'TRANSACTION',
                 type: tx.type,
                 severity: tx.status === 'FAILED' || tx.status === 'DECLINED' ? 'CRITICAL' : 'SUCCESS',
                 title: `${labelMap[tx.type] || tx.type.replace(/_/g, ' ')}: ${isCredit ? '+' : ''}${fmtAmountDisplay(amtNum, tx.currency)}`,
@@ -1016,8 +1020,8 @@ class WalletController {
                 amount: amtStr,
                 currency: tx.currency,
                 status: tx.status,
-                actionUrl: '/dashboard?tab=transactions',
-                actionLabel: 'View Ledger',
+                actionUrl: isP2pTx ? '/p2p?tab=orders' : isSwapTx ? '/dashboard?tab=swap' : '/dashboard?tab=transactions',
+                actionLabel: isP2pTx ? 'Open P2P Desk' : isSwapTx ? 'Open Swap Desk' : 'View Ledger',
                 createdAt: tx.createdAt.toISOString(),
             });
         }
@@ -1045,9 +1049,38 @@ class WalletController {
             });
         }
         for (const notif of persistedNotifications) {
+            let resolvedCategory = 'TRANSACTION';
+            const rawCat = String(notif.category || '').toUpperCase();
+            const rawType = String(notif.type || '').toUpperCase();
+            const rawTitle = String(notif.title || '');
+            const rawUrl = String(notif.actionUrl || '');
+            if (rawCat === 'P2P' || rawType.startsWith('P2P') || rawTitle.includes('P2P') || rawUrl.includes('/p2p')) {
+                resolvedCategory = 'P2P';
+            }
+            else if (rawCat === 'SWAP' || rawType.startsWith('SWAP') || rawType.includes('EXCHANGE') || rawTitle.toLowerCase().includes('swap') || rawUrl.includes('tab=swap')) {
+                resolvedCategory = 'SWAP';
+            }
+            else if (rawCat === 'SUPPORT' || rawType.startsWith('TICKET') || rawType.startsWith('INQUIRY')) {
+                resolvedCategory = 'SUPPORT';
+            }
+            else if (rawCat === 'FD_PACKAGE' || rawType.startsWith('FD_')) {
+                resolvedCategory = 'FD_PACKAGE';
+            }
+            else if (rawCat === 'DEPOSIT') {
+                resolvedCategory = 'DEPOSIT';
+            }
+            else if (rawCat === 'WITHDRAWAL') {
+                resolvedCategory = 'WITHDRAWAL';
+            }
+            else if (rawCat === 'ACCOUNT' || rawType.startsWith('KYC')) {
+                resolvedCategory = 'ACCOUNT';
+            }
+            else if (rawCat === 'OTC' || rawType.startsWith('OTC')) {
+                resolvedCategory = 'OTC';
+            }
             rawItems.push({
                 id: `un-${notif.id}`,
-                category: notif.category || 'TRANSACTION',
+                category: resolvedCategory,
                 type: notif.type,
                 severity: notif.severity || 'INFO',
                 title: notif.title,
@@ -1056,8 +1089,8 @@ class WalletController {
                 amount: notif.amount,
                 currency: notif.currency,
                 status: notif.status,
-                actionUrl: notif.actionUrl || '/p2p',
-                actionLabel: notif.actionLabel || 'View Details',
+                actionUrl: notif.actionUrl || (resolvedCategory === 'P2P' ? '/p2p?tab=orders' : resolvedCategory === 'SWAP' ? '/dashboard?tab=swap' : '/p2p'),
+                actionLabel: notif.actionLabel || (resolvedCategory === 'P2P' ? 'Open P2P Desk' : resolvedCategory === 'SWAP' ? 'Open Swap Desk' : 'View Details'),
                 createdAt: notif.createdAt.toISOString(),
             });
         }
@@ -1151,21 +1184,23 @@ class WalletController {
             const cryptoCur = ord.cryptoCurrency || ord.offer?.cryptoCurrency || 'USDT';
             rawItems.push({
                 id: `p2p-${ord.id}-${ord.status}`,
-                category: 'TRANSACTION',
+                category: 'P2P',
                 type: 'P2P_ORDER',
                 severity: ord.status === 'COMPLETED'
                     ? 'SUCCESS'
                     : ['DISPUTED', 'CANCELLED', 'EXPIRED', 'DECLINED', 'FROZEN'].includes(ord.status)
                         ? 'CRITICAL'
-                        : 'INFO',
+                        : ord.status === 'PAYMENT_SENT'
+                            ? 'WARNING'
+                            : 'INFO',
                 title: `P2P Escrow [${ord.orderCode}] — ${ord.status.replace(/_/g, ' ')}`,
                 message: `${sideLabel} ${Number(ord.cryptoAmount).toFixed(2)} ${cryptoCur} (${fmtAmountDisplay(ord.fiatAmount, fiatCur)}) is ${ord.status.replace(/_/g, ' ').toLowerCase()}.`,
                 referenceCode: ord.orderCode,
                 amount: Number(ord.cryptoAmount).toFixed(2),
                 currency: cryptoCur,
                 status: ord.status,
-                actionUrl: '/p2p',
-                actionLabel: 'Open P2P Desk',
+                actionUrl: '/p2p?tab=orders',
+                actionLabel: 'Open Trade Room',
                 createdAt: ord.updatedAt.toISOString(),
             });
         }
@@ -1219,6 +1254,8 @@ class WalletController {
         const summary = {
             totalCount: notifications.length,
             unreadCount: notifications.filter((n) => !n.isRead).length,
+            p2pCount: notifications.filter((n) => n.category === 'P2P').length,
+            swapCount: notifications.filter((n) => n.category === 'SWAP').length,
             supportCount: notifications.filter((n) => n.category === 'SUPPORT').length,
             fdCount: notifications.filter((n) => n.category === 'FD_PACKAGE').length,
             depositWithdrawalCount: notifications.filter((n) => n.category === 'DEPOSIT' || n.category === 'WITHDRAWAL').length,

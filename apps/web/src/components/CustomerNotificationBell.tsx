@@ -18,11 +18,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
+  Users,
 } from 'lucide-react';
 
 export interface CustomerNotificationItem {
   id: string;
-  category: 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT' | 'OTC';
+  category: 'SUPPORT' | 'FD_PACKAGE' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSACTION' | 'ACCOUNT' | 'OTC' | 'P2P' | 'SWAP';
   type: string;
   severity: 'SUCCESS' | 'INFO' | 'WARNING' | 'CRITICAL';
   title: string;
@@ -40,6 +41,8 @@ export interface CustomerNotificationItem {
 export interface CustomerNotificationSummary {
   totalCount: number;
   unreadCount: number;
+  p2pCount?: number;
+  swapCount?: number;
   supportCount: number;
   fdCount: number;
   depositWithdrawalCount: number;
@@ -62,6 +65,18 @@ function formatRelativeTime(iso: string): string {
 
 export function getNotificationVisuals(item: CustomerNotificationItem) {
   switch (item.category) {
+    case 'P2P':
+      return {
+        Icon: Users,
+        badgeClass: 'bg-violet-500/20 text-violet-600 dark:text-violet-400 border-violet-500/35 font-extrabold shadow-sm',
+        label: 'P2P Trading',
+      };
+    case 'SWAP':
+      return {
+        Icon: RefreshCw,
+        badgeClass: 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border-cyan-500/35 font-extrabold shadow-sm',
+        label: 'Currency Swap',
+      };
     case 'SUPPORT':
       return {
         Icon: MessageSquare,
@@ -117,15 +132,18 @@ export const CustomerNotificationBell: React.FC = () => {
   const [summary, setSummary] = useState<CustomerNotificationSummary>({
     totalCount: 0,
     unreadCount: 0,
+    p2pCount: 0,
+    swapCount: 0,
     supportCount: 0,
     fdCount: 0,
     depositWithdrawalCount: 0,
     transactionCount: 0,
     accountCount: 0,
+    otcCount: 0,
   });
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState<'ALL' | 'UNREAD' | 'OTC' | 'SUPPORT' | 'FD_PACKAGE' | 'DEP_WTH' | 'TRANSACTION'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'UNREAD' | 'P2P' | 'SWAP' | 'OTC' | 'SUPPORT' | 'FD_PACKAGE' | 'DEP_WTH' | 'TRANSACTION'>('ALL');
   const [liveToast, setLiveToast] = useState<CustomerNotificationItem | null>(null);
 
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -160,18 +178,25 @@ export const CustomerNotificationBell: React.FC = () => {
         const adminData = res.data?.data || res.data;
         const rawAlerts: any[] = Array.isArray(adminData?.alerts) ? adminData.alerts : [];
         list = rawAlerts.slice(0, 60).map((al: any) => {
-          const catMap = (c: string): CustomerNotificationItem['category'] => {
-            if (c === 'DEPOSIT') return 'DEPOSIT';
-            if (c === 'WITHDRAWAL') return 'WITHDRAWAL';
-            if (c === 'SUPPORT_TICKET' || c === 'INQUIRY' || c === 'VENTURE_INQUIRY') return 'SUPPORT';
-            if (String(c).startsWith('FD_')) return 'FD_PACKAGE';
-            if (String(c).startsWith('OTC_')) return 'OTC';
-            if (c === 'KYC_VERIFICATION' || c === 'P2P_APPLICATION') return 'ACCOUNT';
+          const catMap = (c: string, title: string = '', type: string = ''): CustomerNotificationItem['category'] => {
+            const sc = String(c || '').toUpperCase();
+            const st = String(type || '').toUpperCase();
+            const sTitle = String(title || '').toUpperCase();
+            if (sc === 'P2P_ORDER' || sc === 'P2P_DISPUTE' || sc === 'P2P_TRANSFER' || sc === 'P2P_OFFER' || sc.startsWith('P2P') || st.startsWith('P2P') || sTitle.includes('P2P')) return 'P2P';
+            if (sc === 'CURRENCY_SWAP' || sc === 'SWAP_APPROVAL' || sc === 'SWAP' || sc.startsWith('SWAP') || st.startsWith('SWAP') || sTitle.includes('SWAP')) return 'SWAP';
+            if (sc === 'DEPOSIT') return 'DEPOSIT';
+            if (sc === 'WITHDRAWAL') return 'WITHDRAWAL';
+            if (sc === 'SUPPORT_TICKET' || sc === 'INQUIRY' || sc === 'VENTURE_INQUIRY') return 'SUPPORT';
+            if (sc.startsWith('FD_')) return 'FD_PACKAGE';
+            if (sc.startsWith('OTC_')) return 'OTC';
+            if (sc === 'KYC_VERIFICATION' || sc === 'P2P_APPLICATION') return 'ACCOUNT';
             return 'TRANSACTION';
           };
+          const resolvedCat = catMap(al.category || '', al.title || '', al.type || '');
+          const defaultTargetTab = resolvedCat === 'P2P' ? 'p2p' : resolvedCat === 'SWAP' ? 'liquidity' : 'alerts';
           return {
             id: String(al.id),
-            category: catMap(al.category || ''),
+            category: resolvedCat,
             type: al.category || 'ADMIN_ALERT',
             severity: al.isOverdue ? 'CRITICAL' : al.urgency === 'HIGH' || al.urgency === 'DUE_TODAY' ? 'WARNING' : 'INFO',
             title: al.title || al.typeLabel || 'Admin Alert',
@@ -180,7 +205,7 @@ export const CustomerNotificationBell: React.FC = () => {
             amount: al.amount || null,
             currency: al.currency || null,
             status: al.status || null,
-            actionUrl: `/admin?tab=${encodeURIComponent(al.targetTab || 'alerts')}`,
+            actionUrl: `/admin?tab=${encodeURIComponent(al.targetTab || defaultTargetTab)}`,
             actionLabel: 'Open in Admin',
             createdAt: al.requestDate || al.createdDate || new Date().toISOString(),
             isRead: false,
@@ -189,6 +214,8 @@ export const CustomerNotificationBell: React.FC = () => {
         sum = {
           totalCount: rawAlerts.length,
           unreadCount: rawAlerts.length,
+          p2pCount: list.filter((n) => n.category === 'P2P').length,
+          swapCount: list.filter((n) => n.category === 'SWAP').length,
           supportCount: list.filter((n) => n.category === 'SUPPORT').length,
           fdCount: list.filter((n) => n.category === 'FD_PACKAGE').length,
           depositWithdrawalCount: list.filter((n) => n.category === 'DEPOSIT' || n.category === 'WITHDRAWAL').length,
@@ -199,15 +226,36 @@ export const CustomerNotificationBell: React.FC = () => {
       } else {
         const res = await api.get('/wallet/notifications');
         const data = res.data?.data || res.data;
-        list = Array.isArray(data?.notifications) ? data.notifications : [];
-        sum = data?.summary || {
+        const rawList: any[] = Array.isArray(data?.notifications) ? data.notifications : [];
+        list = rawList.map((n) => {
+          let cat = n.category;
+          const rawCat = String(cat || '').toUpperCase();
+          const rawType = String(n.type || '').toUpperCase();
+          const rawTitle = String(n.title || '').toUpperCase();
+          const rawUrl = String(n.actionUrl || '').toLowerCase();
+
+          if (rawCat === 'P2P' || rawType.startsWith('P2P') || rawTitle.includes('P2P') || rawUrl.includes('/p2p')) {
+            cat = 'P2P';
+          } else if (rawCat === 'SWAP' || rawType.startsWith('SWAP') || rawType === 'EXCHANGE_BUY' || rawType === 'EXCHANGE_SELL' || rawTitle.includes('SWAP') || rawUrl.includes('tab=swap')) {
+            cat = 'SWAP';
+          }
+          return {
+            ...n,
+            category: cat,
+          };
+        });
+        const serverSummary = data?.summary || {};
+        sum = {
           totalCount: list.length,
           unreadCount: list.filter((n) => !n.isRead).length,
-          supportCount: 0,
-          fdCount: 0,
-          depositWithdrawalCount: 0,
-          transactionCount: 0,
-          accountCount: 0,
+          p2pCount: serverSummary.p2pCount ?? list.filter((n) => n.category === 'P2P').length,
+          swapCount: serverSummary.swapCount ?? list.filter((n) => n.category === 'SWAP').length,
+          supportCount: serverSummary.supportCount ?? list.filter((n) => n.category === 'SUPPORT').length,
+          fdCount: serverSummary.fdCount ?? list.filter((n) => n.category === 'FD_PACKAGE').length,
+          depositWithdrawalCount: serverSummary.depositWithdrawalCount ?? list.filter((n) => n.category === 'DEPOSIT' || n.category === 'WITHDRAWAL').length,
+          transactionCount: serverSummary.transactionCount ?? list.filter((n) => n.category === 'TRANSACTION').length,
+          accountCount: serverSummary.accountCount ?? list.filter((n) => n.category === 'ACCOUNT').length,
+          otcCount: serverSummary.otcCount ?? list.filter((n) => n.category === 'OTC').length,
         };
       }
 
@@ -316,6 +364,8 @@ export const CustomerNotificationBell: React.FC = () => {
 
   const filteredList = notifications.filter((item) => {
     if (filter === 'UNREAD') return !item.isRead;
+    if (filter === 'P2P') return item.category === 'P2P';
+    if (filter === 'SWAP') return item.category === 'SWAP';
     if (filter === 'OTC') return item.category === 'OTC';
     if (filter === 'SUPPORT') return item.category === 'SUPPORT';
     if (filter === 'FD_PACKAGE') return item.category === 'FD_PACKAGE';
@@ -392,6 +442,8 @@ export const CustomerNotificationBell: React.FC = () => {
               {[
                 { key: 'ALL', label: 'All' },
                 { key: 'UNREAD', label: `Unread (${summary.unreadCount})` },
+                { key: 'P2P', label: `P2P (${summary.p2pCount ?? 0})` },
+                { key: 'SWAP', label: `Swap (${summary.swapCount ?? 0})` },
                 { key: 'OTC', label: 'OTC Desk' },
                 { key: 'SUPPORT', label: 'Tickets' },
                 { key: 'FD_PACKAGE', label: 'FDs & Yields' },
@@ -465,6 +517,9 @@ export const CustomerNotificationBell: React.FC = () => {
                           {item.message}
                         </p>
                         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold border ${visual.badgeClass}`}>
+                            {visual.label}
+                          </span>
                           {item.referenceCode && (
                             <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300">
                               {item.referenceCode}
