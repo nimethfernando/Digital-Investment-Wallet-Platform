@@ -30,6 +30,7 @@ import {
   Loader2,
   Sliders,
   Plus,
+  RotateCcw,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import PaginationControls, { usePagination } from '../../components/PaginationControls';
@@ -278,27 +279,63 @@ export default function ExchangeDeskPage() {
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [walletBalances, setWalletBalances] = useState<Record<string, number>>({});
 
+  // Close OTC Desk & Refund Security Deposit State
+  const [closeDeskConfirmOpen, setCloseDeskConfirmOpen] = useState<boolean>(false);
+  const [closingDesk, setClosingDesk] = useState<boolean>(false);
+  const [closeDeskMsg, setCloseDeskMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // Sync wallet balances for live available checks & limit extension
-  useEffect(() => {
+  const fetchWalletBalances = useCallback(async () => {
     if (!user) return;
-    const fetchBals = async () => {
-      try {
-        const res = await api.get('/wallet').catch(() => api.get('/wallet/portfolio'));
-        const rawBals = res.data?.data?.balances || res.data?.wallet?.balances || res.data?.balances || [];
-        if (Array.isArray(rawBals)) {
-          const mapped: Record<string, number> = {};
-          for (const b of rawBals) {
-            const cur = String(b.currency || '').toUpperCase();
-            if (cur) mapped[cur] = parseFloat(String(b.availableBalance ?? b.available ?? '0')) || 0;
-          }
-          setWalletBalances(mapped);
+    try {
+      const res = await api.get('/wallet').catch(() => api.get('/wallet/portfolio'));
+      const rawBals = res.data?.data?.balances || res.data?.wallet?.balances || res.data?.balances || [];
+      if (Array.isArray(rawBals)) {
+        const mapped: Record<string, number> = {};
+        for (const b of rawBals) {
+          const cur = String(b.currency || '').toUpperCase();
+          if (cur) mapped[cur] = parseFloat(String(b.availableBalance ?? b.available ?? '0')) || 0;
         }
-      } catch {
-        // ignore
+        setWalletBalances(mapped);
       }
-    };
-    fetchBals();
+    } catch {
+      // ignore
+    }
   }, [user]);
+
+  useEffect(() => {
+    fetchWalletBalances();
+  }, [fetchWalletBalances]);
+
+  const handleRefundOtcDesk = async () => {
+    if (!user || !myDesk) return;
+    setClosingDesk(true);
+    setCloseDeskMsg(null);
+    try {
+      const res = await api.post('/otc/deposit/refund');
+      if (res.data?.success) {
+        setCloseDeskMsg({
+          type: 'success',
+          text: res.data.message || 'OTC Desk closed and security deposit refunded to your available balance.',
+        });
+        setCloseDeskConfirmOpen(false);
+        setManageDeskModalOpen(false);
+        await Promise.all([
+          fetchMyDesk(),
+          fetchDesks(),
+          fetchWalletBalances(),
+          typeof refreshUser === 'function' ? refreshUser() : Promise.resolve(),
+        ]);
+      }
+    } catch (err: any) {
+      setCloseDeskMsg({
+        type: 'error',
+        text: extractErrorMessage(err, 'Failed to close OTC Desk and refund deposit. Ensure you have no active trades in progress.'),
+      });
+    } finally {
+      setClosingDesk(false);
+    }
+  };
 
   // Active Trade & Chat Room State
   const [activeTrade, setActiveTrade] = useState<any>(null);
@@ -1398,9 +1435,19 @@ export default function ExchangeDeskPage() {
             </div>
 
             {myDesk.status === 'UNDER_REVIEW' ? (
-              <p className="text-xs text-amber-200/90 leading-relaxed max-w-2xl">
-                Your OTC Desk application is currently under Admin Compliance verification (${Number(myDesk.securityDeposit || otcDepositUsd).toLocaleString()} security deposit held in escrow). It will go live in the public OTC directory once approved by Admin.
-              </p>
+              <div className="space-y-2">
+                <p className="text-xs text-amber-200/90 leading-relaxed max-w-2xl">
+                  Your OTC Desk application is currently under Admin Compliance verification (${Number(myDesk.securityDeposit || otcDepositUsd).toLocaleString()} security deposit held in escrow). It will go live in the public OTC directory once approved by Admin.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setCloseDeskConfirmOpen(true)}
+                  className="px-3.5 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold text-xs border border-rose-500/40 inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Withdraw Application &amp; Refund ${Number(myDesk.securityDeposit || otcDepositUsd).toLocaleString()} Deposit</span>
+                </button>
+              </div>
             ) : myDesk.status === 'CLOSED' ? (
               <p className="text-xs text-rose-200/90 leading-relaxed max-w-2xl">
                 This OTC desk listing is closed ({myDesk.depositStatus}). {myDesk.adminNotes ? `Compliance Note: ${myDesk.adminNotes}` : 'You may submit a new application anytime.'}
@@ -1506,6 +1553,15 @@ export default function ExchangeDeskPage() {
               >
                 <Sliders className="w-4 h-4" />
                 <span>Set &amp; Update My OTC Rates</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCloseDeskConfirmOpen(true)}
+                className="px-4 py-2.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-xs border border-rose-500/30 flex items-center gap-1.5 cursor-pointer transition-all"
+                title="Close OTC Desk and refund security deposit"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Close Desk &amp; Refund Deposit</span>
               </button>
             </div>
           )}
@@ -3349,6 +3405,22 @@ export default function ExchangeDeskPage() {
                 >
                   {manageSaving ? 'Saving Live OTC Desk Rates...' : 'Save Live OTC Desk Rates & Settings'}
                 </button>
+
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setCloseDeskConfirmOpen(true)}
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 dark:text-rose-400 font-bold text-xs border border-rose-500/30 flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Close OTC Desk &amp; Refund ${Number(myDesk.securityDeposit || otcDepositUsd).toLocaleString()} Deposit</span>
+                    </button>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      100% Refundable Guarantee • Zero Fee Retention
+                    </span>
+                  </div>
+                </div>
               </form>
             </div>
           </div>
@@ -3474,6 +3546,113 @@ export default function ExchangeDeskPage() {
                   • <strong>Official Desks (e.g. Colombo Central OTC Desk) &amp; Admin:</strong> <strong>Admin Control → OTC Desks &amp; Trades → Pre-Trade Inquiries</strong> &amp; <strong>Alerts Queue</strong>.
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* CLOSE OTC DESK & REFUND SECURITY DEPOSIT CONFIRMATION MODAL */}
+      {closeDeskConfirmOpen && myDesk && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setCloseDeskConfirmOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 text-slate-900 dark:text-white shadow-2xl space-y-5"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-500">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base">Close OTC Desk &amp; Refund</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">{myDesk.deskCode}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCloseDeskConfirmOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/30 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold uppercase text-[10px]">
+                    Refundable Security Deposit
+                  </span>
+                  <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-base">
+                    ${Number(myDesk.securityDeposit || otcDepositUsd).toLocaleString()} {myDesk.depositCurrency || 'USD/USDT'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400">Refund Destination:</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200">Available Wallet Balance</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400">Platform Non-Refundable Fee:</span>
+                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400">$0.00 (100% Returned)</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  <span>Avora Bank 100% Refundable Security Deposit Policy</span>
+                </div>
+                <p>
+                  Your security deposit is held in custody as a counterparty liquidity assurance while your physical desk operates. Avora Bank <strong>does not charge a non-refundable activation fee</strong>.
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-slate-500 dark:text-slate-400 pt-1">
+                  <li>Your OTC Counter ({myDesk.deskName}) will be unlisted from the public directory.</li>
+                  <li>Your ${Number(myDesk.securityDeposit || otcDepositUsd).toLocaleString()} security deposit is returned immediately to your available balance.</li>
+                  <li>Ensure all open customer OTC quotes and trades are completed or cancelled.</li>
+                </ul>
+              </div>
+
+              {closeDeskMsg && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-semibold ${
+                    closeDeskMsg.type === 'success'
+                      ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                      : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-500/30'
+                  }`}
+                >
+                  {closeDeskMsg.text}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setCloseDeskConfirmOpen(false)}
+                className="flex-1 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs cursor-pointer transition-colors"
+              >
+                Keep Desk Open
+              </button>
+              <button
+                type="button"
+                onClick={handleRefundOtcDesk}
+                disabled={closingDesk}
+                className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-rose-950/40 disabled:opacity-50 transition-colors"
+              >
+                {closingDesk ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Closing &amp; Refunding...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Confirm &amp; Refund Deposit</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

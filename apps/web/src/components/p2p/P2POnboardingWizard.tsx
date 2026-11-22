@@ -17,6 +17,7 @@ import {
   Trash2,
   Ban,
   Star,
+  RotateCcw,
 } from 'lucide-react';
 import { api, extractErrorMessage, resolveMediaUrl } from '../../lib/api';
 
@@ -522,22 +523,37 @@ export function P2POnboardingWizard({
                   <span>Lock ${effectiveP2pDeposit} Security Deposit &amp; Activate Merchant Ads</span>
                 </button>
               ) : (
-                <div className="flex flex-col sm:flex-row items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={onNavigateToPostAd}
-                    className="w-full sm:flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md cursor-pointer"
-                  >
-                    Post &amp; Promote a Buy / Sell Advertisement
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onRefundMerchant}
-                    disabled={merchantLoading}
-                    className="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-400 font-bold text-xs border border-slate-700 cursor-pointer"
-                  >
-                    Close Merchant Status &amp; Refund ${effectiveP2pDeposit}
-                  </button>
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 flex items-start gap-2.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <div className="text-xs space-y-1">
+                      <div className="font-extrabold text-emerald-300 flex items-center gap-1.5">
+                        <span>100% Refundable Security Deposit Policy</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">Zero Fee Retention</span>
+                      </div>
+                      <p className="text-slate-300 text-[11px] leading-relaxed">
+                        Your ${effectiveP2pDeposit.toFixed(2)} deposit is a liquidity security bond held in institutional escrow — <strong>not a non-refundable activation fee</strong>. It belongs to you at all times. When you close or disable your merchant desk, the entire ${effectiveP2pDeposit.toFixed(2)} USD/USDT is returned immediately to your available wallet balance.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={onNavigateToPostAd}
+                      className="w-full sm:flex-1 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <span>Post &amp; Promote a Buy / Sell Advertisement</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onRefundMerchant}
+                      disabled={merchantLoading}
+                      className="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-extrabold text-xs border border-rose-500/40 cursor-pointer flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    >
+                      {merchantLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                      <span>Close P2P Desk &amp; Refund ${effectiveP2pDeposit}</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

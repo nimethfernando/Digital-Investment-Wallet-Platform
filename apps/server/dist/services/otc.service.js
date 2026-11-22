@@ -565,7 +565,10 @@ class OtcService {
             const newAvail = currentAvail.minus(DEPOSIT_REQUIRED);
             await tx.walletBalance.update({
                 where: { id: targetBalId },
-                data: { availableBalance: newAvail.toFixed(8) },
+                data: {
+                    availableBalance: newAvail.toFixed(8),
+                    lockedPrincipal: { increment: DEPOSIT_REQUIRED.toFixed(8) },
+                },
             });
             await tx.user.update({
                 where: { id: userId },
@@ -685,6 +688,7 @@ class OtcService {
         const refundCurrency = meta.depositCurrency;
         const wallet = await ledger_service_1.ledgerService.ensureWallet(userId);
         const txCode = `OTCR-${Date.now().toString().slice(-6)}`;
+        const depositAmount = new decimal_js_1.default(desk.securityDeposit.toString());
         await prisma_1.prisma.$transaction(async (tx) => {
             const targetBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, refundCurrency);
             const freshDesk = await tx.otcDesk.findUnique({ where: { id: desk.id } });
@@ -700,12 +704,19 @@ class OtcService {
             if (openTrades > 0) {
                 throw new Error(`Cannot refund security deposit. You have ${openTrades} active or disputed OTC trade(s) in progress.`);
             }
-            const depositAmount = new decimal_js_1.default(freshDesk.securityDeposit.toString());
+            const freshDepositAmount = new decimal_js_1.default(freshDesk.securityDeposit.toString());
             const currentAvail = new decimal_js_1.default(targetBal.availableBalance?.toString() || '0');
-            const newAvail = currentAvail.plus(depositAmount);
+            const newAvail = currentAvail.plus(freshDepositAmount);
+            const currentLocked = new decimal_js_1.default(targetBal.lockedPrincipal?.toString() || '0');
+            const newLocked = currentLocked.greaterThanOrEqualTo(freshDepositAmount)
+                ? currentLocked.minus(freshDepositAmount)
+                : new decimal_js_1.default(0);
             await tx.walletBalance.update({
                 where: { id: targetBal.id },
-                data: { availableBalance: newAvail.toFixed(8) },
+                data: {
+                    availableBalance: newAvail.toFixed(8),
+                    lockedPrincipal: newLocked.toFixed(8),
+                },
             });
             await tx.user.update({
                 where: { id: userId },
@@ -724,19 +735,36 @@ class OtcService {
                     transactionCode: txCode,
                     userId,
                     type: client_1.TransactionType.OTC_DEPOSIT_REFUND,
-                    amount: depositAmount.toFixed(8),
+                    amount: freshDepositAmount.toFixed(8),
                     currency: refundCurrency,
                     status: client_1.TransactionStatus.COMPLETED,
                     balanceBefore: currentAvail.toFixed(8),
                     balanceAfter: newAvail.toFixed(8),
-                    notes: `Security deposit of $1,000 (${refundCurrency}) refunded upon closing OTC Desk (${desk.deskName})`,
+                    notes: `Security deposit of $${freshDepositAmount.toFixed(2)} (${refundCurrency}) refunded upon closing OTC Desk (${desk.deskName})`,
                     settlementReference: desk.deskCode,
+                },
+            });
+            await tx.userNotification.create({
+                data: {
+                    userId,
+                    type: 'OTC_DEPOSIT_REFUND',
+                    severity: 'INFO',
+                    title: `OTC Desk Closed & Deposit Refunded ($${freshDepositAmount.toFixed(2)} ${refundCurrency})`,
+                    message: `Your OTC Desk (${desk.deskName} - ${desk.deskCode}) has been closed and your 100% refundable security deposit of $${freshDepositAmount.toFixed(2)} ${refundCurrency} has been credited back to your available balance.`,
+                    referenceCode: txCode,
+                    status: 'UNREAD',
+                    actionUrl: '/exchange',
+                    actionLabel: 'View OTC Desks',
                 },
             });
         }, { timeout: 30000, maxWait: 10000 });
         return {
             success: true,
-            message: `OTC Desk closed and $1,000 ${refundCurrency} security deposit refunded to your available balance.`,
+            message: `OTC Desk closed and $${depositAmount.toFixed(2)} ${refundCurrency} security deposit refunded to your available balance.`,
+            deskCode: desk.deskCode,
+            refundedAmount: depositAmount.toNumber(),
+            refundedCurrency: refundCurrency,
+            transactionCode: txCode,
         };
     }
     /**

@@ -3424,11 +3424,12 @@ class P2PService {
                 throw new Error(`Insufficient funds. P2P Marketplace merchant status requires a security deposit of $${DEPOSIT_REQUIRED.toFixed(2)} USD/USDT. Your available balance: $${usdAvail.toFixed(2)} USD / ${usdtAvail.toFixed(2)} USDT.`);
             }
             const newAvail = currentAvail.minus(DEPOSIT_REQUIRED);
-            // 1. Deduct available balance
+            // 1. Deduct available balance and track locked deposit in ledger
             await tx.walletBalance.update({
                 where: { id: targetBalId },
                 data: {
                     availableBalance: newAvail.toFixed(8),
+                    lockedPrincipal: { increment: DEPOSIT_REQUIRED.toFixed(8) },
                 },
             });
             // 2. Lock deposit and update User
@@ -3505,9 +3506,19 @@ class P2PService {
         }
         const wallet = await ledger_service_1.ledgerService.ensureWallet(userId);
         const txCode = `P2PR-${Date.now().toString().slice(-6)}`;
+        // Identify which currency the user originally locked (USDT or USD)
+        const lockTx = await prisma_1.prisma.transaction.findFirst({
+            where: {
+                userId,
+                type: client_1.TransactionType.P2P_DEPOSIT_LOCK,
+                status: client_1.TransactionStatus.COMPLETED,
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        const refundCurrency = lockTx?.currency?.toUpperCase() === 'USDT' ? 'USDT' : 'USD';
         await prisma_1.prisma.$transaction(async (tx) => {
-            // 1. Lock USD wallet row first to serialize concurrent merchant refunds
-            const usdBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, 'USD');
+            // 1. Lock the wallet row in the original deposit currency (USDT or USD)
+            const targetBal = await ledger_service_1.ledgerService.lockWalletBalance(tx, wallet.id, refundCurrency);
             const freshUser = await tx.user.findUnique({
                 where: { id: userId },
                 select: { id: true, isP2pMerchant: true, p2pDepositLocked: true },
@@ -3525,11 +3536,18 @@ class P2PService {
             if (activeInsideCount > 0) {
                 throw new Error(`Cannot refund security deposit. You have ${activeInsideCount} active or disputed P2P order(s) pending completion.`);
             }
-            const currentUsdAvail = new decimal_js_1.default(usdBal.availableBalance?.toString() || '0');
-            const newUsdAvail = currentUsdAvail.plus(lockedAmt);
+            const currentAvail = new decimal_js_1.default(targetBal.availableBalance?.toString() || '0');
+            const newAvail = currentAvail.plus(lockedAmt);
+            const currentLockedPrincipal = new decimal_js_1.default(targetBal.lockedPrincipal?.toString() || '0');
+            const newLockedPrincipal = currentLockedPrincipal.greaterThanOrEqualTo(lockedAmt)
+                ? currentLockedPrincipal.minus(lockedAmt)
+                : new decimal_js_1.default(0);
             await tx.walletBalance.update({
-                where: { id: usdBal.id },
-                data: { availableBalance: newUsdAvail.toFixed(8) },
+                where: { id: targetBal.id },
+                data: {
+                    availableBalance: newAvail.toFixed(8),
+                    lockedPrincipal: newLockedPrincipal.toFixed(8),
+                },
             });
             // 2. Clear user lock & merchant status
             await tx.user.update({
@@ -3551,20 +3569,40 @@ class P2PService {
                     userId,
                     type: client_1.TransactionType.P2P_DEPOSIT_REFUND,
                     amount: lockedAmt.toFixed(8),
-                    currency: 'USD',
+                    currency: refundCurrency,
                     status: client_1.TransactionStatus.COMPLETED,
-                    balanceBefore: currentUsdAvail.toFixed(8),
-                    balanceAfter: newUsdAvail.toFixed(8),
-                    notes: `Security deposit of $${lockedAmt.toFixed(2)} refunded upon closing P2P Merchant status`,
+                    balanceBefore: currentAvail.toFixed(8),
+                    balanceAfter: newAvail.toFixed(8),
+                    notes: `Security deposit of $${lockedAmt.toFixed(2)} (${refundCurrency}) refunded upon closing P2P Merchant status`,
                     settlementReference: txCode,
                 },
             });
+            // 5. Send in-app notification to the user
+            await tx.userNotification.create({
+                data: {
+                    userId,
+                    type: 'P2P_BOND_REFUND',
+                    severity: 'INFO',
+                    title: `P2P Merchant Security Deposit Refunded ($${lockedAmt.toFixed(2)} ${refundCurrency})`,
+                    message: `Your $${lockedAmt.toFixed(2)} ${refundCurrency} 100% refundable security deposit has been returned to your available wallet balance upon closing P2P Merchant status. Reference: ${txCode}`,
+                    referenceCode: txCode,
+                    status: 'UNREAD',
+                    actionUrl: '/p2p',
+                    actionLabel: 'View P2P Market',
+                },
+            });
         }, { timeout: 30000, maxWait: 10000 });
+        notification_provider_1.notificationService
+            .sendAdminAlert(`P2P Merchant Bond Refunded [$${depositAmount.toFixed(2)} ${refundCurrency}]`, `User ${userId} closed P2P Merchant status and refunded $${depositAmount.toFixed(2)} ${refundCurrency} (${txCode}).`, { userId, transactionCode: txCode, amount: depositAmount.toFixed(2), currency: refundCurrency })
+            .catch(() => { });
         return {
             success: true,
-            message: `P2P Merchant status closed and $${depositAmount.toFixed(2)} security deposit refunded to your available balance.`,
+            message: `P2P Merchant status closed and $${depositAmount.toFixed(2)} ${refundCurrency} security deposit refunded to your available balance.`,
             isP2pMerchant: false,
             p2pDepositLocked: 0,
+            refundedAmount: depositAmount.toNumber(),
+            refundedCurrency: refundCurrency,
+            transactionCode: txCode,
         };
     }
 }

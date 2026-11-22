@@ -49,6 +49,11 @@ import {
   Paperclip,
   Ban,
   XCircle,
+  Edit3,
+  RotateCcw,
+  TrendingUp,
+  Coins,
+  Percent,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import { P2PTraderProfileModal } from '../../components/p2p/P2PTraderProfileModal';
@@ -614,7 +619,7 @@ export default function P2PPage() {
 }
 
 function P2PPageContent() {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, refreshUser } = useAuth();
   const hasStoredToken = () =>
     typeof window !== 'undefined' &&
     Boolean(localStorage.getItem('avora_token') || localStorage.getItem('nexis_token'));
@@ -876,6 +881,8 @@ function P2PPageContent() {
   const [newAdCountryName, setNewAdCountryName] = useState('Sri Lanka');
   const [newAdCurrency, setNewAdCurrency] = useState('LKR');
   const [newAdPrice, setNewAdPrice] = useState('332.68');
+  const [newAdPriceType, setNewAdPriceType] = useState<'FIXED' | 'FLOATING'>('FIXED');
+  const [newAdFloatingMargin, setNewAdFloatingMargin] = useState<string>('0.5');
   const [newAdAmount, setNewAdAmount] = useState('1000');
   const [newAdMinLimit, setNewAdMinLimit] = useState('');
   const [newAdMaxLimit, setNewAdMaxLimit] = useState('');
@@ -891,6 +898,8 @@ function P2PPageContent() {
   // Edit Existing Ad Modal State
   const [editingOffer, setEditingOffer] = useState<any | null>(null);
   const [editAdPrice, setEditAdPrice] = useState('');
+  const [editAdPriceType, setEditAdPriceType] = useState<'FIXED' | 'FLOATING'>('FIXED');
+  const [editAdFloatingMargin, setEditAdFloatingMargin] = useState<string>('0.5');
   const [editAdMethods, setEditAdMethods] = useState<string[]>([]);
   const [editAdNewMethod, setEditAdNewMethod] = useState('');
   const [editAdAvailable, setEditAdAvailable] = useState('');
@@ -902,6 +911,16 @@ function P2PPageContent() {
   const [editAdStatus, setEditAdStatus] = useState<'OPEN' | 'PAUSED'>('OPEN');
   const [editAdSaving, setEditAdSaving] = useState(false);
   const [editAdError, setEditAdError] = useState<string | null>(null);
+
+  // Inline Quick Rate Editing (On My Active Ads)
+  const [inlineRateOfferId, setInlineRateOfferId] = useState<string | null>(null);
+  const [inlineRateValue, setInlineRateValue] = useState<string>('');
+  const [inlineRateSaving, setInlineRateSaving] = useState<boolean>(false);
+  const [inlineRateError, setInlineRateError] = useState<string | null>(null);
+
+  // P2P Desk Security Deposit Refund Confirmation Modal
+  const [refundConfirmModalOpen, setRefundConfirmModalOpen] = useState<boolean>(false);
+  const [refundConfirmExecuting, setRefundConfirmExecuting] = useState<boolean>(false);
 
   // Listing Promotion / Sponsored Placement State
   const [promoTiers, setPromoTiers] = useState<Array<{ id: string; name: string; badgeLabel: string; feeUsd: number; durationHours: number; description: string }>>([
@@ -1230,7 +1249,12 @@ function P2PPageContent() {
       const res = await api.post('/p2p/merchant/deposit');
       if (res.data?.success) {
         setMerchantMsg({ type: 'success', text: res.data.message });
-        await fetchMerchantStatus();
+        await Promise.all([
+          fetchMerchantStatus(),
+          fetchWalletBalances(),
+          fetchMyOffers(),
+          typeof refreshUser === 'function' ? refreshUser() : Promise.resolve(),
+        ]);
       }
     } catch (err: any) {
       const status = err?.response?.status;
@@ -1257,14 +1281,26 @@ function P2PPageContent() {
       });
       return;
     }
-    if (!confirm(`Are you sure you want to close your P2P Merchant status and refund your $${effectiveP2pDeposit} deposit?`)) return;
     setMerchantLoading(true);
+    setRefundConfirmExecuting(true);
     setMerchantMsg(null);
     try {
       const res = await api.post('/p2p/merchant/refund');
       if (res.data?.success) {
-        setMerchantMsg({ type: 'success', text: res.data.message });
-        await fetchMerchantStatus();
+        setMerchantMsg({
+          type: 'success',
+          text:
+            res.data.message ||
+            `P2P Merchant Desk closed! $${effectiveP2pDeposit} security deposit refunded to your available balance.`,
+        });
+        setRefundConfirmModalOpen(false);
+        await Promise.all([
+          fetchMerchantStatus(),
+          fetchWalletBalances(),
+          fetchMyOffers(),
+          fetchOffers(),
+          typeof refreshUser === 'function' ? refreshUser() : Promise.resolve(),
+        ]);
       }
     } catch (err: any) {
       setMerchantMsg({
@@ -1273,6 +1309,34 @@ function P2PPageContent() {
       });
     } finally {
       setMerchantLoading(false);
+      setRefundConfirmExecuting(false);
+    }
+  };
+
+  const openInlineRateEdit = (offer: any) => {
+    setInlineRateOfferId(offer.id);
+    setInlineRateValue(String(offer.price ?? ''));
+    setInlineRateError(null);
+  };
+
+  const handleInlineSaveRate = async (offerId: string) => {
+    const priceNum = parseFloat(inlineRateValue);
+    if (!priceNum || priceNum <= 0) {
+      setInlineRateError('Please enter a valid positive exchange rate.');
+      return;
+    }
+    setInlineRateSaving(true);
+    setInlineRateError(null);
+    try {
+      const res = await api.patch(`/p2p/offers/${offerId}`, { price: priceNum });
+      if (res.data?.success) {
+        setInlineRateOfferId(null);
+        await Promise.all([fetchMyOffers(), fetchOffers()]);
+      }
+    } catch (err: any) {
+      setInlineRateError(extractErrorMessage(err, 'Failed to update rate.'));
+    } finally {
+      setInlineRateSaving(false);
     }
   };
 
@@ -3609,7 +3673,7 @@ function P2PPageContent() {
             merchantMsg={merchantMsg}
             effectiveP2pDeposit={effectiveP2pDeposit}
             onApplyMerchant={handleApplyMerchant}
-            onRefundMerchant={handleRefundMerchant}
+            onRefundMerchant={() => setRefundConfirmModalOpen(true)}
             onApplicationSubmitted={fetchMerchantStatus}
             onNavigateToPostAd={() => navigateTo('post-ad')}
             onViewPublicProfile={(uid) => setViewingTraderId(uid)}
@@ -3869,46 +3933,162 @@ function P2PPageContent() {
                 </div>
               </div>
 
-              {/* Unit Price */}
-              <div>
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold">
-                    Unit Exchange Rate ({newAdCurrency} per 1 {newAdCrypto})
-                  </label>
-                  <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                    Spot Market: {getCryptoFiatSpotRate(newAdCrypto, newAdCurrency).toFixed(getCryptoFiatSpotRate(newAdCrypto, newAdCurrency) >= 20 ? 2 : 4)} {newAdCurrency}
-                  </span>
-                </div>
-                <input
-                  type="number"
-                  step="any"
-                  required
-                  value={newAdPrice}
-                  onChange={(e) => setNewAdPrice(e.target.value)}
-                  placeholder="e.g. 305.50"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono font-bold outline-none"
-                />
-                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  {[
-                    { label: 'Match Spot', mult: 1.0 },
-                    { label: '-1.0%', mult: 0.99 },
-                    { label: '-0.5%', mult: 0.995 },
-                    { label: '+0.5%', mult: 1.005 },
-                    { label: '+1.0%', mult: 1.01 },
-                    { label: '+2.0%', mult: 1.02 },
-                  ].map((preset) => (
+              {/* Unit Price with Custom Fixed Price vs Floating Margin */}
+              <div className="space-y-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <label className="block text-slate-900 dark:text-white font-extrabold text-sm">
+                      Exchange Rate ({newAdCurrency} per 1 {newAdCrypto})
+                    </label>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Fully customizable — set your own price or choose market margins.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-200 dark:bg-slate-900 border border-slate-300 dark:border-slate-700">
                     <button
-                      key={preset.label}
+                      type="button"
+                      onClick={() => setNewAdPriceType('FIXED')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        newAdPriceType === 'FIXED'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      Fixed Custom Rate
+                    </button>
+                    <button
                       type="button"
                       onClick={() => {
+                        setNewAdPriceType('FLOATING');
                         const spot = getCryptoFiatSpotRate(newAdCrypto, newAdCurrency);
-                        setNewAdPrice((spot * preset.mult).toFixed(spot >= 20 ? 2 : 4));
+                        const mult = 1 + (parseFloat(newAdFloatingMargin) || 0) / 100;
+                        setNewAdPrice((spot * mult).toFixed(spot >= 20 ? 2 : 4));
                       }}
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-emerald-500/15 hover:text-emerald-600 dark:hover:text-emerald-400 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        newAdPriceType === 'FLOATING'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
                     >
-                      {preset.label}
+                      Floating Margin %
                     </button>
-                  ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400 font-mono">
+                    Live Spot Benchmark: <strong>{getCryptoFiatSpotRate(newAdCrypto, newAdCurrency).toFixed(getCryptoFiatSpotRate(newAdCrypto, newAdCurrency) >= 20 ? 2 : 4)} {newAdCurrency}</strong>
+                  </span>
+                  {newAdPriceType === 'FIXED' ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
+                      ✓ Locked Fixed Rate (Stays exact)
+                    </span>
+                  ) : (
+                    <span className="text-sky-600 dark:text-sky-400 font-bold text-[11px]">
+                      ⇄ Dynamic Market Peg (+{newAdFloatingMargin}%)
+                    </span>
+                  )}
+                </div>
+
+                {newAdPriceType === 'FLOATING' && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Set Margin %:</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={newAdFloatingMargin}
+                      onChange={(e) => {
+                        const m = e.target.value;
+                        setNewAdFloatingMargin(m);
+                        const spot = getCryptoFiatSpotRate(newAdCrypto, newAdCurrency);
+                        const mult = 1 + (parseFloat(m) || 0) / 100;
+                        setNewAdPrice((spot * mult).toFixed(spot >= 20 ? 2 : 4));
+                      }}
+                      className="w-24 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 font-mono font-bold text-xs text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                    />
+                    <span className="text-xs text-slate-400">% above/below live spot</span>
+                  </div>
+                )}
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={newAdPrice}
+                    onChange={(e) => setNewAdPrice(e.target.value)}
+                    placeholder="e.g. 95.00"
+                    className="w-full px-4 py-3 rounded-xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 font-mono text-base font-black outline-none focus:border-emerald-500 shadow-inner"
+                  />
+                  <div className="absolute right-3.5 top-1/2 -translate-y-1/2 font-mono font-bold text-xs text-slate-400">
+                    {newAdCurrency} / 1 {newAdCrypto}
+                  </div>
+                </div>
+
+                {/* Fine-Tuning Steppers & Spot Presets */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mr-1">Fine-tune:</span>
+                    {(parseFloat(newAdPrice || '0') >= 50
+                      ? [-5.0, -1.0, -0.5, 0.5, 1.0, 5.0]
+                      : [-1.0, -0.25, -0.05, 0.05, 0.25, 1.0]
+                    ).map((step) => (
+                      <button
+                        key={step}
+                        type="button"
+                        onClick={() => {
+                          const cur = parseFloat(newAdPrice) || 0;
+                          const next = Math.max(0.0001, cur + step);
+                          setNewAdPrice(next.toFixed(next >= 20 ? 2 : 4));
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                      >
+                        {step > 0 ? `+${step}` : step}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mr-1">Spot Presets:</span>
+                    {[
+                      { label: 'Match Spot (0%)', mult: 1.0 },
+                      { label: '+0.5%', mult: 1.005 },
+                      { label: '+1.0%', mult: 1.01 },
+                      { label: '+2.0%', mult: 1.02 },
+                      { label: '+5.0%', mult: 1.05 },
+                      { label: '-1.0%', mult: 0.99 },
+                      { label: '-2.0%', mult: 0.98 },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          const spot = getCryptoFiatSpotRate(newAdCrypto, newAdCurrency);
+                          setNewAdPrice((spot * preset.mult).toFixed(spot >= 20 ? 2 : 4));
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 text-[11px] font-bold transition-colors cursor-pointer"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Live Payout Preview */}
+                <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    Order Payout Calculation:
+                  </span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    1,000 {newAdCrypto} ={' '}
+                    <strong className="text-emerald-600 dark:text-emerald-400 font-black">
+                      {(1000 * (parseFloat(newAdPrice) || 0)).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      {newAdCurrency}
+                    </strong>
+                  </span>
                 </div>
               </div>
 
@@ -4168,14 +4348,59 @@ function P2PPageContent() {
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-baseline gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <span className="text-lg font-black font-mono text-slate-900 dark:text-white">
                           {Number(ad.price).toFixed(Number(ad.price) >= 20 ? 2 : 4)} {ad.fiatCurrency}
                         </span>
+                        {inlineRateOfferId === ad.id ? (
+                          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white dark:bg-slate-900 border-2 border-emerald-500/60 shadow-md animate-in fade-in">
+                            <input
+                              type="number"
+                              step="any"
+                              value={inlineRateValue}
+                              onChange={(e) => setInlineRateValue(e.target.value)}
+                              placeholder="New rate"
+                              className="w-28 px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-xs outline-none focus:ring-1 focus:ring-emerald-500"
+                              autoFocus
+                            />
+                            <span className="text-[11px] font-bold text-slate-400 font-mono">{ad.fiatCurrency}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleInlineSaveRate(ad.id)}
+                              disabled={inlineRateSaving}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            >
+                              {inlineRateSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                              <span>Save</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInlineRateOfferId(null)}
+                              className="px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[11px] cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => openInlineRateEdit(ad)}
+                            className="px-2 py-0.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Quickly change unit rate"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span>Quick Edit Rate</span>
+                          </button>
+                        )}
                         <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
                           Avail: {Number(ad.availableAmount).toLocaleString()} {ad.cryptoCurrency} • Limits: {Number(ad.minLimit).toLocaleString()}–{Number(ad.maxLimit).toLocaleString()} {ad.fiatCurrency}
                         </span>
                       </div>
+                      {inlineRateOfferId === ad.id && inlineRateError && (
+                        <div className="text-[11px] text-rose-500 font-bold">
+                          {inlineRateError}
+                        </div>
+                      )}
 
                       <div className="flex flex-wrap gap-1.5 pt-0.5">
                         {(ad.paymentMethods || []).map((pm: string) => (
@@ -4888,24 +5113,109 @@ function P2PPageContent() {
 
             <form onSubmit={handleSaveEditedAd} className="space-y-4 text-xs">
               {/* Unit Rate & Market Presets */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="font-bold text-slate-200">
+              <div className="space-y-3 p-3.5 rounded-2xl bg-slate-900 border border-slate-800">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="font-extrabold text-sm text-slate-200">
                     Unit Exchange Rate ({editingOffer.fiatCurrency} per 1 {editingOffer.cryptoCurrency})
                   </label>
-                  <span className="font-mono text-[11px] text-slate-400">
-                    Spot: {getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency).toFixed(getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency) >= 20 ? 2 : 4)}
+                  <div className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-800 border border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => setEditAdPriceType('FIXED')}
+                      className={`px-2.5 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                        editAdPriceType === 'FIXED'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Fixed Custom
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditAdPriceType('FLOATING');
+                        const spot = getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency);
+                        const mult = 1 + (parseFloat(editAdFloatingMargin) || 0) / 100;
+                        setEditAdPrice((spot * mult).toFixed(spot >= 20 ? 2 : 4));
+                      }}
+                      className={`px-2.5 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                        editAdPriceType === 'FLOATING'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Margin %
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-mono text-slate-400">
+                    Spot: {getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency).toFixed(getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency) >= 20 ? 2 : 4)} {editingOffer.fiatCurrency}
+                  </span>
+                  <span className="text-emerald-400 font-bold">
+                    {editAdPriceType === 'FIXED' ? '✓ Custom Fixed Price' : `⇄ Float +${editAdFloatingMargin}%`}
                   </span>
                 </div>
-                <input
-                  type="number"
-                  step="any"
-                  required
-                  value={editAdPrice}
-                  onChange={(e) => setEditAdPrice(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono font-bold outline-none focus:border-emerald-500"
-                />
-                <div className="flex flex-wrap gap-1.5 mt-2">
+
+                {editAdPriceType === 'FLOATING' && (
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <span className="text-[11px] font-bold text-slate-300">Margin %:</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={editAdFloatingMargin}
+                      onChange={(e) => {
+                        const m = e.target.value;
+                        setEditAdFloatingMargin(m);
+                        const spot = getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency);
+                        const mult = 1 + (parseFloat(m) || 0) / 100;
+                        setEditAdPrice((spot * mult).toFixed(spot >= 20 ? 2 : 4));
+                      }}
+                      className="w-20 px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono text-xs font-bold outline-none focus:border-emerald-500"
+                    />
+                    <span className="text-[11px] text-slate-400">% vs Spot</span>
+                  </div>
+                )}
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={editAdPrice}
+                    onChange={(e) => setEditAdPrice(e.target.value)}
+                    placeholder="Enter custom rate"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border-2 border-slate-800 text-white font-mono font-bold text-sm outline-none focus:border-emerald-500 shadow-inner"
+                  />
+                  <div className="absolute right-3.5 top-1/2 -translate-y-1/2 font-mono font-bold text-xs text-slate-500">
+                    {editingOffer.fiatCurrency}
+                  </div>
+                </div>
+
+                {/* Fine-Tuning Steppers */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <span className="text-[10px] font-bold text-slate-400">Step:</span>
+                  {(parseFloat(editAdPrice || '0') >= 50
+                    ? [-5.0, -1.0, -0.5, 0.5, 1.0, 5.0]
+                    : [-1.0, -0.25, -0.05, 0.05, 0.25, 1.0]
+                  ).map((step) => (
+                    <button
+                      key={step}
+                      type="button"
+                      onClick={() => {
+                        const cur = parseFloat(editAdPrice) || 0;
+                        const next = Math.max(0.0001, cur + step);
+                        setEditAdPrice(next.toFixed(next >= 20 ? 2 : 4));
+                      }}
+                      className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-mono font-bold text-slate-300 transition-colors cursor-pointer"
+                    >
+                      {step > 0 ? `+${step}` : step}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
                   {[
                     { label: 'Match Spot', mult: 1.0 },
                     { label: '-1.0%', mult: 0.99 },
@@ -4913,6 +5223,7 @@ function P2PPageContent() {
                     { label: '+0.5%', mult: 1.005 },
                     { label: '+1.0%', mult: 1.01 },
                     { label: '+2.0%', mult: 1.02 },
+                    { label: '+5.0%', mult: 1.05 },
                   ].map((p) => (
                     <button
                       key={p.label}
@@ -4921,7 +5232,7 @@ function P2PPageContent() {
                         const spot = getCryptoFiatSpotRate(editingOffer.cryptoCurrency, editingOffer.fiatCurrency);
                         setEditAdPrice((spot * p.mult).toFixed(spot >= 20 ? 2 : 4));
                       }}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-emerald-500/20 border border-slate-800 text-slate-300 hover:text-emerald-300 text-[11px] font-bold cursor-pointer"
+                      className="px-2 py-0.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-300 text-[10px] font-bold cursor-pointer"
                     >
                       {p.label}
                     </button>
@@ -5237,6 +5548,102 @@ function P2PPageContent() {
           <span className="text-[10px]">Profile</span>
         </button>
       </div>
+
+      {/* P2P DESK SECURITY DEPOSIT REFUND CONFIRMATION MODAL */}
+      {refundConfirmModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[120] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-5 text-white shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <RotateCcw className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-white">Close P2P Desk &amp; Refund</h3>
+                  <p className="text-[11px] text-slate-400">Avora Bank 100% Refundable Bond Guarantee</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRefundConfirmModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 font-bold uppercase text-[10px]">Refundable Deposit</span>
+                  <span className="font-mono font-black text-emerald-400 text-sm">
+                    ${effectiveP2pDeposit.toFixed(2)} USD / USDT
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400">Destination:</span>
+                  <span className="font-semibold text-slate-200">Available Wallet Balance</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400">Platform Retention Fee:</span>
+                  <span className="font-bold text-emerald-300">$0.00 (100% Returned)</span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300 leading-relaxed space-y-1.5">
+                <p>
+                  <strong>What happens when you close your desk:</strong>
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-slate-400">
+                  <li>Your active listings will be safely paused/cancelled.</li>
+                  <li>Your ${effectiveP2pDeposit.toFixed(2)} security deposit is immediately credited to your available balance.</li>
+                  <li>You remain an AML/KYC approved trader and can trade or re-activate your desk anytime.</li>
+                </ul>
+              </div>
+
+              {merchantMsg && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-semibold ${
+                    merchantMsg.type === 'success'
+                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                  }`}
+                >
+                  {merchantMsg.text}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRefundConfirmModalOpen(false)}
+                className="flex-1 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-bold text-xs cursor-pointer"
+              >
+                Keep Desk Active
+              </button>
+              <button
+                type="button"
+                onClick={handleRefundMerchant}
+                disabled={merchantLoading || refundConfirmExecuting}
+                className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-rose-950/50 disabled:opacity-50"
+              >
+                {merchantLoading || refundConfirmExecuting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Refunding...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Confirm &amp; Refund ${effectiveP2pDeposit}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TRADER PROFILE MODAL */}
       <P2PTraderProfileModal userId={viewingTraderId} onClose={() => setViewingTraderId(null)} />
