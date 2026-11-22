@@ -405,6 +405,7 @@ function DashboardContent() {
   const [wthBankName, setWthBankName] = useState('');
   const [wthIban, setWthIban] = useState('');
   const [wthSwift, setWthSwift] = useState('');
+  const [wthBankRail, setWthBankRail] = useState<'INTERNATIONAL_SWIFT' | 'DOMESTIC_LOCAL'>('INTERNATIONAL_SWIFT');
   const [wth2FACode, setWth2FACode] = useState('');
   const [wthLoading, setWthLoading] = useState(false);
   const [wthSuccess, setWthSuccess] = useState<string | null>(null);
@@ -427,9 +428,20 @@ function DashboardContent() {
     CHF: 0.89,
     JPY: 152.3,
   });
-  const [wthPricingConfig, setWthPricingConfig] = useState<{ feePct: number; fxSpreadPct: number }>({
+  const [wthPricingConfig, setWthPricingConfig] = useState<{
+    feePct: number;
+    internationalFeePct: number;
+    domesticFeePct: number;
+    cryptoFeePct: number;
+    fxSpreadPct: number;
+    minAmountUsd: number;
+  }>({
     feePct: 0,
+    internationalFeePct: 2.5,
+    domesticFeePct: 1.0,
+    cryptoFeePct: 1.0,
     fxSpreadPct: 0,
+    minAmountUsd: 10,
   });
 
   // P2P Transfer Form State
@@ -677,7 +689,11 @@ function DashboardContent() {
         if (res.data?.withdrawalConfig) {
           setWthPricingConfig({
             feePct: Number(res.data.withdrawalConfig.feePct || 0),
+            internationalFeePct: Number(res.data.withdrawalConfig.internationalFeePct ?? 2.5),
+            domesticFeePct: Number(res.data.withdrawalConfig.domesticFeePct ?? 1.0),
+            cryptoFeePct: Number(res.data.withdrawalConfig.cryptoFeePct ?? 1.0),
             fxSpreadPct: Number(res.data.withdrawalConfig.fxSpreadPct || 0),
+            minAmountUsd: Number(res.data.withdrawalConfig.minAmountUsd || 10),
           });
         }
       })
@@ -1050,7 +1066,7 @@ function DashboardContent() {
       wthSource === 'FD_PRINCIPAL' ? 'PRINCIPAL_RELEASE' : 'MONTHLY_RETURNS';
     const effectiveCurrency = wthSource === 'USDT_WALLET_BAL' ? 'USDT' : 'USD';
     const parsedAmount = parseFloat(wthAmount);
-    const minWthLimit = 10;
+    const minWthLimit = wthPricingConfig.minAmountUsd || 10;
 
     if (isNaN(parsedAmount) || parsedAmount < minWthLimit) {
       setWthError(`Minimum withdrawal amount is $${minWthLimit.toFixed(2)} ${effectiveCurrency}.`);
@@ -1129,12 +1145,15 @@ function DashboardContent() {
         }
       }
 
+      const cryptoFee = wthPricingConfig.cryptoFeePct || 0;
       payoutDetails = {
         ...payoutDetails,
         address: trimmedAddr,
         network: wthCryptoNetwork,
         networkLabel: wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain (BEP20)' : 'TRON Network (TRC20)',
         payoutCurrency: 'USDT',
+        withdrawalRail: 'USDT_BLOCKCHAIN',
+        withdrawalFeePct: cryptoFee,
       };
     } else if (wthMethod === 'BANK_TRANSFER') {
       if (!wthBankName.trim() || !wthIban.trim() || !wthSwift.trim()) {
@@ -1142,13 +1161,18 @@ function DashboardContent() {
         return;
       }
 
+      const activeFee =
+        wthBankRail === 'DOMESTIC_LOCAL'
+          ? wthPricingConfig.domesticFeePct
+          : wthPricingConfig.internationalFeePct;
+
       const targetCur = (wthPayoutCurrency || 'USD').toUpperCase();
       const benchmarkFx = targetCur === 'USD' || targetCur === 'USDT' ? 1 : wthFxRates[targetCur] || 1;
       const effectiveFx =
         targetCur === effectiveCurrency
           ? 1
           : benchmarkFx * Math.max(0, 1 - (wthPricingConfig.fxSpreadPct || 0) / 100);
-      const netSource = Math.max(0, parsedAmount * (1 - (wthPricingConfig.feePct || 0) / 100));
+      const netSource = Math.max(0, parsedAmount * (1 - (activeFee || 0) / 100));
       const estLocalPayout = (netSource * effectiveFx).toFixed(2);
 
       payoutDetails = {
@@ -1158,6 +1182,9 @@ function DashboardContent() {
         swift: wthSwift.trim(),
         payoutCurrency: targetCur,
         estimatedPayoutAmount: estLocalPayout,
+        withdrawalRail: wthBankRail,
+        isDomestic: wthBankRail === 'DOMESTIC_LOCAL',
+        withdrawalFeePct: activeFee,
         accountHolder: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : undefined,
       };
 
@@ -5081,6 +5108,54 @@ function DashboardContent() {
                     </button>
                   </div>
 
+                  {/* Settlement Rail: International SWIFT Wire vs. Domestic Clearing */}
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                      Bank Settlement Rail &amp; Clearing Network
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setWthBankRail('INTERNATIONAL_SWIFT')}
+                        className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
+                          wthBankRail === 'INTERNATIONAL_SWIFT'
+                            ? 'bg-amber-500/10 border-amber-500 text-amber-900 dark:text-amber-200 shadow-sm ring-1 ring-amber-500/50'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs flex items-center gap-1.5">
+                            <span>🌐</span> International Wire
+                          </span>
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                            {wthPricingConfig.internationalFeePct}% fee
+                          </span>
+                        </div>
+                        <p className="text-[10px] opacity-75 mt-1">Cross-border SWIFT wire network</p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setWthBankRail('DOMESTIC_LOCAL')}
+                        className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
+                          wthBankRail === 'DOMESTIC_LOCAL'
+                            ? 'bg-cyan-500/10 border-cyan-500 text-cyan-900 dark:text-cyan-200 shadow-sm ring-1 ring-cyan-500/50'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs flex items-center gap-1.5">
+                            <span>🏛️</span> Domestic Clearing
+                          </span>
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-700 dark:text-cyan-300">
+                            {wthPricingConfig.domesticFeePct}% fee
+                          </span>
+                        </div>
+                        <p className="text-[10px] opacity-75 mt-1">ACH / SEPA / Local clearing rail</p>
+                      </button>
+                    </div>
+                  </div>
+
                   {savedBankAccounts.length > 0 && (
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-500 mb-1">Select Linked Bank Account</label>
@@ -5207,7 +5282,7 @@ function DashboardContent() {
                   </label>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold">
-                      Min: $10.00 {wthSelectedCurrency}
+                      Min: ${(wthPricingConfig.minAmountUsd || 10).toFixed(2)} {wthSelectedCurrency}
                     </span>
                     <span className="text-[11px] text-slate-500">
                       Available:{' '}
@@ -5245,7 +5320,7 @@ function DashboardContent() {
                     type="text"
                     inputMode="decimal"
                     required
-                    placeholder={`Enter amount (Min: $10.00 ${wthSelectedCurrency})`}
+                    placeholder={`Enter amount (Min: $${(wthPricingConfig.minAmountUsd || 10).toFixed(2)} ${wthSelectedCurrency})`}
                     value={wthAmount}
                     onChange={(e) => handleWthAmountChange(e.target.value)}
                     className="w-full px-3.5 py-2.5 pr-16 rounded-xl text-sm border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono font-bold text-slate-900 dark:text-white outline-none focus:border-emerald-500"
@@ -5255,10 +5330,10 @@ function DashboardContent() {
                   </span>
                 </div>
 
-                {parseFloat(wthAmount || '0') > 0 && parseFloat(wthAmount || '0') < 10 && (
+                {parseFloat(wthAmount || '0') > 0 && parseFloat(wthAmount || '0') < (wthPricingConfig.minAmountUsd || 10) && (
                   <p className="text-[11px] font-semibold text-rose-500 flex items-center gap-1 mt-1">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>Minimum withdrawal amount is $10.00 {wthSelectedCurrency}.</span>
+                    <span>Minimum withdrawal amount is ${(wthPricingConfig.minAmountUsd || 10).toFixed(2)} {wthSelectedCurrency}.</span>
                   </p>
                 )}
 
@@ -5331,8 +5406,10 @@ function DashboardContent() {
                   <span className="text-slate-400">Payout Network / Rail:</span>
                   <span className="font-bold text-emerald-400">
                     {wthMethod === 'USDT_WALLET'
-                      ? `USDT Wallet • ${wthCryptoNetwork} (${wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain' : 'TRON'})`
-                      : 'Bank Wire (SWIFT / SEPA)'}
+                      ? `USDT Wallet • ${wthCryptoNetwork} (${wthCryptoNetwork === 'BEP20' ? 'BNB Smart Chain' : 'TRON'}) • ${wthPricingConfig.cryptoFeePct || 0}% fee`
+                      : wthBankRail === 'DOMESTIC_LOCAL'
+                      ? `Domestic Clearing (ACH / Local) • ${wthPricingConfig.domesticFeePct}% fee`
+                      : `International Wire (SWIFT) • ${wthPricingConfig.internationalFeePct}% fee`}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -5360,15 +5437,20 @@ function DashboardContent() {
                     targetCur === wthSelectedCurrency
                       ? 1
                       : baseRate * Math.max(0, 1 - (wthPricingConfig.fxSpreadPct || 0) / 100);
-                  const feeAmt = rawAmt * ((wthPricingConfig.feePct || 0) / 100);
+                  const activeFeePct =
+                    wthBankRail === 'DOMESTIC_LOCAL'
+                      ? (wthPricingConfig.domesticFeePct ?? wthPricingConfig.feePct ?? 0)
+                      : (wthPricingConfig.internationalFeePct ?? wthPricingConfig.feePct ?? 0);
+                  const feeAmt = rawAmt * (activeFeePct / 100);
                   const netSourceAmt = Math.max(0, rawAmt - feeAmt);
                   const convertedPayout = netSourceAmt * effRate;
+                  const railLabel = wthBankRail === 'DOMESTIC_LOCAL' ? 'Domestic Clearing Fee' : 'SWIFT International Wire Fee';
                   return (
                     <>
-                      {(wthPricingConfig.feePct > 0 || wthPricingConfig.fxSpreadPct > 0) && (
+                      {(activeFeePct > 0 || wthPricingConfig.fxSpreadPct > 0) && (
                         <div className="flex justify-between text-[11px]">
                           <span className="text-slate-400">
-                            Pricing Fee / FX Spread ({wthPricingConfig.feePct}% fee + {wthPricingConfig.fxSpreadPct}% spread):
+                            {railLabel} ({activeFeePct}%{wthPricingConfig.fxSpreadPct > 0 ? ` + ${wthPricingConfig.fxSpreadPct}% spread` : ''}):
                           </span>
                           <span className="font-mono text-rose-400">
                             -{feeAmt.toFixed(2)} {wthSelectedCurrency}
@@ -5385,6 +5467,32 @@ function DashboardContent() {
                         <span className="text-slate-300 font-bold">Estimated Bank Payout:</span>
                         <span className="font-mono font-black text-emerald-400">
                           {convertedPayout.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {targetCur}
+                        </span>
+                      </div>
+                    </>
+                  );
+                })()}
+                {wthMethod === 'USDT_WALLET' && (() => {
+                  const rawAmt = parseFloat(wthAmount || '0') || 0;
+                  const cryptoFeePct = wthPricingConfig.cryptoFeePct || 0;
+                  const feeAmt = rawAmt * (cryptoFeePct / 100);
+                  const netCrypto = Math.max(0, rawAmt - feeAmt);
+                  return (
+                    <>
+                      {cryptoFeePct > 0 && (
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-slate-400">
+                            Crypto Network Settlement Fee ({cryptoFeePct}%):
+                          </span>
+                          <span className="font-mono text-rose-400">
+                            -{feeAmt.toFixed(2)} {wthSelectedCurrency}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-xs pt-1 border-t border-slate-800/70">
+                        <span className="text-slate-300 font-bold">Estimated USDT Delivered:</span>
+                        <span className="font-mono font-black text-emerald-400">
+                          {netCrypto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
                         </span>
                       </div>
                     </>

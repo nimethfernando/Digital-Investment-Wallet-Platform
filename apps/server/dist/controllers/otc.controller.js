@@ -12,14 +12,18 @@ class OtcController {
      */
     async getRates(req, res, next) {
         try {
-            const [data, marginSetting, feeSetting, showSpreadSetting, otcCommission, wdFeeSetting, wdSpreadSetting, exchangeSpreadSetting, activePairs, swapRiskCfg] = await Promise.all([
+            const [data, marginSetting, feeSetting, showSpreadSetting, otcCommission, wdFeeSetting, wdIntlFeeSetting, wdDomFeeSetting, wdCryptoFeeSetting, wdSpreadSetting, wdMinAmtSetting, exchangeSpreadSetting, activePairs, swapRiskCfg,] = await Promise.all([
                 rate_service_1.rateService.getLiveRates(),
                 prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'remittance_margin_percent' } }).catch(() => null),
                 prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'remittance_fee_percent' } }).catch(() => null),
                 prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'show_remittance_spread_controls' } }).catch(() => null),
                 otc_service_1.otcService.getOtcCommissionConfig(),
                 prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fee_percent' } }).catch(() => null),
+                prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_international_fee_percent' } }).catch(() => null),
+                prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_domestic_fee_percent' } }).catch(() => null),
+                prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_crypto_fee_percent' } }).catch(() => null),
                 prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fx_spread_percent' } }).catch(() => null),
+                prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_min_amount_usd' } }).catch(() => null),
                 prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'exchange_spread_percent' } }).catch(() => null),
                 prisma_1.prisma.exchangePair.findMany({
                     where: { isActive: true },
@@ -31,6 +35,10 @@ class OtcController {
             const feePercent = parseFloat(feeSetting?.value || '3.0');
             const showRemittanceSpreadControls = String(showSpreadSetting?.value || 'false').toLowerCase() === 'true';
             const withdrawalFeePct = parseFloat(wdFeeSetting?.value || '0.0');
+            const withdrawalIntlFeePct = parseFloat(wdIntlFeeSetting?.value || '2.5');
+            const withdrawalDomFeePct = parseFloat(wdDomFeeSetting?.value || '1.0');
+            const withdrawalCryptoFeePct = parseFloat(wdCryptoFeeSetting?.value || '1.0');
+            const withdrawalMinAmt = parseFloat(wdMinAmtSetting?.value || '10.0');
             const withdrawalFxSpreadPct = parseFloat(wdSpreadSetting?.value || '0.0');
             const rawExchangeSpread = parseFloat(exchangeSpreadSetting?.value || '1.0');
             const exchangeSpreadPercent = Number.isFinite(rawExchangeSpread) && rawExchangeSpread >= 0 ? rawExchangeSpread : 1.0;
@@ -68,7 +76,11 @@ class OtcController {
                 otcCommission,
                 withdrawalConfig: {
                     feePct: Number.isFinite(withdrawalFeePct) && withdrawalFeePct >= 0 ? withdrawalFeePct : 0,
+                    internationalFeePct: Number.isFinite(withdrawalIntlFeePct) && withdrawalIntlFeePct >= 0 ? withdrawalIntlFeePct : 2.5,
+                    domesticFeePct: Number.isFinite(withdrawalDomFeePct) && withdrawalDomFeePct >= 0 ? withdrawalDomFeePct : 1.0,
+                    cryptoFeePct: Number.isFinite(withdrawalCryptoFeePct) && withdrawalCryptoFeePct >= 0 ? withdrawalCryptoFeePct : 1.0,
                     fxSpreadPct: Number.isFinite(withdrawalFxSpreadPct) && withdrawalFxSpreadPct >= 0 ? withdrawalFxSpreadPct : 0,
+                    minAmountUsd: Number.isFinite(withdrawalMinAmt) && withdrawalMinAmt >= 0 ? withdrawalMinAmt : 10.0,
                 },
             });
         }

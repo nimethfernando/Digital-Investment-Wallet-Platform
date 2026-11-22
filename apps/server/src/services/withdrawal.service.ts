@@ -191,12 +191,46 @@ export class WithdrawalService {
     }
 
     // 6. Compute Real-Time Currency Conversion & Withdrawal Pricing (Admin-controlled FX rates & fee/spread)
-    const [feeSetting, fxSpreadSetting] = await Promise.all([
+    const [
+      feeSetting,
+      intlFeeSetting,
+      domFeeSetting,
+      cryptoFeeSetting,
+      fxSpreadSetting,
+    ] = await Promise.all([
       prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fee_percent' } }).catch(() => null),
+      prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_international_fee_percent' } }).catch(() => null),
+      prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_domestic_fee_percent' } }).catch(() => null),
+      prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_crypto_fee_percent' } }).catch(() => null),
       prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fx_spread_percent' } }).catch(() => null),
     ]);
-    const feePct = Math.max(0, Number(feeSetting?.value || '0') || 0);
+
+    const defaultFeePct = Math.max(0, Number(feeSetting?.value || '0') || 0);
+    const intlFeePct = intlFeeSetting?.value ? Math.max(0, Number(intlFeeSetting.value)) : 2.5;
+    const domFeePct = domFeeSetting?.value ? Math.max(0, Number(domFeeSetting.value)) : 1.0;
+    const cryptoFeePct = cryptoFeeSetting?.value ? Math.max(0, Number(cryptoFeeSetting.value)) : 1.0;
     const fxSpreadPct = Math.max(0, Number(fxSpreadSetting?.value || '0') || 0);
+
+    // Determine withdrawal rail & applicable fee percentage
+    const isCrypto = params.payoutMethod === 'USDT_WALLET';
+    const isDomestic =
+      params.payoutMethod === 'BANK_TRANSFER' &&
+      (Boolean(normalizedDetails.isDomestic) ||
+        String(normalizedDetails.withdrawalRail || '').toUpperCase() === 'DOMESTIC_LOCAL' ||
+        String(normalizedDetails.withdrawalRail || '').toUpperCase() === 'DOMESTIC');
+
+    let feePct = defaultFeePct;
+    let effectiveRail = isCrypto ? 'USDT_BLOCKCHAIN' : 'INTERNATIONAL_SWIFT';
+
+    if (isCrypto) {
+      feePct = cryptoFeePct;
+    } else if (isDomestic) {
+      feePct = domFeePct;
+      effectiveRail = 'DOMESTIC_LOCAL';
+    } else {
+      feePct = intlFeePct;
+      effectiveRail = 'INTERNATIONAL_SWIFT';
+    }
 
     const rawPayoutCurrency = String(
       normalizedDetails.payoutCurrency || normalizedDetails.currency || currency
@@ -221,6 +255,7 @@ export class WithdrawalService {
     const estimatedPayoutAmount = netSettlementAmount.times(effectiveRateDec);
 
     normalizedDetails.payoutCurrency = payoutCurrency;
+    normalizedDetails.withdrawalRail = effectiveRail;
     normalizedDetails.benchmarkExchangeRate = Number(benchmarkRateDec.toFixed(6));
     normalizedDetails.effectiveExchangeRate = Number(effectiveRateDec.toFixed(6));
     normalizedDetails.withdrawalFeePct = feePct;
