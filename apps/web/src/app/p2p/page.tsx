@@ -48,6 +48,7 @@ import {
   MapPin,
   Paperclip,
   Ban,
+  XCircle,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import { P2PTraderProfileModal } from '../../components/p2p/P2PTraderProfileModal';
@@ -792,6 +793,16 @@ function P2PPageContent() {
   const [acceptingOrder, setAcceptingOrder] = useState(false);
   const [decliningOrder, setDecliningOrder] = useState(false);
   const [cancellingOrder, setCancellingOrder] = useState(false);
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+
+  const canCancelOrder = (ord: P2POrderItem | null | undefined): boolean => {
+    if (!ord || ord.isFrozen) return false;
+    if (['COMPLETED', 'CANCELLED', 'EXPIRED', 'DECLINED'].includes(ord.status)) return false;
+    if (['PENDING', 'ACCEPTED', 'PENDING_PAYMENT'].includes(ord.status)) return true;
+    if (ord.status === 'PAYMENT_SENT') return !ord.isSeller;
+    if (ord.status === 'DISPUTED') return !ord.isSeller;
+    return false;
+  };
   const [paymentModalOrder, setPaymentModalOrder] = useState<P2POrderItem | null>(null);
   const [roomActionError, setRoomActionError] = useState<string | null>(null);
   const chatMessagesContainerRef = useRef<HTMLDivElement>(null);
@@ -1700,7 +1711,8 @@ function P2PPageContent() {
   };
 
   const handleCancelOrder = async (orderId: string) => {
-    if (!confirm('Cancel this unpaid order and release the locked escrow back to the seller?')) return;
+    if (!confirm('Are you sure you want to cancel this trade? Any locked crypto escrow will be instantly released back to the seller.')) return;
+    setCancellingOrderId(orderId);
     setCancellingOrder(true);
     setRoomActionError(null);
     try {
@@ -1709,13 +1721,16 @@ function P2PPageContent() {
         if (activeChatOrder && activeChatOrder.id === orderId) {
           setActiveChatOrder((prev) => (prev ? { ...prev, status: 'CANCELLED', statusBadge: 'Cancelled' } : null));
         }
-        fetchOrders();
+        await fetchOrders();
         fetchActiveChatMessages(orderId);
         window.dispatchEvent(new Event('avora-notifications-refresh'));
       }
     } catch (e: any) {
-      setRoomActionError(extractErrorMessage(e) || 'Failed to cancel order');
+      const msg = extractErrorMessage(e) || 'Failed to cancel order';
+      setRoomActionError(msg);
+      alert(msg);
     } finally {
+      setCancellingOrderId(null);
       setCancellingOrder(false);
     }
   };
@@ -2182,15 +2197,16 @@ function P2PPageContent() {
                 </button>
               )}
 
-              {/* Cancel: Buyer anytime before payment; Seller only while PENDING (use Decline) */}
-              {!isFrozen && (isPending || (isPendingPayment && !isSeller)) && (
+              {/* Cancel Trade: Buyer or Seller before payment; or Buyer during dispute / payment sent */}
+              {!isFrozen && canCancelOrder(activeChatOrder) && (
                 <button
                   type="button"
                   onClick={() => handleCancelOrder(activeChatOrder.id)}
                   disabled={cancellingOrder}
-                  className="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900 text-rose-300 font-semibold text-xs border border-rose-800/60 transition-colors cursor-pointer disabled:opacity-50"
+                  className="px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900 text-rose-300 font-semibold text-xs border border-rose-800/60 transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  {cancellingOrder ? 'Cancelling...' : 'Cancel Order'}
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>{cancellingOrder ? 'Cancelling...' : 'Cancel Order'}</span>
                 </button>
               )}
 
@@ -3355,21 +3371,35 @@ function P2PPageContent() {
                     </div>
                   </div>
 
-                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                    <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
                       Trader: <span className="font-bold text-slate-700 dark:text-slate-200">{order.counterparty.name}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRoomActionError(null);
-                        setActiveChatOrder(order);
-                      }}
-                      className="px-3.5 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-sm hover:scale-105 transition-all cursor-pointer"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>Open Trade Room</span>
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {canCancelOrder(order) && (
+                        <button
+                          type="button"
+                          onClick={() => handleCancelOrder(order.id)}
+                          disabled={cancellingOrderId === order.id}
+                          className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-600 text-rose-600 dark:text-rose-400 hover:text-white font-bold text-xs border border-rose-500/25 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          title={order.isSeller ? 'Cancel trade and release escrow back to your available balance' : 'Cancel this trade'}
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>{cancellingOrderId === order.id ? 'Cancelling...' : 'Cancel Trade'}</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRoomActionError(null);
+                          setActiveChatOrder(order);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-sm hover:scale-105 transition-all cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Open Trade Room</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

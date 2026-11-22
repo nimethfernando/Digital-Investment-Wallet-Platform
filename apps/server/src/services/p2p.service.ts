@@ -2623,32 +2623,53 @@ export class P2PService {
       P2POrderStatus.PENDING,
       P2POrderStatus.ACCEPTED,
       P2POrderStatus.PENDING_PAYMENT,
+      P2POrderStatus.PAYMENT_SENT,
+      P2POrderStatus.DISPUTED,
     ];
     if (!cancellableStatuses.includes(order.status)) {
-      throw new Error(`Cannot cancel order while status is ${order.status}. Only unpaid orders can be cancelled.`);
+      throw new Error(`Cannot cancel order while status is ${order.status}. Only active or open orders can be cancelled.`);
     }
 
-    if (
-      order.sellerId === userId &&
-      (order.status === P2POrderStatus.ACCEPTED || order.status === P2POrderStatus.PENDING_PAYMENT)
-    ) {
+    // Protection rule:
+    // If status is PAYMENT_SENT, only the buyer can cancel (since buyer claimed to have sent fiat; buyer cancel safely unlocks crypto back to seller).
+    if (order.status === P2POrderStatus.PAYMENT_SENT && order.sellerId === userId) {
       throw new Error(
-        'This order has already been accepted and entered the payment stage. Sellers cannot unilaterally cancel after accepting; wait for buyer payment or timer expiration.'
+        'Buyer has marked payment as sent. If payment was not received, please Open Dispute rather than cancelling.'
+      );
+    }
+    // If status is DISPUTED and payment was marked sent, seller cannot unilaterally cancel; buyer may cancel/withdraw dispute or admin will resolve.
+    if (order.status === P2POrderStatus.DISPUTED && order.sellerId === userId && (order.paidAt || order.paymentProofUrl)) {
+      throw new Error(
+        'This order is in dispute after payment was submitted. The buyer may withdraw their claim, or Avora Compliance will resolve the escrow.'
       );
     }
 
     const cryptoAmountDec = new Decimal(order.cryptoAmount.toString());
     const cryptoCur = (order.cryptoCurrency || order.offer?.cryptoCurrency || 'USDT').toUpperCase();
     const sellerWallet = await ledgerService.ensureWallet(order.sellerId);
-    const cleanReason = reason?.trim() || (order.buyerId === userId ? 'Cancelled by buyer before payment' : 'Cancelled before acceptance');
+    const cleanReason =
+      reason?.trim() ||
+      (order.status === P2POrderStatus.DISPUTED
+        ? order.buyerId === userId
+          ? 'Dispute withdrawn and trade cancelled by buyer'
+          : 'Dispute closed and trade cancelled by seller'
+        : order.buyerId === userId
+        ? 'Cancelled by buyer before payment'
+        : 'Cancelled by seller before payment confirmation');
 
     const cancelledOrder = await prisma.$transaction(
       async (tx) => {
         const freshOrder = await tx.p2POrder.findUnique({ where: { id: orderId } });
         if (!freshOrder || !cancellableStatuses.includes(freshOrder.status) || freshOrder.isFrozen) {
           throw new Error(
-            `Cannot cancel order while status is ${freshOrder?.status || 'NOT_FOUND'}. Only unpaid orders can be cancelled.`
+            `Cannot cancel order while status is ${freshOrder?.status || 'NOT_FOUND'}. Only active orders can be cancelled.`
           );
+        }
+        if (freshOrder.status === P2POrderStatus.PAYMENT_SENT && freshOrder.sellerId === userId) {
+          throw new Error('Buyer has marked payment as sent. Cannot cancel as seller.');
+        }
+        if (freshOrder.status === P2POrderStatus.DISPUTED && freshOrder.sellerId === userId && (freshOrder.paidAt || freshOrder.paymentProofUrl)) {
+          throw new Error('Order is in dispute after payment was submitted. Cannot cancel as seller.');
         }
 
         await unlockEscrowToSellerTx(tx, {
