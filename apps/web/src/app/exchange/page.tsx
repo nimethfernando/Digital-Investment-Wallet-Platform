@@ -2144,9 +2144,9 @@ export default function ExchangeDeskPage() {
                     let val = e.target.value.replace(/[^0-9.]/g, '');
                     const parts = val.split('.');
                     if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
-                    if (calcAmount === '0' && val.length > 1 && !val.includes('.')) {
-                      val = val.replace(/^0+/, '');
-                    }
+                    if (val === '0') return;
+                    if (val === '.') val = '0.';
+                    if (/^0+[1-9]/.test(val)) val = val.replace(/^0+/, '');
                     setCalcAmount(val);
                   }}
                   className="bg-transparent font-mono text-2xl font-black text-slate-900 dark:text-white outline-none w-full"
@@ -2795,9 +2795,9 @@ export default function ExchangeDeskPage() {
                           let val = e.target.value.replace(/[^0-9.]/g, '');
                           const parts = val.split('.');
                           if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
-                          if (chatCryptoAmount === '0' && val.length > 1 && !val.includes('.')) {
-                            val = val.replace(/^0+/, '');
-                          }
+                          if (val === '0') return;
+                          if (val === '.') val = '0.';
+                          if (/^0+[1-9]/.test(val)) val = val.replace(/^0+/, '');
                           setChatCryptoAmount(val);
                         }}
                         className="w-full px-4 py-2.5 rounded-xl text-sm font-mono font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none pr-20"

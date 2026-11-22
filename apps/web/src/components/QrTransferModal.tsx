@@ -69,6 +69,53 @@ export function QrTransferModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const getMinSendLimit = (curr: string): number => {
+    if (curr === 'BTC') return 0.0001;
+    if (curr === 'ETH') return 0.001;
+    return 1.0;
+  };
+
+  const handleSendAmountChange = (rawVal: string) => {
+    if (rawVal === '') {
+      setSendAmount('');
+      setErrorMsg(null);
+      return;
+    }
+    let cleaned = rawVal.replace(/[^0-9.]/g, '');
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      cleaned = `${parts[0]}.${parts.slice(1).join('')}`;
+    }
+    // Disallow user typing 0 first
+    if (cleaned === '0') {
+      return;
+    }
+    if (cleaned === '.') {
+      cleaned = '0.';
+    }
+    if (/^0+[1-9]/.test(cleaned)) {
+      cleaned = cleaned.replace(/^0+/, '');
+    }
+    setSendAmount(cleaned);
+    setErrorMsg(null);
+  };
+
+  const handleRequestedAmountChange = (rawVal: string) => {
+    if (rawVal === '') {
+      setRequestedAmount('');
+      return;
+    }
+    let cleaned = rawVal.replace(/[^0-9.]/g, '');
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      cleaned = `${parts[0]}.${parts.slice(1).join('')}`;
+    }
+    if (cleaned === '0') return;
+    if (cleaned === '.') cleaned = '0.';
+    if (/^0+[1-9]/.test(cleaned)) cleaned = cleaned.replace(/^0+/, '');
+    setRequestedAmount(cleaned);
+  };
+
   // In-App Camera Scanner & QR Capture Feedback State
   const [cameraOpen, setCameraOpen] = useState<boolean>(false);
   const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
@@ -620,8 +667,9 @@ export function QrTransferModal({
       return;
     }
     const amt = parseFloat(sendAmount);
-    if (isNaN(amt) || amt <= 0) {
-      setErrorMsg('Please enter a valid transfer amount.');
+    const minLimit = getMinSendLimit(sendCurrency);
+    if (isNaN(amt) || amt < minLimit) {
+      setErrorMsg(`Minimum sending amount is ${minLimit} ${sendCurrency}.`);
       return;
     }
 
@@ -891,12 +939,11 @@ export function QrTransferModal({
                 <div className="relative">
                   <span className="absolute left-3.5 top-2.5 text-xs font-bold text-slate-400">$</span>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="1"
+                    type="text"
+                    inputMode="decimal"
                     placeholder="e.g. 500.00 (QR updates dynamically with requested amount)"
                     value={requestedAmount}
-                    onChange={(e) => setRequestedAmount(e.target.value)}
+                    onChange={(e) => handleRequestedAmountChange(e.target.value)}
                     className="w-full pl-8 pr-4 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -1223,16 +1270,25 @@ export function QrTransferModal({
                   </span>
                   <input
                     ref={amountInputRef}
-                    type="number"
-                    step={['BTC', 'ETH'].includes(sendCurrency) ? '0.000001' : '0.01'}
-                    min={['BTC', 'ETH'].includes(sendCurrency) ? '0.000001' : '1'}
-                    placeholder="0.00"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={`Min: ${getMinSendLimit(sendCurrency)} ${sendCurrency}`}
                     value={sendAmount}
-                    onChange={(e) => setSendAmount(e.target.value)}
+                    onChange={(e) => handleSendAmountChange(e.target.value)}
                     required
                     className="w-full pl-8 pr-4 py-2.5 rounded-2xl text-base font-black font-mono border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
                   />
                 </div>
+              </div>
+              <div className="flex items-center justify-between text-[11px] pt-1 px-1">
+                <span className="text-amber-500 font-bold">
+                  Min transfer limit: {getMinSendLimit(sendCurrency)} {sendCurrency}
+                </span>
+                {parseFloat(sendAmount || '0') > 0 && parseFloat(sendAmount || '0') < getMinSendLimit(sendCurrency) && (
+                  <span className="text-rose-500 font-bold">
+                    Amount is below minimum ({getMinSendLimit(sendCurrency)} {sendCurrency})
+                  </span>
+                )}
               </div>
             </div>
 

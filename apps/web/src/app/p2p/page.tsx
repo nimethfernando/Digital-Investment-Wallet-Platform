@@ -632,7 +632,7 @@ function P2PPageContent() {
   const [expressSide, setExpressSide] = useState<'BUY' | 'SELL'>('BUY');
   const [expressCurrency, setExpressCurrency] = useState<string>('INR');
   const [expressCrypto, setExpressCrypto] = useState<string>('USDT');
-  const [expressAmount, setExpressAmount] = useState<string>('0');
+  const [expressAmount, setExpressAmount] = useState<string>('');
   const [expressOrderModalOpen, setExpressOrderModalOpen] = useState(false);
   const [expressExecuting, setExpressExecuting] = useState(false);
   const [expressError, setExpressError] = useState<string | null>(null);
@@ -961,6 +961,7 @@ function P2PPageContent() {
   const handleKeypadPress = (digit: string) => {
     setExpressAmount((prev) => {
       if (prev === '0' || prev === '') {
+        if (digit === '0') return '';
         return digit === '.' ? '0.' : digit;
       }
       if (digit === '.' && prev.includes('.')) return prev;
@@ -971,7 +972,7 @@ function P2PPageContent() {
 
   const handleKeypadBackspace = () => {
     setExpressAmount((prev) => {
-      if (prev.length <= 1) return '0';
+      if (prev.length <= 1) return '';
       return prev.slice(0, -1);
     });
   };
@@ -2644,14 +2645,18 @@ function P2PPageContent() {
           <div className="space-y-1">
             <div className="flex items-baseline gap-2 border-b border-zinc-800/80 pb-2">
               <input
-                type="number"
-                step="any"
-                min="0"
-                value={expressAmount === '0' ? '' : expressAmount}
-                placeholder="0"
+                type="text"
+                inputMode="decimal"
+                value={expressAmount}
+                placeholder="Enter amount"
                 onChange={(e) => {
-                  const raw = e.target.value;
-                  setExpressAmount(raw === '' ? '0' : raw);
+                  let raw = e.target.value.replace(/[^0-9.]/g, '');
+                  const parts = raw.split('.');
+                  if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                  if (raw === '0') return;
+                  if (raw === '.') raw = '0.';
+                  if (/^0+[1-9]/.test(raw)) raw = raw.replace(/^0+/, '');
+                  setExpressAmount(raw);
                 }}
                 aria-label="Express Trade Amount"
                 className="w-full bg-transparent text-4xl sm:text-5xl font-extrabold text-white placeholder:text-zinc-600 tracking-tight font-mono outline-none"
@@ -4603,11 +4608,20 @@ function P2PPageContent() {
                 </div>
                 <div className="relative">
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
                     required
                     value={tradeCryptoAmount}
-                    onChange={(e) => setTradeCryptoAmount(e.target.value)}
+                    onChange={(e) => {
+                      let raw = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = raw.split('.');
+                      if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
+                      if (raw === '0') return;
+                      if (raw === '.') raw = '0.';
+                      if (/^0+[1-9]/.test(raw)) raw = raw.replace(/^0+/, '');
+                      setTradeCryptoAmount(raw);
+                    }}
+                    placeholder="Enter amount"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 font-mono font-bold text-white outline-none pr-20"
                   />
                   <button
