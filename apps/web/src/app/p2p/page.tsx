@@ -618,8 +618,8 @@ function P2PPageContent() {
     typeof window !== 'undefined' &&
     Boolean(localStorage.getItem('avora_token') || localStorage.getItem('nexis_token'));
 
-  // Modern P2P Top & Bottom Navigation
-  const [p2pTopTab, setP2pTopTab] = useState<'express' | 'marketplace'>('express');
+  // Modern P2P Top & Bottom Navigation (Default to Marketplace)
+  const [p2pTopTab, setP2pTopTab] = useState<'express' | 'marketplace'>('marketplace');
   const [bottomNav, setBottomNav] = useState<'p2p' | 'orders' | 'chat' | 'ads' | 'profile'>('p2p');
 
   // Express State
@@ -1143,21 +1143,15 @@ function P2PPageContent() {
         }
       }
 
-      // Route seamlessly to Avora Priority Settlement Desk when no live peer offers match
-      setExpressOrderModalOpen(false);
-      openDeskConcierge({
-        side: expressSide,
-        currency: expressCurrency,
-        cryptoAmount: cryptoNum > 0 ? cryptoNum.toFixed(2) : '100',
-        preferredMethod:
-          COUNTRIES.find((c) => c.currency === expressCurrency)?.methods[0] ||
-          (expressCurrency === 'INR' ? 'UPI' : 'Bank Transfer'),
-      });
+      // No live peer offers match in this corridor
+      setExpressError(
+        `No active peer traders found for ${expressAmount} ${expressCurrency}. P2P Express matches live peer merchants (active in corridors such as INR UPI/IMPS). Please browse the Marketplace or create your own advertisement.`
+      );
     } catch (err: any) {
       setExpressError(
         extractErrorMessage(
           err,
-          'Unable to lock escrow for this Express order. Please verify your wallet balance or sign-in status, or connect with our 24/7 Priority Desk.'
+          'Unable to lock escrow for this Express order. Please verify your wallet balance or sign-in status.'
         )
       );
     } finally {
@@ -2465,6 +2459,25 @@ function P2PPageContent() {
       {bottomNav === 'p2p' && p2pTopTab === 'express' && (
         <div className="max-w-md mx-auto bg-black border border-zinc-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-in fade-in duration-200">
           
+          {/* Corridor Clarity Note */}
+          <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-[11px] text-zinc-400 space-y-1">
+            <div className="flex items-center gap-1.5 text-zinc-200 font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>P2P Peer Express Matching</span>
+            </div>
+            <p>
+              Pairs your order directly with active peer traders in available corridors (e.g. INR UPI / IMPS). For global currencies, please browse the{' '}
+              <button
+                type="button"
+                onClick={() => navigateTo('marketplace')}
+                className="text-emerald-400 underline font-bold cursor-pointer"
+              >
+                Marketplace
+              </button>
+              .
+            </p>
+          </div>
+
           {/* Header Row: [Buy | Sell] and [INR ▾] Currency Selector */}
           <div className="flex items-center justify-between">
             <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-2xl p-1 w-44">
@@ -4587,8 +4600,32 @@ function P2PPageContent() {
             </div>
 
             {expressError && (
-              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
+              <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs space-y-2.5">
                 <p>{expressError}</p>
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpressOrderModalOpen(false);
+                      setExpressError(null);
+                      navigateTo('marketplace');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-[11px] cursor-pointer"
+                  >
+                    Browse Marketplace →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpressOrderModalOpen(false);
+                      setExpressError(null);
+                      navigateTo('post-ad');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer"
+                  >
+                    Post an Ad →
+                  </button>
+                </div>
               </div>
             )}
 
