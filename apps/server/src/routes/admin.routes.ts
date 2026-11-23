@@ -109,6 +109,12 @@ router.post(
 );
 
 router.post(
+  '/ledger/purge-e2e-sweeps',
+  requireRole([Role.ADMIN]),
+  (req, res, next) => adminController.purgeE2ETestSweeps(req, res, next)
+);
+
+router.post(
   '/system/purge-demo',
   requireRole([Role.ADMIN]),
   requireAdmin2FA,

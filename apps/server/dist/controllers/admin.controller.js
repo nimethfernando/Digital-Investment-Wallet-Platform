@@ -539,22 +539,102 @@ class AdminController {
                 type: t.type,
                 amount: new decimal_js_1.default(t.amount.toString()).toFixed(4),
                 currency: t.currency,
+                sourceClient: t.user?.email || 'Platform Client',
+                clientName: t.user?.firstName ? `${t.user.firstName} ${t.user.lastName || ''}`.trim() : 'Platform Client',
+                feeAccount: `PLATFORM_FEE_REVENUE_${t.currency}`,
+                destinationVault: `Platform Revenue Vault (${t.currency})`,
                 settlementReference: t.settlementReference,
+                status: t.status || 'COMPLETED',
                 notes: t.notes,
                 userEmail: t.user?.email || 'N/A',
                 createdAt: t.createdAt,
             })),
-            recentClaimTransactions: claimTransactions.map((t) => ({
-                id: t.id,
-                transactionCode: t.transactionCode,
-                amount: new decimal_js_1.default(t.amount.toString()).toFixed(4),
-                currency: t.currency,
-                settlementReference: t.settlementReference,
-                notes: t.notes,
-                recipientEmail: t.user?.email || 'N/A',
-                createdAt: t.createdAt,
-            })),
+            recentClaimTransactions: claimTransactions.map((t) => {
+                const isE2E = String(t.notes || '').toLowerCase().includes('e2e test') ||
+                    String(t.user?.email || '').startsWith('http_admin_');
+                return {
+                    id: t.id,
+                    transactionCode: t.transactionCode,
+                    type: 'ADMIN_REVENUE_SWEEP',
+                    amount: new decimal_js_1.default(t.amount.toString()).toFixed(4),
+                    currency: t.currency,
+                    sourceVault: `PLATFORM_FEE_REVENUE_${t.currency}`,
+                    destinationWallet: `Admin Spendable ${t.currency} Wallet`,
+                    settlementReference: t.settlementReference,
+                    status: t.status || 'COMPLETED',
+                    notes: t.notes,
+                    recipientEmail: t.user?.email || 'N/A',
+                    recipientName: t.user?.firstName
+                        ? `${t.user.firstName} ${t.user.lastName || ''}`.trim()
+                        : 'Admin Treasury',
+                    balanceBefore: new decimal_js_1.default(t.balanceBefore?.toString() || '0').toFixed(4),
+                    balanceAfter: new decimal_js_1.default(t.balanceAfter?.toString() || '0').toFixed(4),
+                    isE2ETest: isE2E,
+                    sweepCategory: isE2E ? 'AUTOMATED_E2E_TEST' : 'MANUAL_ADMIN_SWEEP',
+                    createdAt: t.createdAt,
+                };
+            }),
         };
+    }
+    /**
+     * Purge automated E2E test sweep transactions and journals from Commission Wallet history
+     */
+    async purgeE2ETestSweeps(req, res, next) {
+        try {
+            const adminUserId = req.user?.id;
+            const testTxs = await prisma_1.prisma.transaction.findMany({
+                where: {
+                    OR: [
+                        { notes: { contains: 'E2E test sweep' } },
+                        { user: { email: { startsWith: 'http_admin_' } } },
+                    ],
+                },
+                select: { id: true, transactionCode: true, settlementReference: true },
+            });
+            const txCodes = testTxs.map((t) => t.transactionCode);
+            const refIds = testTxs.map((t) => t.settlementReference).filter(Boolean);
+            if (txCodes.length > 0) {
+                await prisma_1.prisma.ledgerEntry.deleteMany({
+                    where: {
+                        journal: {
+                            OR: [
+                                { referenceId: { in: refIds } },
+                                { notes: { contains: 'E2E test sweep' } },
+                            ],
+                        },
+                    },
+                });
+                await prisma_1.prisma.ledgerJournal.deleteMany({
+                    where: {
+                        OR: [
+                            { referenceId: { in: refIds } },
+                            { notes: { contains: 'E2E test sweep' } },
+                        ],
+                    },
+                });
+                await prisma_1.prisma.transaction.deleteMany({
+                    where: { id: { in: testTxs.map((t) => t.id) } },
+                });
+            }
+            await prisma_1.prisma.adminAuditLog
+                .create({
+                data: {
+                    userId: adminUserId,
+                    action: 'PURGE_E2E_TEST_SWEEPS',
+                    entity: 'Transaction',
+                    details: `Admin purged ${testTxs.length} automated E2E test sweep transactions from commission history.`,
+                },
+            })
+                .catch(() => { });
+            res.json({
+                success: true,
+                message: `Successfully purged ${testTxs.length} automated E2E test records from Commission Wallet history.`,
+                purgedCount: testTxs.length,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
     }
     /**
      * Real-time Platform Commission & Fee Revenue Analytics across all modules

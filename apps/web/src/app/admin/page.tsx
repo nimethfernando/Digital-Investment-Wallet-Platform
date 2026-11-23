@@ -68,8 +68,31 @@ import {
   Bell,
   AlertTriangle,
   Mail,
+  Info,
 } from 'lucide-react';
 import QRCode from 'qrcode';
+
+const formatExactDateTime = (dateStr: string | Date | undefined | null) => {
+  if (!dateStr) return { date: '—', time: '—', full: '—' };
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { date: String(dateStr), time: '', full: String(dateStr) };
+  const dateFormatted = d.toLocaleDateString('en-US', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const timeFormatted = d.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+  return {
+    date: dateFormatted,
+    time: timeFormatted,
+    full: `${dateFormatted} • ${timeFormatted}`,
+  };
+};
 
 export default function AdminPortalPage() {
   const router = useRouter();
@@ -211,6 +234,8 @@ export default function AdminPortalPage() {
   const [claimAmount, setClaimAmount] = useState('');
   const [runningReturns, setRunningReturns] = useState(false);
   const [admin2FaCode, setAdmin2FaCode] = useState('');
+  const [claimTxFilter, setClaimTxFilter] = useState<'ALL' | 'PROD' | 'E2E'>('ALL');
+  const [purgingE2E, setPurgingE2E] = useState(false);
 
   // FD Tenure Management State
   const [tenureModalOpen, setTenureModalOpen] = useState(false);
@@ -797,6 +822,30 @@ export default function AdminPortalPage() {
       showToast(err.response?.data?.message || err.message || 'Failed to claim commission earnings.', 'error');
     } finally {
       setClaimingRevenue(false);
+    }
+  };
+
+  const handlePurgeE2ETestSweeps = async () => {
+    if (
+      !confirm(
+        'Are you sure you want to purge all automated E2E test sweep records from the commission payout history? This will clean up automated test logs while leaving all production admin revenue claims intact.'
+      )
+    ) {
+      return;
+    }
+    setPurgingE2E(true);
+    try {
+      const res = await api.post('/admin/ledger/purge-e2e-sweeps');
+      if (res.data?.success) {
+        showToast(res.data.message || 'Automated test sweeps purged successfully.', 'success');
+        const revRes = await api.get('/admin/ledger/platform-revenue');
+        if (revRes.data?.success) setPlatformRevenue(revRes.data.data);
+        await loadData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.message || err.message || 'Failed to purge automated test sweeps.', 'error');
+    } finally {
+      setPurgingE2E(false);
     }
   };
 
@@ -1709,6 +1758,24 @@ export default function AdminPortalPage() {
     [platformRevenue]
   );
   const feeTxPagination = usePagination(feeTransactionsList, 50);
+
+  const rawClaimTransactions = useMemo(
+    () => (Array.isArray(platformRevenue?.recentClaimTransactions) ? platformRevenue.recentClaimTransactions : []),
+    [platformRevenue]
+  );
+  const claimStats = useMemo(() => {
+    const total = rawClaimTransactions.length;
+    const e2e = rawClaimTransactions.filter((tx: any) => tx.isE2ETest).length;
+    const prod = total - e2e;
+    return { total, e2e, prod };
+  }, [rawClaimTransactions]);
+
+  const filteredClaimTransactions = useMemo(() => {
+    if (claimTxFilter === 'PROD') return rawClaimTransactions.filter((tx: any) => !tx.isE2ETest);
+    if (claimTxFilter === 'E2E') return rawClaimTransactions.filter((tx: any) => tx.isE2ETest);
+    return rawClaimTransactions;
+  }, [rawClaimTransactions, claimTxFilter]);
+  const claimTxPagination = usePagination(filteredClaimTransactions, 25);
 
   const depositAuditStats = useMemo(() => {
     const list = Array.isArray(deposits) ? deposits : [];
@@ -3997,69 +4064,254 @@ export default function AdminPortalPage() {
                   </div>
                 </div>
 
-                {Array.isArray(platformRevenue.recentClaimTransactions) && platformRevenue.recentClaimTransactions.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                      Admin Commission Wallet Payout History
-                    </h4>
-                    <div className="overflow-x-auto rounded-2xl border border-slate-800">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
-                          <tr>
-                            <th className="py-2.5 px-3">Claim TX</th>
-                            <th className="py-2.5 px-3">Admin Recipient</th>
-                            <th className="py-2.5 px-3">Amount Credited</th>
-                            <th className="py-2.5 px-3">Notes</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800 bg-slate-900/60">
-                          {platformRevenue.recentClaimTransactions.map((tx: any) => (
-                            <tr key={tx.id}>
-                              <td className="py-2 px-3 font-mono font-bold text-emerald-300">{tx.transactionCode}</td>
-                              <td className="py-2 px-3 text-slate-300">{tx.recipientEmail}</td>
-                              <td className="py-2 px-3 font-mono font-bold text-white">
-                                +{Number(tx.amount).toFixed(4)} {tx.currency}
-                              </td>
-                              <td className="py-2 px-3 text-slate-400 max-w-xs truncate">{tx.notes}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                {/* Admin Commission Wallet Payout History */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                        <TrendingUp className="w-3.5 h-3.5" />
+                        Admin Commission Wallet Payout &amp; Settlement History
+                      </h4>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Permanent audit trail of platform commission claimed from core revenue vaults to admin operational balances.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Filter Pills */}
+                      <div className="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => setClaimTxFilter('ALL')}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                            claimTxFilter === 'ALL'
+                              ? 'bg-slate-800 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          All ({claimStats.total})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setClaimTxFilter('PROD')}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                            claimTxFilter === 'PROD'
+                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60 shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Production ({claimStats.prod})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setClaimTxFilter('E2E')}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                            claimTxFilter === 'E2E'
+                              ? 'bg-amber-950 text-amber-300 border border-amber-800/60 shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          E2E Tests ({claimStats.e2e})
+                        </button>
+                      </div>
+
+                      {/* Purge E2E Test Sweeps Button */}
+                      {claimStats.e2e > 0 && (
+                        <button
+                          type="button"
+                          onClick={handlePurgeE2ETestSweeps}
+                          disabled={purgingE2E}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                          title="Purge automated test sweep records generated during integration test runs"
+                        >
+                          {purgingE2E ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                          <span>Purge {claimStats.e2e} Test Records</span>
+                        </button>
+                      )}
                     </div>
                   </div>
-                )}
 
+                  {/* Context Banner: Explaining Revenue Sweeps vs Automated Tests */}
+                  <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/90 text-xs text-slate-300 space-y-1.5">
+                    <div className="flex items-center gap-2 font-bold text-slate-200">
+                      <Info className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <span>Understanding Double-Entry Revenue Sweeps &amp; Automated E2E Tests</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      All platform fees (P2P 0.1% take rates, OTC spreads, swap spreads, card issuance) credit automatically into system double-entry vaults (e.g.{' '}
+                      <code className="text-cyan-300 font-mono">PLATFORM_FEE_REVENUE_USD</code>). When an admin claims revenue, funds transfer into the admin's spendable wallet. During platform test runs, the automated end-to-end test suite executes this exact sweep flow with notes labeled <span className="font-semibold text-amber-300">"E2E test sweep to admin wallet"</span>. Use the filter toggle above to view production sweeps only or purge test records at any time.
+                    </p>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                    {filteredClaimTransactions.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-500">
+                        No commission payout records found for the selected filter ({claimTxFilter}).
+                      </div>
+                    ) : (
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
+                          <tr>
+                            <th className="py-2.5 px-3">Date &amp; Exact Time</th>
+                            <th className="py-2.5 px-3">Claim TX</th>
+                            <th className="py-2.5 px-3">Classification</th>
+                            <th className="py-2.5 px-3">Source Vault</th>
+                            <th className="py-2.5 px-3">Destination Wallet</th>
+                            <th className="py-2.5 px-3">Amount Credited</th>
+                            <th className="py-2.5 px-3">Status</th>
+                            <th className="py-2.5 px-3">Notes / Reason</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 bg-slate-900/60">
+                          {claimTxPagination.pagedItems.map((tx: any) => {
+                            const dt = formatExactDateTime(tx.createdAt);
+                            return (
+                              <tr key={tx.id} className="hover:bg-slate-800/40 transition-colors">
+                                <td className="py-2.5 px-3 whitespace-nowrap" title={new Date(tx.createdAt).toISOString()}>
+                                  <div className="font-semibold text-slate-200">{dt.date}</div>
+                                  <div className="font-mono text-[10px] text-slate-400">{dt.time}</div>
+                                </td>
+                                <td className="py-2.5 px-3 font-mono font-bold text-emerald-300">
+                                  <div>{tx.transactionCode}</div>
+                                  {tx.settlementReference && (
+                                    <div className="text-[10px] font-mono text-slate-500 truncate max-w-[140px]">
+                                      {tx.settlementReference}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                  {tx.isE2ETest ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                                      <AlertTriangle className="w-2.5 h-2.5" /> Automated E2E Test
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                      <CheckCircle2 className="w-2.5 h-2.5" /> Production Claim
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                  <div className="font-mono text-[11px] text-slate-300 flex items-center gap-1">
+                                    <Landmark className="w-3 h-3 text-cyan-400" />
+                                    <span>{tx.sourceVault || `PLATFORM_FEE_REVENUE_${tx.currency}`}</span>
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <div className="text-slate-200 font-semibold text-xs">
+                                    {tx.destinationWallet || `Admin Spendable ${tx.currency} Wallet`}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 font-mono truncate max-w-[180px]">
+                                    {tx.recipientEmail}
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3 font-mono font-bold text-white whitespace-nowrap">
+                                  +{Number(tx.amount).toFixed(4)} {tx.currency}
+                                </td>
+                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                    {tx.status || 'COMPLETED'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-400 max-w-xs truncate text-[11px]">
+                                  {tx.notes || '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                    {filteredClaimTransactions.length > 25 && (
+                      <div className="px-3 pb-3 bg-slate-900/60 border-t border-slate-800">
+                        <PaginationControls
+                          currentPage={claimTxPagination.page}
+                          totalItems={filteredClaimTransactions.length}
+                          pageSize={claimTxPagination.pageSize}
+                          onPageChange={claimTxPagination.setPage}
+                          onPageSizeChange={claimTxPagination.setPageSize}
+                          itemLabel="commission payouts"
+                          theme="dark"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Recent Commission & Platform Fee Transactions */}
                 {Array.isArray(platformRevenue.recentFeeTransactions) && platformRevenue.recentFeeTransactions.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      Recent Commission &amp; Platform Fee Transactions
-                    </h4>
+                  <div className="space-y-3 pt-3">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                        <Coins className="w-3.5 h-3.5 text-amber-400" />
+                        Recent Commission &amp; Platform Fee Transactions
+                      </h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Permanent double-entry inflow records of every platform take rate and fee credited to the revenue vault.
+                      </p>
+                    </div>
                     <div className="overflow-x-auto rounded-2xl border border-slate-800">
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
                           <tr>
-                            <th className="py-2.5 px-3">Code</th>
-                            <th className="py-2.5 px-3">Type</th>
-                            <th className="py-2.5 px-3">Client</th>
-                            <th className="py-2.5 px-3">Amount</th>
+                            <th className="py-2.5 px-3">Date &amp; Exact Time</th>
+                            <th className="py-2.5 px-3">Transaction Code</th>
+                            <th className="py-2.5 px-3">Module / Type</th>
+                            <th className="py-2.5 px-3">Client / Source</th>
+                            <th className="py-2.5 px-3">Fee Amount</th>
+                            <th className="py-2.5 px-3">Destination Vault</th>
+                            <th className="py-2.5 px-3">Status</th>
                             <th className="py-2.5 px-3">Notes</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 bg-slate-900/60">
-                          {feeTxPagination.pagedItems.map((tx: any) => (
-                            <tr key={tx.id}>
-                              <td className="py-2 px-3 font-mono font-bold text-slate-200">{tx.transactionCode}</td>
-                              <td className="py-2 px-3 font-mono text-[10px] text-emerald-400">{tx.type}</td>
-                              <td className="py-2 px-3 text-slate-300">{tx.userEmail}</td>
-                              <td className="py-2 px-3 font-mono font-bold text-white">
-                                {Number(tx.amount).toFixed(4)} {tx.currency}
-                              </td>
-                              <td className="py-2 px-3 text-slate-400 max-w-xs truncate">{tx.notes}</td>
-                            </tr>
-                          ))}
+                          {feeTxPagination.pagedItems.map((tx: any) => {
+                            const dt = formatExactDateTime(tx.createdAt);
+                            return (
+                              <tr key={tx.id} className="hover:bg-slate-800/40 transition-colors">
+                                <td className="py-2.5 px-3 whitespace-nowrap" title={new Date(tx.createdAt).toISOString()}>
+                                  <div className="font-semibold text-slate-200">{dt.date}</div>
+                                  <div className="font-mono text-[10px] text-slate-400">{dt.time}</div>
+                                </td>
+                                <td className="py-2.5 px-3 font-mono font-bold text-slate-200">
+                                  <div>{tx.transactionCode}</div>
+                                  {tx.settlementReference && (
+                                    <div className="text-[10px] font-mono text-slate-500 truncate max-w-[130px]">
+                                      {tx.settlementReference}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-[10px] text-emerald-400 whitespace-nowrap">
+                                  <span className="px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800 font-sans font-bold text-[10px]">
+                                    {tx.type}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <div className="text-slate-200 font-semibold">{tx.clientName || 'Client'}</div>
+                                  <div className="text-[10px] text-slate-400 font-mono">{tx.sourceClient || tx.userEmail}</div>
+                                </td>
+                                <td className="py-2.5 px-3 font-mono font-bold text-white whitespace-nowrap">
+                                  +{Number(tx.amount).toFixed(4)} {tx.currency}
+                                </td>
+                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                  <div className="font-mono text-[11px] text-cyan-300 flex items-center gap-1">
+                                    <Landmark className="w-3 h-3 text-cyan-400" />
+                                    <span>{tx.feeAccount || `PLATFORM_FEE_REVENUE_${tx.currency}`}</span>
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                    {tx.status || 'COMPLETED'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-400 max-w-xs truncate text-[11px]">
+                                  {tx.notes || '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
-                      <div className="px-3 pb-3 bg-slate-900/60">
+                      <div className="px-3 pb-3 bg-slate-900/60 border-t border-slate-800">
                         <PaginationControls
                           currentPage={feeTxPagination.page}
                           totalItems={feeTransactionsList.length}

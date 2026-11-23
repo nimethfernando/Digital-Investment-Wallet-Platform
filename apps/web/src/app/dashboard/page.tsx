@@ -306,6 +306,28 @@ function generateLocalAccountNumber(userId?: string): string {
   return `AVR-${positive.slice(0, 4)}-${positive.slice(4, 8)}`;
 }
 
+const formatExactDateTime = (dateStr: string | Date | undefined | null) => {
+  if (!dateStr) return { date: '—', time: '—', full: '—' };
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { date: String(dateStr), time: '', full: String(dateStr) };
+  const dateFormatted = d.toLocaleDateString('en-US', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const timeFormatted = d.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+  return {
+    date: dateFormatted,
+    time: timeFormatted,
+    full: `${dateFormatted} • ${timeFormatted}`,
+  };
+};
+
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -2435,6 +2457,183 @@ function DashboardContent() {
               )}
             </div>
 
+            {/* PLATFORM EARNINGS, COMMISSIONS & ORDER PROFITS HUB */}
+            <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 mb-1">
+                    <TrendingUp className="w-3 h-3 text-emerald-500" />
+                    <span>Real-Time Earnings Engine</span>
+                  </div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">Your Platform Earnings, Commissions &amp; Order Profits</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Transparent and audited breakdown of all yields, escrow spreads, and broker commissions credited directly to your wallet
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('earnings')}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 transition-all self-start sm:self-auto cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Open Dedicated Earnings Hub</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* End-to-End Activity to Settlement Pipeline */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80">
+                <div className="space-y-0.5">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">1. Orders &amp; Contracts</div>
+                  <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white font-mono">
+                    {(earningsSummary?.p2pCompletedTradesCount || 0) + (earningsSummary?.otcCompletedTradesCount || 0) + packages.filter((p) => p.status === 'ACTIVE').length} Total
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {earningsSummary?.p2pCompletedTradesCount || 0} P2P • {earningsSummary?.otcCompletedTradesCount || 0} OTC • {packages.filter((p) => p.status === 'ACTIVE').length} FDs
+                  </div>
+                </div>
+
+                <div className="space-y-0.5">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">2. Monthly Obligation</div>
+                  <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                    +${parseFloat(earningsSummary?.monthlyYieldObligationUsd || '0').toFixed(2)}/mo
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {earningsSummary?.daysUntilNextYield !== null && earningsSummary?.daysUntilNextYield !== undefined ? `Next payout in ${earningsSummary.daysUntilNextYield}d` : 'Active 1.0% yield'}
+                  </div>
+                </div>
+
+                <div className="space-y-0.5">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">3. Cumulative Earnings</div>
+                  <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                    +${parseFloat(totalCumulativeEarnings).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Audited across all streams
+                  </div>
+                </div>
+
+                <div className="space-y-0.5">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">4. Settlement Status</div>
+                  <div className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 font-mono flex items-center gap-1">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>100% Credited</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Available in spendable wallet
+                  </div>
+                </div>
+              </div>
+
+              {/* 4 Earning Stream Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Stream 1: Fixed Deposit Yields */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEarningsSubTab('FD');
+                    setActiveTab('earnings');
+                  }}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:border-emerald-500/60 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/20 transition-all text-left space-y-2 cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-500" /> FD Yields
+                    </span>
+                    <span className="font-mono text-[10px] font-bold text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                      1.0% / mo
+                    </span>
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
+                    +${parseFloat(returnsPaid).toFixed(2)} USD
+                  </div>
+                  <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                    <span>{packages.filter((p) => p.status === 'ACTIVE').length} active lock-in(s)</span>
+                    <span className="text-emerald-500 font-bold group-hover:translate-x-0.5 transition-transform">Inspect →</span>
+                  </div>
+                </button>
+
+                {/* Stream 2: P2P Order Spreads & Escrow */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEarningsSubTab('P2P_OTC');
+                    setActiveTab('earnings');
+                  }}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:border-blue-500/60 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition-all text-left space-y-2 cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                      <Users className="w-3.5 h-3.5 text-blue-500" /> P2P Escrow Spreads
+                    </span>
+                    <span className="font-mono text-[10px] font-bold text-blue-600 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">
+                      {earningsSummary?.p2pCompletedTradesCount || 0} Trades
+                    </span>
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
+                    +${parseFloat(earningsSummary?.p2pTradingProfitUsd || '0').toFixed(2)} USD
+                  </div>
+                  <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                    <span>${parseFloat(earningsSummary?.p2pFeeSavingsUsd || '0').toFixed(2)} fee savings</span>
+                    <span className="text-blue-500 font-bold group-hover:translate-x-0.5 transition-transform">Inspect →</span>
+                  </div>
+                </button>
+
+                {/* Stream 3: OTC Broker Commissions */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEarningsSubTab('P2P_OTC');
+                    setActiveTab('earnings');
+                  }}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:border-cyan-500/60 hover:bg-cyan-50/30 dark:hover:bg-cyan-950/20 transition-all text-left space-y-2 cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
+                      <Award className="w-3.5 h-3.5 text-cyan-500" /> OTC Commissions
+                    </span>
+                    <span className="font-mono text-[10px] font-bold text-cyan-600 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">
+                      1.5% Broker
+                    </span>
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
+                    +${parseFloat(earningsSummary?.otcCommissionsUsd || '0').toFixed(2)} USD
+                  </div>
+                  <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                    <span>{earningsSummary?.otcCompletedTradesCount || 0} OTC trade(s) settled</span>
+                    <span className="text-cyan-500 font-bold group-hover:translate-x-0.5 transition-transform">Inspect →</span>
+                  </div>
+                </button>
+
+                {/* Stream 4: Venture Crowdfunding Equity */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEarningsSubTab('VENTURE');
+                    setActiveTab('earnings');
+                  }}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:border-amber-500/60 hover:bg-amber-50/30 dark:hover:bg-amber-950/20 transition-all text-left space-y-2 cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-300 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                      <Building className="w-3.5 h-3.5 text-amber-500" /> Venture Dividends
+                    </span>
+                    <span className="font-mono text-[10px] font-bold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                      {startupInvestments.length} Deals
+                    </span>
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
+                    +${parseFloat(earningsSummary?.ventureRealizedProfitsUsd || '0').toFixed(2)} USD
+                  </div>
+                  <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                    <span>+${parseFloat(earningsSummary?.ventureUnrealizedGainsUsd || '0').toFixed(2)} unrl. growth</span>
+                    <span className="text-amber-500 font-bold group-hover:translate-x-0.5 transition-transform">Inspect →</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
             {/* Institutional Banking & Liquidity Suite Hub */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Link
@@ -2656,8 +2855,16 @@ function DashboardContent() {
                                 {tx.status}
                               </span>
                             </td>
-                            <td className="py-3 text-slate-400 whitespace-nowrap">
-                              {new Date(tx.createdAt).toLocaleDateString()}
+                            <td className="py-3 text-slate-400 whitespace-nowrap" title={new Date(tx.createdAt).toISOString()}>
+                              {(() => {
+                                const dt = formatExactDateTime(tx.createdAt);
+                                return (
+                                  <div>
+                                    <div className="font-semibold text-slate-700 dark:text-slate-300">{dt.date}</div>
+                                    <div className="font-mono text-[10px] text-slate-400">{dt.time}</div>
+                                  </div>
+                                );
+                              })()}
                             </td>
                           </tr>
                         );
@@ -3737,8 +3944,16 @@ function DashboardContent() {
                                 </div>
                               )}
                             </td>
-                            <td className="py-3.5 text-slate-500 whitespace-nowrap">
-                              {new Date(item.createdAt).toLocaleString()}
+                            <td className="py-3.5 text-slate-500 whitespace-nowrap" title={new Date(item.createdAt).toISOString()}>
+                              {(() => {
+                                const dt = formatExactDateTime(item.createdAt);
+                                return (
+                                  <div>
+                                    <div className="font-semibold text-slate-700 dark:text-slate-300">{dt.date}</div>
+                                    <div className="font-mono text-[10px] text-slate-400">{dt.time}</div>
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="py-3.5">
                               {isMonthlyReturn ? (
@@ -3964,8 +4179,16 @@ function DashboardContent() {
                               </div>
                             )}
                           </td>
-                          <td className="py-3 text-slate-500 whitespace-nowrap">
-                            {new Date(tx.createdAt).toLocaleString()}
+                          <td className="py-3 text-slate-500 whitespace-nowrap" title={new Date(tx.createdAt).toISOString()}>
+                            {(() => {
+                              const dt = formatExactDateTime(tx.createdAt);
+                              return (
+                                <div>
+                                  <div className="font-semibold text-slate-700 dark:text-slate-300">{dt.date}</div>
+                                  <div className="font-mono text-[10px] text-slate-400">{dt.time}</div>
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="py-3 font-bold text-slate-900 dark:text-white">
                             {tx.type === 'MONTHLY_RETURN' ? (
