@@ -62,6 +62,7 @@ router.post(
  */
 router.post('/orders', p2pActionLimiter, requireP2PTrading, (req, res, next) => p2pController.createOrder(req, res, next));
 router.get('/orders', (req, res, next) => p2pController.getUserOrders(req, res, next));
+router.get('/earnings', (req, res, next) => p2pController.getUserEarnings(req, res, next));
 router.get('/orders/:orderId', (req, res, next) => p2pController.getOrderById(req, res, next));
 router.post('/orders/:orderId/accept', p2pActionLimiter, (req, res, next) => p2pController.acceptOrder(req, res, next));
 router.post('/orders/:orderId/decline', p2pActionLimiter, (req, res, next) => p2pController.declineOrder(req, res, next));

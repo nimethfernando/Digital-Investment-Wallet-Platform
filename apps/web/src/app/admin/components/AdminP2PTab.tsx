@@ -20,6 +20,10 @@ import {
   CheckCircle2,
   FileText,
   Zap,
+  XCircle,
+  Coins,
+  DollarSign,
+  Lock,
 } from 'lucide-react';
 import { api, extractErrorMessage, resolveMediaUrl } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
@@ -299,6 +303,68 @@ export default function AdminP2PTab({
     }
   };
 
+  const [cancellingAdminId, setCancellingAdminId] = useState<string | null>(null);
+
+  const handleAdminCancelOrder = async (order: any) => {
+    const cryptoCur = (order.cryptoCurrency || order.offer?.cryptoCurrency || 'USDT').toUpperCase();
+    const reason = prompt(
+      `Cancel P2P Order #${order.orderCode}?\n\nThis will immediately release ${order.cryptoAmount} ${cryptoCur} from escrow and return it to ${order.seller?.email || 'the seller'}'s available wallet balance.\n\nEnter reason for cancellation:`,
+      'Stalled trade / trader inactive'
+    );
+    if (!reason || !reason.trim()) return;
+
+    setCancellingAdminId(order.id);
+    try {
+      const res = await api.post(`/admin/p2p/orders/${order.id}/cancel`, {
+        reason: reason.trim(),
+      });
+      if (res.data?.success) {
+        onFeedback({
+          text: res.data.message || `Order ${order.orderCode} cancelled and ${order.cryptoAmount} ${cryptoCur} refunded to seller.`,
+          type: 'success',
+        });
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback({
+        text: extractErrorMessage(err, 'Failed to cancel P2P order.'),
+        type: 'error',
+      });
+    } finally {
+      setCancellingAdminId(null);
+    }
+  };
+
+  const p2pMetrics = React.useMemo(() => {
+    let completedVolumeUsdt = 0;
+    let platformFeeTotalUsdt = 0;
+    let activeEscrowLockedUsdt = 0;
+    let completedCount = 0;
+    let disputedCount = 0;
+
+    for (const o of orders) {
+      const amt = parseFloat(String(o.cryptoAmount || '0')) || 0;
+      const fee = parseFloat(String(o.platformFeeAmount || '0')) || 0;
+      if (o.status === 'COMPLETED') {
+        completedVolumeUsdt += amt;
+        platformFeeTotalUsdt += fee;
+        completedCount++;
+      } else if (['PENDING', 'ACCEPTED', 'PENDING_PAYMENT', 'PAYMENT_SENT', 'DISPUTED'].includes(o.status)) {
+        activeEscrowLockedUsdt += amt;
+        if (o.status === 'DISPUTED') disputedCount++;
+      }
+    }
+
+    return {
+      completedVolumeUsdt,
+      platformFeeTotalUsdt,
+      activeEscrowLockedUsdt,
+      completedCount,
+      disputedCount,
+      totalOrders: orders.length,
+    };
+  }, [orders]);
+
   const activeFinalStatuses = ['COMPLETED', 'CANCELLED', 'DECLINED', 'EXPIRED'];
   const priorityInrOrdersCount = orders.filter((o) => {
     const fiatCur = (o.fiatCurrency || o.offer?.fiatCurrency || 'USD').toUpperCase();
@@ -438,6 +504,61 @@ export default function AdminP2PTab({
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Refresh</span>
           </button>
+        </div>
+      </div>
+
+      {/* P2P Platform Earnings & Commission Summary Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
+          <div className="text-[10px] font-extrabold uppercase font-mono text-slate-400 flex items-center gap-1.5">
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+            <span>P2P Escrow Turnover</span>
+          </div>
+          <div className="text-xl font-black text-white font-mono mt-1">
+            ${p2pMetrics.completedVolumeUsdt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            {p2pMetrics.completedCount} completed trade(s)
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
+          <div className="text-[10px] font-extrabold uppercase font-mono text-emerald-400 flex items-center gap-1.5">
+            <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Platform P2P Revenue</span>
+          </div>
+          <div className="text-xl font-black text-emerald-400 font-mono mt-1">
+            ${p2pMetrics.platformFeeTotalUsdt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            Platform escrow fees collected
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
+          <div className="text-[10px] font-extrabold uppercase font-mono text-amber-400 flex items-center gap-1.5">
+            <Lock className="w-3.5 h-3.5 text-amber-400" />
+            <span>Active Escrow Locked</span>
+          </div>
+          <div className="text-xl font-black text-amber-300 font-mono mt-1">
+            ${p2pMetrics.activeEscrowLockedUsdt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            Across ongoing trade orders
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
+          <div className="text-[10px] font-extrabold uppercase font-mono text-rose-400 flex items-center gap-1.5">
+            <Scale className="w-3.5 h-3.5 text-rose-400" />
+            <span>Disputes &amp; Compliance</span>
+          </div>
+          <div className="text-xl font-black text-white font-mono mt-1">
+            {p2pMetrics.disputedCount}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            {p2pMetrics.disputedCount > 0 ? 'Requires arbitration review' : 'No open dispute claims'}
+          </div>
         </div>
       </div>
 
@@ -602,8 +723,17 @@ export default function AdminP2PTab({
                               <span>{o.isFrozen ? 'Unfreeze' : 'Freeze'}</span>
                             </button>
                             <button
+                              onClick={() => handleAdminCancelOrder(o)}
+                              disabled={cancellingAdminId === o.id}
+                              className="px-2.5 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold transition-all border border-rose-500/30 cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                              title="Cancel order and immediately refund locked crypto escrow back to user"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>{cancellingAdminId === o.id ? 'Refunding...' : 'Cancel & Refund'}</span>
+                            </button>
+                            <button
                               onClick={() => handleOpenDisputeModal(o)}
-                              className="px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold transition-all border border-rose-500/30 cursor-pointer flex items-center gap-1"
+                              className="px-3 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white text-xs font-bold transition-all border border-amber-500/30 cursor-pointer flex items-center gap-1"
                             >
                               <Scale className="w-3.5 h-3.5" />
                               <span>Review &amp; Rule</span>

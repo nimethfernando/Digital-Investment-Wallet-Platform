@@ -55,6 +55,7 @@ import {
   TrendingUp,
   Coins,
   Percent,
+  DollarSign,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import { P2PTraderProfileModal } from '../../components/p2p/P2PTraderProfileModal';
@@ -707,11 +708,41 @@ function P2PPageContent() {
     } else if (tab === 'profile' || tab === 'member') {
       setBottomNav('profile');
       setActiveNav('member');
+    } else if (tab === 'earnings') {
+      setBottomNav('earnings' as any);
+      setActiveNav('earnings');
     }
   }, [searchParams]);
 
-  // Navigation tab: 'marketplace' | 'orders' | 'member' | 'post-ad' | 'chat'
-  const [activeNav, setActiveNav] = useState<'marketplace' | 'orders' | 'member' | 'post-ad' | 'chat'>('marketplace');
+  // Navigation tab: 'marketplace' | 'orders' | 'member' | 'post-ad' | 'chat' | 'earnings'
+  const [activeNav, setActiveNav] = useState<'marketplace' | 'orders' | 'member' | 'post-ad' | 'chat' | 'earnings'>('marketplace');
+
+  // P2P User Earnings & Commission Tracking
+  const [userEarnings, setUserEarnings] = useState<{
+    completedTradesCount: number;
+    totalVolumeCrypto: string;
+    totalEstimatedProfitUsd: string;
+    totalFeeSavedUsd: string;
+    activeListingsCount: number;
+    registeredCorridor: string | null;
+    trades: any[];
+  } | null>(null);
+  const [loadingEarnings, setLoadingEarnings] = useState(false);
+
+  const fetchUserEarnings = async () => {
+    if (!hasStoredToken()) return;
+    setLoadingEarnings(true);
+    try {
+      const res = await api.get('/p2p/earnings');
+      if (res.data?.success) {
+        setUserEarnings(res.data.data);
+      }
+    } catch (e) {
+      console.error('Failed to load P2P earnings:', e);
+    } finally {
+      setLoadingEarnings(false);
+    }
+  };
 
   // P2P Market State & Search Filters (Default to USD / United States)
   const defaultCountry = COUNTRIES.find((c) => c.currency === 'USD') || COUNTRIES[5] || COUNTRIES[0];
@@ -1090,7 +1121,7 @@ function P2PPageContent() {
       ? parseFloat(expressAmount).toFixed(2)
       : '0.00';
 
-  const navigateTo = (view: 'express' | 'marketplace' | 'orders' | 'chat' | 'post-ad' | 'member') => {
+  const navigateTo = (view: 'express' | 'marketplace' | 'orders' | 'chat' | 'post-ad' | 'member' | 'earnings') => {
     setActiveChatOrder(null);
     setRoomActionError(null);
     if (view === 'express') {
@@ -1117,6 +1148,11 @@ function P2PPageContent() {
     } else if (view === 'member') {
       setBottomNav('profile');
       setActiveNav('member');
+      fetchUserEarnings();
+    } else if (view === 'earnings') {
+      setBottomNav('earnings' as any);
+      setActiveNav('earnings');
+      fetchUserEarnings();
     }
   };
 
@@ -2602,6 +2638,20 @@ function P2PPageContent() {
 
           <button
             type="button"
+            onClick={() => navigateTo('earnings')}
+            className={`transition-all cursor-pointer relative pb-1 flex items-center gap-1.5 ${
+              activeNav === 'earnings'
+                ? 'text-slate-900 dark:text-white border-b-2 border-emerald-500 font-extrabold'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+            title="View your cumulative P2P earnings, spread profits, and commission breakdown"
+          >
+            <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Earnings</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => navigateTo('chat')}
             className={`transition-all cursor-pointer relative pb-1 ${
               bottomNav === 'chat'
@@ -2621,7 +2671,7 @@ function P2PPageContent() {
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <span>Post Ad</span>
+            <span>Post &amp; Manage Ads</span>
           </button>
 
           <button
@@ -3176,6 +3226,121 @@ function P2PPageContent() {
               })}
             </div>
           </div>
+
+          {/* Quick Rate Modifier & Live Seller Ad Banner (When user has active listings) */}
+          {user && myOffers.filter((o) => o.status === 'OPEN' || o.status === 'PAUSED').length > 0 && (
+            <div className="p-4 sm:p-5 rounded-3xl bg-slate-900 border-2 border-emerald-500/50 shadow-xl space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-black">
+                    <Zap className="w-4 h-4 fill-emerald-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1.5">
+                      <span>Your Live P2P Ad &amp; Selling Rate Modifier</span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">LIVE ON MARKET</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      Easily edit your selling price/rate directly below. Your updated price appears on the marketplace immediately.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigateTo('post-ad')}
+                  className="text-xs font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Manage All Ads</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                {myOffers.filter((o) => o.status === 'OPEN' || o.status === 'PAUSED').map((myAd) => (
+                  <div
+                    key={myAd.id}
+                    className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-3"
+                  >
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${
+                          myAd.side === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                        }`}
+                      >
+                        {myAd.side} {myAd.cryptoCurrency}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-white">{myAd.offerCode}</span>
+                      <span className="text-xs text-slate-400 font-mono">
+                        Available: <strong className="text-white">{Number(myAd.availableAmount).toLocaleString()}</strong> {myAd.cryptoCurrency}
+                      </span>
+                      <span className="text-xs text-slate-400 font-mono">
+                        Corridor: <strong className="text-emerald-400">{myAd.fiatCurrency}</strong>
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                          myAd.status === 'PAUSED' ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-400'
+                        }`}
+                      >
+                        {myAd.status}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900 border border-slate-700">
+                        <span className="text-[11px] text-slate-400 font-mono pl-1">Rate:</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={Number(myAd.price).toFixed(Number(myAd.price) >= 20 ? 2 : 4)}
+                          id={`quick-rate-${myAd.id}`}
+                          placeholder="Rate"
+                          onWheel={(e) => (e.target as HTMLElement).blur()}
+                          onKeyDown={(e) => {
+                            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                          }}
+                          className="w-24 px-2 py-1 rounded-lg bg-slate-950 text-white font-mono font-bold text-xs outline-none border border-slate-800 focus:border-emerald-500"
+                        />
+                        <span className="text-[10px] text-slate-400 font-mono pr-1">{myAd.fiatCurrency}</span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const el = document.getElementById(`quick-rate-${myAd.id}`) as HTMLInputElement;
+                            const newRate = el?.value?.trim();
+                            if (!newRate || parseFloat(newRate) <= 0) {
+                              alert('Please enter a valid positive exchange rate.');
+                              return;
+                            }
+                            try {
+                              const res = await api.patch(`/p2p/offers/${myAd.id}`, { price: parseFloat(newRate) });
+                              if (res.data?.success) {
+                                await Promise.all([fetchMyOffers(), fetchOffers()]);
+                                alert(`Price successfully updated to ${newRate} ${myAd.fiatCurrency} for ${myAd.offerCode}!`);
+                              }
+                            } catch (e: any) {
+                              alert(extractErrorMessage(e));
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all cursor-pointer shadow flex items-center gap-1"
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>Update Price</span>
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => openEditOfferModal(myAd)}
+                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all cursor-pointer shadow flex items-center gap-1"
+                      >
+                        <Sliders className="w-3 h-3" />
+                        <span>Edit Full Ad</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Offers Table */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -3857,6 +4022,34 @@ function P2PPageContent() {
       {/* -------------------------------------------------------------------- */}
       {bottomNav === 'profile' && activeNav === 'member' && (
         <div className="space-y-8 max-w-4xl mx-auto">
+          {/* Quick P2P Earnings & Profit Summary Banner */}
+          <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-black">
+                <DollarSign className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-[10px] font-black uppercase font-mono text-emerald-400">
+                  Your P2P Earnings &amp; Commission Summary
+                </div>
+                <div className="text-lg font-black text-white font-mono flex items-center gap-2">
+                  <span>${userEarnings?.totalEstimatedProfitUsd || '0.00'} Profit</span>
+                  <span className="text-xs font-normal text-slate-400 font-sans">
+                    • {userEarnings?.completedTradesCount || 0} completed trade(s) ({userEarnings?.totalVolumeCrypto || '0.00'} USDT turnover)
+                  </span>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigateTo('earnings')}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md shadow-emerald-900/30 flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+            >
+              <span>View Full Earnings Ledger</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           <P2POnboardingWizard
             user={user}
             authLoading={authLoading}
@@ -3917,6 +4110,184 @@ function P2PPageContent() {
       )}
 
       {/* -------------------------------------------------------------------- */}
+      {/* TAB: P2P EARNINGS & COMMISSION HUB */}
+      {/* -------------------------------------------------------------------- */}
+      {activeNav === 'earnings' && (
+        <div className="space-y-6 max-w-5xl mx-auto">
+          {/* Header */}
+          <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase font-mono border border-emerald-500/30">
+                  Trader &amp; Merchant Dashboard
+                </span>
+                <span className="text-xs text-slate-400 font-mono">
+                  Corridor: {userEarnings?.registeredCorridor || selectedCountry.currency}
+                </span>
+              </div>
+              <h3 className="text-xl font-black text-white flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-emerald-400" />
+                <span>P2P Earnings &amp; Commission Hub</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Monitor your trade spread profits, cumulative turnover volume, and zero-maker fee incentives in real time.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={fetchUserEarnings}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all flex items-center gap-1.5 border border-slate-700 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingEarnings ? 'animate-spin' : ''}`} />
+                <span>Refresh Metrics</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateTo('post-ad')}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md shadow-emerald-900/40 cursor-pointer flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Post New Ad</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Metrics Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-md">
+              <div className="text-[10px] font-black uppercase font-mono text-emerald-400 flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Estimated Profit / Spread</span>
+              </div>
+              <div className="text-2xl font-black text-emerald-400 font-mono mt-1.5">
+                ${userEarnings?.totalEstimatedProfitUsd || '0.00'}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                Accumulated from completed trades
+              </div>
+            </div>
+
+            <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-md">
+              <div className="text-[10px] font-black uppercase font-mono text-slate-400 flex items-center gap-1.5">
+                <Coins className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Completed Trade Turnover</span>
+              </div>
+              <div className="text-2xl font-black text-white font-mono mt-1.5">
+                {userEarnings?.totalVolumeCrypto || '0.00'} <span className="text-sm font-semibold text-slate-400">USDT</span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                {userEarnings?.completedTradesCount || 0} completed trade(s)
+              </div>
+            </div>
+
+            <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-md">
+              <div className="text-[10px] font-black uppercase font-mono text-amber-400 flex items-center gap-1.5">
+                <Percent className="w-3.5 h-3.5 text-amber-400" />
+                <span>Platform Fees Saved</span>
+              </div>
+              <div className="text-2xl font-black text-amber-300 font-mono mt-1.5">
+                ${userEarnings?.totalFeeSavedUsd || '0.00'}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                0% Maker Promotion Benefit
+              </div>
+            </div>
+
+            <div className="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-md">
+              <div className="text-[10px] font-black uppercase font-mono text-purple-400 flex items-center gap-1.5">
+                <Megaphone className="w-3.5 h-3.5 text-purple-400" />
+                <span>Active Listings</span>
+              </div>
+              <div className="text-2xl font-black text-white font-mono mt-1.5">
+                {userEarnings?.activeListingsCount || 0}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                Live on public order book
+              </div>
+            </div>
+          </div>
+
+          {/* Trade-by-Trade Earnings Ledger */}
+          <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h4 className="font-extrabold text-sm text-white">Completed Trade Earnings History</h4>
+                <p className="text-xs text-slate-400 mt-0.5">Itemized spread calculation and settlement performance</p>
+              </div>
+              <span className="text-xs font-mono text-slate-400">
+                {userEarnings?.trades?.length || 0} Record(s)
+              </span>
+            </div>
+
+            {loadingEarnings ? (
+              <div className="py-12 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                <span>Calculating earnings ledger...</span>
+              </div>
+            ) : !userEarnings?.trades || userEarnings.trades.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-500 bg-slate-950/60 rounded-2xl border border-dashed border-slate-800">
+                <p className="font-semibold text-slate-400 mb-1">No completed P2P trade profits recorded yet</p>
+                <p className="text-slate-500 text-[11px]">Once your published ads or trade requests settle successfully, your itemized earnings appear here.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950/70 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    <tr>
+                      <th className="py-3 px-4">Order Code &amp; Date</th>
+                      <th className="py-3 px-4">Trading Role</th>
+                      <th className="py-3 px-4">Trade Volume</th>
+                      <th className="py-3 px-4">Settlement Rate vs Spot</th>
+                      <th className="py-3 px-4 text-right">Spread Earnings</th>
+                      <th className="py-3 px-4 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono">
+                    {userEarnings.trades.map((t: any) => (
+                      <tr key={t.orderId} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-white font-mono">{t.orderCode}</div>
+                          <div className="text-[10px] text-slate-500 font-sans mt-0.5">
+                            {new Date(t.completedAt).toLocaleString()}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-sans ${t.role.includes('Seller') ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                            {t.role}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-white">{t.cryptoAmount} {t.cryptoCurrency}</div>
+                          <div className="text-[11px] text-slate-400">{t.fiatAmount} {t.fiatCurrency}</div>
+                        </td>
+                        <td className="py-3 px-4 text-slate-300">
+                          <div>@ {t.price} {t.fiatCurrency}</div>
+                          <div className="text-[10px] text-slate-500 font-sans">Spot: {t.benchmarkRate} {t.fiatCurrency}</div>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="font-bold text-emerald-400 text-sm">
+                            +${t.spreadProfitUsd} USD
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-sans">0% fee rebate applied</div>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold font-sans">
+                            {t.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------------- */}
       {/* TAB 4: POST AN AD BUILDER (Maker Tool) */}
       {/* -------------------------------------------------------------------- */}
       {bottomNav === 'ads' && activeNav === 'post-ad' && (
@@ -3926,6 +4297,22 @@ function P2PPageContent() {
               <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">Create P2P Advertisement</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">Publish your custom buy or sell listing directly to the public marketplace.</p>
             </div>
+
+            {/* Single Corridor Restriction Alert */}
+            {myOffers.some((o) => o.status === 'OPEN' || o.status === 'PAUSED') && (() => {
+              const activeCorridorAd = myOffers.find((o) => o.status === 'OPEN' || o.status === 'PAUSED');
+              return (
+                <div className="p-3.5 rounded-2xl bg-sky-950/40 border border-sky-500/30 text-xs text-sky-200 flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 shrink-0 text-sky-400 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Authorized Desk Corridor: {activeCorridorAd?.fiatCurrency}</span>
+                    <p className="text-[11px] text-slate-300 mt-0.5">
+                      Your merchant account is actively registered and trading in the <strong>{activeCorridorAd?.fiatCurrency}</strong> corridor ({activeCorridorAd?.offerCode}). One merchant operates in one country/currency at a time to prevent multi-corridor market manipulation. To operate in another country, please close this ad first.
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
 
             {!authLoading && !user ? (
               <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex flex-wrap items-center justify-between gap-3">

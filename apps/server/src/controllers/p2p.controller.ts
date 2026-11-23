@@ -298,6 +298,19 @@ export class P2PController {
   }
 
   /**
+   * Get user P2P earnings, profits, and commission metrics
+   */
+  async getUserEarnings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.id;
+      const earnings = await p2pService.getUserP2PEarnings(userId);
+      res.json({ success: true, data: earnings });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Get single P2P order
    */
   async getOrderById(req: Request, res: Response, next: NextFunction) {

@@ -289,6 +289,19 @@ class P2PController {
         }
     }
     /**
+     * Get user P2P earnings, profits, and commission metrics
+     */
+    async getUserEarnings(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const earnings = await p2p_service_1.p2pService.getUserP2PEarnings(userId);
+            res.json({ success: true, data: earnings });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * Get single P2P order
      */
     async getOrderById(req, res, next) {

@@ -4205,6 +4205,26 @@ export class AdminController {
   }
 
   /**
+   * Admin: Cancel a P2P Order and automatically refund escrow to user
+   */
+  async cancelP2POrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { reason } = req.body || {};
+
+      const order = await p2pService.adminCancelOrder(id, adminUserId, reason);
+      res.json({
+        success: true,
+        message: `P2P Order ${order.orderCode} cancelled. Escrow of ${order.cryptoAmount} ${order.cryptoCurrency} has been refunded to the seller.`,
+        data: order,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Get immutable admin audit logs
    */
   async getAdminAuditLogs(req: Request, res: Response, next: NextFunction) {

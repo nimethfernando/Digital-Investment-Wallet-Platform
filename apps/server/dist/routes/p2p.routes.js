@@ -48,6 +48,7 @@ router.post('/transfer', rate_limiter_1.p2pRateLimiter, featureControl_service_1
  */
 router.post('/orders', rate_limiter_1.p2pActionLimiter, requireP2PTrading, (req, res, next) => p2p_controller_1.p2pController.createOrder(req, res, next));
 router.get('/orders', (req, res, next) => p2p_controller_1.p2pController.getUserOrders(req, res, next));
+router.get('/earnings', (req, res, next) => p2p_controller_1.p2pController.getUserEarnings(req, res, next));
 router.get('/orders/:orderId', (req, res, next) => p2p_controller_1.p2pController.getOrderById(req, res, next));
 router.post('/orders/:orderId/accept', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.acceptOrder(req, res, next));
 router.post('/orders/:orderId/decline', rate_limiter_1.p2pActionLimiter, (req, res, next) => p2p_controller_1.p2pController.declineOrder(req, res, next));

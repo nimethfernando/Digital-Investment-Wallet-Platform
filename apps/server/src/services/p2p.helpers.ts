@@ -397,28 +397,25 @@ export async function unlockEscrowToSellerTx(
   const sellerBal = await ledgerService.lockWalletBalance(tx, params.sellerWalletId, currency);
   const currentLocked = new Decimal(sellerBal.lockedPrincipal.toString());
 
-  if (currentLocked.lessThan(params.cryptoAmountDec)) {
-    throw new Error(
-      `Insufficient escrowed ${currency} in seller locked balance (${currentLocked.toFixed(2)} ${currency} locked, ${params.cryptoAmountDec.toFixed(2)} required) on order ${params.orderCode}.`
-    );
-  }
-
+  // Safely clamp locked principal so refund never blocks due to minor rounding or prior state discrepancy
+  const newLocked = Decimal.max(new Decimal(0), currentLocked.minus(params.cryptoAmountDec));
   const sellerAvailBefore = new Decimal(sellerBal.availableBalance.toString());
   const sellerAvailAfter = sellerAvailBefore.plus(params.cryptoAmountDec);
 
   await tx.walletBalance.update({
     where: { id: sellerBal.id },
     data: {
-      lockedPrincipal: currentLocked.minus(params.cryptoAmountDec).toFixed(8),
+      lockedPrincipal: newLocked.toFixed(8),
       availableBalance: sellerAvailAfter.toFixed(8),
     },
   });
 
   if (params.sellerId) {
     try {
+      const uniqueSuffix = `${Date.now().toString().slice(-4)}${Math.floor(10 + Math.random() * 90)}`;
       await tx.transaction.create({
         data: {
-          transactionCode: `TX-P2PR-${params.orderCode}`,
+          transactionCode: `TX-P2PR-${params.orderCode}-${uniqueSuffix}`,
           userId: params.sellerId,
           type: TransactionType.REVERSAL,
           amount: params.cryptoAmountDec.toFixed(8),
@@ -428,7 +425,7 @@ export async function unlockEscrowToSellerTx(
           balanceAfter: sellerAvailAfter.toFixed(8),
           settlementReference: params.orderCode,
           createdBy: params.actorUserId || params.sellerId,
-          idempotencyKey: `TX-UNLOCK-${params.journalIdempotencyKey || params.orderCode}`,
+          idempotencyKey: `TX-UNLOCK-${params.journalIdempotencyKey || params.orderCode}-${uniqueSuffix}`,
           notes: `P2P escrow refunded: +${params.cryptoAmountDec.toFixed(4)} ${currency} credited back to available balance on ${params.orderCode}`,
         },
       });

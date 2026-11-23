@@ -1633,6 +1633,22 @@ class P2PService {
         if (maxLimitNum.lessThan(minLimitNum)) {
             throw new Error('Maximum order limit cannot be lower than minimum order limit.');
         }
+        // Single Country / Currency Enforcement:
+        // One user can only operate a P2P desk/account for one country/currency at a time.
+        // If the user wants to operate P2P for another country or currency, they must close existing ads or apply separately.
+        const targetFiat = input.fiatCurrency.toUpperCase();
+        if (!(0, p2p_helpers_1.isInstitutionalDeskEmail)(user.email)) {
+            const existingCorridorOffer = await prisma_1.prisma.p2POffer.findFirst({
+                where: {
+                    userId,
+                    status: { in: [client_1.P2POfferStatus.OPEN, client_1.P2POfferStatus.PAUSED] },
+                },
+                select: { id: true, offerCode: true, fiatCurrency: true, locationCountry: true },
+            });
+            if (existingCorridorOffer && existingCorridorOffer.fiatCurrency !== targetFiat) {
+                throw new Error(`Corridor Restriction: Your P2P Desk is registered for ${existingCorridorOffer.fiatCurrency}. One user can only operate P2P for one country/currency corridor at a time. To operate in ${targetFiat}, please close your existing ${existingCorridorOffer.fiatCurrency} ad (${existingCorridorOffer.offerCode}) first or request corridor re-authorization.`);
+            }
+        }
         const shouldPromote = Boolean(input.promoteListing);
         const promoTier = shouldPromote ? this.resolvePromotionTier(input.promotionTier) : null;
         const offerCode = `OFF-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -2646,6 +2662,178 @@ class P2PService {
             .catch(() => { });
         const statsMap = await (0, p2p_helpers_1.computeUserP2PStatsMap)([fulfilledOrder.buyerId, fulfilledOrder.sellerId]);
         return this.formatOrderForUser(fulfilledOrder, adminUserId, statsMap);
+    }
+    /**
+     * Admin: Directly cancel any active/stalled P2P order and automatically refund escrow to seller
+     */
+    async adminCancelOrder(orderId, adminUserId, reason) {
+        const order = await prisma_1.prisma.p2POrder.findUnique({
+            where: { id: orderId },
+            include: {
+                buyer: true,
+                seller: true,
+                offer: true,
+            },
+        });
+        if (!order)
+            throw new Error('P2P Order not found');
+        const closedStatuses = [
+            client_1.P2POrderStatus.COMPLETED,
+            client_1.P2POrderStatus.CANCELLED,
+            client_1.P2POrderStatus.DECLINED,
+            client_1.P2POrderStatus.EXPIRED,
+        ];
+        if (closedStatuses.includes(order.status)) {
+            throw new Error(`Order ${order.orderCode} is already ${order.status} and cannot be cancelled.`);
+        }
+        const cryptoAmountDec = new decimal_js_1.default(order.cryptoAmount.toString());
+        const cryptoCur = (order.cryptoCurrency || order.offer?.cryptoCurrency || 'USDT').toUpperCase();
+        const sellerWallet = await ledger_service_1.ledgerService.ensureWallet(order.sellerId);
+        const cleanReason = reason ? String(reason).trim() : 'Cancelled by Avora Compliance Administrator (Escrow Refunded)';
+        const cancelledOrder = await prisma_1.prisma.$transaction(async (tx) => {
+            const fresh = await tx.p2POrder.findUnique({ where: { id: orderId } });
+            if (!fresh || closedStatuses.includes(fresh.status)) {
+                throw new Error(`Order ${order.orderCode} has already been finalized.`);
+            }
+            await (0, p2p_helpers_1.unlockEscrowToSellerTx)(tx, {
+                sellerWalletId: sellerWallet.id,
+                sellerId: order.sellerId,
+                cryptoCurrency: cryptoCur,
+                cryptoAmountDec,
+                offerId: order.offerId,
+                orderCode: order.orderCode,
+                journalIdempotencyKey: `P2P-ADMIN-CANCEL-${order.orderCode}`,
+                actorUserId: adminUserId,
+            });
+            const ord = await tx.p2POrder.update({
+                where: { id: orderId },
+                data: {
+                    status: client_1.P2POrderStatus.CANCELLED,
+                    isFrozen: false,
+                    frozenReason: null,
+                    cancelledBy: adminUserId,
+                    cancelReason: cleanReason,
+                    disputeResolvedBy: adminUserId,
+                },
+                include: {
+                    buyer: true,
+                    seller: true,
+                    offer: true,
+                    reviews: true,
+                },
+            });
+            await tx.p2PMessage.create({
+                data: {
+                    orderId,
+                    senderId: 'SYSTEM',
+                    message: `[Admin Action] Order ${order.orderCode} was cancelled by Admin Compliance. Escrow of ${cryptoAmountDec.toFixed(2)} ${cryptoCur} has been automatically refunded to ${order.seller.email}'s available balance. Note: ${cleanReason}`,
+                },
+            });
+            return ord;
+        }, { timeout: 35000, maxWait: 12000 });
+        await prisma_1.prisma.adminAuditLog.create({
+            data: {
+                userId: adminUserId,
+                action: 'ADMIN_CANCEL_P2P_ORDER',
+                entity: 'P2POrder',
+                entityId: orderId,
+                details: `Admin cancelled order ${order.orderCode} (${cleanReason}). Escrowed ${cryptoAmountDec.toFixed(4)} ${cryptoCur} refunded to seller.`,
+            },
+        });
+        await Promise.all([
+            (0, p2p_helpers_1.createP2PNotification)({
+                userId: order.sellerId,
+                type: 'P2P_ORDER_CANCELLED',
+                severity: 'INFO',
+                title: `P2P Order #${order.orderCode} Cancelled — Escrow Refunded`,
+                message: `Order #${order.orderCode} was cancelled by Admin. ${cryptoAmountDec.toFixed(2)} ${cryptoCur} has been returned to your available wallet balance.`,
+                referenceCode: order.orderCode,
+                amount: cryptoAmountDec.toFixed(2),
+                currency: cryptoCur,
+                status: client_1.P2POrderStatus.CANCELLED,
+            }),
+            (0, p2p_helpers_1.createP2PNotification)({
+                userId: order.buyerId,
+                type: 'P2P_ORDER_CANCELLED',
+                severity: 'WARNING',
+                title: `P2P Order #${order.orderCode} Cancelled`,
+                message: `Order #${order.orderCode} was cancelled by Admin (${cleanReason}). No payment was captured.`,
+                referenceCode: order.orderCode,
+                status: client_1.P2POrderStatus.CANCELLED,
+            }),
+        ]);
+        notification_provider_1.notificationService
+            .sendAdminAlert(`Admin Cancelled P2P Order [${order.orderCode}]`, `Admin cancelled order ${order.orderCode}. ${cryptoAmountDec.toFixed(2)} ${cryptoCur} refunded to seller ${order.seller.email}. Reason: ${cleanReason}`, { orderId: order.id, orderCode: order.orderCode, status: client_1.P2POrderStatus.CANCELLED })
+            .catch(() => { });
+        const statsMap = await (0, p2p_helpers_1.computeUserP2PStatsMap)([cancelledOrder.buyerId, cancelledOrder.sellerId]);
+        return this.formatOrderForUser(cancelledOrder, adminUserId, statsMap);
+    }
+    /**
+     * Get detailed P2P earnings and commission metrics for a user
+     */
+    async getUserP2PEarnings(userId) {
+        const [userOrders, userOffers, spotRates] = await Promise.all([
+            prisma_1.prisma.p2POrder.findMany({
+                where: {
+                    OR: [{ buyerId: userId }, { sellerId: userId }],
+                    status: client_1.P2POrderStatus.COMPLETED,
+                },
+                include: { offer: true },
+                orderBy: { completedAt: 'desc' },
+            }),
+            prisma_1.prisma.p2POffer.findMany({
+                where: { userId },
+                select: { id: true, offerCode: true, fiatCurrency: true, cryptoCurrency: true, price: true, status: true, availableAmount: true, totalAmount: true },
+            }),
+            rate_service_1.rateService.getLiveRates(),
+        ]);
+        let totalTurnoverCrypto = new decimal_js_1.default(0);
+        let totalSpreadProfitUsd = new decimal_js_1.default(0);
+        let totalPlatformFeeSaved = new decimal_js_1.default(0);
+        const tradeBreakdown = userOrders.map((o) => {
+            const isSeller = o.sellerId === userId;
+            const cryptoAmt = new decimal_js_1.default(o.cryptoAmount.toString());
+            const fiatAmt = new decimal_js_1.default(o.fiatAmount.toString());
+            const rate = new decimal_js_1.default(o.price.toString());
+            const cur = (o.fiatCurrency || 'USD').toUpperCase();
+            const crypto = (o.cryptoCurrency || 'USDT').toUpperCase();
+            totalTurnoverCrypto = totalTurnoverCrypto.plus(cryptoAmt);
+            const benchmarkRate = spotRates.rates[cur] ? new decimal_js_1.default(spotRates.rates[cur]) : rate;
+            let spreadProfitUsd = new decimal_js_1.default(0);
+            if (isSeller && benchmarkRate.greaterThan(0)) {
+                const diff = rate.minus(benchmarkRate);
+                if (diff.greaterThan(0)) {
+                    spreadProfitUsd = diff.times(cryptoAmt).div(benchmarkRate);
+                }
+            }
+            totalSpreadProfitUsd = totalSpreadProfitUsd.plus(spreadProfitUsd);
+            const feeSaved = cryptoAmt.times(0.005);
+            totalPlatformFeeSaved = totalPlatformFeeSaved.plus(feeSaved);
+            return {
+                orderId: o.id,
+                orderCode: o.orderCode,
+                completedAt: o.completedAt || o.createdAt,
+                role: isSeller ? 'Seller (Maker)' : 'Buyer',
+                cryptoAmount: cryptoAmt.toFixed(2),
+                cryptoCurrency: crypto,
+                fiatAmount: fiatAmt.toFixed(2),
+                fiatCurrency: cur,
+                price: rate.toFixed(2),
+                benchmarkRate: benchmarkRate.toFixed(2),
+                spreadProfitUsd: spreadProfitUsd.toFixed(2),
+                status: o.status,
+            };
+        });
+        const activeListings = userOffers.filter((o) => o.status === client_1.P2POfferStatus.OPEN || o.status === client_1.P2POfferStatus.PAUSED);
+        return {
+            completedTradesCount: userOrders.length,
+            totalVolumeCrypto: totalTurnoverCrypto.toFixed(2),
+            totalEstimatedProfitUsd: totalSpreadProfitUsd.toFixed(2),
+            totalFeeSavedUsd: totalPlatformFeeSaved.toFixed(2),
+            activeListingsCount: activeListings.length,
+            registeredCorridor: activeListings[0]?.fiatCurrency || null,
+            trades: tradeBreakdown,
+        };
     }
     /**
      * Open a dispute on an ongoing order with 180-minute Compliance SLA tracking
