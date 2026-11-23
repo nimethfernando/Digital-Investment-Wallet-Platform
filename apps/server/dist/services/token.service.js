@@ -88,6 +88,10 @@ class TokenService {
                         'avr_token_display_change_pct',
                         'avr_token_scheduled_price_usd',
                         'avr_token_scheduled_effective_at',
+                        'avr_token_fee_percent',
+                        'avr_token_stage_name',
+                        'avr_token_stage_target_price_usd',
+                        'avr_token_stage_progress_pct',
                     ],
                 },
             },
@@ -146,6 +150,23 @@ class TokenService {
             const delta = ((Number(currentPriceUsd) - 0.10) / 0.10) * 100;
             displayChangePct = `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`;
         }
+        const parsedFee = parseFloat(map.avr_token_fee_percent || '0.5');
+        const feePercent = Number.isFinite(parsedFee) && parsedFee >= 0 ? parsedFee : 0.5;
+        const stageName = (map.avr_token_stage_name || 'Stage 2: Institutional Pre-Allocation').trim();
+        const parsedTarget = parseFloat(map.avr_token_stage_target_price_usd || '0.25');
+        const stageTargetPriceUsd = Number.isFinite(parsedTarget) && parsedTarget > 0 ? parsedTarget : 0.25;
+        let stageProgressPct = parseFloat(map.avr_token_stage_progress_pct || '');
+        if (!Number.isFinite(stageProgressPct) || stageProgressPct < 0) {
+            // Auto-calculate progress based on $0.10 baseline to target price
+            const baseline = 0.10;
+            const current = Number(currentPriceUsd);
+            if (stageTargetPriceUsd > baseline) {
+                stageProgressPct = Math.min(100, Math.max(0, parseFloat((((current - baseline) / (stageTargetPriceUsd - baseline)) * 100).toFixed(1))));
+            }
+            else {
+                stageProgressPct = 50;
+            }
+        }
         return {
             currentPriceUsd,
             lockinDays,
@@ -155,6 +176,10 @@ class TokenService {
             scheduledPriceUsd,
             scheduledEffectiveAt,
             isScheduledPending,
+            feePercent,
+            stageName,
+            stageTargetPriceUsd,
+            stageProgressPct,
         };
     }
     /**
@@ -179,6 +204,10 @@ class TokenService {
             lockinDays: cfg.lockinDays,
             redemptionEnabled: cfg.redemptionEnabled,
             unlockAllNow: cfg.unlockAllNow,
+            feePercent: cfg.feePercent,
+            stageName: cfg.stageName,
+            stageTargetPriceUsd: cfg.stageTargetPriceUsd,
+            stageProgressPct: cfg.stageProgressPct,
         };
     }
     /**

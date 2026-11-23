@@ -20,6 +20,7 @@ import {
   Landmark,
   AlertTriangle,
   Globe,
+  Plus,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
@@ -34,6 +35,7 @@ interface AdminOtcTabProps {
   onRefresh: () => void;
   onFeedback: (feedback: { text: string; type: 'success' | 'error' } | null) => void;
   onOpenRatesConfig?: () => void;
+  onOpenAssignDesk?: () => void;
 }
 
 export default function AdminOtcTab({
@@ -46,6 +48,7 @@ export default function AdminOtcTab({
   onRefresh,
   onFeedback,
   onOpenRatesConfig,
+  onOpenAssignDesk,
 }: AdminOtcTabProps) {
   const [subTab, setSubTab] = useState<'DESKS' | 'TRADES' | 'INQUIRIES'>('DESKS');
   const [search, setSearch] = useState('');
@@ -543,7 +546,19 @@ export default function AdminOtcTab({
           </button>
         </div>
 
-        {subTab === 'DESKS' ? (
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {onOpenAssignDesk && (
+            <button
+              type="button"
+              onClick={onOpenAssignDesk}
+              className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-black shadow-lg shadow-teal-600/30 flex items-center gap-1.5 cursor-pointer transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Activate OTC Desk by Email</span>
+            </button>
+          )}
+
+          {subTab === 'DESKS' ? (
           <select
             value={deskStatusFilter}
             onChange={(e) => setDeskStatusFilter(e.target.value)}
@@ -568,6 +583,7 @@ export default function AdminOtcTab({
             <option value="CANCELLED">CANCELLED</option>
           </select>
         ) : null}
+        </div>
       </div>
 
       {loading ? (

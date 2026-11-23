@@ -39,6 +39,7 @@ interface P2PTabProps {
   admin2FaCode?: string;
   onRefresh: () => void;
   onFeedback: (feedback: { text: string; type: 'success' | 'error' } | null) => void;
+  onOpenAssignMerchant?: () => void;
 }
 
 const FIAT_SYMBOLS: Record<string, string> = {
@@ -95,6 +96,7 @@ export default function AdminP2PTab({
   admin2FaCode,
   onRefresh,
   onFeedback,
+  onOpenAssignMerchant,
 }: P2PTabProps) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -636,6 +638,18 @@ export default function AdminP2PTab({
             <span>Country Corridors &amp; Rails ({corridors.length})</span>
           </button>
         </div>
+
+        {onOpenAssignMerchant && (
+          <button
+            type="button"
+            onClick={onOpenAssignMerchant}
+            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
+            title="Directly activate P2P Merchant status for a user by email address"
+          >
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>+ Activate P2P Desk by Email</span>
+          </button>
+        )}
       </div>
 
       {p2pSubTab === 'orders' ? (

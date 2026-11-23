@@ -150,6 +150,7 @@ router.patch('/dealflow/opportunities/:id', requireRole([Role.ADMIN, Role.STAFF]
 );
 
 // P2P Escrow, Corridors, Onboarding Applications & Dispute Resolution
+router.post('/p2p/assign-merchant', requireRole([Role.ADMIN]), (req, res, next) => adminController.assignP2PMerchant(req, res, next));
 router.get('/p2p/corridors', (req, res, next) => adminController.getP2PCorridors(req, res, next));
 router.post('/p2p/corridors', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateP2PCorridors(req, res, next));
 router.get('/p2p/applications', (req, res, next) => adminController.getP2PApplications(req, res, next));
@@ -163,6 +164,7 @@ router.post('/p2p/orders/:id/freeze', requireRole([Role.ADMIN]), (req, res, next
 router.post('/p2p/orders/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.resolveP2PDispute(req, res, next));
 
 // OTC Desks & Escrow Trade Management
+router.post('/otc/desks/assign', requireRole([Role.ADMIN]), (req, res, next) => adminController.assignOtcDesk(req, res, next));
 router.get('/otc/desks', (req, res, next) => adminController.getOtcDesks(req, res, next));
 router.patch('/otc/desks/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateOtcDesk(req, res, next));
 router.get('/otc/trades', (req, res, next) => adminController.getOtcTrades(req, res, next));

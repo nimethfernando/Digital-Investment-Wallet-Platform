@@ -20,6 +20,8 @@ import AdminKycTab from './components/AdminKycTab';
 import AdminSystemTab from './components/AdminSystemTab';
 import AdminAuditLogsTab from './components/AdminAuditLogsTab';
 import AdminActionModals from './components/AdminActionModals';
+import AdminCreateP2PDeskModal from './components/AdminCreateP2PDeskModal';
+import AdminCreateOtcDeskModal from './components/AdminCreateOtcDeskModal';
 import AutoContentPublisher from './components/AutoContentPublisher';
 import PaginationControls, { usePagination } from '../../components/PaginationControls';
 import {
@@ -98,6 +100,8 @@ export default function AdminPortalPage() {
   const [onboardModalOpen, setOnboardModalOpen] = useState(false);
   const [deployPackageModalOpen, setDeployPackageModalOpen] = useState(false);
   const [manualDepositModalOpen, setManualDepositModalOpen] = useState(false);
+  const [createP2PDeskModalOpen, setCreateP2PDeskModalOpen] = useState(false);
+  const [createOtcDeskModalOpen, setCreateOtcDeskModalOpen] = useState(false);
   const [actionTargetUser, setActionTargetUser] = useState<any | null>(null);
 
   // Users Directory State
@@ -1840,6 +1844,24 @@ export default function AdminPortalPage() {
               <Coins className="w-3.5 h-3.5" />
               <span>+ Credit Deposit</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setCreateP2PDeskModalOpen(true)}
+              className="text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              title="Directly activate P2P Merchant Desk by Email"
+            >
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>+ P2P Desk</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreateOtcDeskModalOpen(true)}
+              className="text-xs font-black bg-teal-600 hover:bg-teal-500 text-white px-3 py-1.5 rounded-xl transition-all shadow-md shadow-teal-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              title="Directly activate institutional OTC Desk by Email"
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>+ OTC Desk</span>
+            </button>
 
             {/* Real-Time Notification Bell & Popover Drawer */}
             <div className="relative">
@@ -2614,6 +2636,7 @@ export default function AdminPortalPage() {
             admin2FaCode={admin2FaCode}
             onRefresh={loadData}
             onFeedback={(f) => setFeedback(f)}
+            onOpenAssignMerchant={() => setCreateP2PDeskModalOpen(true)}
           />
         )}
 
@@ -2629,6 +2652,7 @@ export default function AdminPortalPage() {
             onRefresh={loadData}
             onFeedback={(f) => setFeedback(f)}
             onOpenRatesConfig={() => setActiveTab('config')}
+            onOpenAssignDesk={() => setCreateOtcDeskModalOpen(true)}
           />
         )}
 
@@ -3378,116 +3402,28 @@ export default function AdminPortalPage() {
                   </div>
                 </div>
 
-                {/* Avora Token ($AVR) Price, Profitability, Unlock & Redemption Controls */}
-                <div className="lg:col-span-2 p-5 rounded-3xl bg-slate-900 border border-purple-500/30 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
-                    <div>
-                      <h4 className="font-extrabold text-sm text-purple-300 flex items-center gap-2">
-                        <Coins className="w-4 h-4 text-purple-400" />
-                        <span>Avora Token ($AVR) Price, Lock-In &amp; Redemption Controls</span>
-                      </h4>
-                      <p className="text-[11px] text-slate-400">
-                        Control the live $AVR buy/redemption price (which drives holder ROI), vesting lock-in duration in days, and early-unlock redemptions back to wallet USD/USDT/USDC.
-                      </p>
+                {/* Dedicated Avora Token ($AVR) Decoupled Navigation Notice */}
+                <div className="lg:col-span-2 p-5 rounded-3xl bg-gradient-to-r from-purple-950/40 via-slate-900 to-slate-950 border border-purple-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-purple-300 text-[11px] font-black uppercase font-mono">
+                      <Coins className="w-4 h-4 text-purple-400" />
+                      <span>Dedicated AVORA Token ($AVR) Governance Suite</span>
                     </div>
+                    <h4 className="text-sm font-extrabold text-white">
+                      Token Price, Stage Progress &amp; Commission Controls Decoupled
+                    </h4>
+                    <p className="text-[11px] text-slate-400 max-w-xl">
+                      Per compliance governance, all AVORA Token ($AVR) valuation pricing, scheduled price movements, growth stage targets, platform commissions, vesting lock-in, and investor ledgers are managed exclusively under the dedicated <strong className="text-purple-300">Avora Token ($AVR)</strong> section.
+                    </p>
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-purple-300 uppercase font-mono">
-                        Live $AVR Price ($ USD / Token)
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-2 text-xs text-slate-400">$</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          value={platformConfig.avr_token_price_usd || '0.10'}
-                          onChange={(e) => setPlatformConfig({ ...platformConfig, avr_token_price_usd: e.target.value })}
-                          className="w-full pl-6 pr-3 py-2 rounded-xl bg-slate-950 border border-purple-500/40 text-white text-xs font-mono outline-none focus:border-purple-400"
-                        />
-                      </div>
-                      <p className="text-[10px] text-slate-400">
-                        At ${parseFloat(platformConfig.avr_token_price_usd || '0.10').toFixed(2)}/AVR, $0.10 seed buyers show{' '}
-                        <strong className="text-emerald-400">
-                          {(((parseFloat(platformConfig.avr_token_price_usd || '0.10') / 0.10) - 1) * 100) >= 0 ? '+' : ''}
-                          {(((parseFloat(platformConfig.avr_token_price_usd || '0.10') / 0.10) - 1) * 100).toFixed(1)}% ROI
-                        </strong>
-                      </p>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-300 uppercase font-mono">
-                        Holding Lock-In (Days)
-                      </label>
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        value={platformConfig.avr_lockin_days ?? '180'}
-                        onChange={(e) => setPlatformConfig({ ...platformConfig, avr_lockin_days: e.target.value })}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-purple-400"
-                      />
-                      <p className="text-[10px] text-slate-400">
-                        Default 180 days from purchase (set 0 for immediate unlock)
-                      </p>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-300 uppercase font-mono">
-                        Immediate Unlock Override
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPlatformConfig({
-                            ...platformConfig,
-                            avr_unlock_all_now: platformConfig.avr_unlock_all_now === 'true' ? 'false' : 'true',
-                          })
-                        }
-                        className={`w-full px-3 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
-                          platformConfig.avr_unlock_all_now === 'true'
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
-                        }`}
-                      >
-                        {platformConfig.avr_unlock_all_now === 'true'
-                          ? 'Unlocked for All Holders Now'
-                          : 'Following Lock-In Days'}
-                      </button>
-                      <p className="text-[10px] text-slate-400">
-                        Override timer to let holders redeem anytime
-                      </p>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-300 uppercase font-mono">
-                        Wallet Redemptions Active
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPlatformConfig({
-                            ...platformConfig,
-                            avr_redemption_enabled: platformConfig.avr_redemption_enabled === 'false' ? 'true' : 'false',
-                          })
-                        }
-                        className={`w-full px-3 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
-                          platformConfig.avr_redemption_enabled === 'false'
-                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                        }`}
-                      >
-                        {platformConfig.avr_redemption_enabled === 'false'
-                          ? 'Redemptions Paused'
-                          : 'Enabled (USD / USDT / USDC)'}
-                      </button>
-                      <p className="text-[10px] text-slate-400">
-                        Allow unlocked $AVR cashouts to wallet
-                      </p>
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('token')}
+                    className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-lg shadow-purple-600/30 flex items-center gap-2 cursor-pointer transition-all whitespace-nowrap shrink-0"
+                  >
+                    <Coins className="w-4 h-4" />
+                    <span>Manage Avora Token ($AVR) →</span>
+                  </button>
                 </div>
 
               </div>
@@ -7454,6 +7390,31 @@ export default function AdminPortalPage() {
         onFeedback={setFeedback}
         preselectedUser={actionTargetUser}
         usersList={users}
+      />
+
+      {/* DIRECT P2P MERCHANT & OTC DESK ACTIVATION MODALS */}
+      <AdminCreateP2PDeskModal
+        isOpen={createP2PDeskModalOpen}
+        onClose={() => setCreateP2PDeskModalOpen(false)}
+        onSuccess={() => {
+          loadData();
+          api.get('/admin/analytics/overview').then((res) => {
+            if (res.data?.success) setOverviewAnalytics(res.data.data);
+          }).catch(() => {});
+        }}
+        onFeedback={({ text, type }) => showToast(text, type)}
+      />
+
+      <AdminCreateOtcDeskModal
+        isOpen={createOtcDeskModalOpen}
+        onClose={() => setCreateOtcDeskModalOpen(false)}
+        onSuccess={() => {
+          loadData();
+          api.get('/admin/analytics/overview').then((res) => {
+            if (res.data?.success) setOverviewAnalytics(res.data.data);
+          }).catch(() => {});
+        }}
+        onFeedback={({ text, type }) => showToast(text, type)}
       />
 
       {/* UNIFIED TRANSACTION ID INVESTIGATION MODAL */}

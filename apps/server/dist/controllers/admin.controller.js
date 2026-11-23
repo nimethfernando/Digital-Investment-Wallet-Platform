@@ -2127,6 +2127,10 @@ class AdminController {
                         scheduledPriceUsd: policy.scheduledPriceUsd ? Number(policy.scheduledPriceUsd) : null,
                         scheduledEffectiveAt: policy.scheduledEffectiveAt ? policy.scheduledEffectiveAt.toISOString() : null,
                         isScheduledPending: policy.isScheduledPending,
+                        feePercent: policy.feePercent,
+                        stageName: policy.stageName,
+                        stageTargetPriceUsd: policy.stageTargetPriceUsd,
+                        stageProgressPct: policy.stageProgressPct,
                     },
                     summary: {
                         totalRecords: holders.length,
@@ -2153,7 +2157,7 @@ class AdminController {
     async updateTokenPolicy(req, res, next) {
         try {
             const adminUserId = req.user?.id || 'ADMIN';
-            const { priceUsd, effectiveTiming, scheduledPriceUsd, scheduledEffectiveAt, displayChangePct, lockinDays, redemptionEnabled, unlockAllNow, } = req.body || {};
+            const { priceUsd, effectiveTiming, scheduledPriceUsd, scheduledEffectiveAt, displayChangePct, lockinDays, redemptionEnabled, unlockAllNow, feePercent, stageName, stageTargetPriceUsd, stageProgressPct, } = req.body || {};
             const changes = [];
             // 1. Price & Timing
             if (effectiveTiming === 'SCHEDULED' && scheduledPriceUsd && scheduledEffectiveAt) {
@@ -2235,6 +2239,51 @@ class AdminController {
                 });
                 changes.push(`Immediate unlock override: ${boolVal}`);
             }
+            // 6. Token Commission / Fee %
+            if (feePercent !== undefined && feePercent !== null && feePercent !== '') {
+                const numFee = parseFloat(feePercent);
+                if (!isNaN(numFee) && numFee >= 0) {
+                    await prisma_1.prisma.cmsSetting.upsert({
+                        where: { key: 'avr_token_fee_percent' },
+                        update: { value: numFee.toFixed(2), group: 'TOKEN' },
+                        create: { key: 'avr_token_fee_percent', value: numFee.toFixed(2), group: 'TOKEN' },
+                    });
+                    changes.push(`Token transaction fee set to ${numFee.toFixed(2)}%`);
+                }
+            }
+            // 7. Token Growth Stage & Target Price
+            if (stageName !== undefined && stageName !== null && String(stageName).trim() !== '') {
+                const strStage = String(stageName).trim();
+                await prisma_1.prisma.cmsSetting.upsert({
+                    where: { key: 'avr_token_stage_name' },
+                    update: { value: strStage, group: 'TOKEN' },
+                    create: { key: 'avr_token_stage_name', value: strStage, group: 'TOKEN' },
+                });
+                changes.push(`Stage name set to '${strStage}'`);
+            }
+            if (stageTargetPriceUsd !== undefined && stageTargetPriceUsd !== null && stageTargetPriceUsd !== '') {
+                const numTarget = parseFloat(stageTargetPriceUsd);
+                if (!isNaN(numTarget) && numTarget > 0) {
+                    await prisma_1.prisma.cmsSetting.upsert({
+                        where: { key: 'avr_token_stage_target_price_usd' },
+                        update: { value: numTarget.toFixed(4), group: 'TOKEN' },
+                        create: { key: 'avr_token_stage_target_price_usd', value: numTarget.toFixed(4), group: 'TOKEN' },
+                    });
+                    changes.push(`Stage target price set to $${numTarget.toFixed(4)} USD`);
+                }
+            }
+            // 8. Progress % Override
+            if (stageProgressPct !== undefined && stageProgressPct !== null && stageProgressPct !== '') {
+                const numProg = parseFloat(stageProgressPct);
+                if (!isNaN(numProg) && numProg >= 0 && numProg <= 100) {
+                    await prisma_1.prisma.cmsSetting.upsert({
+                        where: { key: 'avr_token_stage_progress_pct' },
+                        update: { value: numProg.toFixed(1), group: 'TOKEN' },
+                        create: { key: 'avr_token_stage_progress_pct', value: numProg.toFixed(1), group: 'TOKEN' },
+                    });
+                    changes.push(`Stage progress set to ${numProg.toFixed(1)}%`);
+                }
+            }
             // Audit Log
             await prisma_1.prisma.adminAuditLog
                 .create({
@@ -2250,7 +2299,7 @@ class AdminController {
             const updatedPolicy = await token_service_1.tokenService.getTokenPolicyConfig();
             res.json({
                 success: true,
-                message: 'Avora Token ($AVR) policy, valuation, and metrics updated successfully!',
+                message: 'Avora Token ($AVR) policy, valuation, commission, and stage metrics updated successfully!',
                 data: {
                     priceUsd: Number(updatedPolicy.currentPriceUsd),
                     displayChangePct: updatedPolicy.displayChangePct,
@@ -2262,6 +2311,10 @@ class AdminController {
                     lockinDays: updatedPolicy.lockinDays,
                     redemptionEnabled: updatedPolicy.redemptionEnabled,
                     unlockAllNow: updatedPolicy.unlockAllNow,
+                    feePercent: updatedPolicy.feePercent,
+                    stageName: updatedPolicy.stageName,
+                    stageTargetPriceUsd: updatedPolicy.stageTargetPriceUsd,
+                    stageProgressPct: updatedPolicy.stageProgressPct,
                 },
             });
         }
@@ -2778,6 +2831,32 @@ class AdminController {
                 p2pBlocked: user.p2pBlocked,
                 p2pBlockedReason: user.p2pBlockedReason,
             });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Directly Assign or Activate P2P Merchant Desk by User Email
+     */
+    async assignP2PMerchant(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const result = await p2p_service_1.p2pService.adminAssignMerchant(adminUserId, req.body || {});
+            res.json(result);
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Directly Assign or Activate OTC Desk by User Email
+     */
+    async assignOtcDesk(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const result = await otc_service_1.otcService.adminAssignDesk(adminUserId, req.body || {});
+            res.json(result);
         }
         catch (err) {
             next(err);
@@ -4066,13 +4145,19 @@ class AdminController {
         await liquidityRisk_service_1.liquidityRiskService.ensureSchema().catch(() => { });
         const [activeAndDisputedOtcTradesList, underReviewOtcDesksList, pendingP2PAppsList, openOtcInquiriesList, activeP2POrdersList, recentSwapsList, recentP2PTransfersList, recentP2POffersList, pendingVentureInquiriesList, pendingSwapRequestsList,] = await Promise.all([
             prisma_1.prisma.otcTrade.findMany({
-                where: { status: { in: ['DISPUTED', 'IN_PROGRESS'] } },
+                where: {
+                    OR: [
+                        { status: { in: ['DISPUTED', 'IN_PROGRESS'] } },
+                        { createdAt: { gte: last72Hours } },
+                    ],
+                },
                 include: {
                     desk: { select: { deskName: true, city: true, country: true } },
                     customer: { select: { id: true, email: true, firstName: true, lastName: true } },
                     operator: { select: { id: true, email: true, firstName: true, lastName: true } },
                 },
-                orderBy: { createdAt: 'asc' },
+                orderBy: { createdAt: 'desc' },
+                take: 100,
             }),
             prisma_1.prisma.otcDesk.findMany({
                 where: { status: 'UNDER_REVIEW' },
@@ -4689,40 +4774,97 @@ class AdminController {
             pendingRequests.push(item);
             alerts.push(item);
         }
-        // Active & Disputed OTC Escrow Trades
+        // Active, Disputed & Recent OTC Escrow Trades (Real-Time OTC Purchase Alerts & Liquidity Monitoring)
+        const otcReserveObligations = {
+            BTC: { quantity: new decimal_js_1.default(0), usdValue: new decimal_js_1.default(0) },
+            ETH: { quantity: new decimal_js_1.default(0), usdValue: new decimal_js_1.default(0) },
+            USDT: { quantity: new decimal_js_1.default(0), usdValue: new decimal_js_1.default(0) },
+            USDC: { quantity: new decimal_js_1.default(0), usdValue: new decimal_js_1.default(0) },
+        };
         for (const otc of activeAndDisputedOtcTradesList) {
             const custName = `${otc.customer?.firstName || ''} ${otc.customer?.lastName || ''}`.trim() ||
                 otc.customer?.email ||
                 'Customer';
-            const amountFixed = new decimal_js_1.default(otc.cryptoAmount.toString()).toFixed(2);
+            const rawAsset = (otc.tradeType || 'BUY_USDT')
+                .replace(/^BUY_/, '')
+                .replace(/^SELL_/, '')
+                .toUpperCase() || 'USDT';
+            const assetPurchased = ['BTC', 'ETH', 'USDT', 'USDC'].includes(rawAsset) ? rawAsset : 'USDT';
+            const cryptoDec = new decimal_js_1.default(otc.cryptoAmount.toString());
+            const decPlaces = ['BTC', 'ETH'].includes(assetPurchased) ? 6 : 2;
+            const amountFixed = cryptoDec.toFixed(decPlaces);
             const isDisputed = otc.status === 'DISPUTED';
+            const isInProgress = otc.status === 'IN_PROGRESS';
+            const isBuyAction = (otc.tradeType || '').startsWith('BUY');
+            // Approximate unit price in USD
+            let unitPriceUsd = 1.0;
+            if (assetPurchased === 'BTC')
+                unitPriceUsd = 96500.0;
+            else if (assetPurchased === 'ETH')
+                unitPriceUsd = 3450.0;
+            else if (assetPurchased === 'USDT' || assetPurchased === 'USDC')
+                unitPriceUsd = 1.0;
+            if (otc.fiatCurrency === 'USD' && otc.quotedRate) {
+                const rateNum = Number(otc.quotedRate.toString());
+                if (Number.isFinite(rateNum) && rateNum > 0)
+                    unitPriceUsd = rateNum;
+            }
+            const estUsdVal = cryptoDec.times(unitPriceUsd).toNumber();
+            if (isInProgress || isDisputed) {
+                if (!otcReserveObligations[assetPurchased]) {
+                    otcReserveObligations[assetPurchased] = { quantity: new decimal_js_1.default(0), usdValue: new decimal_js_1.default(0) };
+                }
+                otcReserveObligations[assetPurchased].quantity = otcReserveObligations[assetPurchased].quantity.plus(cryptoDec);
+                otcReserveObligations[assetPurchased].usdValue = otcReserveObligations[assetPurchased].usdValue.plus(estUsdVal);
+            }
             const age = this.computeAgeInfo(otc.createdAt, now, isDisputed ? 12 : 24);
+            const exactTimeStr = otc.createdAt.toISOString();
+            const unitPriceFormatted = otc.quotedRate
+                ? `${new decimal_js_1.default(otc.quotedRate.toString()).toFixed(2)} ${otc.fiatCurrency || 'USD'}`
+                : `$${unitPriceUsd.toFixed(2)}`;
+            const liquidityRequirementText = `Reserve Action: Platform must maintain ${amountFixed} ${assetPurchased} ($${estUsdVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD equivalent) liquidity reserve for delivery / settlement.`;
             const item = {
                 id: `OTC_TRD-${otc.id}`,
                 entityId: otc.id,
                 code: otc.tradeCode,
                 category: isDisputed ? 'OTC_DISPUTE' : 'OTC_TRADE',
-                typeLabel: isDisputed ? 'OTC Escrow Dispute' : 'Active OTC Escrow',
-                title: `${isDisputed ? 'OTC Dispute' : 'OTC Escrow'}: ${otc.tradeCode} (${amountFixed} USDT)`,
-                description: `${otc.desk?.deskName || 'OTC Desk'} • ${custName} vs ${otc.operator?.email || 'Operator'} (${otc.fiatAmount ? `${new decimal_js_1.default(otc.fiatAmount.toString()).toFixed(2)} ${otc.fiatCurrency}` : otc.tradeType})`,
+                typeLabel: isDisputed ? 'OTC Escrow Dispute' : isBuyAction ? 'OTC Crypto Purchase' : 'Active OTC Escrow',
+                title: `${isDisputed ? 'OTC Dispute' : 'OTC Purchase'}: ${otc.tradeCode} (${amountFixed} ${assetPurchased})`,
+                description: `${custName} (${otc.customer?.email || ''}) purchased ${amountFixed} ${assetPurchased} @ ${unitPriceFormatted} • ${liquidityRequirementText}`,
                 customerId: otc.customerId,
                 customerName: custName,
                 customerEmail: otc.customer?.email || '',
+                userName: custName,
+                userEmail: otc.customer?.email || '',
+                assetPurchased,
+                quantity: `${amountFixed} ${assetPurchased}`,
+                purchasePrice: unitPriceFormatted,
+                currencyUsed: otc.fiatCurrency || 'USD',
+                fiatAmount: otc.fiatAmount ? new decimal_js_1.default(otc.fiatAmount.toString()).toFixed(2) : null,
+                exactDateTime: exactTimeStr,
+                orderId: otc.tradeCode,
                 amount: amountFixed,
-                currency: 'USDT',
+                currency: assetPurchased,
                 status: otc.status,
                 targetTab: 'otc',
-                requestDate: otc.createdAt.toISOString(),
-                createdDate: otc.createdAt.toISOString(),
+                deskName: otc.desk?.deskName || 'OTC Desk',
+                deskLocation: `${otc.desk?.city || ''}, ${otc.desk?.country || ''}`.trim(),
+                operatorName: `${otc.operator?.firstName || ''} ${otc.operator?.lastName || ''}`.trim() || otc.operator?.email || 'Operator',
+                liquidityRequirement: liquidityRequirementText,
+                reserveObligationUsd: estUsdVal,
+                requestDate: exactTimeStr,
+                createdDate: exactTimeStr,
                 ageMs: age.ageMs,
                 ageHours: age.ageHours,
                 ageDays: age.ageDays,
                 ageLabel: age.ageLabel,
                 isOverdue: age.isOverdue,
-                urgency: isDisputed || age.isOverdue ? (isDisputed ? 'OVERDUE' : 'OVERDUE') : 'HIGH',
-                priorityRank: isDisputed ? 0 : 2,
+                urgency: isDisputed || age.isOverdue ? 'OVERDUE' : isInProgress ? 'HIGH' : 'NORMAL',
+                priorityRank: isDisputed ? 0 : isInProgress ? 1 : 2,
             };
-            pendingRequests.push(item);
+            if (isInProgress || isDisputed) {
+                pendingRequests.push(item);
+            }
             alerts.push(item);
         }
         // OTC Desks Awaiting Review
@@ -5065,11 +5207,24 @@ class AdminController {
             oldestPendingLabel: oldestItem ? oldestItem.ageLabel : '0m',
             nextUpcomingYieldDate: nextUpcomingYieldDate ? nextUpcomingYieldDate.toISOString() : null,
         };
+        const totalReserveObligationUsd = Object.values(otcReserveObligations).reduce((sum, item) => sum + item.usdValue.toNumber(), 0);
+        const liquidityMonitoring = {
+            totalReserveObligationUsd: Number(totalReserveObligationUsd.toFixed(2)),
+            breakdown: Object.entries(otcReserveObligations).map(([asset, val]) => ({
+                asset,
+                pendingQuantity: val.quantity.toFixed(asset === 'BTC' || asset === 'ETH' ? 6 : 2),
+                reserveUsdEquivalent: Number(val.usdValue.toFixed(2)),
+            })),
+            recentOtcPurchases: alerts
+                .filter((a) => a.category === 'OTC_TRADE' || a.category === 'OTC_DISPUTE' || a.category === 'CURRENCY_SWAP')
+                .slice(0, 15),
+        };
         return {
             ...summary,
             summary,
             alerts,
             pendingRequests,
+            liquidityMonitoring,
             generatedAt: now.toISOString(),
         };
     }

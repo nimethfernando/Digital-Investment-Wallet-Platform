@@ -2104,6 +2104,141 @@ class OtcService {
         return this.formatDesk(updatedDesk, true);
     }
     /**
+     * Admin: Assign or Activate OTC Desk directly by User Email
+     */
+    async adminAssignDesk(adminUserId, payload) {
+        await this.ensureOtcSchema();
+        if (!payload.email || !payload.email.trim()) {
+            throw new Error('User email is required.');
+        }
+        const cleanEmail = payload.email.trim().toLowerCase();
+        const user = await prisma_1.prisma.user.findFirst({
+            where: { email: cleanEmail },
+        });
+        if (!user) {
+            throw new Error(`No registered user found with email "${payload.email}". Please verify the email address.`);
+        }
+        if (!payload.deskName || !payload.deskName.trim()) {
+            throw new Error('Desk Name is required.');
+        }
+        if (!payload.city || !payload.city.trim()) {
+            throw new Error('City is required.');
+        }
+        if (!payload.country || !payload.country.trim()) {
+            throw new Error('Country is required.');
+        }
+        const cleanDeskName = payload.deskName.trim();
+        const cleanCity = payload.city.trim();
+        const cleanCountry = payload.country.trim();
+        const cleanCountryCode = (payload.countryCode || cleanCountry.slice(0, 2)).toUpperCase().slice(0, 5);
+        const cleanAddress = (payload.locationAddress || `${cleanCity}, ${cleanCountry}`).trim();
+        const cleanLandmark = payload.landmark?.trim() || 'Central Financial District';
+        const waiveDeposit = Boolean(payload.waiveDeposit);
+        const depositAmt = waiveDeposit ? new decimal_js_1.default(0) : new decimal_js_1.default(500);
+        const existingDesk = await prisma_1.prisma.otcDesk.findFirst({
+            where: { userId: user.id },
+            orderBy: { createdAt: 'desc' },
+        });
+        const currencies = Array.isArray(payload.supportedCurrencies) && payload.supportedCurrencies.length > 0
+            ? payload.supportedCurrencies
+            : ['USDT', 'USD', 'EUR', 'INR', 'LKR', 'AED'];
+        const methods = Array.isArray(payload.settlementMethods) && payload.settlementMethods.length > 0
+            ? payload.settlementMethods
+            : ['Bank Transfer', 'Cash Counter', 'Instant Wire'];
+        const deskCode = existingDesk?.deskCode || `DSK-${Math.floor(10000 + Math.random() * 90000)}`;
+        const encodedMeta = this.encodeDeskLocationMeta({
+            landmark: cleanLandmark,
+            googleMapsUrl: payload.googleMapsUrl || undefined,
+            depositCurrency: 'USD',
+        }, existingDesk);
+        const deskPayload = {
+            deskCode,
+            deskName: cleanDeskName,
+            country: cleanCountry,
+            countryCode: cleanCountryCode,
+            city: cleanCity,
+            locationAddress: cleanAddress.slice(0, 255),
+            adminNotes: encodedMeta,
+            supportedCurrencies: JSON.stringify(currencies),
+            settlementMethods: JSON.stringify(methods),
+            securityDeposit: depositAmt.toFixed(8),
+            depositStatus: 'ACTIVE',
+            isOnline: true,
+            buyRateMarginPct: new decimal_js_1.default(payload.buyRateMarginPct ?? 1.0).toFixed(4),
+            sellRateMarginPct: new decimal_js_1.default(payload.sellRateMarginPct ?? 1.0).toFixed(4),
+            status: 'ACTIVE',
+        };
+        let resultDesk;
+        if (existingDesk) {
+            resultDesk = await prisma_1.prisma.otcDesk.update({
+                where: { id: existingDesk.id },
+                data: deskPayload,
+                include: { user: true },
+            });
+        }
+        else {
+            resultDesk = await prisma_1.prisma.otcDesk.create({
+                data: {
+                    ...deskPayload,
+                    userId: user.id,
+                },
+                include: { user: true },
+            });
+        }
+        // Ensure user has KYC approved and isAvailable
+        await prisma_1.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                isAvailable: true,
+                availabilityUpdatedAt: new Date(),
+                ...(user.kycStatus !== 'APPROVED' ? { kycStatus: 'APPROVED' } : {}),
+            },
+        });
+        // Notify user of active OTC Desk
+        await prisma_1.prisma.userNotification
+            .create({
+            data: {
+                userId: user.id,
+                category: 'OTC',
+                type: 'OTC_APPLICATION_APPROVED',
+                severity: 'SUCCESS',
+                title: `OTC Desk Activated: ${cleanDeskName}`,
+                message: `Congratulations! Your Avora OTC Desk "${cleanDeskName}" in ${cleanCity}, ${cleanCountry} has been certified and activated directly by Admin Compliance${waiveDeposit ? ' (Deposit Waived)' : ' ($500 Security Deposit Recorded)'}. You are now live on the global OTC Desk directory.`,
+                referenceCode: deskCode,
+                status: 'ACTIVE',
+                actionUrl: '/otc?tab=desks',
+                actionLabel: 'Manage OTC Desk',
+            },
+        })
+            .catch(() => { });
+        // Audit log
+        await prisma_1.prisma.adminAuditLog
+            .create({
+            data: {
+                userId: adminUserId,
+                action: 'ADMIN_ASSIGN_OTC_DESK',
+                entity: 'OtcDesk',
+                entityId: resultDesk.id,
+                details: JSON.stringify({
+                    email: user.email,
+                    userId: user.id,
+                    deskId: resultDesk.id,
+                    deskName: cleanDeskName,
+                    city: cleanCity,
+                    country: cleanCountry,
+                    waiveDeposit,
+                    note: payload.note,
+                }),
+            },
+        })
+            .catch(() => { });
+        return {
+            success: true,
+            message: `OTC Desk "${cleanDeskName}" activated successfully for ${user.email}.`,
+            desk: this.formatDesk(resultDesk, true),
+        };
+    }
+    /**
      * Admin: List all OTC Trades across all desks with chat transcripts
      */
     async getAllTradesAdmin(filters) {

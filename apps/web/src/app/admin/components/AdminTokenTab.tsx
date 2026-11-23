@@ -40,6 +40,10 @@ interface AdminTokenTabProps {
       scheduledPriceUsd?: number | null;
       scheduledEffectiveAt?: string | null;
       isScheduledPending?: boolean;
+      feePercent?: number;
+      stageName?: string;
+      stageTargetPriceUsd?: number;
+      stageProgressPct?: number;
     };
     summary?: {
       totalRecords: number;
@@ -81,6 +85,10 @@ export default function AdminTokenTab({
     scheduledPriceUsd: null,
     scheduledEffectiveAt: null,
     isScheduledPending: false,
+    feePercent: 0.5,
+    stageName: 'Stage 2: Institutional Pre-Allocation',
+    stageTargetPriceUsd: 0.25,
+    stageProgressPct: 45,
   };
 
   // Dedicated Price, Timing & Valuation Controls State
@@ -97,6 +105,10 @@ export default function AdminTokenTab({
   const [editLockDays, setEditLockDays] = useState(String(policy.lockinDays ?? 180));
   const [editRedemption, setEditRedemption] = useState(Boolean(policy.redemptionEnabled));
   const [editUnlockAll, setEditUnlockAll] = useState(Boolean(policy.unlockAllNow));
+  const [editFeePercent, setEditFeePercent] = useState(String(policy.feePercent ?? 0.5));
+  const [editStageName, setEditStageName] = useState(policy.stageName ?? 'Stage 2: Institutional Pre-Allocation');
+  const [editStageTargetPrice, setEditStageTargetPrice] = useState(String(policy.stageTargetPriceUsd ?? 0.25));
+  const [editStageProgressPct, setEditStageProgressPct] = useState(String(policy.stageProgressPct ?? 45));
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [policyMessage, setPolicyMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -108,6 +120,10 @@ export default function AdminTokenTab({
       setEditLockDays(String(data.policy.lockinDays ?? 180));
       setEditRedemption(Boolean(data.policy.redemptionEnabled));
       setEditUnlockAll(Boolean(data.policy.unlockAllNow));
+      setEditFeePercent(String(data.policy.feePercent ?? 0.5));
+      setEditStageName(data.policy.stageName ?? 'Stage 2: Institutional Pre-Allocation');
+      setEditStageTargetPrice(String(data.policy.stageTargetPriceUsd ?? 0.25));
+      setEditStageProgressPct(String(data.policy.stageProgressPct ?? 45));
       if (data.policy.isScheduledPending && data.policy.scheduledPriceUsd) {
         setTimingMode('SCHEDULED');
         setScheduledPrice(String(data.policy.scheduledPriceUsd));
@@ -184,6 +200,10 @@ export default function AdminTokenTab({
         lockinDays: parseInt(editLockDays, 10) || 180,
         redemptionEnabled: editRedemption,
         unlockAllNow: editUnlockAll,
+        feePercent: parseFloat(editFeePercent) || 0.5,
+        stageName: editStageName.trim(),
+        stageTargetPriceUsd: parseFloat(editStageTargetPrice) || 0.25,
+        stageProgressPct: parseFloat(editStageProgressPct) || 0,
       };
 
       if (mode === 'SCHEDULED') {
@@ -380,7 +400,7 @@ export default function AdminTokenTab({
           )}
 
           {/* Form Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
             
             {/* COLUMN 1: TOKEN PRICE CONTROLS (INCREASE / DECREASE) */}
             <div className="p-4 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3.5">
@@ -634,6 +654,115 @@ export default function AdminTokenTab({
               </div>
             </div>
 
+            {/* COLUMN 4: COMMISSION, STAGE & PROGRESS INDICATOR */}
+            <div className="p-4 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black text-purple-300 uppercase font-mono flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5 text-purple-400" />
+                  <span>4. Fees &amp; Growth Stage</span>
+                </label>
+                <span className="text-[10px] text-indigo-400 font-mono font-bold">Progress Engine</span>
+              </div>
+
+              {/* Commission Fee % Input */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase font-mono flex items-center justify-between">
+                  <span>Token Transaction Fee (%)</span>
+                  <span className="text-emerald-400 font-bold">{editFeePercent}%</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="10"
+                    value={editFeePercent}
+                    onChange={(e) => setEditFeePercent(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-xs outline-none focus:border-purple-400"
+                    placeholder="0.5"
+                  />
+                  <span className="absolute right-3 top-2 text-xs text-slate-500 font-mono">%</span>
+                </div>
+                <p className="text-[10px] text-slate-400">Platform take-rate on $AVR buy, sell &amp; swap orders.</p>
+              </div>
+
+              {/* Stage Name */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                  Growth Stage Title
+                </label>
+                <input
+                  type="text"
+                  value={editStageName}
+                  onChange={(e) => setEditStageName(e.target.value)}
+                  placeholder="e.g. Stage 2: Institutional Pre-Allocation"
+                  className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs outline-none focus:border-purple-400"
+                />
+              </div>
+
+              {/* Target Price & Progress % */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                    Target Price ($)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={editStageTargetPrice}
+                    onChange={(e) => setEditStageTargetPrice(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-xs outline-none focus:border-purple-400"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                    Progress (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="100"
+                    value={editStageProgressPct}
+                    onChange={(e) => setEditStageProgressPct(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-xs outline-none focus:border-purple-400"
+                  />
+                </div>
+              </div>
+
+              {/* Visual Progress Bar Indicator */}
+              <div className="p-3 rounded-xl bg-slate-950 border border-purple-500/30 space-y-2">
+                <div className="flex items-center justify-between text-[10px] font-mono">
+                  <span className="text-slate-400">Current: ${parseFloat(editPriceUsd || '0.1').toFixed(2)}</span>
+                  <span className="font-bold text-emerald-400">{editStageProgressPct}% Complete</span>
+                  <span className="text-purple-300">Target: ${parseFloat(editStageTargetPrice || '0.25').toFixed(2)}</span>
+                </div>
+                <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                  <div
+                    className="bg-gradient-to-r from-purple-500 via-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, Math.max(0, parseFloat(editStageProgressPct) || 0))}%` }}
+                  />
+                </div>
+                <div className="flex items-center gap-1 pt-0.5">
+                  {[25, 50, 75, 90, 100].map((pr) => (
+                    <button
+                      key={pr}
+                      type="button"
+                      onClick={() => setEditStageProgressPct(String(pr))}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold cursor-pointer transition-colors ${
+                        parseFloat(editStageProgressPct) === pr
+                          ? 'bg-purple-500 text-white'
+                          : 'bg-slate-900 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {pr}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
           </div>
 
           {/* Action Button Footer */}
@@ -650,6 +779,10 @@ export default function AdminTokenTab({
                   setEditLockDays(String(policy.lockinDays ?? 180));
                   setEditRedemption(Boolean(policy.redemptionEnabled));
                   setEditUnlockAll(Boolean(policy.unlockAllNow));
+                  setEditFeePercent(String(policy.feePercent ?? 0.5));
+                  setEditStageName(policy.stageName ?? 'Stage 2: Institutional Pre-Allocation');
+                  setEditStageTargetPrice(String(policy.stageTargetPriceUsd ?? 0.25));
+                  setEditStageProgressPct(String(policy.stageProgressPct ?? 45));
                   setTimingMode('IMMEDIATE');
                 }}
                 className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"

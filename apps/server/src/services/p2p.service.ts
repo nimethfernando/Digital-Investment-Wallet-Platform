@@ -4798,6 +4798,100 @@ export class P2PService {
       transactionCode: txCode,
     };
   }
+
+  /**
+   * Admin: Assign or Activate P2P Merchant Desk directly by User Email
+   */
+  async adminAssignMerchant(
+    adminUserId: string,
+    payload: {
+      email: string;
+      displayName?: string;
+      corridorCountry?: string;
+      fiatCurrency?: string;
+      waiveDeposit?: boolean;
+      note?: string;
+    }
+  ) {
+    await this.ensureP2PReady();
+    if (!payload.email || !payload.email.trim()) {
+      throw new Error('User email is required.');
+    }
+    const cleanEmail = payload.email.trim().toLowerCase();
+    const user = await prisma.user.findFirst({
+      where: { email: cleanEmail },
+    });
+    if (!user) {
+      throw new Error(`No registered user found with email "${payload.email}". Please verify the email address.`);
+    }
+
+    const waiveDeposit = Boolean(payload.waiveDeposit);
+    const depositAmt = waiveDeposit ? new Decimal(0) : new Decimal('50.00');
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isP2pMerchant: true,
+        p2pOnboardingStatus: 'APPROVED',
+        kycStatus: 'APPROVED',
+        p2pBlocked: false,
+        p2pBlockedReason: null,
+        p2pDepositLocked: depositAmt,
+        ...(payload.displayName && payload.displayName.trim() ? { displayName: payload.displayName.trim() } : {}),
+        ...(payload.corridorCountry && payload.corridorCountry.trim() ? { country: payload.corridorCountry.trim() } : {}),
+      },
+    });
+
+    // Notify user of active P2P merchant status
+    await prisma.userNotification
+      .create({
+        data: {
+          userId: user.id,
+          title: 'P2P Merchant Desk Activated',
+          message: `Your Avora P2P Merchant account has been officially activated by Admin Compliance${
+            waiveDeposit ? ' (Deposit waived)' : ' ($50 security deposit recorded)'
+          }. You can now create custom Buy/Sell ads and manage escrow trades.`,
+          type: 'P2P_ONBOARDING_APPROVED',
+          actionUrl: '/p2p?tab=member',
+        },
+      })
+      .catch(() => {});
+
+    // Audit log
+    await prisma.adminAuditLog
+      .create({
+        data: {
+          userId: adminUserId,
+          action: 'ADMIN_ASSIGN_P2P_MERCHANT',
+          entity: 'USER',
+          entityId: user.id,
+          details: JSON.stringify({
+            email: user.email,
+            userId: user.id,
+            waiveDeposit,
+            corridorCountry: payload.corridorCountry,
+            fiatCurrency: payload.fiatCurrency,
+            displayName: payload.displayName,
+            note: payload.note,
+          }),
+        },
+      })
+      .catch(() => {});
+
+    return {
+      success: true,
+      message: `P2P Merchant Desk successfully activated for ${user.email}.`,
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        displayName: updatedUser.displayName,
+        country: updatedUser.country,
+        isP2pMerchant: updatedUser.isP2pMerchant,
+        p2pOnboardingStatus: updatedUser.p2pOnboardingStatus,
+        p2pDepositLocked: Number(updatedUser.p2pDepositLocked || 0),
+      },
+    };
+  }
 }
 
 export const p2pService = new P2PService();

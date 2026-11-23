@@ -85,6 +85,7 @@ router.get('/dealflow/applications', (req, res, next) => ventureMatchmaking_cont
 router.patch('/dealflow/applications/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminUpdateApplicationStatus(req, res, next));
 router.patch('/dealflow/opportunities/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminUpdateOpportunityStatus(req, res, next));
 // P2P Escrow, Corridors, Onboarding Applications & Dispute Resolution
+router.post('/p2p/assign-merchant', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.assignP2PMerchant(req, res, next));
 router.get('/p2p/corridors', (req, res, next) => admin_controller_1.adminController.getP2PCorridors(req, res, next));
 router.post('/p2p/corridors', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateP2PCorridors(req, res, next));
 router.get('/p2p/applications', (req, res, next) => admin_controller_1.adminController.getP2PApplications(req, res, next));
@@ -95,6 +96,7 @@ router.post('/p2p/orders/:id/cancel', (0, auth_1.requireRole)([client_1.Role.ADM
 router.post('/p2p/orders/:id/freeze', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.freezeP2POrder(req, res, next));
 router.post('/p2p/orders/:id/resolve', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.resolveP2PDispute(req, res, next));
 // OTC Desks & Escrow Trade Management
+router.post('/otc/desks/assign', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.assignOtcDesk(req, res, next));
 router.get('/otc/desks', (req, res, next) => admin_controller_1.adminController.getOtcDesks(req, res, next));
 router.patch('/otc/desks/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateOtcDesk(req, res, next));
 router.get('/otc/trades', (req, res, next) => admin_controller_1.adminController.getOtcTrades(req, res, next));

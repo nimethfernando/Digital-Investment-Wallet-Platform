@@ -357,7 +357,7 @@ export default function AdminOverviewTab({
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-[11px]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-[11px]">
             <button
               type="button"
               onClick={() => onNavigateTab('investments')}
@@ -409,6 +409,19 @@ export default function AdminOverviewTab({
               <div className="text-slate-400">Cards + Withdrawals →</div>
               <div className="font-mono font-black text-white">
                 ${(Number(revBreakdown?.cardIssuanceFeeTotal || 0) + Number(revBreakdown?.withdrawalFeeTotal || 0)).toFixed(2)}
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('token')}
+              className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-indigo-500/50 text-left transition-colors cursor-pointer"
+            >
+              <div className="text-slate-400">Avora Token ($AVR) →</div>
+              <div className="font-mono font-black text-indigo-300">
+                ${Number(sec?.token?.totalPaidUsd || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+              </div>
+              <div className="text-[10px] font-mono text-indigo-400 mt-0.5">
+                {sec?.token?.paidHoldersCount ?? 0} buyers • Dedicated Suite
               </div>
             </button>
           </div>
@@ -652,6 +665,151 @@ export default function AdminOverviewTab({
               <ArrowRight className="w-3.5 h-3.5" />
             </div>
           </button>
+        </div>
+      </div>
+
+      {/* OTC & P2P Live Activity & Institutional Liquidity Reserves Hub */}
+      <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-5 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-teal-400 text-[11px] font-black uppercase tracking-wider font-mono">
+              <ShieldAlert className="w-4 h-4 text-teal-400" />
+              <span>OTC Transactions &amp; Liquidity Reserve Monitoring</span>
+            </div>
+            <h3 className="text-base font-black text-white">
+              Institutional Delivery Obligations &amp; Crypto Settlement Reserves
+            </h3>
+            <p className="text-xs text-slate-400">
+              Live tracking of OTC asset purchases (BTC, ETH, USDT), execution prices, client settlement status, and required platform liquidity reserves.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigateTab('otc')}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 text-xs font-bold border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>OTC Desk Portal</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('liquidity')}
+              className="px-3 py-1.5 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 text-xs font-bold border border-teal-500/40 flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>Liquidity Risk Tab</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Liquidity Metric Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="p-3.5 rounded-2xl bg-slate-950 border border-teal-500/30 space-y-1">
+            <span className="text-[10px] text-teal-400 font-mono font-bold uppercase">Total Reserve Obligation</span>
+            <div className="text-lg font-black text-white font-mono">
+              ${formatMoney(commandCenter?.liquidityMonitoring?.totalReserveObligationUsd || 0)} <span className="text-xs text-slate-400">USD</span>
+            </div>
+            <p className="text-[10px] text-slate-500">Institutional fulfillment requirement</p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+            <span className="text-[10px] text-amber-400 font-mono font-bold uppercase">BTC Reserve Required</span>
+            <div className="text-lg font-black text-amber-300 font-mono">
+              {commandCenter?.liquidityMonitoring?.breakdown?.find((b: any) => b.asset === 'BTC')?.pendingQuantity || '0.000000'} <span className="text-xs text-slate-400">BTC</span>
+            </div>
+            <p className="text-[10px] text-slate-500">
+              ≈ ${formatMoney(commandCenter?.liquidityMonitoring?.breakdown?.find((b: any) => b.asset === 'BTC')?.reserveUsdEquivalent || 0)} USD eq.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+            <span className="text-[10px] text-indigo-400 font-mono font-bold uppercase">ETH Reserve Required</span>
+            <div className="text-lg font-black text-indigo-300 font-mono">
+              {commandCenter?.liquidityMonitoring?.breakdown?.find((b: any) => b.asset === 'ETH')?.pendingQuantity || '0.000000'} <span className="text-xs text-slate-400">ETH</span>
+            </div>
+            <p className="text-[10px] text-slate-500">
+              ≈ ${formatMoney(commandCenter?.liquidityMonitoring?.breakdown?.find((b: any) => b.asset === 'ETH')?.reserveUsdEquivalent || 0)} USD eq.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+            <span className="text-[10px] text-emerald-400 font-mono font-bold uppercase">USDT / Stable Reserves</span>
+            <div className="text-lg font-black text-emerald-400 font-mono">
+              {formatMoney(commandCenter?.liquidityMonitoring?.breakdown?.find((b: any) => b.asset === 'USDT')?.pendingQuantity || 0)} <span className="text-xs text-slate-400">USDT</span>
+            </div>
+            <p className="text-[10px] text-slate-500">Active OTC escrows &amp; settlements</p>
+          </div>
+        </div>
+
+        {/* Live List of Recent OTC Purchases & Swaps */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-400 border-b border-slate-800 pb-2">
+            <span>Recent OTC Purchases &amp; Settlement Requests</span>
+            <span className="text-[10px] font-mono text-teal-400">Real-Time Alert Feed</span>
+          </div>
+
+          {(!commandCenter?.liquidityMonitoring?.recentOtcPurchases || commandCenter.liquidityMonitoring.recentOtcPurchases.length === 0) ? (
+            <div className="p-4 rounded-xl bg-slate-950 text-xs text-slate-500 text-center">
+              No recent OTC purchases or active reserve obligations recorded.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {commandCenter.liquidityMonitoring.recentOtcPurchases.map((trade: any) => (
+                <div
+                  key={trade.id}
+                  className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800/80 hover:border-teal-500/40 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono font-black text-teal-400">{trade.orderId || trade.code}</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                        trade.status === 'COMPLETED'
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : trade.status === 'DISPUTED'
+                          ? 'bg-rose-500/20 text-rose-300'
+                          : 'bg-amber-500/20 text-amber-300'
+                      }`}>
+                        {trade.status}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {trade.exactDateTime ? new Date(trade.exactDateTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : trade.ageLabel}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-white">{trade.customerName || trade.userName}</span>
+                      <span className="text-slate-400 font-mono text-[11px]">({trade.customerEmail || trade.userEmail})</span>
+                      <span className="text-slate-500">•</span>
+                      <span className="text-slate-300 font-mono">
+                        Asset: <strong className="text-white">{trade.quantity || trade.amount} {trade.assetPurchased || trade.currency}</strong>
+                      </span>
+                      <span className="text-slate-500">•</span>
+                      <span className="text-slate-400">
+                        Rate: <strong className="text-white font-mono">{trade.purchasePrice || 'Live Rate'}</strong> ({trade.currencyUsed || 'USD'})
+                      </span>
+                    </div>
+
+                    {/* Liquidity Requirement Alert Badge */}
+                    <div className="p-2 rounded-xl bg-teal-950/30 border border-teal-500/30 text-[11px] text-teal-300 font-mono flex items-center gap-2 mt-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                      <span>{trade.liquidityRequirement || `Reserve Action: Platform must maintain ${trade.amount} ${trade.currency} liquidity reserve for delivery.`}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab('otc')}
+                      className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-teal-600 text-white text-xs font-bold border border-slate-700 cursor-pointer transition-colors"
+                    >
+                      View Desk →
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
