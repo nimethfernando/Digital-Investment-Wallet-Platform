@@ -31,9 +31,12 @@ import {
   Check,
   Upload,
   Send,
+  Sparkles,
 } from 'lucide-react';
 import { api, extractErrorMessage, resolveMediaUrl } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
+import CredibilityBadge from '../../../components/CredibilityBadge';
+import AdminCredibilityModal from '../../../components/admin/AdminCredibilityModal';
 
 interface P2PTabProps {
   orders: any[];
@@ -125,6 +128,7 @@ export default function AdminP2PTab({
   const [proofLoadError, setProofLoadError] = useState<boolean>(false);
   const [uploadingReplacement, setUploadingReplacement] = useState<boolean>(false);
   const [requestingReupload, setRequestingReupload] = useState<boolean>(false);
+  const [credibilityModalUser, setCredibilityModalUser] = useState<any | null>(null);
   const [reuploadPromptOpen, setReuploadPromptOpen] = useState<boolean>(false);
   const [reuploadReason, setReuploadReason] = useState<string>('');
   const replacementInputRef = React.useRef<HTMLInputElement>(null);
@@ -972,8 +976,23 @@ export default function AdminP2PTab({
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-white">{o.buyer?.firstName || o.buyer?.email}</div>
-                        <div className="text-[10px] text-slate-400">{o.buyer?.email}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-white">
+                            {o.buyer?.firstName ? `${o.buyer.firstName} ${o.buyer.lastName || ''}`.trim() : o.buyer?.displayName || o.buyer?.email}
+                          </span>
+                          <CredibilityBadge
+                            level={o.buyer?.credibilityLevel || 'BRONZE'}
+                            size="xs"
+                            onClick={() => setCredibilityModalUser(o.buyer)}
+                            showTooltip
+                          />
+                        </div>
+                        <div className="text-[10px] text-slate-400 flex items-center gap-1 flex-wrap mt-0.5">
+                          <span>{o.buyer?.email}</span>
+                          {o.buyer?.customMemberSince && (
+                            <span className="text-slate-500">• {o.buyer.customMemberSince}</span>
+                          )}
+                        </div>
                         {o.buyer?.p2pBlocked && (
                           <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 text-[9px] font-bold">
                             P2P BANNED
@@ -982,8 +1001,23 @@ export default function AdminP2PTab({
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-white">{o.seller?.firstName || o.seller?.email}</div>
-                        <div className="text-[10px] text-slate-400">{o.seller?.email}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-white">
+                            {o.seller?.firstName ? `${o.seller.firstName} ${o.seller.lastName || ''}`.trim() : o.seller?.displayName || o.seller?.email}
+                          </span>
+                          <CredibilityBadge
+                            level={o.seller?.credibilityLevel || 'BRONZE'}
+                            size="xs"
+                            onClick={() => setCredibilityModalUser(o.seller)}
+                            showTooltip
+                          />
+                        </div>
+                        <div className="text-[10px] text-slate-400 flex items-center gap-1 flex-wrap mt-0.5">
+                          <span>{o.seller?.email}</span>
+                          {o.seller?.customMemberSince && (
+                            <span className="text-slate-500">• {o.seller.customMemberSince}</span>
+                          )}
+                        </div>
                         {o.seller?.p2pBlocked && (
                           <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 text-[9px] font-bold">
                             P2P BANNED
@@ -2378,6 +2412,14 @@ export default function AdminP2PTab({
           </div>
         </div>
       )}
+
+      {/* Admin Credibility & Trust Profile Manager Modal */}
+      <AdminCredibilityModal
+        isOpen={Boolean(credibilityModalUser)}
+        onClose={() => setCredibilityModalUser(null)}
+        user={credibilityModalUser}
+        onSuccess={() => onRefresh()}
+      />
     </div>
   );
 }

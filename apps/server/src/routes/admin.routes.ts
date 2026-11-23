@@ -127,6 +127,8 @@ router.post('/users/:id/reset-password', requireRole([Role.ADMIN]), requireAdmin
 router.post('/users/:id/disable-2fa', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.disableUser2FA(req, res, next));
 router.post('/users/:id/status', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUserStatus(req, res, next));
 router.post('/users/:id/p2p-status', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUserP2PStatus(req, res, next));
+router.patch('/users/:id/credibility', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUserCredibility(req, res, next));
+router.post('/users/:id/credibility', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateUserCredibility(req, res, next));
 
 // Global Money Transfer / Remittance Corridors
 router.get('/remittance/transfers', (req, res, next) => adminController.getRemittanceTransfers(req, res, next));

@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.P2P_PROMOTION_TIERS = exports.P2P_TIMERS = exports.INSTITUTIONAL_DESK_EMAILS = void 0;
 exports.isInstitutionalDeskEmail = isInstitutionalDeskEmail;
+exports.computeHumanTenure = computeHumanTenure;
 exports.getFiatSymbol = getFiatSymbol;
 exports.safeParsePaymentMethods = safeParsePaymentMethods;
 exports.formatFiatWithCurrency = formatFiatWithCurrency;
@@ -63,6 +64,25 @@ exports.P2P_PROMOTION_TIERS = {
         description: 'Maximum top-tier visibility for 7 days, outranking all standard and lower-tier sponsored ads.',
     },
 };
+function computeHumanTenure(createdAt) {
+    if (!createdAt)
+        return 'Member since 1 year';
+    const created = new Date(createdAt);
+    const now = new Date();
+    const diffDays = Math.max(1, Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)));
+    if (diffDays >= 730) {
+        const years = Math.floor(diffDays / 365);
+        return `Member since ${years} years`;
+    }
+    if (diffDays >= 365) {
+        return 'Member since 1 year';
+    }
+    if (diffDays >= 60) {
+        const months = Math.floor(diffDays / 30);
+        return `Member since ${months} months`;
+    }
+    return 'Member since recently';
+}
 function getFiatSymbol(currency) {
     const map = {
         INR: '₹',
@@ -213,10 +233,21 @@ async function computeUserP2PStatsMap(userIds) {
         }),
         prisma_1.prisma.user.findMany({
             where: { id: { in: uniqueIds } },
-            select: { id: true, email: true, isP2pMerchant: true },
+            select: {
+                id: true,
+                email: true,
+                isP2pMerchant: true,
+                credibilityLevel: true,
+                customCompletedOrders: true,
+                customRating: true,
+                customMemberSince: true,
+                credibilityNote: true,
+                createdAt: true,
+            },
         }),
     ]);
     const userEmailMap = new Map(users.map((u) => [u.id, u.email]));
+    const userRecordMap = new Map(users.map((u) => [u.id, u]));
     for (const uid of uniqueIds) {
         let completedOrders = 0;
         let cancelledByUser = 0;
@@ -304,10 +335,20 @@ async function computeUserP2PStatsMap(userIds) {
             reputationTier = 'TRUSTED';
         }
         const completionRate = completionRatePct !== null ? `${completionRatePct.toFixed(1)}%` : 'New Trader';
+        const uRec = userRecordMap.get(uid);
+        const credibilityLevel = (uRec?.credibilityLevel || (isHouse ? 'TITANIUM' : 'BRONZE')) || 'BRONZE';
+        const finalCompletedOrders = uRec?.customCompletedOrders !== null && uRec?.customCompletedOrders !== undefined
+            ? Number(uRec.customCompletedOrders)
+            : completedOrders;
+        const finalAvgRating = uRec?.customRating !== null && uRec?.customRating !== undefined
+            ? Number(uRec.customRating)
+            : avgRating;
+        const memberSince = uRec?.customMemberSince || computeHumanTenure(uRec?.createdAt);
+        const credibilityNote = uRec?.credibilityNote || null;
         result.set(uid, {
             userId: uid,
-            totalOrders: completedOrders + totalCancelledInvolved + declinedAsSeller + expiredFault,
-            completedOrders,
+            totalOrders: Math.max(finalCompletedOrders, completedOrders + totalCancelledInvolved + declinedAsSeller + expiredFault),
+            completedOrders: finalCompletedOrders,
             cancelledOrders: cancelledByUser,
             declinedOrders: declinedAsSeller,
             expiredOrders: expiredFault,
@@ -317,11 +358,14 @@ async function computeUserP2PStatsMap(userIds) {
             completionRatePct,
             completionRate,
             cancellationRatePct,
-            avgRating,
+            avgRating: finalAvgRating,
             reviewCount,
             positiveRatePct,
             reputationScore: score,
             reputationTier,
+            credibilityLevel,
+            memberSince,
+            credibilityNote,
             hasDisputeWarning,
         });
     }

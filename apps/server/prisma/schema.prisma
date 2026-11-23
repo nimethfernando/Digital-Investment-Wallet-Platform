@@ -226,6 +226,13 @@ model User {
   p2pBlockedAt           DateTime?
   isAvailable            Boolean    @default(true)
   availabilityUpdatedAt  DateTime?
+  credibilityLevel       String     @default("BRONZE") @db.VarChar(20) // BRONZE | SILVER | GOLD | TITANIUM
+  customCompletedOrders  Int?
+  customRating           Decimal?   @db.Decimal(3, 2)
+  customMemberSince      String?    @db.VarChar(100)
+  credibilityNote        String?    @db.VarChar(500)
+  credibilityUpdatedAt   DateTime?
+  credibilityUpdatedBy   String?    @db.VarChar(191)
   lastLoginAt            DateTime?
   createdAt              DateTime   @default(now())
   updatedAt              DateTime   @updatedAt

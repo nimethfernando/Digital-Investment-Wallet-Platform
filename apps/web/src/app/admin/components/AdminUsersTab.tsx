@@ -26,11 +26,15 @@ import {
   UserPlus,
   Package,
   Coins,
+  Sparkles,
+  Award,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { getExplorerInfo } from '../../../lib/blockchain';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 import { PortfolioBreakdownModal } from '../../../components/PortfolioBreakdownModal';
+import CredibilityBadge from '../../../components/CredibilityBadge';
+import AdminCredibilityModal from '../../../components/admin/AdminCredibilityModal';
 
 interface UsersTabProps {
   users: any[];
@@ -63,6 +67,7 @@ export default function AdminUsersTab({
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [credibilityModalUser, setCredibilityModalUser] = useState<any | null>(null);
 
   // Per-User Swap Risk Override Editor State
   const [swapOvDisabled, setSwapOvDisabled] = useState(false);
@@ -584,7 +589,12 @@ export default function AdminUsersTab({
                     <td className="py-3.5 px-4 space-y-0.5">
                       <div className="text-slate-200">{u.email}</div>
                       <div className="text-slate-500 text-[11px]">{u.phone || 'No Phone'}</div>
-                      <div className="text-slate-500 text-[10px]">{u.country || 'Global'}</div>
+                      <div className="text-slate-500 text-[10px] flex items-center gap-1 flex-wrap">
+                        <span>{u.country || 'Global'}</span>
+                        {u.customMemberSince && (
+                          <span className="text-slate-400 font-medium">• {u.customMemberSince}</span>
+                        )}
+                      </div>
                     </td>
 
                     <td className="py-3.5 px-4 space-y-1.5">
@@ -594,6 +604,12 @@ export default function AdminUsersTab({
                         }`}>
                           {u.role}
                         </span>
+                        <CredibilityBadge
+                          level={u.credibilityLevel || 'BRONZE'}
+                          size="xs"
+                          onClick={() => setCredibilityModalUser(u)}
+                          showTooltip
+                        />
                         <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
                           u.status === 'ACTIVE'
                             ? 'bg-emerald-500/20 text-emerald-400'
@@ -826,6 +842,15 @@ export default function AdminUsersTab({
                           title={u.p2pBlocked ? 'Restore P2P Trading Access' : 'Block / Restrict User P2P Trading'}
                         >
                           {u.p2pBlocked ? <UserCheck2 className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                        </button>
+
+                        {/* Maintain Credibility & Trust Profile */}
+                        <button
+                          onClick={() => setCredibilityModalUser(u)}
+                          className="p-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer bg-slate-800 text-amber-300 hover:bg-amber-950/40 hover:text-yellow-300 border border-amber-500/20"
+                          title="Maintain P2P / OTC Credibility Profile (Bronze, Silver, Gold, Titanium)"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>
@@ -1447,6 +1472,14 @@ export default function AdminUsersTab({
           wallet={portfolioBreakdownUser.wallet}
         />
       )}
+
+      {/* Admin Credibility & Trust Profile Manager Modal */}
+      <AdminCredibilityModal
+        isOpen={Boolean(credibilityModalUser)}
+        onClose={() => setCredibilityModalUser(null)}
+        user={credibilityModalUser}
+        onSuccess={() => onRefresh()}
+      />
     </div>
   );
 }

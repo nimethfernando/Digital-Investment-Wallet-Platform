@@ -16,6 +16,7 @@ import {
   Ban,
 } from 'lucide-react';
 import { api, extractErrorMessage } from '../../lib/api';
+import CredibilityBadge from '../CredibilityBadge';
 
 interface TraderProfileModalProps {
   userId: string | null;
@@ -79,6 +80,11 @@ export function P2PTraderProfileModal({ userId, onClose }: TraderProfileModalPro
                     <ShieldCheck className="w-3 h-3" /> KYC Verified
                   </span>
                 )}
+                <CredibilityBadge
+                  level={u?.credibilityLevel || stats?.credibilityLevel || 'BRONZE'}
+                  size="xs"
+                  showTooltip
+                />
                 {u?.isP2pMerchant && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 text-[10px] font-bold">
                     <Award className="w-3 h-3" /> Bonded Merchant
@@ -92,11 +98,11 @@ export function P2PTraderProfileModal({ userId, onClose }: TraderProfileModalPro
               </div>
               {u && (
                 <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 mt-0.5">
-                  <span className="inline-flex items-center gap-1">
-                    <MapPin className="w-3 h-3" /> {u.country || 'Global'}
+                  <span className="inline-flex items-center gap-1 text-slate-300 font-medium">
+                    <Calendar className="w-3 h-3 text-amber-400" /> {u.memberSince || stats?.memberSince || `Member since ${u.accountAgeDays} days`}
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <Calendar className="w-3 h-3" /> Account age: {u.accountAgeDays} days
+                    <MapPin className="w-3 h-3" /> {u.country || 'Global'}
                   </span>
                   {stats?.reputationTier && (
                     <span
@@ -129,6 +135,15 @@ export function P2PTraderProfileModal({ userId, onClose }: TraderProfileModalPro
           <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">{error}</div>
         ) : profile ? (
           <>
+            {(u?.credibilityNote || stats?.credibilityNote) && (
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-yellow-500/10 to-slate-900 border border-amber-500/30 text-amber-200 text-xs flex items-center gap-2.5">
+                <Award className="w-4 h-4 text-amber-400 shrink-0" />
+                <div>
+                  <span className="font-bold text-amber-300">Compliance Verified Endorsement: </span>
+                  <span className="text-slate-300">{u?.credibilityNote || stats?.credibilityNote}</span>
+                </div>
+              </div>
+            )}
             {stats?.hasDisputeWarning && (
               <div className="p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />

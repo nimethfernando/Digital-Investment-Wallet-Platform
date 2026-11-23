@@ -69,6 +69,8 @@ router.post('/users/:id/reset-password', (0, auth_1.requireRole)([client_1.Role.
 router.post('/users/:id/disable-2fa', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.disableUser2FA(req, res, next));
 router.post('/users/:id/status', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateUserStatus(req, res, next));
 router.post('/users/:id/p2p-status', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateUserP2PStatus(req, res, next));
+router.patch('/users/:id/credibility', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateUserCredibility(req, res, next));
+router.post('/users/:id/credibility', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateUserCredibility(req, res, next));
 // Global Money Transfer / Remittance Corridors
 router.get('/remittance/transfers', (req, res, next) => admin_controller_1.adminController.getRemittanceTransfers(req, res, next));
 router.patch('/remittance/transfers/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.updateRemittanceTransfer(req, res, next));

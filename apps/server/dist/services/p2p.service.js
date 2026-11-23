@@ -235,6 +235,13 @@ class P2PService {
                 ['p2pBlocked', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlocked` BOOLEAN NOT NULL DEFAULT false'],
                 ['p2pBlockedReason', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlockedReason` VARCHAR(500) NULL'],
                 ['p2pBlockedAt', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlockedAt` DATETIME(3) NULL'],
+                ['credibilityLevel', "ALTER TABLE `diw_users` ADD COLUMN `credibilityLevel` VARCHAR(20) NOT NULL DEFAULT 'BRONZE'"],
+                ['customCompletedOrders', 'ALTER TABLE `diw_users` ADD COLUMN `customCompletedOrders` INT NULL'],
+                ['customRating', 'ALTER TABLE `diw_users` ADD COLUMN `customRating` DECIMAL(3, 2) NULL'],
+                ['customMemberSince', 'ALTER TABLE `diw_users` ADD COLUMN `customMemberSince` VARCHAR(100) NULL'],
+                ['credibilityNote', 'ALTER TABLE `diw_users` ADD COLUMN `credibilityNote` VARCHAR(500) NULL'],
+                ['credibilityUpdatedAt', 'ALTER TABLE `diw_users` ADD COLUMN `credibilityUpdatedAt` DATETIME(3) NULL'],
+                ['credibilityUpdatedBy', 'ALTER TABLE `diw_users` ADD COLUMN `credibilityUpdatedBy` VARCHAR(191) NULL'],
             ]);
             await this.ensureColumns('diw_p2p_offers', [
                 ['paymentDetails', 'ALTER TABLE `diw_p2p_offers` ADD COLUMN `paymentDetails` TEXT NULL'],
@@ -1196,12 +1203,15 @@ class P2PService {
                     isOnline: true,
                     isOffline: false,
                     availabilityUpdatedAt: o.user.availabilityUpdatedAt || null,
+                    credibilityLevel: isPriorityDesk ? 'TITANIUM' : (o.user.credibilityLevel || stats?.credibilityLevel || 'BRONZE'),
+                    memberSince: isPriorityDesk ? 'Member since 3 years' : (o.user.customMemberSince || stats?.memberSince || (0, p2p_helpers_1.computeHumanTenure)(o.user.createdAt)),
+                    credibilityNote: o.user.credibilityNote || stats?.credibilityNote || null,
                     completionRate: isPriorityDesk ? '100% (Instant Priority Desk)' : (stats?.completionRate ?? 'New Trader'),
                     completionRatePct: isPriorityDesk ? 100 : (stats?.completionRatePct ?? null),
                     cancellationRatePct: isPriorityDesk ? 0 : (stats?.cancellationRatePct ?? 0),
-                    totalOrders: isPriorityDesk ? 999 : (stats?.totalOrders ?? 0),
-                    completedOrders: isPriorityDesk ? 999 : (stats?.completedOrders ?? 0),
-                    avgRating: isPriorityDesk ? 5.0 : (stats?.avgRating ?? null),
+                    totalOrders: isPriorityDesk ? 999 : (o.user.customCompletedOrders !== null && o.user.customCompletedOrders !== undefined ? Number(o.user.customCompletedOrders) : (stats?.totalOrders ?? 0)),
+                    completedOrders: isPriorityDesk ? 999 : (o.user.customCompletedOrders !== null && o.user.customCompletedOrders !== undefined ? Number(o.user.customCompletedOrders) : (stats?.completedOrders ?? 0)),
+                    avgRating: isPriorityDesk ? 5.0 : (o.user.customRating ? Number(o.user.customRating) : (stats?.avgRating ?? null)),
                     reviewCount: isPriorityDesk ? 250 : (stats?.reviewCount ?? 0),
                     reputationScore: isPriorityDesk ? 100 : (stats?.reputationScore ?? 95),
                     reputationTier: isPriorityDesk ? 'ELITE' : (stats?.reputationTier ?? 'STANDARD'),
@@ -1286,6 +1296,11 @@ class P2PService {
                 country: true,
                 isAvailable: true,
                 availabilityUpdatedAt: true,
+                credibilityLevel: true,
+                customCompletedOrders: true,
+                customRating: true,
+                customMemberSince: true,
+                credibilityNote: true,
                 createdAt: true,
             },
         });
@@ -1309,6 +1324,9 @@ class P2PService {
         ]);
         const stats = statsMap.get(targetUserId);
         const accountAgeDays = Math.max(1, Math.floor((Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24)));
+        const userCredibilityTier = (user.credibilityLevel || stats?.credibilityLevel || 'BRONZE');
+        const userMemberSince = user.customMemberSince || stats?.memberSince || (0, p2p_helpers_1.computeHumanTenure)(user.createdAt);
+        const userCredNote = user.credibilityNote || stats?.credibilityNote || null;
         return {
             user: {
                 id: user.id,
@@ -1319,6 +1337,9 @@ class P2PService {
                 isVerified: user.kycStatus === 'APPROVED',
                 isP2pMerchant: Boolean(user.isP2pMerchant),
                 isInstitutional: (0, p2p_helpers_1.isInstitutionalDeskEmail)(user.email),
+                credibilityLevel: userCredibilityTier,
+                memberSince: userMemberSince,
+                credibilityNote: userCredNote,
                 isOnline: user.isAvailable !== false,
                 isOffline: user.isAvailable === false,
                 availabilityUpdatedAt: user.availabilityUpdatedAt || null,
@@ -1330,8 +1351,8 @@ class P2PService {
             },
             stats: stats || {
                 userId: targetUserId,
-                totalOrders: 0,
-                completedOrders: 0,
+                totalOrders: user.customCompletedOrders ?? 0,
+                completedOrders: user.customCompletedOrders ?? 0,
                 cancelledOrders: 0,
                 declinedOrders: 0,
                 expiredOrders: 0,
@@ -1341,11 +1362,14 @@ class P2PService {
                 completionRatePct: null,
                 completionRate: 'New Trader',
                 cancellationRatePct: 0,
-                avgRating: null,
+                avgRating: user.customRating ? Number(user.customRating) : null,
                 reviewCount: 0,
                 positiveRatePct: null,
                 reputationScore: 95,
                 reputationTier: 'STANDARD',
+                credibilityLevel: userCredibilityTier,
+                memberSince: userMemberSince,
+                credibilityNote: userCredNote,
                 hasDisputeWarning: false,
             },
             reviews: reviews.map((r) => ({

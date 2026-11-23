@@ -16,6 +16,7 @@ import {
   formatCryptoAmount,
   createP2PNotification,
   computeUserP2PStatsMap,
+  computeHumanTenure,
   unlockEscrowToSellerTx,
   releaseEscrowToBuyerTx,
   UserP2PStats,
@@ -292,6 +293,13 @@ export class P2PService {
         ['p2pBlocked', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlocked` BOOLEAN NOT NULL DEFAULT false'],
         ['p2pBlockedReason', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlockedReason` VARCHAR(500) NULL'],
         ['p2pBlockedAt', 'ALTER TABLE `diw_users` ADD COLUMN `p2pBlockedAt` DATETIME(3) NULL'],
+        ['credibilityLevel', "ALTER TABLE `diw_users` ADD COLUMN `credibilityLevel` VARCHAR(20) NOT NULL DEFAULT 'BRONZE'"],
+        ['customCompletedOrders', 'ALTER TABLE `diw_users` ADD COLUMN `customCompletedOrders` INT NULL'],
+        ['customRating', 'ALTER TABLE `diw_users` ADD COLUMN `customRating` DECIMAL(3, 2) NULL'],
+        ['customMemberSince', 'ALTER TABLE `diw_users` ADD COLUMN `customMemberSince` VARCHAR(100) NULL'],
+        ['credibilityNote', 'ALTER TABLE `diw_users` ADD COLUMN `credibilityNote` VARCHAR(500) NULL'],
+        ['credibilityUpdatedAt', 'ALTER TABLE `diw_users` ADD COLUMN `credibilityUpdatedAt` DATETIME(3) NULL'],
+        ['credibilityUpdatedBy', 'ALTER TABLE `diw_users` ADD COLUMN `credibilityUpdatedBy` VARCHAR(191) NULL'],
       ]);
 
       await this.ensureColumns('diw_p2p_offers', [
@@ -1373,12 +1381,15 @@ export class P2PService {
           isOnline: true,
           isOffline: false,
           availabilityUpdatedAt: o.user.availabilityUpdatedAt || null,
+          credibilityLevel: isPriorityDesk ? 'TITANIUM' : ((o.user as any).credibilityLevel || stats?.credibilityLevel || 'BRONZE'),
+          memberSince: isPriorityDesk ? 'Member since 3 years' : ((o.user as any).customMemberSince || stats?.memberSince || computeHumanTenure(o.user.createdAt)),
+          credibilityNote: (o.user as any).credibilityNote || stats?.credibilityNote || null,
           completionRate: isPriorityDesk ? '100% (Instant Priority Desk)' : (stats?.completionRate ?? 'New Trader'),
           completionRatePct: isPriorityDesk ? 100 : (stats?.completionRatePct ?? null),
           cancellationRatePct: isPriorityDesk ? 0 : (stats?.cancellationRatePct ?? 0),
-          totalOrders: isPriorityDesk ? 999 : (stats?.totalOrders ?? 0),
-          completedOrders: isPriorityDesk ? 999 : (stats?.completedOrders ?? 0),
-          avgRating: isPriorityDesk ? 5.0 : (stats?.avgRating ?? null),
+          totalOrders: isPriorityDesk ? 999 : ((o.user as any).customCompletedOrders !== null && (o.user as any).customCompletedOrders !== undefined ? Number((o.user as any).customCompletedOrders) : (stats?.totalOrders ?? 0)),
+          completedOrders: isPriorityDesk ? 999 : ((o.user as any).customCompletedOrders !== null && (o.user as any).customCompletedOrders !== undefined ? Number((o.user as any).customCompletedOrders) : (stats?.completedOrders ?? 0)),
+          avgRating: isPriorityDesk ? 5.0 : ((o.user as any).customRating ? Number((o.user as any).customRating) : (stats?.avgRating ?? null)),
           reviewCount: isPriorityDesk ? 250 : (stats?.reviewCount ?? 0),
           reputationScore: isPriorityDesk ? 100 : (stats?.reputationScore ?? 95),
           reputationTier: isPriorityDesk ? 'ELITE' : (stats?.reputationTier ?? 'STANDARD'),
@@ -1467,6 +1478,11 @@ export class P2PService {
         country: true,
         isAvailable: true,
         availabilityUpdatedAt: true,
+        credibilityLevel: true,
+        customCompletedOrders: true,
+        customRating: true,
+        customMemberSince: true,
+        credibilityNote: true,
         createdAt: true,
       },
     });
@@ -1495,6 +1511,10 @@ export class P2PService {
       Math.floor((Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24))
     );
 
+    const userCredibilityTier = ((user as any).credibilityLevel || stats?.credibilityLevel || 'BRONZE') as UserP2PStats['credibilityLevel'];
+    const userMemberSince = (user as any).customMemberSince || stats?.memberSince || computeHumanTenure(user.createdAt);
+    const userCredNote = (user as any).credibilityNote || stats?.credibilityNote || null;
+
     return {
       user: {
         id: user.id,
@@ -1505,6 +1525,9 @@ export class P2PService {
         isVerified: user.kycStatus === 'APPROVED',
         isP2pMerchant: Boolean(user.isP2pMerchant),
         isInstitutional: isInstitutionalDeskEmail(user.email),
+        credibilityLevel: userCredibilityTier,
+        memberSince: userMemberSince,
+        credibilityNote: userCredNote,
         isOnline: user.isAvailable !== false,
         isOffline: user.isAvailable === false,
         availabilityUpdatedAt: user.availabilityUpdatedAt || null,
@@ -1516,8 +1539,8 @@ export class P2PService {
       },
       stats: stats || {
         userId: targetUserId,
-        totalOrders: 0,
-        completedOrders: 0,
+        totalOrders: (user as any).customCompletedOrders ?? 0,
+        completedOrders: (user as any).customCompletedOrders ?? 0,
         cancelledOrders: 0,
         declinedOrders: 0,
         expiredOrders: 0,
@@ -1527,11 +1550,14 @@ export class P2PService {
         completionRatePct: null,
         completionRate: 'New Trader',
         cancellationRatePct: 0,
-        avgRating: null,
+        avgRating: (user as any).customRating ? Number((user as any).customRating) : null,
         reviewCount: 0,
         positiveRatePct: null,
         reputationScore: 95,
         reputationTier: 'STANDARD',
+        credibilityLevel: userCredibilityTier,
+        memberSince: userMemberSince,
+        credibilityNote: userCredNote,
         hasDisputeWarning: false,
       },
       reviews: reviews.map((r) => ({

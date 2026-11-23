@@ -21,9 +21,13 @@ import {
   AlertTriangle,
   Globe,
   Plus,
+  Sparkles,
+  Award,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
+import CredibilityBadge from '../../../components/CredibilityBadge';
+import AdminCredibilityModal from '../../../components/admin/AdminCredibilityModal';
 
 interface AdminOtcTabProps {
   desks: any[];
@@ -59,6 +63,7 @@ export default function AdminOtcTab({
     platformFeePct: 0.5,
     totalFeePct: 2.0,
   });
+  const [credibilityModalUser, setCredibilityModalUser] = useState<any | null>(null);
 
   React.useEffect(() => {
     api
@@ -616,14 +621,35 @@ export default function AdminOtcTab({
                   {desksPagination.pagedItems.map((d) => (
                     <tr key={d.id} className="hover:bg-slate-800/40 transition-colors align-top">
                       <td className="py-3.5 px-4 space-y-1">
-                        <div className="font-mono font-bold text-emerald-400 text-xs">
-                          {d.deskCode}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono font-bold text-emerald-400 text-xs">
+                            {d.deskCode}
+                          </span>
+                          <CredibilityBadge
+                            level={d.credibilityLevel || 'BRONZE'}
+                            size="xs"
+                            onClick={() =>
+                              setCredibilityModalUser({
+                                id: d.userId,
+                                email: d.operatorEmail || 'otc@avorabank.com',
+                                firstName: d.operatorName,
+                                displayName: d.operatorDisplayName,
+                                credibilityLevel: d.credibilityLevel,
+                                customCompletedOrders: d.completedTrades,
+                                customRating: d.rating,
+                                customMemberSince: d.memberSince,
+                                credibilityNote: d.credibilityNote,
+                              })
+                            }
+                            showTooltip
+                          />
                         </div>
                         <div className="font-bold text-white text-sm">{d.deskName}</div>
                         <div className="text-[11px] text-slate-400">
                           {d.operatorName}
                           {d.operatorDisplayName ? ` (@${d.operatorDisplayName})` : ''}
                           {d.operatorEmail ? ` • ${d.operatorEmail}` : ''}
+                          {d.memberSince ? ` • ${d.memberSince}` : ''}
                         </div>
                       </td>
 
@@ -756,6 +782,27 @@ export default function AdminOtcTab({
                           >
                             <Edit3 className="w-3 h-3" />
                             <span>Edit / Manage</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCredibilityModalUser({
+                                id: d.userId,
+                                email: d.operatorEmail || 'otc@avorabank.com',
+                                firstName: d.operatorName,
+                                displayName: d.operatorDisplayName,
+                                credibilityLevel: d.credibilityLevel,
+                                customCompletedOrders: d.completedTrades,
+                                customRating: d.rating,
+                                customMemberSince: d.memberSince,
+                                credibilityNote: d.credibilityNote,
+                              })
+                            }
+                            className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-[11px] font-bold border border-amber-500/30 cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <Sparkles className="w-3 h-3 text-amber-400" />
+                            <span>Credibility</span>
                           </button>
 
                           {d.status === 'UNDER_REVIEW' && (
@@ -1553,6 +1600,14 @@ export default function AdminOtcTab({
           </div>
         </div>
       )}
+
+      {/* Admin Credibility & Trust Profile Manager Modal */}
+      <AdminCredibilityModal
+        isOpen={Boolean(credibilityModalUser)}
+        onClose={() => setCredibilityModalUser(null)}
+        user={credibilityModalUser}
+        onSuccess={() => onRefresh()}
+      />
     </div>
   );
 }

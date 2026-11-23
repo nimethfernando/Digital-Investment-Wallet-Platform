@@ -81,8 +81,30 @@ export interface UserP2PStats {
   reviewCount: number;
   positiveRatePct: number | null;
   reputationScore: number;
-  reputationTier: 'INSTITUTIONAL' | 'TRUSTED' | 'STANDARD' | 'CAUTION';
+  reputationTier: 'INSTITUTIONAL' | 'TRUSTED' | 'STANDARD' | 'CAUTION' | 'ELITE';
+  credibilityLevel: 'BRONZE' | 'SILVER' | 'GOLD' | 'TITANIUM';
+  memberSince: string;
+  credibilityNote?: string | null;
   hasDisputeWarning: boolean;
+}
+
+export function computeHumanTenure(createdAt?: Date | string | null): string {
+  if (!createdAt) return 'Member since 1 year';
+  const created = new Date(createdAt);
+  const now = new Date();
+  const diffDays = Math.max(1, Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)));
+  if (diffDays >= 730) {
+    const years = Math.floor(diffDays / 365);
+    return `Member since ${years} years`;
+  }
+  if (diffDays >= 365) {
+    return 'Member since 1 year';
+  }
+  if (diffDays >= 60) {
+    const months = Math.floor(diffDays / 30);
+    return `Member since ${months} months`;
+  }
+  return 'Member since recently';
 }
 
 export function getFiatSymbol(currency: string): string {
@@ -249,11 +271,22 @@ export async function computeUserP2PStatsMap(userIds: string[]): Promise<Map<str
     }),
     prisma.user.findMany({
       where: { id: { in: uniqueIds } },
-      select: { id: true, email: true, isP2pMerchant: true },
+      select: {
+        id: true,
+        email: true,
+        isP2pMerchant: true,
+        credibilityLevel: true,
+        customCompletedOrders: true,
+        customRating: true,
+        customMemberSince: true,
+        credibilityNote: true,
+        createdAt: true,
+      },
     }),
   ]);
 
   const userEmailMap = new Map(users.map((u) => [u.id, u.email]));
+  const userRecordMap = new Map(users.map((u) => [u.id, u]));
 
   for (const uid of uniqueIds) {
     let completedOrders = 0;
@@ -351,10 +384,21 @@ export async function computeUserP2PStatsMap(userIds: string[]): Promise<Map<str
     const completionRate =
       completionRatePct !== null ? `${completionRatePct.toFixed(1)}%` : 'New Trader';
 
+    const uRec = userRecordMap.get(uid);
+    const credibilityLevel = (((uRec as any)?.credibilityLevel || (isHouse ? 'TITANIUM' : 'BRONZE')) as UserP2PStats['credibilityLevel']) || 'BRONZE';
+    const finalCompletedOrders = (uRec as any)?.customCompletedOrders !== null && (uRec as any)?.customCompletedOrders !== undefined
+      ? Number((uRec as any).customCompletedOrders)
+      : completedOrders;
+    const finalAvgRating = (uRec as any)?.customRating !== null && (uRec as any)?.customRating !== undefined
+      ? Number((uRec as any).customRating)
+      : avgRating;
+    const memberSince = (uRec as any)?.customMemberSince || computeHumanTenure((uRec as any)?.createdAt);
+    const credibilityNote = (uRec as any)?.credibilityNote || null;
+
     result.set(uid, {
       userId: uid,
-      totalOrders: completedOrders + totalCancelledInvolved + declinedAsSeller + expiredFault,
-      completedOrders,
+      totalOrders: Math.max(finalCompletedOrders, completedOrders + totalCancelledInvolved + declinedAsSeller + expiredFault),
+      completedOrders: finalCompletedOrders,
       cancelledOrders: cancelledByUser,
       declinedOrders: declinedAsSeller,
       expiredOrders: expiredFault,
@@ -364,11 +408,14 @@ export async function computeUserP2PStatsMap(userIds: string[]): Promise<Map<str
       completionRatePct,
       completionRate,
       cancellationRatePct,
-      avgRating,
+      avgRating: finalAvgRating,
       reviewCount,
       positiveRatePct,
       reputationScore: score,
       reputationTier,
+      credibilityLevel,
+      memberSince,
+      credibilityNote,
       hasDisputeWarning,
     });
   }

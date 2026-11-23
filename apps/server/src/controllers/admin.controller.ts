@@ -2101,6 +2101,13 @@ export class AdminController {
           p2pBlocked: Boolean(u.p2pBlocked),
           p2pBlockedReason: u.p2pBlockedReason || null,
           p2pBlockedAt: u.p2pBlockedAt || null,
+          credibilityLevel: (u as any).credibilityLevel || 'BRONZE',
+          customCompletedOrders: (u as any).customCompletedOrders ?? null,
+          customRating: (u as any).customRating ? (u as any).customRating.toString() : null,
+          customMemberSince: (u as any).customMemberSince || null,
+          credibilityNote: (u as any).credibilityNote || null,
+          credibilityUpdatedAt: (u as any).credibilityUpdatedAt || null,
+          credibilityUpdatedBy: (u as any).credibilityUpdatedBy || null,
           balances: {
             USD: parseFloat(usdBal).toFixed(2),
             USDT: parseFloat(usdtBal).toFixed(2),
@@ -3230,6 +3237,189 @@ export class AdminController {
   }
 
   /**
+   * Admin: Maintain & update a user's P2P/OTC Credibility Profile
+   * (Credibility Level: Bronze/Silver/Gold/Titanium, custom completed orders, rating, tenure/member since, admin note)
+   * All changes are audited in AdminAuditLog for transparency.
+   */
+  async updateUserCredibility(req: Request, res: Response, next: NextFunction) {
+    try {
+      await p2pService.ensureP2PReady();
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const adminEmail = (req as any).user?.email ? String((req as any).user.email) : 'admin@avorabank.com';
+      const id = String(req.params.id);
+      const {
+        credibilityLevel,
+        customCompletedOrders,
+        customRating,
+        customMemberSince,
+        credibilityNote,
+        reason,
+      } = req.body || {};
+
+      const existingUser = await prisma.user.findUnique({
+        where: { id },
+      });
+      if (!existingUser) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+
+      const validTiers = ['BRONZE', 'SILVER', 'GOLD', 'TITANIUM'];
+      let tierToSet = existingUser.credibilityLevel || 'BRONZE';
+      if (credibilityLevel && typeof credibilityLevel === 'string') {
+        const cleanTier = credibilityLevel.toUpperCase().trim();
+        if (!validTiers.includes(cleanTier)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid credibility level. Must be one of: ${validTiers.join(', ')}`,
+          });
+        }
+        tierToSet = cleanTier;
+      }
+
+      let parsedRating: Decimal | null = existingUser.customRating;
+      if (customRating !== undefined) {
+        if (customRating === null || customRating === '' || customRating === 'null') {
+          parsedRating = null;
+        } else {
+          const rNum = parseFloat(String(customRating));
+          if (isNaN(rNum) || rNum < 1 || rNum > 5) {
+            return res.status(400).json({
+              success: false,
+              message: 'Rating must be between 1.00 and 5.00',
+            });
+          }
+          parsedRating = new Decimal(rNum.toFixed(2));
+        }
+      }
+
+      let parsedOrders: number | null = existingUser.customCompletedOrders;
+      if (customCompletedOrders !== undefined) {
+        if (customCompletedOrders === null || customCompletedOrders === '' || customCompletedOrders === 'null') {
+          parsedOrders = null;
+        } else {
+          const oNum = parseInt(String(customCompletedOrders), 10);
+          if (isNaN(oNum) || oNum < 0) {
+            return res.status(400).json({
+              success: false,
+              message: 'Completed orders must be a non-negative integer',
+            });
+          }
+          parsedOrders = oNum;
+        }
+      }
+
+      let memberSinceStr: string | null = existingUser.customMemberSince;
+      if (customMemberSince !== undefined) {
+        memberSinceStr = customMemberSince && String(customMemberSince).trim()
+          ? String(customMemberSince).trim()
+          : null;
+      }
+
+      let noteStr: string | null = existingUser.credibilityNote;
+      if (credibilityNote !== undefined) {
+        noteStr = credibilityNote && String(credibilityNote).trim()
+          ? String(credibilityNote).trim()
+          : null;
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id },
+        data: {
+          credibilityLevel: tierToSet,
+          customCompletedOrders: parsedOrders,
+          customRating: parsedRating,
+          customMemberSince: memberSinceStr,
+          credibilityNote: noteStr,
+          credibilityUpdatedAt: new Date(),
+          credibilityUpdatedBy: adminEmail,
+        },
+      });
+
+      // If user operates an OTC desk, also sync desk rating and completed trades
+      try {
+        const desk = await prisma.otcDesk.findUnique({ where: { userId: id } });
+        if (desk) {
+          await prisma.otcDesk.update({
+            where: { id: desk.id },
+            data: {
+              ...(parsedRating ? { rating: parsedRating } : {}),
+              ...(parsedOrders !== null ? { completedTrades: parsedOrders } : {}),
+            },
+          });
+        }
+      } catch {}
+
+      // Mandatory Audit Log for Credibility Changes
+      const auditDetails = {
+        action: 'UPDATE_CREDIBILITY_PROFILE',
+        targetUser: {
+          id: existingUser.id,
+          email: existingUser.email,
+          name: `${existingUser.firstName || ''} ${existingUser.lastName || ''}`.trim(),
+        },
+        previous: {
+          credibilityLevel: existingUser.credibilityLevel || 'BRONZE',
+          customCompletedOrders: existingUser.customCompletedOrders,
+          customRating: existingUser.customRating ? existingUser.customRating.toString() : null,
+          customMemberSince: existingUser.customMemberSince,
+          credibilityNote: existingUser.credibilityNote,
+        },
+        updated: {
+          credibilityLevel: tierToSet,
+          customCompletedOrders: parsedOrders,
+          customRating: parsedRating ? parsedRating.toString() : null,
+          customMemberSince: memberSinceStr,
+          credibilityNote: noteStr,
+        },
+        adminEmail,
+        reason: reason ? String(reason).trim() : 'Compliance & Credibility Assessment Update',
+        timestamp: new Date().toISOString(),
+      };
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'ADMIN_CREDIBILITY_UPDATED',
+          entity: 'UserCredibility',
+          entityId: id,
+          details: JSON.stringify(auditDetails),
+          ipAddress: req.ip || null,
+        },
+      });
+
+      // Notification to user
+      await createP2PNotification({
+        userId: id,
+        category: 'ACCOUNT',
+        type: 'P2P_CREDIBILITY_UPDATED',
+        severity: 'SUCCESS',
+        title: `Credibility Profile Updated: ${tierToSet} Tier`,
+        message: `Your P2P & OTC Trust Profile has been upgraded/updated by Compliance to ${tierToSet} Level with verified marketplace reputation.`,
+      });
+
+      res.json({
+        success: true,
+        message: `Credibility profile updated for ${existingUser.email} (${tierToSet} tier).`,
+        data: {
+          user: {
+            id: updatedUser.id,
+            email: updatedUser.email,
+            credibilityLevel: updatedUser.credibilityLevel,
+            customCompletedOrders: updatedUser.customCompletedOrders,
+            customRating: updatedUser.customRating ? updatedUser.customRating.toString() : null,
+            customMemberSince: updatedUser.customMemberSince,
+            credibilityNote: updatedUser.credibilityNote,
+            credibilityUpdatedAt: updatedUser.credibilityUpdatedAt,
+            credibilityUpdatedBy: updatedUser.credibilityUpdatedBy,
+          },
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * Admin: Directly Assign or Activate P2P Merchant Desk by User Email
    */
   async assignP2PMerchant(req: Request, res: Response, next: NextFunction) {
@@ -4135,8 +4325,38 @@ export class AdminController {
         prisma.p2POrder.findMany({
           where,
           include: {
-            buyer: { select: { id: true, email: true, firstName: true, lastName: true, p2pBlocked: true } },
-            seller: { select: { id: true, email: true, firstName: true, lastName: true, p2pBlocked: true } },
+            buyer: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                p2pBlocked: true,
+                credibilityLevel: true,
+                customCompletedOrders: true,
+                customRating: true,
+                customMemberSince: true,
+                credibilityNote: true,
+                createdAt: true,
+              },
+            },
+            seller: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                p2pBlocked: true,
+                credibilityLevel: true,
+                customCompletedOrders: true,
+                customRating: true,
+                customMemberSince: true,
+                credibilityNote: true,
+                createdAt: true,
+              },
+            },
             offer: true,
             messages: { orderBy: { createdAt: 'asc' } },
             reviews: true,

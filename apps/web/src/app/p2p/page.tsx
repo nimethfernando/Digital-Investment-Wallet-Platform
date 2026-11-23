@@ -63,6 +63,7 @@ import { P2PTradeProgressAndActions } from '../../components/p2p/P2PTradeProgres
 import { P2PPaymentProofModal } from '../../components/p2p/P2PPaymentProofModal';
 import PaginationControls, { usePagination } from '../../components/PaginationControls';
 import { P2POnboardingWizard } from '../../components/p2p/P2POnboardingWizard';
+import CredibilityBadge from '../../components/CredibilityBadge';
 
 interface CountryRail {
   id: string;
@@ -3592,6 +3593,11 @@ function P2PPageContent() {
                               <span>{offer.promotionBadgeLabel || 'Sponsored'}</span>
                             </span>
                           )}
+                          <CredibilityBadge
+                            level={offer.trader?.credibilityLevel || 'BRONZE'}
+                            size="xs"
+                            showTooltip
+                          />
                           {offer.trader.hasDisputeWarning && (
                             <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-500 text-[9px] font-bold">
                               Caution
@@ -3612,6 +3618,12 @@ function P2PPageContent() {
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                          {offer.trader?.memberSince && (
+                            <>
+                              <span className="text-slate-400 font-medium">{offer.trader.memberSince}</span>
+                              <span>•</span>
+                            </>
+                          )}
                           {offer.isDeskConcierge || offer.isCuratedOffline ? (
                             <span>{offer.trader.completionRate}</span>
                           ) : (

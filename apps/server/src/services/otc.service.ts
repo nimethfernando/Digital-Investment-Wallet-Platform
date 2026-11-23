@@ -6,6 +6,7 @@ import { authService } from './auth.service';
 import { config } from '../config';
 import { notificationService } from '../adapters/notification/notification.provider';
 import { TransactionType, TransactionStatus, JournalReferenceType } from '@prisma/client';
+import { computeHumanTenure } from './p2p.helpers';
 
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 
@@ -274,6 +275,17 @@ export class OtcService {
   }
 
   private formatDesk(d: any, includeOperatorContact = false) {
+    const isHouse = Boolean(d.user?.email?.toLowerCase?.().endsWith('@avorabank.com'));
+    const userCredibility = (d.user as any)?.credibilityLevel || (isHouse ? 'TITANIUM' : 'BRONZE');
+    const userMemberSince = (d.user as any)?.customMemberSince || computeHumanTenure((d.user as any)?.createdAt || d.createdAt);
+    const userCredibilityNote = (d.user as any)?.credibilityNote || null;
+    const finalRating = (d.user as any)?.customRating !== null && (d.user as any)?.customRating !== undefined
+      ? Number((d.user as any).customRating)
+      : new Decimal(d.rating.toString()).toNumber();
+    const finalCompletedTrades = (d.user as any)?.customCompletedOrders !== null && (d.user as any)?.customCompletedOrders !== undefined
+      ? Number((d.user as any).customCompletedOrders)
+      : d.completedTrades;
+
     const completionRate =
       d.totalTrades > 0
         ? ((d.completedTrades / d.totalTrades) * 100).toFixed(1) + '%'
@@ -289,6 +301,9 @@ export class OtcService {
         `${d.user?.firstName || ''} ${d.user?.lastName || ''}`.trim() || 'Verified Operator',
       operatorDisplayName: d.user?.displayName || null,
       operatorHandle: d.user?.displayName ? `@${d.user.displayName}` : null,
+      credibilityLevel: userCredibility,
+      memberSince: userMemberSince,
+      credibilityNote: userCredibilityNote,
       ...(includeOperatorContact && d.user
         ? {
             operatorEmail: d.user.email,
@@ -315,15 +330,15 @@ export class OtcService {
       isOnline: d.status === 'ACTIVE' && Boolean(d.isOnline) && d.user?.isAvailable !== false,
       operatorIsAvailable: d.user?.isAvailable !== false,
       operatorAvailabilityUpdatedAt: d.user?.availabilityUpdatedAt || null,
-      isHouseDesk: Boolean(d.user?.email?.toLowerCase?.().endsWith('@avorabank.com')),
+      isHouseDesk: isHouse,
       buyRateMarginPct: new Decimal(d.buyRateMarginPct.toString()).toNumber(),
       sellRateMarginPct: new Decimal(d.sellRateMarginPct.toString()).toNumber(),
-      totalTrades: d.totalTrades,
-      completedTrades: d.completedTrades,
+      totalTrades: Math.max(finalCompletedTrades, d.totalTrades),
+      completedTrades: finalCompletedTrades,
       cancelledTrades: d.cancelledTrades,
       completionRate,
-      rating: new Decimal(d.rating.toString()).toNumber(),
-      tradeCount: d._count?.trades ?? d.totalTrades ?? 0,
+      rating: finalRating,
+      tradeCount: d._count?.trades ?? Math.max(finalCompletedTrades, d.totalTrades),
       quoteCount: d._count?.quotes ?? 0,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
@@ -511,6 +526,11 @@ export class OtcService {
             kycStatus: true,
             isAvailable: true,
             availabilityUpdatedAt: true,
+            credibilityLevel: true,
+            customCompletedOrders: true,
+            customRating: true,
+            customMemberSince: true,
+            credibilityNote: true,
             createdAt: true,
           },
         },
@@ -2100,6 +2120,12 @@ export class OtcService {
               kycStatus: true,
               isAvailable: true,
               availabilityUpdatedAt: true,
+              credibilityLevel: true,
+              customCompletedOrders: true,
+              customRating: true,
+              customMemberSince: true,
+              credibilityNote: true,
+              createdAt: true,
             },
           },
           _count: {

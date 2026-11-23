@@ -12,6 +12,7 @@ const auth_service_1 = require("./auth.service");
 const config_1 = require("../config");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
 const client_1 = require("@prisma/client");
+const p2p_helpers_1 = require("./p2p.helpers");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 const DEFAULT_DESK_LOCATION_FALLBACKS = {
     'desk-cmb-1': {
@@ -220,6 +221,16 @@ class OtcService {
             .filter(Boolean);
     }
     formatDesk(d, includeOperatorContact = false) {
+        const isHouse = Boolean(d.user?.email?.toLowerCase?.().endsWith('@avorabank.com'));
+        const userCredibility = d.user?.credibilityLevel || (isHouse ? 'TITANIUM' : 'BRONZE');
+        const userMemberSince = d.user?.customMemberSince || (0, p2p_helpers_1.computeHumanTenure)(d.user?.createdAt || d.createdAt);
+        const userCredibilityNote = d.user?.credibilityNote || null;
+        const finalRating = d.user?.customRating !== null && d.user?.customRating !== undefined
+            ? Number(d.user.customRating)
+            : new decimal_js_1.default(d.rating.toString()).toNumber();
+        const finalCompletedTrades = d.user?.customCompletedOrders !== null && d.user?.customCompletedOrders !== undefined
+            ? Number(d.user.customCompletedOrders)
+            : d.completedTrades;
         const completionRate = d.totalTrades > 0
             ? ((d.completedTrades / d.totalTrades) * 100).toFixed(1) + '%'
             : '100%';
@@ -232,6 +243,9 @@ class OtcService {
             operatorName: `${d.user?.firstName || ''} ${d.user?.lastName || ''}`.trim() || 'Verified Operator',
             operatorDisplayName: d.user?.displayName || null,
             operatorHandle: d.user?.displayName ? `@${d.user.displayName}` : null,
+            credibilityLevel: userCredibility,
+            memberSince: userMemberSince,
+            credibilityNote: userCredibilityNote,
             ...(includeOperatorContact && d.user
                 ? {
                     operatorEmail: d.user.email,
@@ -258,15 +272,15 @@ class OtcService {
             isOnline: d.status === 'ACTIVE' && Boolean(d.isOnline) && d.user?.isAvailable !== false,
             operatorIsAvailable: d.user?.isAvailable !== false,
             operatorAvailabilityUpdatedAt: d.user?.availabilityUpdatedAt || null,
-            isHouseDesk: Boolean(d.user?.email?.toLowerCase?.().endsWith('@avorabank.com')),
+            isHouseDesk: isHouse,
             buyRateMarginPct: new decimal_js_1.default(d.buyRateMarginPct.toString()).toNumber(),
             sellRateMarginPct: new decimal_js_1.default(d.sellRateMarginPct.toString()).toNumber(),
-            totalTrades: d.totalTrades,
-            completedTrades: d.completedTrades,
+            totalTrades: Math.max(finalCompletedTrades, d.totalTrades),
+            completedTrades: finalCompletedTrades,
             cancelledTrades: d.cancelledTrades,
             completionRate,
-            rating: new decimal_js_1.default(d.rating.toString()).toNumber(),
-            tradeCount: d._count?.trades ?? d.totalTrades ?? 0,
+            rating: finalRating,
+            tradeCount: d._count?.trades ?? Math.max(finalCompletedTrades, d.totalTrades),
             quoteCount: d._count?.quotes ?? 0,
             createdAt: d.createdAt,
             updatedAt: d.updatedAt,
@@ -445,6 +459,11 @@ class OtcService {
                         kycStatus: true,
                         isAvailable: true,
                         availabilityUpdatedAt: true,
+                        credibilityLevel: true,
+                        customCompletedOrders: true,
+                        customRating: true,
+                        customMemberSince: true,
+                        credibilityNote: true,
                         createdAt: true,
                     },
                 },
@@ -1791,6 +1810,12 @@ class OtcService {
                             kycStatus: true,
                             isAvailable: true,
                             availabilityUpdatedAt: true,
+                            credibilityLevel: true,
+                            customCompletedOrders: true,
+                            customRating: true,
+                            customMemberSince: true,
+                            credibilityNote: true,
+                            createdAt: true,
                         },
                     },
                     _count: {
