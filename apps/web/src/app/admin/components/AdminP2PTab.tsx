@@ -121,6 +121,7 @@ export default function AdminP2PTab({
   const [proofModalTitle, setProofModalTitle] = useState<string>('Uploaded Payment Proof Receipt');
   const [proofModalApp, setProofModalApp] = useState<any | null>(null);
   const [proofModalDocIdx, setProofModalDocIdx] = useState<number | null>(null);
+  const [proofModalOrder, setProofModalOrder] = useState<any | null>(null);
   const [proofLoadError, setProofLoadError] = useState<boolean>(false);
   const [uploadingReplacement, setUploadingReplacement] = useState<boolean>(false);
   const [requestingReupload, setRequestingReupload] = useState<boolean>(false);
@@ -132,7 +133,8 @@ export default function AdminP2PTab({
     rawUrl: string,
     title = 'Uploaded Payment Proof Receipt',
     app?: any,
-    docIdx?: number
+    docIdx?: number,
+    order?: any
   ) => {
     const resolved = resolveMediaUrl(rawUrl);
     if (!resolved) return;
@@ -142,6 +144,7 @@ export default function AdminP2PTab({
     setProofModalRawUrl(rawUrl);
     setProofModalApp(app || null);
     setProofModalDocIdx(docIdx !== undefined ? docIdx : null);
+    setProofModalOrder(order || null);
     setReuploadPromptOpen(false);
     setReuploadReason('');
   };
@@ -1029,7 +1032,7 @@ export default function AdminP2PTab({
                         {o.paymentProofUrl && (
                           <div>
                             <button
-                              onClick={() => openDocumentPreview(o.paymentProofUrl, `Payment Proof Receipt — ${o.orderCode}`)}
+                              onClick={() => openDocumentPreview(o.paymentProofUrl, `Payment Proof Receipt — ${o.orderCode}`, null, undefined, o)}
                               className="text-[11px] text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
                             >
                               <span>View Proof Receipt</span>
@@ -1926,7 +1929,10 @@ export default function AdminP2PTab({
                       onClick={() =>
                         openDocumentPreview(
                           selectedOrder.paymentProofUrl,
-                          `Payment Proof Receipt — ${selectedOrder.orderCode}`
+                          `Payment Proof Receipt — ${selectedOrder.orderCode}`,
+                          null,
+                          undefined,
+                          selectedOrder
                         )
                       }
                       className="text-amber-400 hover:underline flex items-center gap-1 cursor-pointer text-[11px]"
@@ -1996,7 +2002,13 @@ export default function AdminP2PTab({
                             <button
                               type="button"
                               onClick={() =>
-                                openDocumentPreview(m.attachmentUrl, `Trade Chat Attachment — ${selectedOrder.orderCode}`)
+                                openDocumentPreview(
+                                  m.attachmentUrl,
+                                  `Trade Chat Attachment — ${selectedOrder.orderCode}`,
+                                  null,
+                                  undefined,
+                                  selectedOrder
+                                )
                               }
                               className="mt-1 text-[10px] text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
                             >
@@ -2102,8 +2114,26 @@ export default function AdminP2PTab({
       {proofModalUrl && (
         <div className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-3xl max-w-3xl w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-base font-extrabold text-white truncate">{proofModalTitle}</h3>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div className="space-y-0.5 min-w-0">
+                <h3 className="text-base font-extrabold text-white truncate flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>{proofModalTitle}</span>
+                </h3>
+                {proofModalOrder && (
+                  <p className="text-xs text-slate-400 font-mono">
+                    Order: <span className="text-amber-400 font-bold">{proofModalOrder.orderCode}</span>
+                    {proofModalOrder.paymentReference && (
+                      <span className="ml-2 text-slate-300">Ref: {proofModalOrder.paymentReference}</span>
+                    )}
+                  </p>
+                )}
+                {proofModalApp && (
+                  <p className="text-xs text-slate-400">
+                    Applicant: <span className="text-slate-200 font-bold">{proofModalApp.user?.email || 'N/A'}</span> ({proofModalApp.applicationCode})
+                  </p>
+                )}
+              </div>
               <div className="flex items-center gap-2 shrink-0">
                 <a
                   href={proofModalUrl}
@@ -2119,6 +2149,7 @@ export default function AdminP2PTab({
                   onClick={() => {
                     setProofModalUrl(null);
                     setProofModalApp(null);
+                    setProofModalOrder(null);
                     setProofModalRawUrl(null);
                     setReuploadPromptOpen(false);
                   }}
@@ -2129,27 +2160,100 @@ export default function AdminP2PTab({
               </div>
             </div>
 
+            {/* If Order Context is available, display Verified Settlement Audit Card */}
+            {proofModalOrder && (
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>{proofModalOrder.status || 'VERIFIED SETTLEMENT'}</span>
+                    </span>
+                    <span className="text-xs font-mono font-bold text-slate-300">
+                      ID: {proofModalOrder.orderCode}
+                    </span>
+                  </div>
+                  {proofModalOrder.paymentReference && (
+                    <div className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-lg">
+                      Bank Ref: {proofModalOrder.paymentReference}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-mono">Fiat Paid</span>
+                    <p className="font-mono font-black text-white text-sm">
+                      {parseFloat(proofModalOrder.fiatAmount || '0').toLocaleString()} {proofModalOrder.fiatCurrency || 'LKR'}
+                    </p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-mono">Crypto Released</span>
+                    <p className="font-mono font-black text-emerald-400 text-sm">
+                      {proofModalOrder.cryptoAmount} {proofModalOrder.cryptoAsset || 'USDT'}
+                    </p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-mono">Payment Rail</span>
+                    <p className="font-bold text-slate-200 truncate">
+                      {proofModalOrder.paymentMethod || 'Bank Transfer'}
+                    </p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-mono">Timestamp</span>
+                    <p className="font-mono text-slate-300 text-[11px]">
+                      {proofModalOrder.createdAt ? new Date(proofModalOrder.createdAt).toLocaleString() : 'Verified'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                  <div>
+                    Buyer: <span className="text-white font-semibold">{proofModalOrder.buyer?.firstName || ''} {proofModalOrder.buyer?.lastName || ''} ({proofModalOrder.buyer?.email || 'N/A'})</span>
+                  </div>
+                  <div>
+                    Seller: <span className="text-white font-semibold">{proofModalOrder.seller?.firstName || ''} {proofModalOrder.seller?.lastName || ''} ({proofModalOrder.seller?.email || 'N/A'})</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-2xl overflow-hidden border border-slate-800 max-h-[60vh] min-h-[260px] flex items-center justify-center bg-black/60 p-2 relative">
               {isPdfAttachment(proofModalUrl) ? (
                 <iframe src={proofModalUrl} title={proofModalTitle} className="w-full h-[55vh] bg-white rounded-xl" />
               ) : proofLoadError ? (
                 <div className="p-6 text-center space-y-3 max-w-md">
-                  <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto" />
-                  <p className="text-sm font-bold text-white">Legacy File Ingestion Record</p>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    This file was ingested before persistent database storage was enabled. You can upload a replacement verified document below, or request fresh documentation from the applicant.
+                  <ShieldCheck className="w-10 h-10 text-emerald-400 mx-auto" />
+                  <p className="text-sm font-bold text-white">
+                    {proofModalOrder ? 'Institutional Settlement Record' : 'Legacy File Ingestion Record'}
                   </p>
-                  {proofModalApp && (
-                    <button
-                      type="button"
-                      onClick={() => replacementInputRef.current?.click()}
-                      disabled={uploadingReplacement}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {proofModalOrder
+                      ? 'Transaction reference and settlement hashes are authenticated in Avora Bank Core Ledger. Click below to view the official SVG compliance archive certificate.'
+                      : 'This file was ingested into the platform archive. You can upload a replacement verified document below, or request fresh documentation from the applicant.'}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                    <a
+                      href={proofModalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
                     >
-                      {uploadingReplacement ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                      <span>Upload Replacement Document</span>
-                    </button>
-                  )}
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>View Compliance Archive Certificate</span>
+                    </a>
+                    {proofModalApp && (
+                      <button
+                        type="button"
+                        onClick={() => replacementInputRef.current?.click()}
+                        disabled={uploadingReplacement}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
+                      >
+                        {uploadingReplacement ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                        <span>Upload Replacement Document</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <img

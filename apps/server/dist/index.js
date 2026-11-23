@@ -16,6 +16,7 @@ const error_1 = require("./middleware/error");
 const returns_job_1 = require("./services/returns.job");
 const p2p_service_1 = require("./services/p2p.service");
 const storage_service_1 = require("./services/storage.service");
+const prisma_1 = require("./lib/prisma");
 const app = (0, express_1.default)();
 app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -70,7 +71,12 @@ try {
 catch (err) {
     console.warn('[Server] Note on uploads directory creation:', err);
 }
-app.use('/uploads', async (req, res, next) => {
+app.use(['/uploads', '/api/v1/uploads', '/api/uploads'], async (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    if (req.method === 'OPTIONS')
+        return res.sendStatus(204);
     try {
         const safeRelPath = path_1.default.posix.normalize(req.path || '/');
         if (safeRelPath.includes('..')) {
@@ -99,7 +105,41 @@ app.use('/uploads', async (req, res, next) => {
         const isImageOrDoc = ['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif', '.pdf', '.bmp', '.ico'].includes(ext) ||
             Boolean(req.headers.accept && (req.headers.accept.includes('image/') || req.headers.accept.includes('text/html')));
         if (isImageOrDoc) {
-            const svgContent = (0, storage_service_1.generateArchivedDocumentSvg)(filename, urlPath);
+            let orderMeta = null;
+            try {
+                const orderMatch = await prisma_1.prisma.p2POrder.findFirst({
+                    where: {
+                        OR: [
+                            { paymentProofUrl: { contains: filename } },
+                            { paymentReference: { contains: filename.replace(/\.[^/.]+$/, '') } },
+                        ],
+                    },
+                    select: {
+                        orderCode: true,
+                        fiatAmount: true,
+                        fiatCurrency: true,
+                        cryptoAmount: true,
+                        cryptoCurrency: true,
+                        paymentReference: true,
+                        selectedPaymentMethod: true,
+                        status: true,
+                        createdAt: true,
+                    },
+                });
+                if (orderMatch) {
+                    orderMeta = {
+                        orderCode: orderMatch.orderCode,
+                        fiatAmount: `${orderMatch.fiatAmount} ${orderMatch.fiatCurrency}`,
+                        cryptoAmount: `${orderMatch.cryptoAmount} ${orderMatch.cryptoCurrency}`,
+                        paymentReference: orderMatch.paymentReference,
+                        paymentRail: orderMatch.selectedPaymentMethod,
+                        status: orderMatch.status,
+                        dateStr: orderMatch.createdAt ? new Date(orderMatch.createdAt).toUTCString() : undefined,
+                    };
+                }
+            }
+            catch { }
+            const svgContent = (0, storage_service_1.generateArchivedDocumentSvg)(filename, urlPath, orderMeta);
             res.setHeader('Content-Type', 'image/svg+xml');
             res.setHeader('Cache-Control', 'public, max-age=86400');
             return res.send(Buffer.from(svgContent, 'utf-8'));

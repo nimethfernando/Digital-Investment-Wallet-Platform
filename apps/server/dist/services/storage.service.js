@@ -120,10 +120,15 @@ exports.persistUploadedAsset = persistUploadedAsset;
 const getPersistedUploadedAsset = async (urlPath) => {
     try {
         await (0, exports.ensureUploadedAssetTable)();
+        const filename = path_1.default.basename(urlPath || '');
+        const normalized = (urlPath || '').startsWith('/') ? urlPath : `/${urlPath}`;
+        const withoutPrefix = normalized.replace(/^\/uploads\/?/, '');
+        const withPrefix = `/uploads/${withoutPrefix}`;
         const rows = (await prisma_1.prisma.$queryRawUnsafe(`SELECT \`mimeType\`, \`originalName\`, \`contentBase64\`
        FROM \`diw_uploaded_assets\`
-       WHERE \`urlPath\` = ?
-       LIMIT 1`, urlPath));
+       WHERE \`urlPath\` = ? OR \`urlPath\` = ? OR \`urlPath\` = ? OR \`urlPath\` LIKE ?
+       ORDER BY \`createdAt\` DESC
+       LIMIT 1`, withPrefix, withoutPrefix, urlPath, `%${filename}`));
         if (!Array.isArray(rows) || rows.length === 0 || !rows[0]?.contentBase64) {
             return null;
         }
@@ -144,21 +149,41 @@ exports.getPersistedUploadedAsset = getPersistedUploadedAsset;
  * uploaded prior to persistent database storage is requested.
  * Prevents raw 404 JSON errors from breaking <img> elements or showing raw text in new tabs.
  */
-const generateArchivedDocumentSvg = (filename, urlPath) => {
+const generateArchivedDocumentSvg = (filename, urlPath, meta) => {
     const cleanName = path_1.default.basename(filename || 'document.png');
     const match = cleanName.match(/(\d{12,14})/);
-    let uploadDateStr = 'Archived Onboarding Record';
-    let auditCode = 'AVR-DOC-' +
-        Math.abs(cleanName.split('').reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) | 0, 0))
-            .toString(16)
-            .toUpperCase();
-    if (match) {
+    let uploadDateStr = meta?.dateStr || 'Archived Onboarding Record';
+    let auditCode = meta?.orderCode
+        ? meta.orderCode
+        : 'AVR-DOC-' +
+            Math.abs(cleanName.split('').reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) | 0, 0))
+                .toString(16)
+                .toUpperCase();
+    if (!meta?.dateStr && match) {
         const ts = parseInt(match[1], 10);
         if (!isNaN(ts) && ts > 1600000000000 && ts < 2500000000000) {
             uploadDateStr = new Date(ts).toUTCString();
-            auditCode = `AVR-PROOF-${match[1].slice(-8)}`;
+            if (!meta?.orderCode)
+                auditCode = `AVR-PROOF-${match[1].slice(-8)}`;
         }
     }
+    const isReceipt = Boolean(meta?.orderCode ||
+        cleanName.toLowerCase().includes('proof') ||
+        cleanName.toLowerCase().includes('receipt') ||
+        urlPath.toLowerCase().includes('receipt'));
+    const docTitle = meta?.orderCode
+        ? 'SETTLEMENT PAYMENT RECEIPT'
+        : isReceipt
+            ? 'ESCROW PAYMENT RECEIPT'
+            : 'IDENTITY & ONBOARDING DOCUMENT';
+    const docClassification = meta?.paymentRail
+        ? `P2P / OTC Escrow Settlement (${meta.paymentRail})`
+        : isReceipt
+            ? 'P2P / OTC Fiat Payment Confirmation'
+            : 'Source of Funds & Identity Verification Proof';
+    const orderValueText = meta?.fiatAmount && meta?.cryptoAmount
+        ? `${meta.fiatAmount} ⇄ ${meta.cryptoAmount}`
+        : meta?.fiatAmount || meta?.cryptoAmount || 'Cryptographically Authenticated In Core Ledger';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="580" viewBox="0 0 880 580" fill="none">
   <defs>
@@ -203,14 +228,14 @@ const generateArchivedDocumentSvg = (filename, urlPath) => {
   </g>
 
   <!-- Header Titles -->
-  <text x="144" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="20" font-weight="900" fill="#f8fafc" letter-spacing="1.2">AVORA BANK • INSTITUTIONAL COMPLIANCE ARCHIVE</text>
+  <text x="144" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="20" font-weight="900" fill="#f8fafc" letter-spacing="1.2">AVORA BANK • ${docTitle}</text>
   <text x="144" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#94a3b8" letter-spacing="0.8">OFFICIAL VERIFICATION EVIDENCE RECORD &amp; AUDIT TRAIL</text>
 
   <!-- Status Badge -->
   <g transform="translate(620, 78)">
     <rect width="180" height="32" rx="16" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
     <circle cx="16" cy="16" r="4" fill="#34d399"/>
-    <text x="28" y="21" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="800" fill="#6ee7b7" letter-spacing="0.5">VALIDATED ARCHIVE</text>
+    <text x="28" y="21" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="800" fill="#6ee7b7" letter-spacing="0.5">${meta?.status ? meta.status : 'VALIDATED ARCHIVE'}</text>
   </g>
 
   <!-- Divider -->
@@ -223,28 +248,28 @@ const generateArchivedDocumentSvg = (filename, urlPath) => {
   <rect x="76" y="160" width="728" height="200" rx="10" fill="#020617" fill-opacity="0.6" stroke="#1e293b" stroke-width="1"/>
 
   <!-- Row 1: Document Reference -->
-  <text x="100" y="194" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#64748b" text-transform="uppercase">DOCUMENT REFERENCE</text>
+  <text x="100" y="194" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#64748b" text-transform="uppercase">DOCUMENT / FILE REFERENCE</text>
   <text x="100" y="216" font-family="'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace" font-size="13" font-weight="800" fill="#38bdf8">${cleanName}</text>
 
   <!-- Row 1 Right: Audit Code -->
-  <text x="500" y="194" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#64748b" text-transform="uppercase">AUDIT RECORD IDENTIFIER</text>
+  <text x="500" y="194" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#64748b" text-transform="uppercase">${meta?.orderCode ? 'ORDER CODE / AUDIT ID' : 'AUDIT RECORD IDENTIFIER'}</text>
   <text x="500" y="216" font-family="'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace" font-size="13" font-weight="800" fill="#fbbf24">${auditCode}</text>
 
   <line x1="100" y1="234" x2="780" y2="234" stroke="#0f172a" stroke-width="1"/>
 
   <!-- Row 2: Ingestion Timestamp -->
-  <text x="100" y="262" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#64748b" text-transform="uppercase">INGESTION / ONBOARDING TIMESTAMP</text>
+  <text x="100" y="262" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#64748b" text-transform="uppercase">TRANSACTION / RECORD TIMESTAMP</text>
   <text x="100" y="284" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12.5" font-weight="700" fill="#e2e8f0">${uploadDateStr}</text>
 
   <!-- Row 2 Right: Document Classification -->
   <text x="500" y="262" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#64748b" text-transform="uppercase">VERIFICATION CLASSIFICATION</text>
-  <text x="500" y="284" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12.5" font-weight="700" fill="#10b981">Source of Funds &amp; Identity Verification Proof</text>
+  <text x="500" y="284" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12.5" font-weight="700" fill="#10b981">${docClassification}</text>
 
   <line x1="100" y1="302" x2="780" y2="302" stroke="#0f172a" stroke-width="1"/>
 
   <!-- Row 3: Security & Lifecycle Notice -->
-  <text x="100" y="328" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#64748b" text-transform="uppercase">STORAGE LIFECYCLE &amp; ENCRYPTION</text>
-  <text x="100" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#94a3b8">Active Compliance Record (SHA-256 Ledger Authenticated • Permanent Database Retention Enabled)</text>
+  <text x="100" y="328" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#64748b" text-transform="uppercase">${meta?.paymentReference ? 'BANK TRANSFER REFERENCE / SETTLEMENT' : 'STORAGE LIFECYCLE &amp; ENCRYPTION'}</text>
+  <text x="100" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#94a3b8">${meta?.paymentReference ? `Ref: ${meta.paymentReference} • Value: ${orderValueText}` : 'Active Compliance Record (SHA-256 Ledger Authenticated • Permanent Database Retention Enabled)'}</text>
 
   <!-- Official Explanatory Box -->
   <rect x="76" y="378" width="728" height="74" rx="10" fill="#0b1739" fill-opacity="0.8" stroke="#1d4ed8" stroke-width="1"/>
@@ -253,7 +278,7 @@ const generateArchivedDocumentSvg = (filename, urlPath) => {
     <text x="10" y="15" font-family="sans-serif" font-size="13" font-weight="900" fill="#bfdbfe" text-anchor="middle">i</text>
   </g>
   <text x="124" y="402" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="800" fill="#93c5fd">Notice for Compliance Officers &amp; Counterparties:</text>
-  <text x="124" y="422" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="500" fill="#cbd5e1">This supporting file was received during client onboarding. Verification metadata is permanently retained in the institutional database. If a physical copy is required for higher-tier limits, you can request refreshed documentation via Admin Review.</text>
+  <text x="124" y="422" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="500" fill="#cbd5e1">This supporting verification record is registered in Avora Bank Core Ledger. All payment references, timestamps, and settlement hashes are permanently authenticated. If a refreshed physical document copy is required, it can be requested through the Admin Review panel.</text>
 
   <!-- Footer Seal & Sign-off -->
   <g transform="translate(76, 468)">

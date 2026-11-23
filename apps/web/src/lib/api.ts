@@ -1,11 +1,25 @@
 import axios from 'axios';
 
 const getBaseUrl = (): string => {
+  const isBrowser = typeof window !== 'undefined';
+  const isLocalHost = isBrowser
+    ? window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1')
+    : false;
+
+  // In non-localhost browser environments (e.g. www.avorabank.com), ignore any baked-in localhost env vars
+  if (isBrowser && !isLocalHost) {
+    if (
+      process.env.NEXT_PUBLIC_API_URL &&
+      !process.env.NEXT_PUBLIC_API_URL.includes('localhost') &&
+      !process.env.NEXT_PUBLIC_API_URL.includes('127.0.0.1')
+    ) {
+      return process.env.NEXT_PUBLIC_API_URL;
+    }
+    return 'https://digital-investment-wallet-platform.onrender.com/api/v1';
+  }
+
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
-  }
-  if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-    return 'https://digital-investment-wallet-platform.onrender.com/api/v1';
   }
   return 'http://localhost:5000/api/v1';
 };
@@ -14,14 +28,37 @@ export const getApiBaseUrl = getBaseUrl;
 
 export const resolveMediaUrl = (url?: string | null): string => {
   if (!url) return '';
-  if (/^(https?:|data:|blob:)/i.test(url)) return url;
-  if (url.startsWith('/api/v1/')) {
-    return `${getBaseUrl().replace(/\/+$/, '')}${url.slice('/api/v1'.length)}`;
+  const isBrowser = typeof window !== 'undefined';
+  const isLocalHost = isBrowser
+    ? window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1')
+    : false;
+
+  // Strip any accidental localhost:5000 origin if running on a live domain
+  let cleanUrl = url;
+  if (isBrowser && !isLocalHost) {
+    cleanUrl = cleanUrl.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, '');
   }
-  if (url.startsWith('/uploads/')) {
-    return `${getBaseUrl().replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '')}${url}`;
+
+  if (/^(data:|blob:)/i.test(cleanUrl)) return cleanUrl;
+  if (/^https?:\/\//i.test(cleanUrl)) return cleanUrl;
+
+  if (!cleanUrl.startsWith('/')) {
+    cleanUrl = `/${cleanUrl}`;
   }
-  return url;
+
+  // If running in browser in production (e.g. on www.avorabank.com),
+  // route directly to the persistent backend storage endpoint
+  const backendBase = isBrowser && !isLocalHost
+    ? 'https://digital-investment-wallet-platform.onrender.com'
+    : getBaseUrl().replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '');
+
+  if (cleanUrl.startsWith('/api/v1/uploads/')) {
+    cleanUrl = cleanUrl.slice('/api/v1'.length);
+  } else if (cleanUrl.startsWith('/api/v1/')) {
+    return `${getBaseUrl().replace(/\/+$/, '')}${cleanUrl.slice('/api/v1'.length)}`;
+  }
+
+  return `${backendBase}${cleanUrl}`;
 };
 
 export const api = axios.create({

@@ -15,8 +15,10 @@ import {
   AlertCircle,
   FileText,
 } from 'lucide-react';
-import { api } from '../../../lib/api';
+import { api, resolveMediaUrl } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
+
+const isPdf = (url?: string | null): boolean => Boolean(url && /\.pdf($|\?)/i.test(url));
 
 interface KycTabProps {
   kycDocs: any[];
@@ -245,10 +247,40 @@ export default function AdminKycTab({
 
             {/* Document Image Viewer */}
             <div className="space-y-2">
-              <span className="text-[11px] font-bold text-slate-400 uppercase font-mono">Government Identity Document File</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-400 uppercase font-mono">Government Identity Document File</span>
+                {selectedDoc.documentUrl && (
+                  <a
+                    href={resolveMediaUrl(selectedDoc.documentUrl)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-amber-400 hover:underline flex items-center gap-1 cursor-pointer font-bold"
+                  >
+                    <span>Open in New Tab</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
               <div className="rounded-2xl overflow-hidden border border-slate-800 bg-black max-h-[60vh] flex items-center justify-center p-2">
                 {selectedDoc.documentUrl ? (
-                  <img src={selectedDoc.documentUrl} alt="Government Document" className="max-h-[55vh] object-contain rounded-xl" />
+                  isPdf(selectedDoc.documentUrl) ? (
+                    <iframe
+                      src={resolveMediaUrl(selectedDoc.documentUrl)}
+                      title="Government Document"
+                      className="w-full h-[55vh] bg-white rounded-xl"
+                    />
+                  ) : (
+                    <img
+                      src={resolveMediaUrl(selectedDoc.documentUrl)}
+                      alt="Government Document"
+                      className="max-h-[55vh] object-contain rounded-xl"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        const filename = selectedDoc.documentUrl.split('/').pop() || 'document.png';
+                        target.src = resolveMediaUrl(`/uploads/documents/${filename}`);
+                      }}
+                    />
+                  )
                 ) : (
                   <div className="p-12 text-center text-slate-500 italic">No image file attached</div>
                 )}
