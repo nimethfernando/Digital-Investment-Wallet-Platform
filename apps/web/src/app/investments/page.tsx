@@ -346,6 +346,13 @@ export default function InvestmentsMarketplacePage() {
         }
       })
       .catch(() => {});
+
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('action') === 'list-startup' || params.get('list') === 'true' || params.get('apply') === 'true') {
+        setApplyModalOpen(true);
+      }
+    }
   }, []);
 
   // Load Investor Dashboard
@@ -511,10 +518,14 @@ export default function InvestmentsMarketplacePage() {
         <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
           <button
             onClick={() => setApplyModalOpen(true)}
-            className="px-5 py-3 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-lg flex items-center gap-2 transition-all cursor-pointer"
+            className="px-6 py-3.5 rounded-2xl font-black text-xs bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white shadow-xl shadow-emerald-950/40 flex items-center gap-2 transition-all cursor-pointer ring-2 ring-emerald-400/30 hover:scale-[1.02]"
+            title="Submit your startup for investment desk review and fundraising onboarding"
           >
-            <PlusCircle className="w-4 h-4" />
-            <span>Apply for Funding (Founders)</span>
+            <Sparkles className="w-4 h-4 text-emerald-200" />
+            <span>I Want to List My Startup</span>
+            <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono uppercase tracking-wide">
+              Founders
+            </span>
           </button>
 
           {user && (
@@ -589,7 +600,7 @@ export default function InvestmentsMarketplacePage() {
         </div>
       )}
 
-      {/* Sub-Navigation Switcher: Curated Portfolio vs Dealflow Desk */}
+      {/* Sub-Navigation Switcher: Curated Portfolio vs Dealflow Desk vs List My Startup */}
       <div className="flex items-center justify-center pt-2">
         <div className="p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-center gap-2 text-xs font-black shadow-md">
           <button
@@ -618,6 +629,14 @@ export default function InvestmentsMarketplacePage() {
             <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-slate-950 font-mono text-[10px] font-bold">
               Matchmaking
             </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setApplyModalOpen(true)}
+            className="px-5 py-2.5 rounded-xl transition-all flex items-center gap-2 cursor-pointer bg-emerald-600/15 hover:bg-emerald-600 text-emerald-700 dark:text-emerald-300 hover:text-white border border-emerald-500/30"
+          >
+            <Sparkles className="w-4 h-4 text-emerald-500" />
+            <span>I Want to List My Startup</span>
           </button>
         </div>
       </div>
@@ -1627,15 +1646,15 @@ export default function InvestmentsMarketplacePage() {
             </button>
 
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 flex items-center justify-center">
-                <PlusCircle className="w-6 h-6" />
+              <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
+                <Rocket className="w-6 h-6 text-emerald-500" />
               </div>
               <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                  Apply for Startup Fundraising
+                <h3 className="text-xl font-black text-slate-900 dark:text-white">
+                  I Want to List My Startup
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Connect with Avora institutional and retail angel network
+                  Avora Venture Desk Onboarding &amp; Capital Support. Pitch your venture to our team — we will review your proposal and help list your startup to connect with verified angel investors and funding facilities.
                 </p>
               </div>
             </div>
@@ -1801,9 +1820,10 @@ export default function InvestmentsMarketplacePage() {
               <button
                 type="submit"
                 disabled={applyLoading}
-                className="w-full py-3.5 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md disabled:opacity-50 transition-all cursor-pointer"
+                className="w-full py-3.5 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-md disabled:opacity-50 transition-all cursor-pointer flex items-center justify-center gap-2"
               >
-                {applyLoading ? 'Submitting Application...' : 'Submit Fundraising Campaign'}
+                <Rocket className="w-4 h-4 text-emerald-300" />
+                <span>{applyLoading ? 'Submitting Application...' : 'Submit: I Want to List My Startup'}</span>
               </button>
             </form>
           </div>

@@ -614,7 +614,11 @@ function DashboardContent() {
     } else if (tab === 'transactions' || tab === 'ledger') {
       setActiveTab('transactions');
     } else if (tab === 'card') {
-      setActiveTab('card');
+      if (virtualCardsEnabled) {
+        setActiveTab('card');
+      } else {
+        setActiveTab('overview');
+      }
     } else if (tab === 'support' || tab === 'inquiry' || tab === 'inquiries' || tab === 'chat') {
       setActiveTab('support');
     } else if (tab === 'security') {
@@ -2900,54 +2904,21 @@ function DashboardContent() {
           />
         )}
 
-        {/* VIRTUAL CARD TAB */}
-        {activeTab === 'card' && (
-          virtualCardsEnabled ? (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold">Virtual Visa / Mastercard Module</h2>
-                <p className="text-xs text-slate-500">
-                  Connected directly to your Avora USD available wallet balance
-                </p>
-              </div>
-              <VirtualCardModule
-                cardHolderName={`${user?.firstName || 'Avora Client'} ${user?.lastName || ''}`.trim()}
-                accountNumber={userAccountNumber}
-                onRefresh={fetchDashboardData}
-              />
-            </div>
-          ) : (
-            <div className="p-8 sm:p-10 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm text-center max-w-2xl mx-auto space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-500 flex items-center justify-center mx-auto">
-                <CreditCard className="w-7 h-7" />
-              </div>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[11px] font-bold uppercase tracking-wider">
-                Coming Soon
-              </span>
-              <h2 className="text-2xl font-black text-slate-900 dark:text-white">
-                Virtual Cards — Coming Soon
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                Avora Bank is finalizing integration with a regulated card-issuing partner to bring multi-currency Virtual Visa and Mastercard issuance to your account soon. All wallet balances, fixed deposits, global transfers, and OTC facilities remain fully active.
+        {/* VIRTUAL CARD TAB - Only rendered if complete card facility is enabled */}
+        {activeTab === 'card' && virtualCardsEnabled && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold">Virtual Visa / Mastercard Module</h2>
+              <p className="text-xs text-slate-500">
+                Connected directly to your Avora USD available wallet balance
               </p>
-              <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('overview')}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
-                >
-                  Back to Wallet Overview
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('bank_details')}
-                  className="px-5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold cursor-pointer"
-                >
-                  Manage Bank Details
-                </button>
-              </div>
             </div>
-          )
+            <VirtualCardModule
+              cardHolderName={`${user?.firstName || 'Avora Client'} ${user?.lastName || ''}`.trim()}
+              accountNumber={userAccountNumber}
+              onRefresh={fetchDashboardData}
+            />
+          </div>
         )}
 
         {/* INVESTOR PORTFOLIO & TENURE TRACKING TAB */}
@@ -5434,7 +5405,7 @@ function DashboardContent() {
                   <option value="TRADE_DISPUTE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">P2P Trade Dispute & Escrow</option>
                   <option value="KYC_VERIFICATION" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">KYC Identity Verification</option>
                   <option value="PAYOUT_QUERY" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Settlement / Payout Query</option>
-                  <option value="VIRTUAL_CARD" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Virtual Cards (Coming Soon / Partner Inquiry)</option>
+                  <option value="STARTUP_LISTING" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">I Want to List My Startup</option>
                   <option value="GENERAL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">General Banking Inquiry</option>
                 </select>
               </div>

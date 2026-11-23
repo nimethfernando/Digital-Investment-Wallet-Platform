@@ -37,6 +37,7 @@ import {
   LockKeyhole,
   Check,
   ArrowRight,
+  QrCode,
   Mail,
   Phone,
   Send,
@@ -160,20 +161,16 @@ export default function HomePage() {
       a: `Withdrawal requests for monthly yields or matured principal open on the ${platformVars.withdrawal_window_day} of each calendar month. Requests enter a ${platformVars.withdrawal_processing_days}-day administrative settlement queue where compliance checks are conducted, after which disbursements are executed via SWIFT/SEPA wire or direct USDT wallet transfer.`,
       highlights: ['Orderly treasury liquidity management', 'Settlement via verified bank wire or USDT', 'Automatic anti-fraud & compliance clearance'],
     },
-    {
-      id: '04',
-      category: 'cards' as const,
-      badge: 'Coming Soon · Virtual Cards',
-      q: 'When will Avora Bank Virtual Visa / Mastercard issuance launch?',
-      a: virtualCardsEnabled
-        ? 'Every Avora Bank account includes an integrated Virtual Card module with spending limits, freeze toggles, and global merchant acceptance.'
-        : 'Our Virtual Card facility is currently Coming Soon. Avora Bank is finalizing integration with a regulated Banking-as-a-Service (BaaS) card-issuing partner so clients can generate multi-currency virtual Visa and Mastercard wallets with spend controls and mobile wallet support in an upcoming release.',
-      highlights: virtualCardsEnabled
-        ? ['Instant card generation & activation', 'Real-time multi-currency settlement (USD/EUR)', 'Freeze/unfreeze switch & spend limits']
-        : ['Partner integration currently in progress', 'Planned multi-currency USD & EUR virtual cards', 'Planned instant freeze/unfreeze & spend limits'],
-    },
     ...(virtualCardsEnabled
       ? [
+          {
+            id: '04',
+            category: 'cards' as const,
+            badge: 'Virtual Cards',
+            q: 'When will Avora Bank Virtual Visa / Mastercard issuance launch?',
+            a: 'Every Avora Bank account includes an integrated Virtual Card module with spending limits, freeze toggles, and global merchant acceptance.',
+            highlights: ['Instant card generation & activation', 'Real-time multi-currency settlement (USD/EUR)', 'Freeze/unfreeze switch & spend limits'],
+          },
           {
             id: '05',
             category: 'cards' as const,
@@ -607,7 +604,7 @@ export default function HomePage() {
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> INSTANT OTC LIQUIDITY DESKS</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> {virtualCardsEnabled ? 'VIRTUAL VISA CARDS ACTIVE' : 'VIRTUAL CARDS COMING SOON'}</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> {virtualCardsEnabled ? 'VIRTUAL VISA CARDS ACTIVE' : 'MULTI-RAIL INSTANT TRANSFERS'}</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-400" /> STARTENGINE-GRADE VENTURE EQUITY</div>
@@ -617,7 +614,7 @@ export default function HomePage() {
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> DOUBLE-ENTRY LEDGER v2.6</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> SEPA &amp; SWIFT WIRE RAILS</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-purple-400" /> INSTANT OTC LIQUIDITY DESKS</div>
-            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> {virtualCardsEnabled ? 'VIRTUAL VISA CARDS ACTIVE' : 'VIRTUAL CARDS COMING SOON'}</div>
+            <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-teal-400" /> {virtualCardsEnabled ? 'VIRTUAL VISA CARDS ACTIVE' : 'MULTI-RAIL INSTANT TRANSFERS'}</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> TRC-20 &amp; ERC-20 SMART VAULT</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> ZERO-TRUST CLIENT AUDITING</div>
             <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-400" /> STARTENGINE-GRADE VENTURE EQUITY</div>
@@ -744,26 +741,26 @@ export default function HomePage() {
                   <Rocket className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                  STARTENGINE
+                  STARTENGINE · VENTURE
                 </span>
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                Startup Equity Portal
+                Venture Startups &amp; “I Want to List My Startup”
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Crowdfunding nominee platform. Invest as low as {platformVars.startup_min_investment} in verified seed and growth startups. Transparent {platformVars.allocation_fee} allocation fee and {platformVars.profit_share_fee} profit-sharing on net realized exits.
+                Crowdfunding nominee platform. Invest as low as {platformVars.startup_min_investment} in verified seed and growth startups — or choose <strong>“I Want to List My Startup”</strong> so our institutional desk can help review your proposal and connect you with qualified capital.
               </p>
             </div>
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
               <Link
-                href={user ? '/investments' : '/login?redirect=/investments'}
-                className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
+                href="/investments?action=list-startup"
+                className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 font-mono"
               >
-                {user ? 'Invest in Startups' : 'Sign In to Invest'}
+                I Want to List My Startup
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
               <Link href="/investments" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
-                deals
+                Browse Deals
               </Link>
             </div>
           </div>
@@ -864,30 +861,30 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Facility 6: Virtual Cards (Coming Soon unless enabled by Admin) */}
+          {/* Facility 6: Instant Transfers or Virtual Cards (if enabled) */}
           <div className="p-6 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between space-y-4 hover:border-indigo-500/40 hover:shadow-[0_0_30px_rgba(99,102,241,0.12)] transition-all group">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-500/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-md shadow-indigo-500/10 dark:shadow-[0_0_20px_rgba(99,102,241,0.18)] transition-transform group-hover:scale-105">
-                  <CreditCard className="w-6 h-6" />
+                  {virtualCardsEnabled ? <CreditCard className="w-6 h-6" /> : <QrCode className="w-6 h-6 text-teal-400" />}
                 </div>
                 {virtualCardsEnabled ? (
                   <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                     VISA / MC
                   </span>
                 ) : (
-                  <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                    COMING SOON
+                  <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-teal-500/15 text-teal-600 dark:text-teal-400 border border-teal-500/30">
+                    INSTANT 24/7
                   </span>
                 )}
               </div>
               <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                Virtual Cards &amp; BaaS Wallet
+                {virtualCardsEnabled ? 'Virtual Cards & BaaS Wallet' : 'Instant Account & QR Transfers'}
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                 {virtualCardsEnabled
                   ? 'Multi-currency virtual debit cards with instant provisioning, spending limit sliders, freeze toggles, and Apple/Google Pay readiness.'
-                  : 'Avora Bank is finalizing our partnership with a regulated card-issuing provider to bring multi-currency virtual Visa & Mastercard wallets soon.'}
+                  : 'Frictionless peer-to-peer internal transfers across Avora client accounts using Account Number or dynamic QR code with zero gas fees and instant ledger finality.'}
               </p>
             </div>
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
@@ -906,12 +903,16 @@ export default function HomePage() {
                 </>
               ) : (
                 <>
-                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
-                    Coming Soon · Partner Integration
-                  </span>
-                  <span className="text-[11px] font-mono text-slate-400">
-                    roadmap
-                  </span>
+                  <Link
+                    href={user ? '/dashboard?tab=transfers' : '/login?redirect=/dashboard%3Ftab%3Dtransfers'}
+                    className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
+                  >
+                    {user ? 'Transfer Funds' : 'Sign In to Transfer'}
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                  <Link href="/dashboard?tab=transfers" className="text-[11px] font-mono text-slate-400 hover:text-slate-600">
+                    instant
+                  </Link>
                 </>
               )}
             </div>
@@ -1300,7 +1301,7 @@ export default function HomePage() {
                 {[
                   { key: 'all', label: 'All Questions', count: faqs.length },
                   { key: 'yield', label: 'Yield & FD Packages', count: faqs.filter(f => f.category === 'yield').length },
-                  { key: 'cards', label: virtualCardsEnabled ? 'Virtual Visa Cards' : 'Virtual Cards (Coming Soon)', count: faqs.filter(f => f.category === 'cards').length },
+                  ...(virtualCardsEnabled ? [{ key: 'cards', label: 'Virtual Visa Cards', count: faqs.filter(f => f.category === 'cards').length }] : []),
                   { key: 'otc', label: 'OTC & Remittance', count: faqs.filter(f => f.category === 'otc').length },
                   { key: 'security', label: 'Ledger Security', count: faqs.filter(f => f.category === 'security').length },
                 ].map((cat) => (

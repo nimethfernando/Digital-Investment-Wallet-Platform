@@ -28,6 +28,7 @@ import {
   FileText,
   Percent,
   Lock,
+  Rocket,
 } from 'lucide-react';
 import PaginationControls, { usePagination } from './PaginationControls';
 
@@ -379,12 +380,27 @@ export default function VentureDealflowSection() {
                   window.location.href = '/login?redirect=/investments';
                   return;
                 }
+                setPostForm((prev) => ({ ...prev, intent: 'SEEKING_CAPITAL', dealType: 'EQUITY_INVESTMENT' }));
                 setPostModalOpen(true);
               }}
-              className="px-5 py-3 rounded-2xl font-black text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg flex items-center gap-2 transition-all cursor-pointer"
+              className="px-5 py-3 rounded-2xl font-black text-xs bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 shadow-lg flex items-center gap-2 transition-all cursor-pointer ring-2 ring-emerald-400/30 hover:scale-[1.02]"
             >
-              <PlusCircle className="w-4 h-4" />
-              <span>Post Opportunity / Capital Requirement</span>
+              <Rocket className="w-4 h-4" />
+              <span>I Want to List My Startup</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (!user) {
+                  window.location.href = '/login?redirect=/investments';
+                  return;
+                }
+                setPostModalOpen(true);
+              }}
+              className="px-4 py-3 rounded-2xl font-bold text-xs bg-white/10 hover:bg-white/20 text-white border border-white/20 shadow-sm flex items-center gap-2 transition-all cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4 text-emerald-400" />
+              <span>Post Capital Requirement</span>
             </button>
 
             {user && (
@@ -439,7 +455,7 @@ export default function VentureDealflowSection() {
               }`}
             >
               <Building2 className="w-3.5 h-3.5" />
-              <span>Seeking Capital (Startups &amp; Borrowers)</span>
+              <span>I Want to List My Startup (Seeking Capital)</span>
             </button>
           </div>
 

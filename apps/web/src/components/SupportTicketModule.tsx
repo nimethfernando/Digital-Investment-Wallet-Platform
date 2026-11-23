@@ -27,6 +27,7 @@ import {
   Coins,
   Building2,
   MessageCircle,
+  Rocket,
 } from 'lucide-react';
 
 export interface TicketItem {
@@ -65,7 +66,7 @@ export const INQUIRY_CATEGORIES = [
   { id: 'GENERAL', label: 'General Inquiry', icon: HelpCircle, color: 'text-emerald-500' },
   { id: 'DEPOSIT_ISSUE', label: 'Deposits & Wires', icon: ArrowDownLeft, color: 'text-cyan-500' },
   { id: 'WITHDRAWAL_DELAY', label: 'Transfers & Withdrawals', icon: ArrowUpRight, color: 'text-blue-500' },
-  { id: 'CARD_ISSUE', label: 'Virtual & Physical Cards', icon: CreditCard, color: 'text-rose-500' },
+  { id: 'STARTUP_LISTING', label: 'I Want to List My Startup', icon: Rocket, color: 'text-amber-500' },
   { id: 'TOKEN_INVESTMENT', label: 'AVR Tokens & Treasury', icon: Coins, color: 'text-amber-500' },
   { id: 'KYC_VERIFICATION', label: 'KYC & Verification', icon: UserCheck, color: 'text-purple-500' },
   { id: 'P2P_DESK', label: 'P2P Settlement Desk', icon: Building2, color: 'text-emerald-500' },
@@ -274,6 +275,9 @@ export const SupportTicketModule: React.FC<SupportTicketModuleProps> = ({
   const ticketsPagination = usePagination(filteredTickets, 50);
 
   const getCategoryMeta = (catId: string) => {
+    if (catId === 'CARD_ISSUE') {
+      return { id: 'CARD_ISSUE', label: 'Card Services (Archived)', icon: HelpCircle, color: 'text-slate-500' };
+    }
     return INQUIRY_CATEGORIES.find((c) => c.id === catId) || INQUIRY_CATEGORIES[0];
   };
 

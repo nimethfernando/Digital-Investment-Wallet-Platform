@@ -189,9 +189,9 @@ export const Header: React.FC = () => {
         },
         {
           href: '/investments',
-          label: 'Venture Crowdfunding',
-          description: 'Direct equity & revenue-share in vetted growth startups',
-          badge: 'Startups',
+          label: 'Startups · “I Want to List My Startup”',
+          description: 'Submit your venture for funding or invest in vetted growth startups',
+          badge: 'List Startup',
           icon: TrendingUp,
         },
         {
