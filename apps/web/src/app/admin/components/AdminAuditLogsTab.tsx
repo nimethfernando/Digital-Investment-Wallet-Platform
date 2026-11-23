@@ -12,6 +12,9 @@ import {
   Lock,
 } from 'lucide-react';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
+import ListingDateFilterAndExport from '../../../components/ListingDateFilterAndExport';
+import { useDateRangeFilter } from '../../../lib/useDateRangeFilter';
+import { exportToCsv, exportToJson, printReportTable } from '../../../lib/exportUtils';
 
 interface AuditLogsTabProps {
   logs: any[];
@@ -27,7 +30,9 @@ export default function AdminAuditLogsTab({
   const [search, setSearch] = useState('');
   const [actionFilter, setActionFilter] = useState('');
 
-  const filteredLogs = logs.filter((l) => {
+  const auditDateFilter = useDateRangeFilter(logs, (l) => l.createdAt);
+
+  const filteredLogs = auditDateFilter.filteredItems.filter((l) => {
     const q = search.toLowerCase().trim();
     const matchSearch =
       !q ||
@@ -40,6 +45,45 @@ export default function AdminAuditLogsTab({
   });
 
   const { page, setPage, pageSize, setPageSize, pagedItems: pagedLogs } = usePagination(filteredLogs, 50);
+
+  const handleExportAuditCsv = () => {
+    exportToCsv(
+      `admin_audit_logs_${auditDateFilter.startDate || 'all'}_to_${auditDateFilter.endDate || 'now'}`,
+      filteredLogs,
+      [
+        { label: 'Timestamp (UTC)', format: (l) => new Date(l.createdAt).toISOString() },
+        { label: 'Administrator', format: (l) => l.user?.email || 'SYSTEM_ADMIN' },
+        { label: 'Action', key: 'action' },
+        { label: 'Target Entity', key: 'entity' },
+        { label: 'Target ID', key: 'entityId' },
+        { label: 'IP Address', key: 'ipAddress' },
+        { label: 'Operational Details', key: 'details' },
+      ]
+    );
+  };
+
+  const handleExportAuditJson = () => {
+    exportToJson(
+      `admin_audit_logs_${auditDateFilter.startDate || 'all'}_to_${auditDateFilter.endDate || 'now'}`,
+      filteredLogs
+    );
+  };
+
+  const handlePrintAuditPdf = () => {
+    printReportTable({
+      title: 'Avora Bank Administrative Audit Ledger',
+      subtitle: 'Immutable Cryptographic Regulatory Governance Records',
+      dateRangeText: auditDateFilter.dateRangeText,
+      columns: [
+        { label: 'Date & Time', format: (l) => new Date(l.createdAt).toLocaleString() },
+        { label: 'Admin', format: (l) => l.user?.email || 'SYSTEM_ADMIN' },
+        { label: 'Action', key: 'action' },
+        { label: 'Entity', format: (l) => `${l.entity} (#${(l.entityId || '').substring(0, 8)})` },
+        { label: 'Details', key: 'details' },
+      ],
+      rows: filteredLogs,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -76,6 +120,24 @@ export default function AdminAuditLogsTab({
           </button>
         </div>
       </div>
+
+      {/* Date Filter & Export Toolbar for Audit Logs */}
+      <ListingDateFilterAndExport
+        startDate={auditDateFilter.startDate}
+        endDate={auditDateFilter.endDate}
+        onStartDateChange={auditDateFilter.setStartDate}
+        onEndDateChange={auditDateFilter.setEndDate}
+        activePreset={auditDateFilter.activePreset}
+        onPresetSelect={auditDateFilter.setPreset}
+        onClear={auditDateFilter.clearFilter}
+        isFiltered={auditDateFilter.isFiltered}
+        totalFilteredCount={filteredLogs.length}
+        totalOriginalCount={logs.length}
+        onExportCsv={handleExportAuditCsv}
+        onExportJson={handleExportAuditJson}
+        onPrintPdf={handlePrintAuditPdf}
+        itemLabel="audit events"
+      />
 
       {/* Logs Table */}
       {logsLoading ? (

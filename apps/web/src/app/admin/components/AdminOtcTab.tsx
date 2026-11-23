@@ -28,6 +28,9 @@ import { api } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 import CredibilityBadge from '../../../components/CredibilityBadge';
 import AdminCredibilityModal from '../../../components/admin/AdminCredibilityModal';
+import ListingDateFilterAndExport from '../../../components/ListingDateFilterAndExport';
+import { useDateRangeFilter } from '../../../lib/useDateRangeFilter';
+import { exportToCsv, exportToJson, printReportTable } from '../../../lib/exportUtils';
 
 interface AdminOtcTabProps {
   desks: any[];
@@ -301,7 +304,9 @@ export default function AdminOtcTab({
     });
   };
 
-  const filteredTrades = trades.filter((t) => {
+  const tradeDateFilter = useDateRangeFilter(trades, (t) => t.createdAt);
+
+  const filteredTrades = tradeDateFilter.filteredItems.filter((t) => {
     if (tradeStatusFilter !== 'ALL' && t.status !== tradeStatusFilter) return false;
     if (!q) return true;
     return `${t.tradeCode || ''} ${t.fiatCurrency || ''} ${t.desk?.deskName || ''} ${t.desk?.city || ''} ${t.customer?.email || ''} ${t.operator?.email || ''}`
@@ -312,6 +317,52 @@ export default function AdminOtcTab({
   const desksPagination = usePagination(filteredDesks, 50);
   const tradesPagination = usePagination(filteredTrades, 50);
   const inquiriesPagination = usePagination(inquiries, 50);
+
+  const handleExportTradesCsv = () => {
+    exportToCsv(
+      `otc_escrow_trades_${tradeDateFilter.startDate || 'all'}_to_${tradeDateFilter.endDate || 'now'}`,
+      filteredTrades,
+      [
+        { label: 'Trade Code', key: 'tradeCode' },
+        { label: 'Date & Time', format: (t) => new Date(t.createdAt).toISOString() },
+        { label: 'Status', key: 'status' },
+        { label: 'Desk Code', format: (t) => t.desk?.deskCode || '' },
+        { label: 'Desk Name', format: (t) => t.desk?.deskName || '' },
+        { label: 'Desk City', format: (t) => t.desk?.city || '' },
+        { label: 'Customer Email', format: (t) => t.customer?.email || '' },
+        { label: 'Operator Email', format: (t) => t.operator?.email || t.desk?.operatorEmail || '' },
+        { label: 'Crypto Amount', format: (t) => `${t.cryptoAmount} USDT` },
+        { label: 'Fiat Amount', format: (t) => `${t.fiatAmount} ${t.fiatCurrency || 'USD'}` },
+        { label: 'Operator Fee', format: (t) => `${t.operatorFee} USDT` },
+        { label: 'Platform Fee', format: (t) => `${t.platformFee} USDT` },
+      ]
+    );
+  };
+
+  const handleExportTradesJson = () => {
+    exportToJson(
+      `otc_escrow_trades_${tradeDateFilter.startDate || 'all'}_to_${tradeDateFilter.endDate || 'now'}`,
+      filteredTrades
+    );
+  };
+
+  const handlePrintTradesPdf = () => {
+    printReportTable({
+      title: 'OTC Liquidity Escrow Trades Ledger',
+      subtitle: 'Audited Physical & Regional OTC Desk Executions',
+      dateRangeText: tradeDateFilter.dateRangeText,
+      columns: [
+        { label: 'Trade Code', key: 'tradeCode' },
+        { label: 'Date', format: (t) => new Date(t.createdAt).toLocaleDateString() },
+        { label: 'Desk', format: (t) => `${t.desk?.deskName || 'OTC'} (${t.desk?.city || ''})` },
+        { label: 'Customer', format: (t) => t.customer?.email || '' },
+        { label: 'Crypto Escrow', format: (t) => `${t.cryptoAmount} USDT` },
+        { label: 'Fiat Total', format: (t) => `${t.fiatAmount} ${t.fiatCurrency || 'USD'}` },
+        { label: 'Status', key: 'status' },
+      ],
+      rows: filteredTrades,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -882,16 +933,35 @@ export default function AdminOtcTab({
           </div>
         )
       ) : subTab === 'TRADES' ? (
-        /* TRADES TABLE */
-        filteredTrades.length === 0 ? (
-          <div className="p-16 text-center text-slate-500 bg-slate-900/50 border border-slate-800 rounded-3xl">
-            <Scale className="w-10 h-10 mx-auto text-slate-600 mb-2" />
-            <p className="text-sm font-semibold text-slate-400">No OTC escrow trades found</p>
-          </div>
-        ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
+        <div className="space-y-4">
+          {/* Date Filter & Export Toolbar for OTC Trades */}
+          <ListingDateFilterAndExport
+            startDate={tradeDateFilter.startDate}
+            endDate={tradeDateFilter.endDate}
+            onStartDateChange={tradeDateFilter.setStartDate}
+            onEndDateChange={tradeDateFilter.setEndDate}
+            activePreset={tradeDateFilter.activePreset}
+            onPresetSelect={tradeDateFilter.setPreset}
+            onClear={tradeDateFilter.clearFilter}
+            isFiltered={tradeDateFilter.isFiltered}
+            totalFilteredCount={filteredTrades.length}
+            totalOriginalCount={trades.length}
+            onExportCsv={handleExportTradesCsv}
+            onExportJson={handleExportTradesJson}
+            onPrintPdf={handlePrintTradesPdf}
+            itemLabel="OTC escrow trades"
+          />
+
+          {/* TRADES TABLE */}
+          {filteredTrades.length === 0 ? (
+            <div className="p-16 text-center text-slate-500 bg-slate-900/50 border border-slate-800 rounded-3xl">
+              <Scale className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+              <p className="text-sm font-semibold text-slate-400">No OTC escrow trades found matching your filters</p>
+            </div>
+          ) : (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-950/70 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                 <tr>
                   <th className="py-3.5 px-4">Trade Code &amp; Desk</th>
@@ -1015,7 +1085,8 @@ export default function AdminOtcTab({
             />
           </div>
         </div>
-        )
+        )}
+        </div>
       ) : (
         /* PRE-TRADE DESK INQUIRIES TABLE */
         inquiries.length === 0 ? (

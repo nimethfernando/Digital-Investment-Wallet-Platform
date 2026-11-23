@@ -37,6 +37,9 @@ import { api, extractErrorMessage, resolveMediaUrl } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 import CredibilityBadge from '../../../components/CredibilityBadge';
 import AdminCredibilityModal from '../../../components/admin/AdminCredibilityModal';
+import ListingDateFilterAndExport from '../../../components/ListingDateFilterAndExport';
+import { useDateRangeFilter } from '../../../lib/useDateRangeFilter';
+import { exportToCsv, exportToJson, printReportTable } from '../../../lib/exportUtils';
 
 interface P2PTabProps {
   orders: any[];
@@ -708,7 +711,10 @@ export default function AdminP2PTab({
     return fiatCur === 'INR' && !activeFinalStatuses.includes(o.status);
   }).length;
 
-  const filteredOrders = orders.filter((o) => {
+  const orderDateFilter = useDateRangeFilter(orders, (o) => o.createdAt);
+  const appDateFilter = useDateRangeFilter(applications, (a) => a.createdAt);
+
+  const filteredOrders = orderDateFilter.filteredItems.filter((o) => {
     const fiatCur = (o.fiatCurrency || o.offer?.fiatCurrency || 'USD').toUpperCase();
     if (priorityInrOnly && fiatCur !== 'INR') return false;
 
@@ -725,7 +731,7 @@ export default function AdminP2PTab({
   });
   const pendingAppsCount = applications.filter((a) => a.status === 'PENDING').length;
 
-  const filteredApps = applications.filter((a) => {
+  const filteredApps = appDateFilter.filteredItems.filter((a) => {
     const q = appSearch.toLowerCase().trim();
     const matchSearch =
       !q ||
@@ -739,6 +745,69 @@ export default function AdminP2PTab({
 
   const ordersPagination = usePagination(filteredOrders, 50);
   const appsPagination = usePagination(filteredApps, 50);
+
+  const handleExportOrdersCsv = () => {
+    exportToCsv(
+      `p2p_escrow_orders_${orderDateFilter.startDate || 'all'}_to_${orderDateFilter.endDate || 'now'}`,
+      filteredOrders,
+      [
+        { label: 'Order Code', key: 'orderCode' },
+        { label: 'Date & Time', format: (o) => new Date(o.createdAt).toISOString() },
+        { label: 'Status', key: 'status' },
+        { label: 'Buyer', format: (o) => o.buyer?.email || '' },
+        { label: 'Buyer Tier', format: (o) => o.buyer?.credibilityLevel || 'BRONZE' },
+        { label: 'Seller', format: (o) => o.seller?.email || '' },
+        { label: 'Seller Tier', format: (o) => o.seller?.credibilityLevel || 'BRONZE' },
+        { label: 'Crypto Amount', format: (o) => `${o.cryptoAmount} ${o.cryptoCurrency || 'USDT'}` },
+        { label: 'Fiat Amount', format: (o) => `${o.fiatAmount} ${o.fiatCurrency || 'USD'}` },
+        { label: 'Price Rate', format: (o) => `${o.price} ${o.fiatCurrency}` },
+        { label: 'Payment Rail', format: (o) => o.selectedPaymentMethod || '—' },
+        { label: 'Payment Reference', key: 'paymentReference' },
+      ]
+    );
+  };
+
+  const handleExportOrdersJson = () => {
+    exportToJson(
+      `p2p_escrow_orders_${orderDateFilter.startDate || 'all'}_to_${orderDateFilter.endDate || 'now'}`,
+      filteredOrders
+    );
+  };
+
+  const handlePrintOrdersPdf = () => {
+    printReportTable({
+      title: 'P2P Escrow Settlement Orders Ledger',
+      subtitle: 'Audited Institutional Digital Settlement & Dispute Records',
+      dateRangeText: orderDateFilter.dateRangeText,
+      columns: [
+        { label: 'Order Code', key: 'orderCode' },
+        { label: 'Date & Time', format: (o) => new Date(o.createdAt).toLocaleString() },
+        { label: 'Buyer', format: (o) => `${o.buyer?.firstName || o.buyer?.email} (${o.buyer?.credibilityLevel || 'BRONZE'})` },
+        { label: 'Seller', format: (o) => `${o.seller?.firstName || o.seller?.email} (${o.seller?.credibilityLevel || 'BRONZE'})` },
+        { label: 'Escrow Crypto', format: (o) => `${o.cryptoAmount} ${o.cryptoCurrency || 'USDT'}` },
+        { label: 'Fiat Settlement', format: (o) => `${o.fiatAmount} ${o.fiatCurrency || 'USD'}` },
+        { label: 'Status', key: 'status' },
+        { label: 'Rail', format: (o) => o.selectedPaymentMethod || '—' },
+      ],
+      rows: filteredOrders,
+    });
+  };
+
+  const handleExportAppsCsv = () => {
+    exportToCsv(
+      `p2p_merchant_applications_${appDateFilter.startDate || 'all'}_to_${appDateFilter.endDate || 'now'}`,
+      filteredApps,
+      [
+        { label: 'Application Code', key: 'applicationCode' },
+        { label: 'Date Submitted', format: (a) => new Date(a.createdAt).toISOString() },
+        { label: 'Applicant Email', format: (a) => a.user?.email || '' },
+        { label: 'Applicant Name', format: (a) => `${a.user?.firstName || ''} ${a.user?.lastName || ''}`.trim() },
+        { label: 'Source of Funds', key: 'sourceOfFunds' },
+        { label: 'Status', key: 'status' },
+        { label: 'Security Deposit', format: (a) => `$${a.securityDepositAmount || '0'} USD` },
+      ]
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -922,6 +991,24 @@ export default function AdminP2PTab({
           </div>
         </div>
       </div>
+
+      {/* Date Filter & Export Toolbar for P2P Orders */}
+      <ListingDateFilterAndExport
+        startDate={orderDateFilter.startDate}
+        endDate={orderDateFilter.endDate}
+        onStartDateChange={orderDateFilter.setStartDate}
+        onEndDateChange={orderDateFilter.setEndDate}
+        activePreset={orderDateFilter.activePreset}
+        onPresetSelect={orderDateFilter.setPreset}
+        onClear={orderDateFilter.clearFilter}
+        isFiltered={orderDateFilter.isFiltered}
+        totalFilteredCount={filteredOrders.length}
+        totalOriginalCount={orders.length}
+        onExportCsv={handleExportOrdersCsv}
+        onExportJson={handleExportOrdersJson}
+        onPrintPdf={handlePrintOrdersPdf}
+        itemLabel="escrow orders"
+      />
 
       {/* Orders Table */}
       {ordersLoading ? (
@@ -1214,6 +1301,22 @@ export default function AdminP2PTab({
               </button>
             </div>
           </div>
+
+          {/* Date Filter & Export Toolbar for P2P Applications */}
+          <ListingDateFilterAndExport
+            startDate={appDateFilter.startDate}
+            endDate={appDateFilter.endDate}
+            onStartDateChange={appDateFilter.setStartDate}
+            onEndDateChange={appDateFilter.setEndDate}
+            activePreset={appDateFilter.activePreset}
+            onPresetSelect={appDateFilter.setPreset}
+            onClear={appDateFilter.clearFilter}
+            isFiltered={appDateFilter.isFiltered}
+            totalFilteredCount={filteredApps.length}
+            totalOriginalCount={applications.length}
+            onExportCsv={handleExportAppsCsv}
+            itemLabel="onboarding applications"
+          />
 
           {appsLoading ? (
             <div className="p-16 text-center text-slate-500">

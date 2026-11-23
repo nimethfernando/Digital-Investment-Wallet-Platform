@@ -24,6 +24,9 @@ import AdminCreateP2PDeskModal from './components/AdminCreateP2PDeskModal';
 import AdminCreateOtcDeskModal from './components/AdminCreateOtcDeskModal';
 import AutoContentPublisher from './components/AutoContentPublisher';
 import PaginationControls, { usePagination } from '../../components/PaginationControls';
+import ListingDateFilterAndExport from '../../components/ListingDateFilterAndExport';
+import { useDateRangeFilter } from '../../lib/useDateRangeFilter';
+import { exportToCsv, exportToJson, printReportTable } from '../../lib/exportUtils';
 import {
   LayoutDashboard,
   Globe,
@@ -1726,8 +1729,10 @@ export default function AdminPortalPage() {
     depSearch,
   ]);
 
+  const withdrawalDateFilter = useDateRangeFilter(withdrawals, (w) => w.createdAt);
+
   const filteredWithdrawals = useMemo(() => {
-    const list = Array.isArray(withdrawals) ? withdrawals : [];
+    const list = Array.isArray(withdrawalDateFilter.filteredItems) ? withdrawalDateFilter.filteredItems : [];
     const q = withdrawalSearch.trim().toLowerCase();
     return list.filter((w) => {
       if (withdrawalStatusFilter === 'PENDING' && !['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w.status)) return false;
@@ -1737,7 +1742,7 @@ export default function AdminPortalPage() {
       const hay = `${w.requestCode || ''} ${w.currency || ''} ${w.payoutMethod || ''} ${w.status || ''} ${w.user?.email || ''} ${w.user?.firstName || ''} ${w.user?.lastName || ''} ${w.settlementReference || ''} ${w.payoutDetails || ''}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [withdrawals, withdrawalSearch, withdrawalStatusFilter]);
+  }, [withdrawalDateFilter.filteredItems, withdrawalSearch, withdrawalStatusFilter]);
 
   const filteredTickets = useMemo(() => {
     const list = Array.isArray(tickets) ? tickets : [];
@@ -1772,12 +1777,132 @@ export default function AdminPortalPage() {
     return { total, e2e, prod };
   }, [rawClaimTransactions]);
 
+  const claimDateFilter = useDateRangeFilter(rawClaimTransactions, (tx) => tx.createdAt);
+
   const filteredClaimTransactions = useMemo(() => {
-    if (claimTxFilter === 'PROD') return rawClaimTransactions.filter((tx: any) => !tx.isE2ETest);
-    if (claimTxFilter === 'E2E') return rawClaimTransactions.filter((tx: any) => tx.isE2ETest);
-    return rawClaimTransactions;
-  }, [rawClaimTransactions, claimTxFilter]);
+    let list = claimDateFilter.filteredItems;
+    if (claimTxFilter === 'PROD') list = list.filter((tx: any) => !tx.isE2ETest);
+    if (claimTxFilter === 'E2E') list = list.filter((tx: any) => tx.isE2ETest);
+    return list;
+  }, [claimDateFilter.filteredItems, claimTxFilter]);
   const claimTxPagination = usePagination(filteredClaimTransactions, 25);
+
+  const handleExportClaimTxCsv = () => {
+    exportToCsv(
+      `admin_commission_payouts_${claimDateFilter.startDate || 'all'}_to_${claimDateFilter.endDate || 'now'}`,
+      filteredClaimTransactions,
+      [
+        { label: 'Date & Time (UTC)', format: (tx) => new Date(tx.createdAt).toISOString() },
+        { label: 'Claim TX Code', key: 'transactionCode' },
+        { label: 'Classification', format: (tx) => (tx.isE2ETest ? 'E2E Automated Test' : 'Production Revenue Claim') },
+        { label: 'Source Vault', format: (tx) => tx.sourceAccount?.currency || 'USD' },
+        { label: 'Recipient Admin', format: (tx) => tx.destinationAccount?.user?.email || tx.user?.email || 'Admin Wallet' },
+        { label: 'Amount Credited', format: (tx) => `+${parseFloat(tx.amount || '0').toFixed(4)} ${tx.currency || 'USD'}` },
+        { label: 'Status', key: 'status' },
+        { label: 'Notes', key: 'notes' },
+      ]
+    );
+  };
+
+  const handleExportClaimTxJson = () => {
+    exportToJson(
+      `admin_commission_payouts_${claimDateFilter.startDate || 'all'}_to_${claimDateFilter.endDate || 'now'}`,
+      filteredClaimTransactions
+    );
+  };
+
+  const handlePrintClaimTxPdf = () => {
+    printReportTable({
+      title: 'Admin Commission Wallet Payout & Settlement Ledger',
+      subtitle: 'Audited Platform Revenue Claims from Core Treasury Vaults',
+      dateRangeText: claimDateFilter.dateRangeText,
+      columns: [
+        { label: 'Date & Time', format: (tx) => new Date(tx.createdAt).toLocaleString() },
+        { label: 'Claim TX', key: 'transactionCode' },
+        { label: 'Type', format: (tx) => (tx.isE2ETest ? 'E2E Test Sweep' : 'Production Claim') },
+        { label: 'Amount Credited', format: (tx) => `+${parseFloat(tx.amount || '0').toFixed(4)} ${tx.currency || 'USD'}` },
+        { label: 'Recipient', format: (tx) => tx.destinationAccount?.user?.email || tx.user?.email || 'Admin' },
+        { label: 'Status', key: 'status' },
+      ],
+      rows: filteredClaimTransactions,
+    });
+  };
+
+  const handleExportWithdrawalsCsv = () => {
+    exportToCsv(
+      `settlement_withdrawals_${withdrawalDateFilter.startDate || 'all'}_to_${withdrawalDateFilter.endDate || 'now'}`,
+      filteredWithdrawals,
+      [
+        { label: 'Request Code', key: 'requestCode' },
+        { label: 'Date & Time', format: (w) => new Date(w.createdAt).toISOString() },
+        { label: 'Status', key: 'status' },
+        { label: 'Investor Email', format: (w) => w.user?.email || '' },
+        { label: 'Investor Name', format: (w) => `${w.user?.firstName || ''} ${w.user?.lastName || ''}`.trim() },
+        { label: 'Withdrawal Type', key: 'withdrawalType' },
+        { label: 'Payout Method', key: 'payoutMethod' },
+        { label: 'Gross Amount', format: (w) => `${parseFloat(w.amount || '0').toFixed(2)} ${w.currency}` },
+        { label: 'Withdrawal Fee', format: (w) => `${parseFloat(w.feeAmount || '0').toFixed(2)} ${w.currency}` },
+        { label: 'Net Payout', format: (w) => `${parseFloat(w.netAmount || w.amount || '0').toFixed(2)} ${w.currency}` },
+        { label: 'Settlement Reference', key: 'settlementReference' },
+        { label: 'Payout Details / Bank / Wallet', key: 'payoutDetails' },
+      ]
+    );
+  };
+
+  const handlePrintWithdrawalsPdf = () => {
+    printReportTable({
+      title: 'Avora Bank Settlement & Withdrawal Queue Ledger',
+      subtitle: 'Institutional Client Outflow & Regulatory Settlement Audit',
+      dateRangeText: withdrawalDateFilter.dateRangeText,
+      columns: [
+        { label: 'Request Code', key: 'requestCode' },
+        { label: 'Date', format: (w) => new Date(w.createdAt).toLocaleDateString() },
+        { label: 'Investor', format: (w) => w.user?.email || '' },
+        { label: 'Method', key: 'payoutMethod' },
+        { label: 'Net Amount', format: (w) => `${parseFloat(w.netAmount || w.amount || '0').toFixed(2)} ${w.currency}` },
+        { label: 'Fee', format: (w) => `${parseFloat(w.feeAmount || '0').toFixed(2)} ${w.currency}` },
+        { label: 'Status', key: 'status' },
+      ],
+      rows: filteredWithdrawals,
+    });
+  };
+
+  const handleExportDepositsCsv = () => {
+    exportToCsv(
+      `deposit_audit_ledger_${depFromDate || 'all'}_to_${depToDate || 'now'}`,
+      filteredDeposits,
+      [
+        { label: 'Deposit Code', key: 'depositCode' },
+        { label: 'Date & Time', format: (d) => new Date(d.createdAt).toISOString() },
+        { label: 'Status', key: 'status' },
+        { label: 'Investor Email', format: (d) => d.user?.email || '' },
+        { label: 'Investor Name', format: (d) => `${d.user?.firstName || ''} ${d.user?.lastName || ''}`.trim() },
+        { label: 'Method', key: 'depositMethod' },
+        { label: 'Amount', format: (d) => `${parseFloat(d.amount || '0').toFixed(2)} ${d.currency}` },
+        { label: 'Core Ledger Tx ID', key: 'ledgerTxId' },
+        { label: 'Gateway / TxHash Reference', key: 'txHashOrRef' },
+        { label: 'Admin Notes', key: 'adminNotes' },
+      ]
+    );
+  };
+
+  const handlePrintDepositsPdf = () => {
+    printReportTable({
+      title: 'Avora Bank Inflow Deposit Audit & Reconciliation Ledger',
+      subtitle: 'Complete Core Ledger Inflow Verification Records',
+      dateRangeText: depFromDate && depToDate ? `${depFromDate} → ${depToDate}` : 'All Inflow Periods',
+      columns: [
+        { label: 'Deposit Code', key: 'depositCode' },
+        { label: 'Date', format: (d) => new Date(d.createdAt).toLocaleDateString() },
+        { label: 'Investor', format: (d) => d.user?.email || '' },
+        { label: 'Amount', format: (d) => `${parseFloat(d.amount || '0').toFixed(2)} ${d.currency}` },
+        { label: 'Method', key: 'depositMethod' },
+        { label: 'Status', key: 'status' },
+        { label: 'Ledger Tx', format: (d) => d.ledgerTxId || '—' },
+      ],
+      rows: filteredDeposits,
+    });
+  };
 
   const depositAuditStats = useMemo(() => {
     const list = Array.isArray(deposits) ? deposits : [];
@@ -3047,6 +3172,32 @@ export default function AdminPortalPage() {
                   </div>
 
                   <div className="space-y-4">
+                    {/* AVORA Token Direct Integration Card */}
+                    <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/50 via-slate-950 to-indigo-950/50 border border-purple-500/40 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Coins className="w-4 h-4 text-purple-400" />
+                          <span className="text-xs font-black uppercase tracking-wider font-mono text-purple-300">
+                            AVORA Token ($AVR) Pricing &amp; Commission
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          Live: ${Number(tokenHoldersData?.policy?.priceUsd ?? 0.1).toFixed(2)} USD
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed">
+                        Configured Price: <strong>${Number(tokenHoldersData?.policy?.priceUsd ?? 0.1).toFixed(2)} USD</strong> • Commission / Fee: <strong>{tokenHoldersData?.policy?.feePercent ?? 0.5}%</strong> • Stage: <strong>{tokenHoldersData?.policy?.stageName || 'Stage 2'}</strong> ({tokenHoldersData?.policy?.stageProgressPct ?? 45}% progress).
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('token')}
+                        className="w-full py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
+                      >
+                        <Coins className="w-3.5 h-3.5" />
+                        <span>Manage Dedicated AVORA Token Pricing &amp; Commission Suite →</span>
+                      </button>
+                    </div>
+
                     <div className="space-y-1">
                       <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">
                         Global Remittance Transfer Fee (%)
@@ -4125,6 +4276,22 @@ export default function AdminPortalPage() {
                       {platformRevenue.moduleBreakdown?.swapFeeCount || 0} fee-bearing swap(s)
                     </div>
                   </div>
+                  <div
+                    onClick={() => setActiveTab('token')}
+                    className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 hover:border-purple-500/50 transition-all cursor-pointer"
+                    title="Open dedicated AVORA Token ($AVR) pricing & commission controls"
+                  >
+                    <div className="text-[10px] text-purple-400 uppercase font-bold flex items-center justify-between">
+                      <span>AVORA Token ($AVR)</span>
+                      <ArrowUpRight className="w-3 h-3" />
+                    </div>
+                    <div className="text-lg font-black text-purple-300 font-mono mt-1">
+                      ${Number(tokenHoldersData?.policy?.priceUsd ?? 0.1).toFixed(2)} USD
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      Fee: {tokenHoldersData?.policy?.feePercent ?? 0.5}% • Manage Pricing &amp; Fees →
+                    </div>
+                  </div>
                   <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800">
                     <div className="text-[10px] text-slate-400 uppercase font-bold">Ledger Accounts Tracked</div>
                     <div className="text-lg font-black text-cyan-400 font-mono mt-1">
@@ -4211,6 +4378,24 @@ export default function AdminPortalPage() {
                       <code className="text-cyan-300 font-mono">PLATFORM_FEE_REVENUE_USD</code>). When an admin claims revenue, funds transfer into the admin's spendable wallet. During platform test runs, the automated end-to-end test suite executes this exact sweep flow with notes labeled <span className="font-semibold text-amber-300">"E2E test sweep to admin wallet"</span>. Use the filter toggle above to view production sweeps only or purge test records at any time.
                     </p>
                   </div>
+
+                  {/* Date Filter & Export Toolbar for Commission Claims */}
+                  <ListingDateFilterAndExport
+                    startDate={claimDateFilter.startDate}
+                    endDate={claimDateFilter.endDate}
+                    onStartDateChange={claimDateFilter.setStartDate}
+                    onEndDateChange={claimDateFilter.setEndDate}
+                    activePreset={claimDateFilter.activePreset}
+                    onPresetSelect={claimDateFilter.setPreset}
+                    onClear={claimDateFilter.clearFilter}
+                    isFiltered={claimDateFilter.isFiltered}
+                    totalFilteredCount={filteredClaimTransactions.length}
+                    totalOriginalCount={rawClaimTransactions.length}
+                    onExportCsv={handleExportClaimTxCsv}
+                    onExportJson={handleExportClaimTxJson}
+                    onPrintPdf={handlePrintClaimTxPdf}
+                    itemLabel="commission claims"
+                  />
 
                   <div className="overflow-x-auto rounded-2xl border border-slate-800">
                     {filteredClaimTransactions.length === 0 ? (
@@ -5772,7 +5957,23 @@ export default function AdminPortalPage() {
                   Full deposit timestamps, Deposit &amp; Core Ledger Transaction IDs, investor KYC details, gateway/on-chain references, and date-range audit filters
                 </p>
               </div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <button
+                  onClick={handleExportDepositsCsv}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-sm"
+                  title="Export filtered deposit records to CSV"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export CSV</span>
+                </button>
+                <button
+                  onClick={handlePrintDepositsPdf}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  title="Print / Save PDF Report"
+                >
+                  <Printer className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Print</span>
+                </button>
                 <button
                   onClick={() => { setActionTargetUser(null); setManualDepositModalOpen(true); }}
                   className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/30 cursor-pointer whitespace-nowrap"
@@ -6380,6 +6581,23 @@ export default function AdminPortalPage() {
                 </button>
               </div>
             </div>
+
+            {/* Date Filter & Export Toolbar for Withdrawals */}
+            <ListingDateFilterAndExport
+              startDate={withdrawalDateFilter.startDate}
+              endDate={withdrawalDateFilter.endDate}
+              onStartDateChange={withdrawalDateFilter.setStartDate}
+              onEndDateChange={withdrawalDateFilter.setEndDate}
+              activePreset={withdrawalDateFilter.activePreset}
+              onPresetSelect={withdrawalDateFilter.setPreset}
+              onClear={withdrawalDateFilter.clearFilter}
+              isFiltered={withdrawalDateFilter.isFiltered}
+              totalFilteredCount={filteredWithdrawals.length}
+              totalOriginalCount={withdrawals.length}
+              onExportCsv={handleExportWithdrawalsCsv}
+              onPrintPdf={handlePrintWithdrawalsPdf}
+              itemLabel="settlement requests"
+            />
 
             {withdrawalsLoading ? (
               <div className="p-12 text-center text-slate-500">

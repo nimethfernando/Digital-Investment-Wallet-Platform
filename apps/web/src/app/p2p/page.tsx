@@ -64,6 +64,9 @@ import { P2PPaymentProofModal } from '../../components/p2p/P2PPaymentProofModal'
 import PaginationControls, { usePagination } from '../../components/PaginationControls';
 import { P2POnboardingWizard } from '../../components/p2p/P2POnboardingWizard';
 import CredibilityBadge from '../../components/CredibilityBadge';
+import { ListingDateFilterAndExport } from '../../components/ListingDateFilterAndExport';
+import { useDateRangeFilter } from '../../lib/useDateRangeFilter';
+import { exportToCsv, exportToJson, printReportTable } from '../../lib/exportUtils';
 
 interface CountryRail {
   id: string;
@@ -1704,12 +1707,57 @@ function P2PPageContent() {
     return combined;
   })();
 
-  const filteredOrdersList = ordersList.filter((o) => {
+  const userOrdersDateFilter = useDateRangeFilter(ordersList, (o) => o.createdAt);
+
+  const filteredOrdersList = userOrdersDateFilter.filteredItems.filter((o) => {
     if (!orderSearch.trim()) return true;
     const q = orderSearch.trim().toLowerCase();
     const hay = `${o.orderCode || ''} ${o.statusBadge || ''} ${o.status || ''} ${o.cryptoCurrency || ''} ${o.fiatCurrency || ''} ${o.selectedPaymentMethod || ''} ${o.counterparty?.name || ''} ${o.counterparty?.accountNumber || ''} ${o.counterparty?.bankName || ''}`.toLowerCase();
     return hay.includes(q);
   });
+
+  const handleExportUserOrdersCsv = () => {
+    exportToCsv(
+      filteredOrdersList,
+      [
+        { header: 'Order Code', accessor: (o) => o.orderCode || '' },
+        { header: 'Date & Time', accessor: (o) => o.createdAt ? new Date(o.createdAt).toLocaleString() : '' },
+        { header: 'Side', accessor: (o) => o.side || '' },
+        { header: 'Crypto Amount', accessor: (o) => `${o.cryptoAmount} ${o.cryptoCurrency}` },
+        { header: 'Fiat Total', accessor: (o) => `${o.fiatAmount} ${o.fiatCurrency}` },
+        { header: 'Unit Price', accessor: (o) => `${o.price} ${o.fiatCurrency}` },
+        { header: 'Counterparty', accessor: (o) => o.counterparty?.name || '' },
+        { header: 'Payment Method', accessor: (o) => o.selectedPaymentMethod || '' },
+        { header: 'Status', accessor: (o) => o.statusBadge || o.status || '' },
+      ],
+      `Avora_P2P_Orders_${new Date().toISOString().split('T')[0]}.csv`
+    );
+  };
+
+  const handleExportUserOrdersJson = () => {
+    exportToJson(filteredOrdersList, `Avora_P2P_Orders_${new Date().toISOString().split('T')[0]}.json`);
+  };
+
+  const handlePrintUserOrdersPdf = () => {
+    printReportTable({
+      title: 'Avora Bank — P2P Escrow Orders Statement',
+      dateRangeText: userOrdersDateFilter.isFiltered
+        ? `${userOrdersDateFilter.startDate || 'Beginning'} — ${userOrdersDateFilter.endDate || 'Present'}`
+        : 'All-Time Records',
+      headers: ['Order Code', 'Date & Time', 'Side', 'Crypto Amount', 'Fiat Total', 'Unit Price', 'Counterparty', 'Method', 'Status'],
+      rows: filteredOrdersList.map((o) => [
+        o.orderCode || '',
+        o.createdAt ? new Date(o.createdAt).toLocaleString() : '',
+        o.side || '',
+        `${o.cryptoAmount} ${o.cryptoCurrency}`,
+        `${o.fiatAmount} ${o.fiatCurrency}`,
+        `${o.price} ${o.fiatCurrency}`,
+        o.counterparty?.name || '',
+        o.selectedPaymentMethod || '',
+        o.statusBadge || o.status || '',
+      ]),
+    });
+  };
 
   const filteredMyOffers = myOffers.filter((ad) => {
     if (!adSearch.trim()) return true;
@@ -3858,6 +3906,25 @@ function P2PPageContent() {
                 </button>
               ))}
             </div>
+          )}
+
+          {user && (
+            <ListingDateFilterAndExport
+              startDate={userOrdersDateFilter.startDate}
+              endDate={userOrdersDateFilter.endDate}
+              onStartDateChange={userOrdersDateFilter.setStartDate}
+              onEndDateChange={userOrdersDateFilter.setEndDate}
+              activePreset={userOrdersDateFilter.activePreset}
+              onPresetSelect={userOrdersDateFilter.setPreset}
+              onClear={userOrdersDateFilter.clearFilter}
+              isFiltered={userOrdersDateFilter.isFiltered}
+              totalFilteredCount={filteredOrdersList.length}
+              totalOriginalCount={ordersList.length}
+              onExportCsv={handleExportUserOrdersCsv}
+              onExportJson={handleExportUserOrdersJson}
+              onPrintPdf={handlePrintUserOrdersPdf}
+              itemLabel="orders"
+            />
           )}
 
           {!authLoading && !user ? (

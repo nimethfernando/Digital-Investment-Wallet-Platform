@@ -15,6 +15,9 @@ import { ChooseSendMethodModal } from '../../components/ChooseSendMethodModal';
 import { BankAccountsModule, UserBankAccount } from '../../components/BankAccountsModule';
 import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';
 import PaginationControls, { usePagination } from '../../components/PaginationControls';
+import ListingDateFilterAndExport from '../../components/ListingDateFilterAndExport';
+import { useDateRangeFilter } from '../../lib/useDateRangeFilter';
+import { exportToCsv, exportToJson, printReportTable } from '../../lib/exportUtils';
 import {
   CustomerNotificationItem,
   CustomerNotificationSummary,
@@ -385,30 +388,6 @@ function DashboardContent() {
   const [txSearch, setTxSearch] = useState('');
   const [wthSearch, setWthSearch] = useState('');
   const [pkgSearch, setPkgSearch] = useState('');
-
-  // Instant Statement Export
-  const handleExportStatementCsv = () => {
-    if (!transactions || transactions.length === 0) {
-      alert('No ledger transactions recorded yet to export.');
-      return;
-    }
-    let csv = 'Transaction Code,Date,Time,Type,Amount,Currency,Status,Balance Before,Balance After,Reference,Notes\n';
-    for (const t of transactions) {
-      const dt = new Date(t.createdAt);
-      const dateStr = dt.toISOString().split('T')[0];
-      const timeStr = dt.toLocaleTimeString();
-      csv += `"${t.transactionCode || t.id}","${dateStr}","${timeStr}","${t.type}","${parseFloat(t.amount || '0').toFixed(2)}","${t.currency}","${t.status}","${parseFloat(t.balanceBefore || '0').toFixed(2)}","${parseFloat(t.balanceAfter || '0').toFixed(2)}","${t.settlementReference || ''}","${(t.notes || '').replace(/"/g, '""')}"\n`;
-    }
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `AvoraBank-Statement-${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
 
   // Modals
   const [depositModalOpen, setDepositModalOpen] = useState(false);
@@ -1444,8 +1423,11 @@ function DashboardContent() {
           )
       : availUsdNum;
 
+  const txDateFilter = useDateRangeFilter(transactions, (tx) => tx.createdAt);
+  const wthDateFilter = useDateRangeFilter(withdrawals, (w) => w.createdAt);
+
   // Filtered Transactions
-  const filteredTransactions = transactions.filter((tx) => {
+  const filteredTransactions = txDateFilter.filteredItems.filter((tx) => {
     if (txTypeFilter === 'ALL_EARNINGS') {
       const isEarning = [
         'MONTHLY_RETURN',
@@ -1489,7 +1471,7 @@ function DashboardContent() {
     return true;
   });
 
-  const filteredWithdrawals = withdrawals.filter((w) => {
+  const filteredWithdrawals = wthDateFilter.filteredItems.filter((w) => {
     if (!wthSearch.trim()) return true;
     const q = wthSearch.trim().toLowerCase();
     const hay = `${w.requestCode || ''} ${w.currency || ''} ${w.payoutMethod || ''} ${w.status || ''} ${w.settlementReference || ''} ${w.payoutDetails || ''} ${w.packageCode || ''}`.toLowerCase();
@@ -1506,6 +1488,65 @@ function DashboardContent() {
   const txPagination = usePagination(filteredTransactions, 50);
   const wthPagination = usePagination(filteredWithdrawals, 50);
   const notifPagination = usePagination(filteredNotifications, 50);
+
+  const handleExportStatementCsv = () => {
+    exportToCsv(
+      `AvoraBank-Statement-${txDateFilter.startDate || 'all'}-to-${txDateFilter.endDate || 'now'}`,
+      filteredTransactions,
+      [
+        { label: 'Transaction Code', key: 'transactionCode' },
+        { label: 'Date', format: (t) => new Date(t.createdAt).toISOString().split('T')[0] },
+        { label: 'Time', format: (t) => new Date(t.createdAt).toLocaleTimeString() },
+        { label: 'Type', key: 'type' },
+        { label: 'Amount', format: (t) => parseFloat(t.amount || '0').toFixed(2) },
+        { label: 'Currency', key: 'currency' },
+        { label: 'Status', key: 'status' },
+        { label: 'Balance Before', format: (t) => parseFloat(t.balanceBefore || '0').toFixed(2) },
+        { label: 'Balance After', format: (t) => parseFloat(t.balanceAfter || '0').toFixed(2) },
+        { label: 'Reference', key: 'settlementReference' },
+        { label: 'Notes', key: 'notes' },
+      ]
+    );
+  };
+
+  const handleExportStatementJson = () => {
+    exportToJson(
+      `AvoraBank-Statement-${txDateFilter.startDate || 'all'}-to-${txDateFilter.endDate || 'now'}`,
+      filteredTransactions
+    );
+  };
+
+  const handlePrintStatementPdf = () => {
+    printReportTable({
+      title: 'Avora Bank Account Statement & Financial Ledger',
+      subtitle: `Account Holder: ${user?.firstName || ''} ${user?.lastName || ''} (${user?.email || ''})`,
+      dateRangeText: txDateFilter.dateRangeText,
+      columns: [
+        { label: 'Date & Time', format: (t) => new Date(t.createdAt).toLocaleString() },
+        { label: 'Transaction Code', key: 'transactionCode' },
+        { label: 'Type', key: 'type' },
+        { label: 'Amount', format: (t) => `${parseFloat(t.amount || '0').toFixed(2)} ${t.currency}` },
+        { label: 'Balance After', format: (t) => `${parseFloat(t.balanceAfter || '0').toFixed(2)} ${t.currency}` },
+        { label: 'Status', key: 'status' },
+      ],
+      rows: filteredTransactions,
+    });
+  };
+
+  const handleExportUserWithdrawalsCsv = () => {
+    exportToCsv(
+      `AvoraBank-Withdrawals-${wthDateFilter.startDate || 'all'}-to-${wthDateFilter.endDate || 'now'}`,
+      filteredWithdrawals,
+      [
+        { label: 'Request Code', key: 'requestCode' },
+        { label: 'Date', format: (w) => new Date(w.createdAt).toISOString() },
+        { label: 'Status', key: 'status' },
+        { label: 'Amount', format: (w) => `${parseFloat(w.amount || '0').toFixed(2)} ${w.currency}` },
+        { label: 'Method', key: 'payoutMethod' },
+        { label: 'Destination / Reference', key: 'settlementReference' },
+      ]
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors pb-20">
@@ -4125,6 +4166,23 @@ function DashboardContent() {
               </select>
             </div>
 
+            <ListingDateFilterAndExport
+              startDate={txDateFilter.startDate}
+              endDate={txDateFilter.endDate}
+              onStartDateChange={txDateFilter.setStartDate}
+              onEndDateChange={txDateFilter.setEndDate}
+              activePreset={txDateFilter.activePreset}
+              onPresetSelect={txDateFilter.setPreset}
+              onClear={txDateFilter.clearFilter}
+              isFiltered={txDateFilter.isFiltered}
+              totalFilteredCount={filteredTransactions.length}
+              totalOriginalCount={transactions.length}
+              onExportCsv={handleExportStatementCsv}
+              onExportJson={handleExportStatementJson}
+              onPrintPdf={handlePrintStatementPdf}
+              itemLabel="transactions"
+            />
+
             <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto">
               {filteredTransactions.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-xs">
@@ -4494,6 +4552,22 @@ function DashboardContent() {
                     />
                   </div>
                 </div>
+
+                <ListingDateFilterAndExport
+                  startDate={wthDateFilter.startDate}
+                  endDate={wthDateFilter.endDate}
+                  onStartDateChange={wthDateFilter.setStartDate}
+                  onEndDateChange={wthDateFilter.setEndDate}
+                  activePreset={wthDateFilter.activePreset}
+                  onPresetSelect={wthDateFilter.setPreset}
+                  onClear={wthDateFilter.clearFilter}
+                  isFiltered={wthDateFilter.isFiltered}
+                  totalFilteredCount={filteredWithdrawals.length}
+                  totalOriginalCount={withdrawals.length}
+                  onExportCsv={handleExportUserWithdrawalsCsv}
+                  itemLabel="withdrawals"
+                />
+
                 {filteredWithdrawals.length === 0 ? (
                   <div className="py-8 text-center text-xs text-slate-400">
                     No withdrawal requests match &ldquo;{wthSearch}&rdquo;.
