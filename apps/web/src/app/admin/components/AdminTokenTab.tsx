@@ -1080,16 +1080,16 @@ export default function AdminTokenTab({
         </div>
 
         {/* Pagination Footer */}
-        {filtered.length > pageSize && (
-          <div className="p-4 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between">
-            <span className="text-xs text-slate-400">
-              Showing {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, filtered.length)} of{' '}
-              {filtered.length} records
-            </span>
+        {filtered.length > 0 && (
+          <div className="p-4 border-t border-slate-800 bg-slate-900/60">
             <PaginationControls
               currentPage={safePage}
-              totalPages={totalPages}
+              totalItems={filtered.length}
+              pageSize={pageSize}
               onPageChange={(p) => setPage(p)}
+              onPageSizeChange={(s) => setPageSize(s)}
+              itemLabel="token holders"
+              theme="dark"
             />
           </div>
         )}

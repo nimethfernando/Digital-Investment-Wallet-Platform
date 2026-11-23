@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
@@ -56,6 +56,7 @@ import {
   Coins,
   Percent,
   DollarSign,
+  Globe,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import { P2PTraderProfileModal } from '../../components/p2p/P2PTraderProfileModal';
@@ -1718,24 +1719,24 @@ function P2PPageContent() {
 
   const handleExportUserOrdersCsv = () => {
     exportToCsv(
+      `Avora_P2P_Orders_${new Date().toISOString().split('T')[0]}`,
       filteredOrdersList,
       [
-        { header: 'Order Code', accessor: (o) => o.orderCode || '' },
-        { header: 'Date & Time', accessor: (o) => o.createdAt ? new Date(o.createdAt).toLocaleString() : '' },
-        { header: 'Side', accessor: (o) => o.side || '' },
-        { header: 'Crypto Amount', accessor: (o) => `${o.cryptoAmount} ${o.cryptoCurrency}` },
-        { header: 'Fiat Total', accessor: (o) => `${o.fiatAmount} ${o.fiatCurrency}` },
-        { header: 'Unit Price', accessor: (o) => `${o.price} ${o.fiatCurrency}` },
-        { header: 'Counterparty', accessor: (o) => o.counterparty?.name || '' },
-        { header: 'Payment Method', accessor: (o) => o.selectedPaymentMethod || '' },
-        { header: 'Status', accessor: (o) => o.statusBadge || o.status || '' },
-      ],
-      `Avora_P2P_Orders_${new Date().toISOString().split('T')[0]}.csv`
+        { label: 'Order Code', format: (o) => o.orderCode || '' },
+        { label: 'Date & Time', format: (o) => o.createdAt ? new Date(o.createdAt).toLocaleString() : '' },
+        { label: 'Side', format: (o) => o.side || '' },
+        { label: 'Crypto Amount', format: (o) => `${o.cryptoAmount} ${o.cryptoCurrency}` },
+        { label: 'Fiat Total', format: (o) => `${o.fiatAmount} ${o.fiatCurrency}` },
+        { label: 'Unit Price', format: (o) => `${o.price} ${o.fiatCurrency}` },
+        { label: 'Counterparty', format: (o) => o.counterparty?.name || '' },
+        { label: 'Payment Method', format: (o) => o.selectedPaymentMethod || '' },
+        { label: 'Status', format: (o) => o.statusBadge || o.status || '' },
+      ]
     );
   };
 
   const handleExportUserOrdersJson = () => {
-    exportToJson(filteredOrdersList, `Avora_P2P_Orders_${new Date().toISOString().split('T')[0]}.json`);
+    exportToJson(`Avora_P2P_Orders_${new Date().toISOString().split('T')[0]}`, filteredOrdersList);
   };
 
   const handlePrintUserOrdersPdf = () => {
@@ -1744,18 +1745,18 @@ function P2PPageContent() {
       dateRangeText: userOrdersDateFilter.isFiltered
         ? `${userOrdersDateFilter.startDate || 'Beginning'} — ${userOrdersDateFilter.endDate || 'Present'}`
         : 'All-Time Records',
-      headers: ['Order Code', 'Date & Time', 'Side', 'Crypto Amount', 'Fiat Total', 'Unit Price', 'Counterparty', 'Method', 'Status'],
-      rows: filteredOrdersList.map((o) => [
-        o.orderCode || '',
-        o.createdAt ? new Date(o.createdAt).toLocaleString() : '',
-        o.side || '',
-        `${o.cryptoAmount} ${o.cryptoCurrency}`,
-        `${o.fiatAmount} ${o.fiatCurrency}`,
-        `${o.price} ${o.fiatCurrency}`,
-        o.counterparty?.name || '',
-        o.selectedPaymentMethod || '',
-        o.statusBadge || o.status || '',
-      ]),
+      columns: [
+        { label: 'Order Code', format: (o) => o.orderCode || '' },
+        { label: 'Date & Time', format: (o) => o.createdAt ? new Date(o.createdAt).toLocaleString() : '' },
+        { label: 'Side', format: (o) => o.side || '' },
+        { label: 'Crypto Amount', format: (o) => `${o.cryptoAmount} ${o.cryptoCurrency}` },
+        { label: 'Fiat Total', format: (o) => `${o.fiatAmount} ${o.fiatCurrency}` },
+        { label: 'Unit Price', format: (o) => `${o.price} ${o.fiatCurrency}` },
+        { label: 'Counterparty', format: (o) => o.counterparty?.name || '' },
+        { label: 'Method', format: (o) => o.selectedPaymentMethod || '' },
+        { label: 'Status', format: (o) => o.statusBadge || o.status || '' },
+      ],
+      rows: filteredOrdersList,
     });
   };
 

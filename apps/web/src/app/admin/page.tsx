@@ -72,6 +72,9 @@ import {
   AlertTriangle,
   Mail,
   Info,
+  ArrowUpRight,
+  Download,
+  Printer,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 

@@ -56,6 +56,8 @@ import {
   Bookmark,
   Sparkles,
   AlertCircle,
+  AlertTriangle,
+  Info,
   Landmark,
   Smartphone,
   Globe,

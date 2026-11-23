@@ -33,6 +33,7 @@ import {
   Phone,
   MessageSquare,
   Briefcase,
+  Rocket,
 } from 'lucide-react';
 import { SearchableCountrySelect } from '../../components/SearchableCountrySelect';
 import { InvestmentInfoTip } from '../../components/InvestmentInfoTip';

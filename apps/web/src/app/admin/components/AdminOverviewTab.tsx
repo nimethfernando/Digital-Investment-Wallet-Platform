@@ -22,6 +22,8 @@ import {
   CalendarClock,
   ArrowRight,
   AlertCircle,
+  ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface OverviewProps {

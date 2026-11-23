@@ -15,6 +15,7 @@ import {
   MessageSquare,
   FileCheck,
   ShieldAlert,
+  ShieldCheck,
   UserCheck,
   UserX,
   CheckCircle2,
