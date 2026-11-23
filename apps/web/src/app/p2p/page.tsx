@@ -73,56 +73,122 @@ interface CountryRail {
   methods: string[];
 }
 
-const COUNTRIES: CountryRail[] = [
+export interface P2PCorridorConfig {
+  id: string;
+  countryCode: string;
+  countryName: string;
+  flag: string;
+  primaryCurrency: string;
+  supportedCurrencies: string[];
+  allowedPaymentMethods: string[];
+  crossBorderAllowed: boolean;
+  crossBorderCurrencies: string[];
+  priorityDeskEnabled: boolean;
+  enabled: boolean;
+}
+
+export const DEFAULT_P2P_CORRIDORS: P2PCorridorConfig[] = [
   {
     id: 'lk',
-    name: 'Sri Lanka',
-    code: 'LK',
+    countryCode: 'LK',
+    countryName: 'Sri Lanka',
     flag: '🇱🇰',
-    currency: 'LKR',
-    methods: ['Commercial Bank CEFTS', 'Sampath Bank Vishwa', 'BOC / HNB', 'Bank Transfer'],
+    primaryCurrency: 'LKR',
+    supportedCurrencies: ['LKR', 'USD'],
+    allowedPaymentMethods: ['Commercial Bank CEFTS', 'Sampath Bank Vishwa', 'BOC / HNB', 'Bank Transfer'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD'],
+    priorityDeskEnabled: false,
+    enabled: true,
   },
   {
     id: 'in',
-    name: 'India',
-    code: 'IN',
+    countryCode: 'IN',
+    countryName: 'India',
     flag: '🇮🇳',
-    currency: 'INR',
-    methods: ['UPI', 'IMPS', 'Paytm', 'PhonePe', 'Bank Transfer'],
+    primaryCurrency: 'INR',
+    supportedCurrencies: ['INR', 'USD'],
+    allowedPaymentMethods: ['UPI', 'IMPS', 'Bank Transfer', 'Paytm', 'PhonePe', 'Google Pay (GPay)'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD'],
+    priorityDeskEnabled: true,
+    enabled: true,
   },
   {
     id: 'ae',
-    name: 'United Arab Emirates',
-    code: 'AE',
+    countryCode: 'AE',
+    countryName: 'United Arab Emirates',
     flag: '🇦🇪',
-    currency: 'AED',
-    methods: ['AED Bank Transfer', 'FAB i-Save', 'ADCB Hayyak'],
+    primaryCurrency: 'AED',
+    supportedCurrencies: ['AED', 'USD'],
+    allowedPaymentMethods: ['AED Bank Transfer', 'FAB i-Save', 'ADCB Hayyak'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD'],
+    priorityDeskEnabled: false,
+    enabled: true,
   },
   {
     id: 'ge',
-    name: 'Georgia',
-    code: 'GE',
+    countryCode: 'GE',
+    countryName: 'Georgia',
     flag: '🇬🇪',
-    currency: 'GEL',
-    methods: ['Bank of Georgia', 'TBC Bank'],
+    primaryCurrency: 'GEL',
+    supportedCurrencies: ['GEL', 'USD', 'EUR'],
+    allowedPaymentMethods: ['Bank of Georgia', 'TBC Bank', 'Liberty Bank'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD', 'EUR'],
+    priorityDeskEnabled: false,
+    enabled: true,
   },
   {
     id: 'eu',
-    name: 'European Union',
-    code: 'EU',
+    countryCode: 'EU',
+    countryName: 'European Union',
     flag: '🇪🇺',
-    currency: 'EUR',
-    methods: ['SEPA Instant', 'Revolut', 'N26 Transfer', 'Wise'],
+    primaryCurrency: 'EUR',
+    supportedCurrencies: ['EUR', 'USD'],
+    allowedPaymentMethods: ['SEPA Instant', 'Revolut', 'Wise', 'N26 Transfer'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD'],
+    priorityDeskEnabled: false,
+    enabled: true,
   },
   {
     id: 'us',
-    name: 'United States',
-    code: 'US',
+    countryCode: 'US',
+    countryName: 'United States',
     flag: '🇺🇸',
-    currency: 'USD',
-    methods: ['ACH Transfer', 'Zelle', 'Domestic Wire', 'Cash App'],
+    primaryCurrency: 'USD',
+    supportedCurrencies: ['USD'],
+    allowedPaymentMethods: ['ACH Transfer', 'Zelle', 'Domestic Wire', 'Cash App'],
+    crossBorderAllowed: false,
+    crossBorderCurrencies: [],
+    priorityDeskEnabled: false,
+    enabled: true,
+  },
+  {
+    id: 'gb',
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    flag: '🇬🇧',
+    primaryCurrency: 'GBP',
+    supportedCurrencies: ['GBP', 'EUR', 'USD'],
+    allowedPaymentMethods: ['Faster Payments (UK)', 'Revolut', 'Monzo', 'Bank Transfer'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['EUR', 'USD'],
+    priorityDeskEnabled: false,
+    enabled: true,
   },
 ];
+
+const COUNTRIES: CountryRail[] = DEFAULT_P2P_CORRIDORS.map((c) => ({
+  id: c.id,
+  name: c.countryName,
+  code: c.countryCode,
+  flag: c.flag,
+  currency: c.primaryCurrency,
+  methods: c.allowedPaymentMethods,
+}));
 
 const GLOBAL_PAYMENT_METHODS = [
   'Bank Transfer',
@@ -744,6 +810,21 @@ function P2PPageContent() {
     }
   };
 
+  // P2P Corridors Configuration (Country -> Supported Currencies -> Allowed Rails)
+  const [corridors, setCorridors] = useState<P2PCorridorConfig[]>(DEFAULT_P2P_CORRIDORS);
+
+  useEffect(() => {
+    api.get('/p2p/corridors').then((res) => {
+      if (res.data?.success && Array.isArray(res.data?.data) && res.data.data.length > 0) {
+        setCorridors(res.data.data);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const activeCorridors = useMemo(() => {
+    return corridors.filter((c) => c.enabled);
+  }, [corridors]);
+
   // P2P Market State & Search Filters (Default to USD / United States)
   const defaultCountry = COUNTRIES.find((c) => c.currency === 'USD') || COUNTRIES[5] || COUNTRIES[0];
   const [marketSide, setMarketSide] = useState<'BUY' | 'SELL'>('BUY');
@@ -831,13 +912,21 @@ function P2PPageContent() {
   }, []);
 
   const availableCountries = useMemo(() => {
-    return COUNTRIES.filter((c) => {
+    const list = activeCorridors.map((c) => ({
+      id: c.id,
+      name: c.countryName,
+      code: c.countryCode,
+      flag: c.flag,
+      currency: c.primaryCurrency,
+      methods: c.allowedPaymentMethods,
+    }));
+    return list.filter((c) => {
       const curDisabled = featureMap[`CURRENCY_${c.currency}`]?.enabled === false;
       const p2pDisabled = featureMap[`P2P_CURRENCY_${c.currency}`]?.enabled === false;
       const countryDisabled = featureMap[`COUNTRY_${c.code}`]?.enabled === false;
       return !curDisabled && !p2pDisabled && !countryDisabled;
     });
-  }, [featureMap]);
+  }, [activeCorridors, featureMap]);
 
   // Fallback selectedCountry if current selection is disabled
   useEffect(() => {
@@ -1583,9 +1672,14 @@ function P2PPageContent() {
       return !isFiatOff;
     });
 
-    // Avora Priority P2P Desk is specifically and only configured for India (INR) domestic settlement
+    // Avora Priority P2P Desk is specifically configured for corridors with priorityDeskEnabled: true
+    const priorityDeskCurrencies = activeCorridors
+      .filter((c) => c.priorityDeskEnabled)
+      .map((c) => c.primaryCurrency.toUpperCase());
+
     combined = combined.map((item) => {
-      if ((item.fiatCurrency || '').toUpperCase() !== 'INR' && item.isPriorityDesk) {
+      const isPriorityActive = priorityDeskCurrencies.includes((item.fiatCurrency || '').toUpperCase());
+      if (!isPriorityActive && item.isPriorityDesk) {
         return {
           ...item,
           isPriorityDesk: false,
@@ -3153,11 +3247,17 @@ function P2PPageContent() {
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
                 >
                   <option value="ALL">All Payment Methods</option>
-                  {Array.from(new Set([...(selectedCountry.methods || []), ...GLOBAL_PAYMENT_METHODS])).map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
+                  {(() => {
+                    const matched = activeCorridors.find(
+                      (c) => c.id === selectedCountry.id || c.countryCode === selectedCountry.code || c.primaryCurrency === selectedCountry.currency
+                    );
+                    const rails = matched?.allowedPaymentMethods || selectedCountry.methods || [];
+                    return Array.from(new Set(rails)).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ));
+                  })()}
                 </select>
               </div>
 
@@ -3207,23 +3307,29 @@ function P2PPageContent() {
               <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
                 <Sliders className="w-3.5 h-3.5 text-emerald-500" /> Quick Rails:
               </span>
-              {['ALL', 'Bank Transfer', 'Google Pay (GPay)', 'Apple Pay', 'Wise', 'Revolut', 'PayPal', ...(selectedCountry.methods || []).slice(0, 2)].filter((v, i, arr) => arr.indexOf(v) === i).map((method) => {
-                const active = marketPaymentFilter === method;
-                return (
-                  <button
-                    key={method}
-                    type="button"
-                    onClick={() => setMarketPaymentFilter(method)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    {method === 'ALL' ? 'All Methods' : method}
-                  </button>
+              {(() => {
+                const matched = activeCorridors.find(
+                  (c) => c.id === selectedCountry.id || c.countryCode === selectedCountry.code || c.primaryCurrency === selectedCountry.currency
                 );
-              })}
+                const allowedRails = matched?.allowedPaymentMethods || selectedCountry.methods || [];
+                return ['ALL', ...allowedRails].filter((v, i, arr) => arr.indexOf(v) === i).map((method) => {
+                  const active = marketPaymentFilter === method;
+                  return (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setMarketPaymentFilter(method)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                        active
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {method === 'ALL' ? 'All Methods' : method}
+                    </button>
+                  );
+                });
+              })()}
             </div>
           </div>
 
@@ -4298,21 +4404,16 @@ function P2PPageContent() {
               <p className="text-xs text-slate-500 dark:text-slate-400">Publish your custom buy or sell listing directly to the public marketplace.</p>
             </div>
 
-            {/* Single Corridor Restriction Alert */}
-            {myOffers.some((o) => o.status === 'OPEN' || o.status === 'PAUSED') && (() => {
-              const activeCorridorAd = myOffers.find((o) => o.status === 'OPEN' || o.status === 'PAUSED');
-              return (
-                <div className="p-3.5 rounded-2xl bg-sky-950/40 border border-sky-500/30 text-xs text-sky-200 flex items-start gap-2.5">
-                  <ShieldCheck className="w-4 h-4 shrink-0 text-sky-400 mt-0.5" />
-                  <div>
-                    <span className="font-bold">Authorized Desk Corridor: {activeCorridorAd?.fiatCurrency}</span>
-                    <p className="text-[11px] text-slate-300 mt-0.5">
-                      Your merchant account is actively registered and trading in the <strong>{activeCorridorAd?.fiatCurrency}</strong> corridor ({activeCorridorAd?.offerCode}). One merchant operates in one country/currency at a time to prevent multi-corridor market manipulation. To operate in another country, please close this ad first.
-                    </p>
-                  </div>
-                </div>
-              );
-            })()}
+            {/* Regulated P2P Corridors Notice */}
+            <div className="p-3.5 rounded-2xl bg-blue-950/40 border border-blue-500/30 text-xs text-blue-200 flex items-start gap-2.5">
+              <Globe className="w-4 h-4 shrink-0 text-blue-400 mt-0.5" />
+              <div>
+                <span className="font-bold">Regulated P2P Market Corridors:</span>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  Select an authorized <strong>Market Country Corridor</strong> below. The system automatically restricts available currencies and payment rails to those authorized for that corridor.
+                </p>
+              </div>
+            </div>
 
             {!authLoading && !user ? (
               <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex flex-wrap items-center justify-between gap-3">
@@ -4415,84 +4516,121 @@ function P2PPageContent() {
                 </div>
               </div>
 
-              {/* Fiat Currency & City */}
+              {/* Step 1 & 2: Country Corridor & Authorized Currency */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Target Currency (Global)</label>
-                  <SearchableCountrySelect
-                    value={newAdCountryCode || newAdCurrency}
-                    onChange={(c) => {
-                      setNewAdCountryCode(c.code);
-                      setNewAdCountryName(c.name);
-                      if (c.currency !== newAdCurrency) {
-                        setNewAdCurrency(c.currency);
-                        const spot = getCryptoFiatSpotRate(newAdCrypto, c.currency);
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                    Market Country Corridor
+                  </label>
+                  <select
+                    value={newAdCountryCode}
+                    onChange={(e) => {
+                      const cCode = e.target.value;
+                      const matched = activeCorridors.find((c) => c.countryCode === cCode) || activeCorridors[0];
+                      if (matched) {
+                        setNewAdCountryCode(matched.countryCode);
+                        setNewAdCountryName(matched.countryName);
+                        const firstCur = matched.supportedCurrencies[0] || matched.primaryCurrency;
+                        setNewAdCurrency(firstCur);
+                        const spot = getCryptoFiatSpotRate(newAdCrypto, firstCur);
                         setNewAdPrice(spot.toFixed(spot >= 20 ? 2 : 4));
+                        setNewAdMethods(matched.allowedPaymentMethods.slice(0, 3));
                       }
-                      const rail = COUNTRIES.find((r) => r.currency === c.currency);
-                      if (rail) setNewAdMethods(rail.methods.slice(0, 2));
                     }}
-                    size="sm"
-                    className="w-full"
-                  />
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-xs outline-none focus:border-emerald-500"
+                  >
+                    {activeCorridors.map((c) => (
+                      <option key={c.id} value={c.countryCode}>
+                        {c.flag} {c.countryName} ({c.countryCode})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Merchant Location / City</label>
-                  <input
-                    type="text"
-                    value={newAdLocationCity}
-                    onChange={(e) => setNewAdLocationCity(e.target.value)}
-                    placeholder="e.g. Colombo, Mumbai, Dubai, Tbilisi"
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
-                  />
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                    Settlement Currency (Corridor Approved)
+                  </label>
+                  {(() => {
+                    const matched = activeCorridors.find((c) => c.countryCode === newAdCountryCode) || activeCorridors[0];
+                    const supported = matched?.supportedCurrencies || [newAdCurrency];
+                    return (
+                      <select
+                        value={newAdCurrency}
+                        onChange={(e) => {
+                          const cur = e.target.value;
+                          setNewAdCurrency(cur);
+                          const spot = getCryptoFiatSpotRate(newAdCrypto, cur);
+                          setNewAdPrice(spot.toFixed(spot >= 20 ? 2 : 4));
+                        }}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono font-bold text-xs outline-none focus:border-emerald-500"
+                      >
+                        {supported.map((cur) => (
+                          <option key={cur} value={cur}>
+                            {cur} {cur === matched?.primaryCurrency ? '(Primary Domestic)' : '(Approved Cross-Border Corridor)'}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  })()}
                 </div>
               </div>
 
-              {/* Payment Methods */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">Merchant Location / City</label>
+                <input
+                  type="text"
+                  value={newAdLocationCity}
+                  onChange={(e) => setNewAdLocationCity(e.target.value)}
+                  placeholder="e.g. Colombo, Mumbai, Dubai, Tbilisi, London"
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
+                />
+              </div>
+
+              {/* Step 3: Payment Methods (Multi-Select) */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-slate-700 dark:text-slate-300 font-bold">
-                    Accepted Payment Methods (Multi-Select or Add Custom)
+                    Accepted Payment Rails (Multi-Select for this Ad)
                   </label>
                   <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
                     {newAdMethods.length} selected
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {Array.from(
-                    new Set([
-                      ...(COUNTRIES.find((c) => c.currency === newAdCurrency)?.methods || []),
-                      ...GLOBAL_PAYMENT_METHODS,
-                      ...newAdMethods,
-                    ])
-                  ).map((method) => {
-                    const selected = newAdMethods.includes(method);
-                    return (
-                      <button
-                        key={method}
-                        type="button"
-                        onClick={() =>
-                          setNewAdMethods((prev) =>
-                            prev.includes(method) ? (prev.length > 1 ? prev.filter((m) => m !== method) : prev) : [...prev, method]
-                          )
-                        }
-                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-colors cursor-pointer border ${
-                          selected
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                      >
-                        {method}
-                      </button>
-                    );
-                  })}
+                  {(() => {
+                    const matched = activeCorridors.find((c) => c.countryCode === newAdCountryCode) || activeCorridors[0];
+                    const corridorRails = matched?.allowedPaymentMethods || [];
+                    const allCandidateMethods = Array.from(new Set([...corridorRails, ...newAdMethods]));
+                    return allCandidateMethods.map((method) => {
+                      const selected = newAdMethods.includes(method);
+                      return (
+                        <button
+                          key={method}
+                          type="button"
+                          onClick={() =>
+                            setNewAdMethods((prev) =>
+                              prev.includes(method) ? (prev.length > 1 ? prev.filter((m) => m !== method) : prev) : [...prev, method]
+                            )
+                          }
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5 ${
+                            selected
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          <span>{selected ? '✓' : '+'}</span>
+                          <span>{method}</span>
+                        </button>
+                      );
+                    });
+                  })()}
                 </div>
                 <div className="flex items-center gap-2 mt-2.5">
                   <input
                     type="text"
                     value={customMethodInput}
                     onChange={(e) => setCustomMethodInput(e.target.value)}
-                    placeholder="Add custom method (e.g. Stripe Link, Alipay, Venmo, Cash Deposit)"
+                    placeholder="Add custom rail (e.g. Bank of Baroda, Sampath Vishwa, Zelle)..."
                     className="flex-1 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 text-xs outline-none"
                   />
                   <button
@@ -4507,7 +4645,7 @@ function P2PPageContent() {
                     }}
                     className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold whitespace-nowrap cursor-pointer"
                   >
-                    + Add Method
+                    + Add Rail
                   </button>
                 </div>
               </div>
@@ -5901,36 +6039,37 @@ function P2PPageContent() {
               {/* Payment Methods */}
               <div>
                 <label className="block font-bold text-slate-200 mb-1.5">
-                  Accepted Payment Methods ({editAdMethods.length} active)
+                  Accepted Payment Rails ({editAdMethods.length} active — Multi-Select)
                 </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {Array.from(
-                    new Set([
-                      ...(COUNTRIES.find((c) => c.currency === editingOffer.fiatCurrency)?.methods || []),
-                      ...GLOBAL_PAYMENT_METHODS,
-                      ...editAdMethods,
-                    ])
-                  ).map((method) => {
-                    const active = editAdMethods.includes(method);
-                    return (
-                      <button
-                        key={method}
-                        type="button"
-                        onClick={() =>
-                          setEditAdMethods((prev) =>
-                            prev.includes(method) ? (prev.length > 1 ? prev.filter((m) => m !== method) : prev) : [...prev, method]
-                          )
-                        }
-                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
-                          active
-                            ? 'bg-emerald-600 text-white border-emerald-500'
-                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-                        }`}
-                      >
-                        {method}
-                      </button>
+                  {(() => {
+                    const matched = activeCorridors.find(
+                      (c) => c.primaryCurrency === editingOffer.fiatCurrency || c.supportedCurrencies.includes(editingOffer.fiatCurrency)
                     );
-                  })}
+                    const candidateRails = Array.from(new Set([...(matched?.allowedPaymentMethods || []), ...editAdMethods]));
+                    return candidateRails.map((method) => {
+                      const active = editAdMethods.includes(method);
+                      return (
+                        <button
+                          key={method}
+                          type="button"
+                          onClick={() =>
+                            setEditAdMethods((prev) =>
+                              prev.includes(method) ? (prev.length > 1 ? prev.filter((m) => m !== method) : prev) : [...prev, method]
+                            )
+                          }
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                            active
+                              ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                          }`}
+                        >
+                          <span>{active ? '✓' : '+'}</span>
+                          <span>{method}</span>
+                        </button>
+                      );
+                    });
+                  })()}
                 </div>
                 <div className="flex items-center gap-2 mt-2.5">
                   <input

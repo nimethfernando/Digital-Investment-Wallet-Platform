@@ -24,6 +24,11 @@ import {
   Coins,
   DollarSign,
   Lock,
+  Globe,
+  Plus,
+  Trash2,
+  Save,
+  Check,
 } from 'lucide-react';
 import { api, extractErrorMessage, resolveMediaUrl } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
@@ -120,7 +125,7 @@ export default function AdminP2PTab({
   };
 
   // P2P Onboarding Applications Compliance Queue
-  const [p2pSubTab, setP2pSubTab] = useState<'orders' | 'applications'>('orders');
+  const [p2pSubTab, setP2pSubTab] = useState<'orders' | 'applications' | 'corridors'>('orders');
   const [applications, setApplications] = useState<any[]>([]);
   const [appsLoading, setAppsLoading] = useState(false);
   const [appStatusFilter, setAppStatusFilter] = useState('ALL');
@@ -131,6 +136,186 @@ export default function AdminP2PTab({
   const [approveKycToo, setApproveKycToo] = useState(true);
   const [modalApp2FaCode, setModalApp2FaCode] = useState('');
   const [submittingAppReview, setSubmittingAppReview] = useState(false);
+
+  // Market Corridors & Payment Rails State
+  const [corridors, setCorridors] = useState<Array<{
+    id: string;
+    countryCode: string;
+    countryName: string;
+    flag: string;
+    primaryCurrency: string;
+    supportedCurrencies: string[];
+    allowedPaymentMethods: string[];
+    crossBorderAllowed: boolean;
+    crossBorderCurrencies: string[];
+    priorityDeskEnabled: boolean;
+    enabled: boolean;
+  }>>([]);
+  const [corridorsLoading, setCorridorsLoading] = useState(false);
+  const [corridorsSaving, setCorridorsSaving] = useState(false);
+  const [newCurrencyInputs, setNewCurrencyInputs] = useState<Record<string, string>>({});
+  const [newRailInputs, setNewRailInputs] = useState<Record<string, string>>({});
+  const [showAddCorridorModal, setShowAddCorridorModal] = useState(false);
+  const [addCorridorForm, setAddCorridorForm] = useState({
+    id: '',
+    countryCode: '',
+    countryName: '',
+    flag: '🌐',
+    primaryCurrency: '',
+    supportedCurrencies: '',
+    allowedPaymentMethods: '',
+    crossBorderAllowed: true,
+    priorityDeskEnabled: false,
+    enabled: true,
+  });
+
+  const fetchCorridors = async () => {
+    setCorridorsLoading(true);
+    try {
+      const res = await api.get('/admin/p2p/corridors');
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        setCorridors(res.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load P2P corridors:', err);
+    } finally {
+      setCorridorsLoading(false);
+    }
+  };
+
+  const handleSaveCorridors = async (updatedList = corridors) => {
+    setCorridorsSaving(true);
+    try {
+      const res = await api.post('/admin/p2p/corridors', { corridors: updatedList });
+      if (res.data?.success) {
+        onFeedback({
+          type: 'success',
+          text: res.data.message || 'P2P Corridors and Payment Rails updated successfully.',
+        });
+        if (Array.isArray(res.data.data)) {
+          setCorridors(res.data.data);
+        }
+      }
+    } catch (err: any) {
+      onFeedback({
+        type: 'error',
+        text: extractErrorMessage(err, 'Failed to save P2P corridors configuration.'),
+      });
+    } finally {
+      setCorridorsSaving(false);
+    }
+  };
+
+  const handleToggleCorridorEnabled = (id: string) => {
+    const next = corridors.map((c) => (c.id === id ? { ...c, enabled: !c.enabled } : c));
+    setCorridors(next);
+  };
+
+  const handleTogglePriorityDesk = (id: string) => {
+    const next = corridors.map((c) => (c.id === id ? { ...c, priorityDeskEnabled: !c.priorityDeskEnabled } : c));
+    setCorridors(next);
+  };
+
+  const handleToggleCrossBorder = (id: string) => {
+    const next = corridors.map((c) => (c.id === id ? { ...c, crossBorderAllowed: !c.crossBorderAllowed } : c));
+    setCorridors(next);
+  };
+
+  const handleAddCurrency = (id: string) => {
+    const val = (newCurrencyInputs[id] || '').trim().toUpperCase();
+    if (!val) return;
+    const next = corridors.map((c) => {
+      if (c.id === id) {
+        const nextCurrencies = Array.from(new Set([...c.supportedCurrencies, val]));
+        return { ...c, supportedCurrencies: nextCurrencies };
+      }
+      return c;
+    });
+    setCorridors(next);
+    setNewCurrencyInputs((prev) => ({ ...prev, [id]: '' }));
+  };
+
+  const handleRemoveCurrency = (id: string, cur: string) => {
+    const next = corridors.map((c) => {
+      if (c.id === id) {
+        if (cur === c.primaryCurrency) return c; // Cannot remove primary
+        return { ...c, supportedCurrencies: c.supportedCurrencies.filter((item) => item !== cur) };
+      }
+      return c;
+    });
+    setCorridors(next);
+  };
+
+  const handleAddRail = (id: string) => {
+    const val = (newRailInputs[id] || '').trim();
+    if (!val) return;
+    const next = corridors.map((c) => {
+      if (c.id === id) {
+        const nextRails = Array.from(new Set([...c.allowedPaymentMethods, val]));
+        return { ...c, allowedPaymentMethods: nextRails };
+      }
+      return c;
+    });
+    setCorridors(next);
+    setNewRailInputs((prev) => ({ ...prev, [id]: '' }));
+  };
+
+  const handleRemoveRail = (id: string, rail: string) => {
+    const next = corridors.map((c) => {
+      if (c.id === id) {
+        return { ...c, allowedPaymentMethods: c.allowedPaymentMethods.filter((item) => item !== rail) };
+      }
+      return c;
+    });
+    setCorridors(next);
+  };
+
+  const handleCreateCorridor = () => {
+    const countryCode = addCorridorForm.countryCode.trim().toUpperCase();
+    const primary = addCorridorForm.primaryCurrency.trim().toUpperCase();
+    if (!countryCode || !primary) {
+      onFeedback({ type: 'error', text: 'Country code and primary currency are required.' });
+      return;
+    }
+    const supCurs = Array.from(new Set([
+      primary,
+      ...addCorridorForm.supportedCurrencies.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
+    ]));
+    const rails = Array.from(new Set(
+      addCorridorForm.allowedPaymentMethods.split(',').map((s) => s.trim()).filter(Boolean)
+    ));
+
+    const newCor: any = {
+      id: addCorridorForm.id.trim() || countryCode.toLowerCase(),
+      countryCode,
+      countryName: addCorridorForm.countryName.trim() || countryCode,
+      flag: addCorridorForm.flag.trim() || '🌐',
+      primaryCurrency: primary,
+      supportedCurrencies: supCurs,
+      allowedPaymentMethods: rails.length > 0 ? rails : ['Bank Transfer'],
+      crossBorderAllowed: addCorridorForm.crossBorderAllowed,
+      crossBorderCurrencies: supCurs.filter((c) => c !== primary),
+      priorityDeskEnabled: addCorridorForm.priorityDeskEnabled,
+      enabled: addCorridorForm.enabled,
+    };
+
+    const next = [...corridors, newCor];
+    setCorridors(next);
+    setShowAddCorridorModal(false);
+    setAddCorridorForm({
+      id: '',
+      countryCode: '',
+      countryName: '',
+      flag: '🌐',
+      primaryCurrency: '',
+      supportedCurrencies: '',
+      allowedPaymentMethods: '',
+      crossBorderAllowed: true,
+      priorityDeskEnabled: false,
+      enabled: true,
+    });
+    handleSaveCorridors(next);
+  };
 
   const fetchApplications = async () => {
     setAppsLoading(true);
@@ -149,6 +334,7 @@ export default function AdminP2PTab({
 
   useEffect(() => {
     fetchApplications();
+    fetchCorridors();
   }, []);
 
   useEffect(() => {
@@ -436,6 +622,18 @@ export default function AdminP2PTab({
                 {pendingAppsCount}
               </span>
             )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setP2pSubTab('corridors')}
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
+              p2pSubTab === 'corridors'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Country Corridors &amp; Rails ({corridors.length})</span>
           </button>
         </div>
       </div>
@@ -779,7 +977,7 @@ export default function AdminP2PTab({
         </div>
       )}
         </>
-      ) : (
+      ) : p2pSubTab === 'applications' ? (
         <div className="space-y-5">
           {/* Onboarding Queue Header & Filters */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-5 rounded-3xl border border-slate-800">
@@ -942,6 +1140,361 @@ export default function AdminP2PTab({
                 itemLabel="applications"
                 theme="dark"
               />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {/* Header Bar */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-5 rounded-3xl border border-slate-800">
+            <div>
+              <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
+                <Globe className="w-5 h-5 text-blue-400" />
+                <span>P2P Market Corridors &amp; Payment Rails Configuration</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                Relationship hierarchy: <strong>Country &rarr; Supported Currencies &rarr; Allowed Payment Rails &rarr; Optional Cross-Border Corridors</strong>.
+                Only currencies and payment methods enabled for a country corridor can be traded or selected by users.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowAddCorridorModal(true)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1.5 border border-slate-700 cursor-pointer"
+              >
+                <Plus className="w-4 h-4 text-blue-400" />
+                <span>Add Country Corridor</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveCorridors()}
+                disabled={corridorsSaving}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-blue-600/30 cursor-pointer disabled:opacity-50"
+              >
+                {corridorsSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Save All Corridors</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Corridors Grid */}
+          {corridorsLoading ? (
+            <div className="p-12 text-center text-slate-400">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-400 mb-2" />
+              <p className="text-xs font-bold">Loading market corridors...</p>
+            </div>
+          ) : corridors.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 bg-slate-900 rounded-3xl border border-slate-800">
+              No corridors configured. Click &quot;Add Country Corridor&quot; to configure your first market.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {corridors.map((c) => (
+                <div
+                  key={c.id}
+                  className={`p-5 rounded-3xl border transition-all space-y-4 ${
+                    c.enabled
+                      ? 'bg-slate-900/90 border-slate-800 shadow-md'
+                      : 'bg-slate-950/60 border-slate-800/60 opacity-60'
+                  }`}
+                >
+                  {/* Top Header: Flag, Name, Code, Status & Priority Desk */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-2xl">{c.flag}</span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-sm text-white">{c.countryName}</h4>
+                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-mono text-[10px] font-bold">
+                            {c.countryCode}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/30">
+                            {c.primaryCurrency}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono">Corridor ID: {c.id}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleCorridorEnabled(c.id)}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                          c.enabled
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
+                        }`}
+                      >
+                        {c.enabled ? '✓ Enabled' : 'Paused / Off'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Priority Desk & Cross Border Toggles */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={c.priorityDeskEnabled}
+                        onChange={() => handleTogglePriorityDesk(c.id)}
+                        className="rounded border-slate-700 text-blue-600 focus:ring-0"
+                      />
+                      <div>
+                        <span className="font-bold text-slate-200">Avora Priority P2P Desk</span>
+                        <p className="text-[10px] text-slate-400">Institutional fulfillment &amp; instant matching</p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={c.crossBorderAllowed}
+                        onChange={() => handleToggleCrossBorder(c.id)}
+                        className="rounded border-slate-700 text-blue-600 focus:ring-0"
+                      />
+                      <div>
+                        <span className="font-bold text-slate-200">Cross-Border Corridors</span>
+                        <p className="text-[10px] text-slate-400">Allow foreign currencies (e.g. USD, EUR)</p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Supported Currencies */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-300">
+                        Supported Currencies ({c.supportedCurrencies.length})
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        Primary: <strong className="text-emerald-400">{c.primaryCurrency}</strong>
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {c.supportedCurrencies.map((cur) => {
+                        const isPrimary = cur === c.primaryCurrency;
+                        return (
+                          <span
+                            key={cur}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
+                              isPrimary
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                                : 'bg-slate-800 text-slate-200 border-slate-700'
+                            }`}
+                          >
+                            <span>{cur}</span>
+                            {isPrimary ? (
+                              <span className="text-[9px] uppercase tracking-wider text-emerald-400">Primary</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCurrency(c.id, cur)}
+                                className="text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                                title="Remove currency"
+                              >
+                                &times;
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={newCurrencyInputs[c.id] || ''}
+                        onChange={(e) => setNewCurrencyInputs({ ...newCurrencyInputs, [c.id]: e.target.value })}
+                        placeholder="Add currency (e.g. USD, EUR, GBP)..."
+                        className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-xs outline-none focus:border-blue-500 w-52"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAddCurrency(c.id)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700 cursor-pointer"
+                      >
+                        + Add Currency
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Allowed Payment Rails */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-300">
+                        Allowed P2P Payment Rails ({c.allowedPaymentMethods.length})
+                      </span>
+                      <span className="text-[10px] text-slate-400">Multi-select available for merchants</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {c.allowedPaymentMethods.map((rail) => (
+                        <span
+                          key={rail}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700"
+                        >
+                          <span>{rail}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRail(c.id, rail)}
+                            className="text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                            title="Remove rail"
+                          >
+                            &times;
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={newRailInputs[c.id] || ''}
+                        onChange={(e) => setNewRailInputs({ ...newRailInputs, [c.id]: e.target.value })}
+                        placeholder="Add payment rail (e.g. IMPS, UPI, Zelle, SEPA)..."
+                        className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs outline-none focus:border-blue-500 flex-1 max-w-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAddRail(c.id)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700 cursor-pointer"
+                      >
+                        + Add Rail
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Modal to Add New Country Corridor */}
+          {showAddCorridorModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+              <div className="bg-slate-950 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl text-white">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <h3 className="text-base font-extrabold flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-400" />
+                    <span>Add New Country Corridor</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCorridorModal(false)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Country Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={addCorridorForm.countryName}
+                      onChange={(e) => setAddCorridorForm({ ...addCorridorForm, countryName: e.target.value })}
+                      placeholder="e.g. Singapore, Japan, Australia"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-bold mb-1">Country Code (2 Letters)</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={4}
+                        value={addCorridorForm.countryCode}
+                        onChange={(e) => setAddCorridorForm({ ...addCorridorForm, countryCode: e.target.value.toUpperCase() })}
+                        placeholder="e.g. SG, JP, AU"
+                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-bold mb-1">Flag Emoji</label>
+                      <input
+                        type="text"
+                        value={addCorridorForm.flag}
+                        onChange={(e) => setAddCorridorForm({ ...addCorridorForm, flag: e.target.value })}
+                        placeholder="e.g. 🇸🇬"
+                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-base outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Primary Domestic Currency</label>
+                    <input
+                      type="text"
+                      required
+                      value={addCorridorForm.primaryCurrency}
+                      onChange={(e) => setAddCorridorForm({ ...addCorridorForm, primaryCurrency: e.target.value.toUpperCase() })}
+                      placeholder="e.g. SGD, JPY, AUD"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Secondary / Cross-Border Currencies (Comma Separated)</label>
+                    <input
+                      type="text"
+                      value={addCorridorForm.supportedCurrencies}
+                      onChange={(e) => setAddCorridorForm({ ...addCorridorForm, supportedCurrencies: e.target.value })}
+                      placeholder="e.g. USD, EUR"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Allowed Payment Rails (Comma Separated)</label>
+                    <input
+                      type="text"
+                      value={addCorridorForm.allowedPaymentMethods}
+                      onChange={(e) => setAddCorridorForm({ ...addCorridorForm, allowedPaymentMethods: e.target.value })}
+                      placeholder="e.g. PayNow, FAST, Bank Transfer"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2 pt-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={addCorridorForm.crossBorderAllowed}
+                        onChange={(e) => setAddCorridorForm({ ...addCorridorForm, crossBorderAllowed: e.target.checked })}
+                        className="rounded border-slate-700 text-blue-600 focus:ring-0"
+                      />
+                      <span>Allow Cross-Border Currencies</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={addCorridorForm.priorityDeskEnabled}
+                        onChange={(e) => setAddCorridorForm({ ...addCorridorForm, priorityDeskEnabled: e.target.checked })}
+                        className="rounded border-slate-700 text-blue-600 focus:ring-0"
+                      />
+                      <span>Enable Avora Priority P2P Desk for this Corridor</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCorridorModal(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateCorridor}
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"
+                  >
+                    Add Corridor
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

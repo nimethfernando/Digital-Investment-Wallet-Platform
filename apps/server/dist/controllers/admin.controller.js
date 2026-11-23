@@ -3808,6 +3808,41 @@ class AdminController {
         }
     }
     /**
+     * GET /api/v1/admin/p2p/corridors
+     * Retrieve active Country -> Currency -> Payment Rails corridors for Admin configuration
+     */
+    async getP2PCorridors(req, res, next) {
+        try {
+            const corridors = await p2p_service_1.p2pService.getCorridorConfigs();
+            res.json({ success: true, data: corridors });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/p2p/corridors
+     * Save and update Country -> Supported Currencies -> Allowed Payment Rails corridors
+     */
+    async updateP2PCorridors(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const { corridors } = req.body;
+            if (!Array.isArray(corridors)) {
+                return res.status(400).json({ success: false, message: 'Invalid corridors payload: expected an array.' });
+            }
+            const updated = await p2p_service_1.p2pService.saveCorridorConfigs(adminUserId, corridors);
+            res.json({
+                success: true,
+                message: `Successfully updated ${updated.length} P2P Country, Currency, and Payment Rail Corridors.`,
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * Get immutable admin audit logs
      */
     async getAdminAuditLogs(req, res, next) {

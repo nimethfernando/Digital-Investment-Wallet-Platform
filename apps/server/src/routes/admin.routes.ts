@@ -149,7 +149,9 @@ router.patch('/dealflow/opportunities/:id', requireRole([Role.ADMIN, Role.STAFF]
   ventureMatchmakingController.adminUpdateOpportunityStatus(req, res, next)
 );
 
-// P2P Escrow, Onboarding Applications & Dispute Resolution
+// P2P Escrow, Corridors, Onboarding Applications & Dispute Resolution
+router.get('/p2p/corridors', (req, res, next) => adminController.getP2PCorridors(req, res, next));
+router.post('/p2p/corridors', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateP2PCorridors(req, res, next));
 router.get('/p2p/applications', (req, res, next) => adminController.getP2PApplications(req, res, next));
 router.post('/p2p/applications/:id/review', requireRole([Role.ADMIN, Role.STAFF]), requireAdmin2FA, (req, res, next) =>
   adminController.reviewP2PApplication(req, res, next)

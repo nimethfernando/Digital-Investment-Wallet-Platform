@@ -33,10 +33,211 @@ export function generateAvoraAccountNumber(userId: string): string {
   return `AVR-${positive.slice(0, 4)}-${positive.slice(4, 8)}`;
 }
 
+export interface P2PCorridorConfig {
+  id: string;
+  countryCode: string;
+  countryName: string;
+  flag: string;
+  primaryCurrency: string;
+  supportedCurrencies: string[];
+  allowedPaymentMethods: string[];
+  crossBorderAllowed: boolean;
+  crossBorderCurrencies: string[];
+  priorityDeskEnabled: boolean;
+  enabled: boolean;
+}
+
+export const DEFAULT_P2P_CORRIDORS: P2PCorridorConfig[] = [
+  {
+    id: 'in',
+    countryCode: 'IN',
+    countryName: 'India',
+    flag: '🇮🇳',
+    primaryCurrency: 'INR',
+    supportedCurrencies: ['INR', 'USD'],
+    allowedPaymentMethods: ['UPI', 'IMPS', 'Bank Transfer', 'Paytm', 'PhonePe', 'Google Pay (GPay)'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD'],
+    priorityDeskEnabled: true,
+    enabled: true,
+  },
+  {
+    id: 'lk',
+    countryCode: 'LK',
+    countryName: 'Sri Lanka',
+    flag: '🇱🇰',
+    primaryCurrency: 'LKR',
+    supportedCurrencies: ['LKR', 'USD'],
+    allowedPaymentMethods: ['Commercial Bank CEFTS', 'Sampath Bank Vishwa', 'BOC / HNB', 'Bank Transfer'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD'],
+    priorityDeskEnabled: false,
+    enabled: true,
+  },
+  {
+    id: 'ae',
+    countryCode: 'AE',
+    countryName: 'United Arab Emirates',
+    flag: '🇦🇪',
+    primaryCurrency: 'AED',
+    supportedCurrencies: ['AED', 'USD'],
+    allowedPaymentMethods: ['AED Bank Transfer', 'FAB i-Save', 'ADCB Hayyak'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD'],
+    priorityDeskEnabled: false,
+    enabled: true,
+  },
+  {
+    id: 'ge',
+    countryCode: 'GE',
+    countryName: 'Georgia',
+    flag: '🇬🇪',
+    primaryCurrency: 'GEL',
+    supportedCurrencies: ['GEL', 'USD', 'EUR'],
+    allowedPaymentMethods: ['Bank of Georgia', 'TBC Bank', 'Liberty Bank'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD', 'EUR'],
+    priorityDeskEnabled: false,
+    enabled: true,
+  },
+  {
+    id: 'eu',
+    countryCode: 'EU',
+    countryName: 'European Union',
+    flag: '🇪🇺',
+    primaryCurrency: 'EUR',
+    supportedCurrencies: ['EUR', 'USD'],
+    allowedPaymentMethods: ['SEPA Instant', 'Revolut', 'Wise', 'N26 Transfer'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD'],
+    priorityDeskEnabled: false,
+    enabled: true,
+  },
+  {
+    id: 'us',
+    countryCode: 'US',
+    countryName: 'United States',
+    flag: '🇺🇸',
+    primaryCurrency: 'USD',
+    supportedCurrencies: ['USD'],
+    allowedPaymentMethods: ['ACH Transfer', 'Zelle', 'Domestic Wire', 'Cash App'],
+    crossBorderAllowed: false,
+    crossBorderCurrencies: [],
+    priorityDeskEnabled: false,
+    enabled: true,
+  },
+  {
+    id: 'gb',
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    flag: '🇬🇧',
+    primaryCurrency: 'GBP',
+    supportedCurrencies: ['GBP', 'EUR', 'USD'],
+    allowedPaymentMethods: ['Faster Payments (UK)', 'Revolut', 'Monzo', 'Bank Transfer'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['EUR', 'USD'],
+    priorityDeskEnabled: false,
+    enabled: true,
+  },
+];
+
+export const P2P_CORRIDORS_CONFIG_KEY = 'p2p_corridors_config';
+
 export class P2PService {
   private schemaAndOffersEnsured = false;
   private lastDefaultOffersSyncAt = 0;
   private readonly DEFAULT_OFFERS_SYNC_TTL_MS = 5 * 60 * 1000;
+
+  /**
+   * Retrieves active P2P Market Corridors (Country -> Supported Currencies -> Payment Rails)
+   */
+  async getCorridorConfigs(): Promise<P2PCorridorConfig[]> {
+    try {
+      const setting = await prisma.cmsSetting.findUnique({
+        where: { key: P2P_CORRIDORS_CONFIG_KEY },
+      });
+      if (setting?.value) {
+        const parsed = JSON.parse(setting.value);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {
+      // Fallback to default corridors
+    }
+    return DEFAULT_P2P_CORRIDORS;
+  }
+
+  /**
+   * Saves and updates P2P Market Corridors (Admin controlled)
+   */
+  async saveCorridorConfigs(adminUserId: string, configs: P2PCorridorConfig[]): Promise<P2PCorridorConfig[]> {
+    if (!Array.isArray(configs) || configs.length === 0) {
+      throw new Error('Invalid corridors configuration. At least one corridor is required.');
+    }
+
+    const validated: P2PCorridorConfig[] = configs.map((c) => {
+      const countryCode = String(c.countryCode || '').trim().toUpperCase();
+      const primaryCurrency = String(c.primaryCurrency || '').trim().toUpperCase();
+      const supportedCurrencies = Array.from(
+        new Set([
+          primaryCurrency,
+          ...(Array.isArray(c.supportedCurrencies)
+            ? c.supportedCurrencies.map((cur: string) => String(cur).trim().toUpperCase()).filter(Boolean)
+            : []),
+        ])
+      );
+      const allowedPaymentMethods = Array.from(
+        new Set(
+          Array.isArray(c.allowedPaymentMethods)
+            ? c.allowedPaymentMethods.map((m: string) => String(m).trim()).filter(Boolean)
+            : []
+        )
+      );
+      return {
+        id: String(c.id || countryCode.toLowerCase()).trim(),
+        countryCode,
+        countryName: String(c.countryName || countryCode).trim(),
+        flag: String(c.flag || '🌐').trim(),
+        primaryCurrency,
+        supportedCurrencies,
+        allowedPaymentMethods,
+        crossBorderAllowed: Boolean(c.crossBorderAllowed),
+        crossBorderCurrencies: Array.isArray(c.crossBorderCurrencies)
+          ? c.crossBorderCurrencies.map((cur: string) => String(cur).trim().toUpperCase()).filter(Boolean)
+          : [],
+        priorityDeskEnabled: Boolean(c.priorityDeskEnabled),
+        enabled: c.enabled !== false,
+      };
+    });
+
+    await prisma.cmsSetting.upsert({
+      where: { key: P2P_CORRIDORS_CONFIG_KEY },
+      update: {
+        value: JSON.stringify(validated),
+        description: 'P2P Country, Currencies, and Payment Rails Corridor Configuration',
+        group: 'P2P',
+      },
+      create: {
+        key: P2P_CORRIDORS_CONFIG_KEY,
+        value: JSON.stringify(validated),
+        description: 'P2P Country, Currencies, and Payment Rails Corridor Configuration',
+        group: 'P2P',
+      },
+    });
+
+    await prisma.adminAuditLog.create({
+      data: {
+        userId: adminUserId,
+        action: 'UPDATE_P2P_CORRIDORS_CONFIG',
+        entity: 'P2P_CORRIDOR_CONFIG',
+        entityId: P2P_CORRIDORS_CONFIG_KEY,
+        details: `Updated ${validated.length} P2P Country, Currency, and Payment Rail Corridors.`,
+      },
+    }).catch(() => {});
+
+    return validated;
+  }
 
   private async ensureColumns(tableName: string, columns: Array<[string, string]>) {
     for (const [col, ddl] of columns) {
@@ -1906,24 +2107,42 @@ export class P2PService {
       throw new Error('Maximum order limit cannot be lower than minimum order limit.');
     }
 
-    // Single Country / Currency Enforcement:
-    // One user can only operate a P2P desk/account for one country/currency at a time.
-    // If the user wants to operate P2P for another country or currency, they must close existing ads or apply separately.
+    // P2P Corridor Hierarchy Validation: Country -> Supported Currencies -> Allowed Payment Methods
     const targetFiat = input.fiatCurrency.toUpperCase();
-    if (!isInstitutionalDeskEmail(user.email)) {
-      const existingCorridorOffer = await prisma.p2POffer.findFirst({
-        where: {
-          userId,
-          status: { in: [P2POfferStatus.OPEN, P2POfferStatus.PAUSED] },
-        },
-        select: { id: true, offerCode: true, fiatCurrency: true, locationCountry: true },
-      });
+    const reqCountry = (input.locationCountry || '').trim().toUpperCase();
+    const corridors = await this.getCorridorConfigs();
 
-      if (existingCorridorOffer && existingCorridorOffer.fiatCurrency !== targetFiat) {
-        throw new Error(
-          `Corridor Restriction: Your P2P Desk is registered for ${existingCorridorOffer.fiatCurrency}. One user can only operate P2P for one country/currency corridor at a time. To operate in ${targetFiat}, please close your existing ${existingCorridorOffer.fiatCurrency} ad (${existingCorridorOffer.offerCode}) first or request corridor re-authorization.`
-        );
-      }
+    // Match corridor by Country Code, Country Name, or Corridor ID
+    let matchedCorridor = corridors.find(
+      (c) =>
+        c.enabled &&
+        (c.countryCode.toUpperCase() === reqCountry ||
+          c.countryName.toUpperCase() === reqCountry ||
+          c.id.toUpperCase() === reqCountry)
+    );
+
+    // If country wasn't explicitly specified or matched, match by primary or supported currency
+    if (!matchedCorridor) {
+      matchedCorridor = corridors.find(
+        (c) => c.enabled && (c.primaryCurrency === targetFiat || c.supportedCurrencies.includes(targetFiat))
+      );
+    }
+
+    if (!matchedCorridor) {
+      throw new Error(
+        `Corridor Restriction: The market corridor "${input.locationCountry || targetFiat}" is not currently enabled for P2P trading.`
+      );
+    }
+
+    if (!matchedCorridor.supportedCurrencies.includes(targetFiat)) {
+      throw new Error(
+        `Unsupported Corridor Combination: ${targetFiat} is not an authorized currency for ${matchedCorridor.countryName} (${matchedCorridor.countryCode}). Authorized currencies for this corridor: ${matchedCorridor.supportedCurrencies.join(', ')}.`
+      );
+    }
+
+    // Payment methods validation: ensure at least one payment method is selected
+    if (!Array.isArray(input.paymentMethods) || input.paymentMethods.length === 0) {
+      throw new Error('At least one payment method must be selected for this P2P advertisement.');
     }
 
     const shouldPromote = Boolean(input.promoteListing);

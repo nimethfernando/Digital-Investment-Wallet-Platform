@@ -84,7 +84,9 @@ router.get('/dealflow/opportunities', (req, res, next) => ventureMatchmaking_con
 router.get('/dealflow/applications', (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminListApplications(req, res, next));
 router.patch('/dealflow/applications/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminUpdateApplicationStatus(req, res, next));
 router.patch('/dealflow/opportunities/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminUpdateOpportunityStatus(req, res, next));
-// P2P Escrow, Onboarding Applications & Dispute Resolution
+// P2P Escrow, Corridors, Onboarding Applications & Dispute Resolution
+router.get('/p2p/corridors', (req, res, next) => admin_controller_1.adminController.getP2PCorridors(req, res, next));
+router.post('/p2p/corridors', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateP2PCorridors(req, res, next));
 router.get('/p2p/applications', (req, res, next) => admin_controller_1.adminController.getP2PApplications(req, res, next));
 router.post('/p2p/applications/:id/review', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.reviewP2PApplication(req, res, next));
 router.get('/p2p/orders', (req, res, next) => admin_controller_1.adminController.getP2POrders(req, res, next));

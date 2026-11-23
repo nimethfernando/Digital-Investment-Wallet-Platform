@@ -440,29 +440,40 @@ export const CustomerNotificationBell: React.FC = () => {
             {/* Filter Pills */}
             <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1 overflow-x-auto scrollbar-none">
               {[
-                { key: 'ALL', label: 'All' },
-                { key: 'UNREAD', label: `Unread (${summary.unreadCount})` },
-                { key: 'P2P', label: `P2P (${summary.p2pCount ?? 0})` },
-                { key: 'SWAP', label: `Swap (${summary.swapCount ?? 0})` },
-                { key: 'OTC', label: 'OTC Desk' },
-                { key: 'SUPPORT', label: 'Tickets' },
-                { key: 'FD_PACKAGE', label: 'FDs & Yields' },
-                { key: 'DEP_WTH', label: 'Dep / Wth' },
-                { key: 'TRANSACTION', label: 'Tx & Transfers' },
-              ].map((pill) => (
-                <button
-                  key={pill.key}
-                  type="button"
-                  onClick={() => setFilter(pill.key as any)}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap transition-colors cursor-pointer ${
-                    filter === pill.key
-                      ? 'bg-slate-900 text-white dark:bg-emerald-600 dark:text-white'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {pill.label}
-                </button>
-              ))}
+                { key: 'ALL', label: 'All', count: summary.totalCount },
+                { key: 'UNREAD', label: `Unread (${summary.unreadCount})`, count: summary.unreadCount, highlight: 'rose' },
+                { key: 'P2P', label: `P2P (${summary.p2pCount ?? 0})`, count: summary.p2pCount ?? 0, highlight: 'violet' },
+                { key: 'SWAP', label: `Swap (${summary.swapCount ?? 0})`, count: summary.swapCount ?? 0, highlight: 'cyan' },
+                { key: 'OTC', label: 'OTC Desk', count: summary.otcCount ?? 0 },
+                { key: 'SUPPORT', label: 'Tickets', count: summary.supportCount },
+                { key: 'FD_PACKAGE', label: 'FDs & Yields', count: summary.fdCount },
+                { key: 'DEP_WTH', label: 'Dep / Wth', count: summary.depositWithdrawalCount },
+                { key: 'TRANSACTION', label: 'Tx & Transfers', count: summary.transactionCount },
+              ].map((pill) => {
+                const isActive = filter === pill.key;
+                const hasCount = (pill.count || 0) > 0;
+                let activeClass = 'bg-slate-900 text-white dark:bg-emerald-600 dark:text-white';
+                if (pill.key === 'P2P') activeClass = 'bg-violet-600 text-white shadow-sm';
+                if (pill.key === 'SWAP') activeClass = 'bg-cyan-600 text-white shadow-sm';
+                return (
+                  <button
+                    key={pill.key}
+                    type="button"
+                    onClick={() => setFilter(pill.key as any)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1 ${
+                      isActive
+                        ? activeClass
+                        : pill.highlight === 'violet' && hasCount
+                        ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30 font-extrabold'
+                        : pill.highlight === 'cyan' && hasCount
+                        ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 font-extrabold'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <span>{pill.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Notification Items */}

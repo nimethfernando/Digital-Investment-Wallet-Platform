@@ -16,6 +16,7 @@ const requireP2PTrading = featureControl_service_1.featureControlService.require
 /**
  * Public P2P Offers / Market Ads & Trader Profiles (viewable before or after login)
  */
+router.get('/corridors', (req, res, next) => p2p_controller_1.p2pController.getCorridors(req, res, next));
 router.get('/offers', (req, res, next) => p2p_controller_1.p2pController.getOffers(req, res, next));
 router.get('/promotion-tiers', (req, res, next) => p2p_controller_1.p2pController.getPromotionTiers(req, res, next));
 router.get('/users/:userId/profile', (req, res, next) => p2p_controller_1.p2pController.getTraderProfile(req, res, next));

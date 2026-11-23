@@ -557,6 +557,19 @@ export class P2PController {
       next(err);
     }
   }
+
+  /**
+   * GET /api/v1/p2p/corridors
+   * Public endpoint returning active Country -> Supported Currencies -> Payment Rails corridors
+   */
+  async getCorridors(req: Request, res: Response, next: NextFunction) {
+    try {
+      const corridors = await p2pService.getCorridorConfigs();
+      res.json({ success: true, data: corridors });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const p2pController = new P2PController();
