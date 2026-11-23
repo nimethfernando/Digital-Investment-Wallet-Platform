@@ -999,7 +999,7 @@ class LedgerService {
             walletId: wallet.id,
             baseCurrency: 'USD',
             totalPortfolioValueUsd: grandTotal.toFixed(2),
-            totalActiveInvestmentsUsd: locked.plus(ventureTotalUsd).toFixed(2),
+            totalActiveInvestmentsUsd: activeFdPrincipalUsd.toFixed(2),
             activeFdPrincipalUsd: activeFdPrincipalUsd.toFixed(2),
             totalReturnsPaidUsd: accumulatedReturns.toFixed(2),
             totalPendingWithdrawalsUsd: pending.toFixed(2),

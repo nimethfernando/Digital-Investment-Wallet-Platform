@@ -236,8 +236,23 @@ async function runTestSuite() {
   console.log(`🏁 Test Suite Summary: ${passedTests}/${totalTests} Tests Passed`);
   console.log('====================================================\n');
 
-  // Clean up test user
-  await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
+  // Clean up test user and all child records so test runs never pollute live metrics
+  try {
+    const entries = await prisma.ledgerEntry.findMany({ where: { userId: user.id }, select: { journalId: true } });
+    const jIds = Array.from(new Set(entries.map((e) => e.journalId)));
+    if (jIds.length > 0) {
+      await prisma.ledgerEntry.deleteMany({ where: { journalId: { in: jIds } } });
+      await prisma.ledgerJournal.deleteMany({ where: { id: { in: jIds } } });
+    }
+    await prisma.transaction.deleteMany({ where: { userId: user.id } });
+    await prisma.packageReturn.deleteMany({ where: { userId: user.id } });
+    await prisma.investmentPackage.deleteMany({ where: { userId: user.id } });
+    await prisma.depositRequest.deleteMany({ where: { userId: user.id } });
+    await prisma.userNotification.deleteMany({ where: { userId: user.id } });
+    await prisma.walletBalance.deleteMany({ where: { walletId: wallet.id } });
+    await prisma.wallet.deleteMany({ where: { id: wallet.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  } catch {}
   await prisma.$disconnect();
 
   if (passedTests !== totalTests) {
