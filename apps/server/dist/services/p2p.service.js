@@ -3531,9 +3531,17 @@ class P2PService {
             orderBy: { createdAt: 'desc' },
         });
         if (existingApplication) {
-            const err = new Error(`Your P2P verification request (${existingApplication.applicationCode}) has already been submitted. Each member can only submit a P2P request once.`);
-            err.statusCode = 409;
-            throw err;
+            if (existingApplication.status === 'PENDING') {
+                const err = new Error(`Your P2P verification request (${existingApplication.applicationCode}) is currently pending Admin review.`);
+                err.statusCode = 409;
+                throw err;
+            }
+            if (existingApplication.status === 'APPROVED' && user.p2pOnboardingStatus === 'APPROVED') {
+                const err = new Error('Your P2P verification request has already been submitted and approved by Admin Compliance.');
+                err.statusCode = 409;
+                throw err;
+            }
+            // If previous application was REJECTED, user is permitted to resubmit with fresh supporting documentation.
         }
         if (user.p2pOnboardingStatus === 'APPROVED' && user.kycStatus === 'APPROVED') {
             const err = new Error('Your P2P verification request has already been submitted and approved by Admin Compliance.');
@@ -3580,8 +3588,8 @@ class P2PService {
                 where: { userId },
                 orderBy: { createdAt: 'desc' },
             });
-            if (existingInTx) {
-                const err = new Error(`Your P2P verification request (${existingInTx.applicationCode}) has already been submitted. Each member can only submit a P2P request once.`);
+            if (existingInTx && existingInTx.status === 'PENDING') {
+                const err = new Error(`Your P2P verification request (${existingInTx.applicationCode}) is currently pending Admin review.`);
                 err.statusCode = 409;
                 throw err;
             }
@@ -3840,6 +3848,114 @@ class P2PService {
             success: true,
             message: `Application ${app.applicationCode} ${decision === 'APPROVE' ? 'approved' : 'rejected'} successfully.`,
             status: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+        };
+    }
+    /**
+     * Admin: Attach, replace, or update verified supporting documents for an application
+     */
+    async updateApplicationDocuments(applicationId, adminUserId, input) {
+        const app = await prisma_1.prisma.p2POnboardingApplication.findUnique({
+            where: { id: applicationId },
+            include: { user: { select: { id: true, email: true } } },
+        });
+        if (!app)
+            throw new Error('P2P Onboarding application not found');
+        let currentDocs = [];
+        try {
+            currentDocs = Array.isArray(app.documentUrls)
+                ? app.documentUrls
+                : JSON.parse(app.documentUrls || '[]');
+        }
+        catch {
+            currentDocs = [];
+        }
+        let nextDocs = Array.isArray(input.documentUrls)
+            ? input.documentUrls.map(String).filter(Boolean)
+            : [...currentDocs];
+        if (input.addUrl) {
+            const u = String(input.addUrl).trim();
+            if (u && !nextDocs.includes(u))
+                nextDocs.push(u);
+        }
+        if (input.removeUrl) {
+            const r = String(input.removeUrl).trim();
+            nextDocs = nextDocs.filter((u) => u !== r);
+        }
+        const updated = await prisma_1.prisma.p2POnboardingApplication.update({
+            where: { id: applicationId },
+            data: { documentUrls: JSON.stringify(nextDocs) },
+            include: { user: { select: { id: true, email: true, firstName: true, lastName: true, kycStatus: true } } },
+        });
+        await prisma_1.prisma.adminAuditLog.create({
+            data: {
+                userId: adminUserId,
+                action: 'UPDATE_P2P_APPLICATION_DOCUMENTS',
+                entity: 'P2POnboardingApplication',
+                entityId: applicationId,
+                details: `Updated supporting documents for application ${app.applicationCode} (${app.user.email}). Document count: ${nextDocs.length}`,
+            },
+        }).catch(() => { });
+        return {
+            success: true,
+            message: 'Application documents updated successfully',
+            data: {
+                ...updated,
+                documentUrls: nextDocs,
+            },
+        };
+    }
+    /**
+     * Admin: Request user to re-upload documents (sets status to REJECTED with note and notifies user)
+     */
+    async requestApplicationReupload(applicationId, adminUserId, adminEmail, reason) {
+        const app = await prisma_1.prisma.p2POnboardingApplication.findUnique({
+            where: { id: applicationId },
+            include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+        });
+        if (!app)
+            throw new Error('P2P Onboarding application not found');
+        const cleanReason = reason?.trim() || 'Please re-upload clear supporting proof of funds / identification documentation.';
+        await prisma_1.prisma.$transaction(async (tx) => {
+            await tx.p2POnboardingApplication.update({
+                where: { id: applicationId },
+                data: {
+                    status: 'REJECTED',
+                    reviewedBy: adminUserId,
+                    reviewedByEmail: adminEmail,
+                    reviewedAt: new Date(),
+                    reviewNotes: cleanReason,
+                },
+            });
+            await tx.user.update({
+                where: { id: app.userId },
+                data: {
+                    p2pOnboardingStatus: 'REJECTED',
+                },
+            });
+            await tx.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'REQUEST_P2P_APPLICATION_REUPLOAD',
+                    entity: 'P2POnboardingApplication',
+                    entityId: applicationId,
+                    details: `Requested re-upload of documents for application ${app.applicationCode} (${app.user.email}). Note: ${cleanReason}`,
+                },
+            });
+        });
+        await (0, p2p_helpers_1.createP2PNotification)({
+            userId: app.userId,
+            category: 'ACCOUNT',
+            type: 'P2P_APPLICATION_REJECTED',
+            severity: 'WARNING',
+            title: `Action Required: P2P Verification Documents (${app.applicationCode})`,
+            message: `Admin Compliance requested updated documentation for your P2P verification: "${cleanReason}". Please open your P2P Member dashboard to submit updated files.`,
+            referenceCode: app.applicationCode,
+            actionUrl: '/p2p?tab=profile',
+            actionLabel: 'Upload Documents',
+        }).catch(() => { });
+        return {
+            success: true,
+            message: `Requested document re-upload from ${app.user.email}. Application set to allow user resubmission.`,
         };
     }
     /**

@@ -29,6 +29,8 @@ import {
   Trash2,
   Save,
   Check,
+  Upload,
+  Send,
 } from 'lucide-react';
 import { api, extractErrorMessage, resolveMediaUrl } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
@@ -115,15 +117,155 @@ export default function AdminP2PTab({
 
   // Proof / Document Preview Modal
   const [proofModalUrl, setProofModalUrl] = useState<string | null>(null);
+  const [proofModalRawUrl, setProofModalRawUrl] = useState<string | null>(null);
   const [proofModalTitle, setProofModalTitle] = useState<string>('Uploaded Payment Proof Receipt');
+  const [proofModalApp, setProofModalApp] = useState<any | null>(null);
+  const [proofModalDocIdx, setProofModalDocIdx] = useState<number | null>(null);
   const [proofLoadError, setProofLoadError] = useState<boolean>(false);
+  const [uploadingReplacement, setUploadingReplacement] = useState<boolean>(false);
+  const [requestingReupload, setRequestingReupload] = useState<boolean>(false);
+  const [reuploadPromptOpen, setReuploadPromptOpen] = useState<boolean>(false);
+  const [reuploadReason, setReuploadReason] = useState<string>('');
+  const replacementInputRef = React.useRef<HTMLInputElement>(null);
 
-  const openDocumentPreview = (rawUrl: string, title = 'Uploaded Payment Proof Receipt') => {
+  const openDocumentPreview = (
+    rawUrl: string,
+    title = 'Uploaded Payment Proof Receipt',
+    app?: any,
+    docIdx?: number
+  ) => {
     const resolved = resolveMediaUrl(rawUrl);
     if (!resolved) return;
     setProofLoadError(false);
     setProofModalTitle(title);
     setProofModalUrl(resolved);
+    setProofModalRawUrl(rawUrl);
+    setProofModalApp(app || null);
+    setProofModalDocIdx(docIdx !== undefined ? docIdx : null);
+    setReuploadPromptOpen(false);
+    setReuploadReason('');
+  };
+
+  const handleUploadReplacement = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !proofModalApp) return;
+    setUploadingReplacement(true);
+    try {
+      const fd = new FormData();
+      fd.append('proof', file);
+      const uploadRes = await api.post('/upload/document', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (uploadRes.data?.success && uploadRes.data?.url) {
+        const newUrl = uploadRes.data.url;
+        await api.patch(`/admin/p2p/applications/${proofModalApp.id}/documents`, {
+          addUrl: newUrl,
+          removeUrl: proofModalRawUrl || undefined,
+        });
+
+        // Update local state
+        setApplications((prev) =>
+          prev.map((a) => {
+            if (a.id === proofModalApp.id) {
+              const prevDocs = Array.isArray(a.documentUrls) ? a.documentUrls : [];
+              const updated = prevDocs.map((u: string) => (u === proofModalRawUrl ? newUrl : u));
+              if (!updated.includes(newUrl)) updated.push(newUrl);
+              return { ...a, documentUrls: updated };
+            }
+            return a;
+          })
+        );
+        if (reviewingApp && reviewingApp.id === proofModalApp.id) {
+          const prevDocs = Array.isArray(reviewingApp.documentUrls) ? reviewingApp.documentUrls : [];
+          const updated = prevDocs.map((u: string) => (u === proofModalRawUrl ? newUrl : u));
+          if (!updated.includes(newUrl)) updated.push(newUrl);
+          setReviewingApp({ ...reviewingApp, documentUrls: updated });
+        }
+
+        setProofModalRawUrl(newUrl);
+        setProofModalUrl(resolveMediaUrl(newUrl));
+        setProofLoadError(false);
+        onFeedback({
+          type: 'success',
+          text: `Replacement document uploaded and permanently attached to application #${proofModalApp.applicationCode}!`,
+        });
+      }
+    } catch (err: any) {
+      onFeedback({
+        type: 'error',
+        text: extractErrorMessage(err, 'Failed to upload replacement document.'),
+      });
+    } finally {
+      setUploadingReplacement(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleRequestReupload = async () => {
+    if (!proofModalApp) return;
+    setRequestingReupload(true);
+    try {
+      await api.post(`/admin/p2p/applications/${proofModalApp.id}/request-reupload`, {
+        reason: reuploadReason.trim() || 'Please re-upload clear supporting documentation or ID proof.',
+      });
+      setApplications((prev) =>
+        prev.map((a) => (a.id === proofModalApp.id ? { ...a, status: 'REJECTED', reviewNotes: reuploadReason } : a))
+      );
+      if (reviewingApp && reviewingApp.id === proofModalApp.id) {
+        setReviewingApp({ ...reviewingApp, status: 'REJECTED', reviewNotes: reuploadReason });
+      }
+      setProofModalUrl(null);
+      setReuploadPromptOpen(false);
+      onFeedback({
+        type: 'success',
+        text: `Requested re-upload from ${proofModalApp.user?.email || 'user'}. The applicant can now submit fresh documents.`,
+      });
+    } catch (err: any) {
+      onFeedback({
+        type: 'error',
+        text: extractErrorMessage(err, 'Failed to request document re-upload.'),
+      });
+    } finally {
+      setRequestingReupload(false);
+    }
+  };
+
+  const handleDirectUploadToApp = async (appId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const fd = new FormData();
+      fd.append('proof', file);
+      const uploadRes = await api.post('/upload/document', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (uploadRes.data?.success && uploadRes.data?.url) {
+        const newUrl = uploadRes.data.url;
+        await api.patch(`/admin/p2p/applications/${appId}/documents`, {
+          addUrl: newUrl,
+        });
+        setApplications((prev) =>
+          prev.map((a) => {
+            if (a.id === appId) {
+              const prevDocs = Array.isArray(a.documentUrls) ? a.documentUrls : [];
+              return { ...a, documentUrls: [...prevDocs, newUrl] };
+            }
+            return a;
+          })
+        );
+        onFeedback({
+          type: 'success',
+          text: `Verified document uploaded and attached to application!`,
+        });
+      }
+    } catch (err: any) {
+      onFeedback({
+        type: 'error',
+        text: extractErrorMessage(err, 'Failed to upload document.'),
+      });
+    } finally {
+      if (e.target) e.target.value = '';
+    }
   };
 
   // P2P Onboarding Applications Compliance Queue
@@ -1125,13 +1267,13 @@ export default function AdminP2PTab({
                     </div>
                     <div>
                       <div className="text-[10px] text-slate-400 uppercase font-bold">Supporting Evidence ({(app.documentUrls || []).length})</div>
-                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                         {(app.documentUrls || []).map((url: string, idx: number) => (
                           <button
                             key={url + idx}
                             type="button"
                             onClick={() =>
-                              openDocumentPreview(url, `P2P Verification Document #${idx + 1} — ${app.applicationCode}`)
+                              openDocumentPreview(url, `P2P Verification Document #${idx + 1} — ${app.applicationCode}`, app, idx)
                             }
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 hover:border-amber-400 text-amber-300 text-[11px] font-semibold cursor-pointer"
                           >
@@ -1140,6 +1282,19 @@ export default function AdminP2PTab({
                             <ExternalLink className="w-2.5 h-2.5" />
                           </button>
                         ))}
+                        <label
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold cursor-pointer transition-colors"
+                          title="Attach an additional verified document or screenshot"
+                        >
+                          <Upload className="w-3 h-3" />
+                          <span>+ Add Doc</span>
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept="image/*,application/pdf"
+                            onChange={(e) => handleDirectUploadToApp(app.id, e)}
+                          />
+                        </label>
                       </div>
                     </div>
                   </div>
@@ -1537,13 +1692,13 @@ export default function AdminP2PTab({
                 <span className="text-white font-semibold">{reviewingApp.sourceOfFunds}</span>
               </div>
               <p className="text-slate-300">{reviewingApp.sourceOfFundsDetails}</p>
-              <div className="flex flex-wrap gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2 pt-1">
                 {(reviewingApp.documentUrls || []).map((url: string, idx: number) => (
                   <button
                     key={url + idx}
                     type="button"
                     onClick={() =>
-                      openDocumentPreview(url, `P2P Verification Document #${idx + 1} — ${reviewingApp.applicationCode}`)
+                      openDocumentPreview(url, `P2P Verification Document #${idx + 1} — ${reviewingApp.applicationCode}`, reviewingApp, idx)
                     }
                     className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 hover:border-amber-400 text-amber-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
                   >
@@ -1551,6 +1706,19 @@ export default function AdminP2PTab({
                     <span>Inspect Doc #{idx + 1}</span>
                   </button>
                 ))}
+                <label
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Upload and attach an additional document to this application"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>+ Attach Document</span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => handleDirectUploadToApp(reviewingApp.id, e)}
+                  />
+                </label>
               </div>
             </div>
 
@@ -1932,8 +2100,8 @@ export default function AdminP2PTab({
 
       {/* PROOF / DOCUMENT PREVIEW MODAL */}
       {proofModalUrl && (
-        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl max-w-3xl w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-base font-extrabold text-white truncate">{proofModalTitle}</h3>
               <div className="flex items-center gap-2 shrink-0">
@@ -1941,40 +2109,168 @@ export default function AdminP2PTab({
                   href={proofModalUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 hover:border-amber-400 text-amber-300 text-[11px] font-bold inline-flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 hover:border-amber-400 text-amber-300 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   <span>Open in New Tab</span>
                   <ExternalLink className="w-3 h-3" />
                 </a>
                 <button
                   type="button"
-                  onClick={() => setProofModalUrl(null)}
+                  onClick={() => {
+                    setProofModalUrl(null);
+                    setProofModalApp(null);
+                    setProofModalRawUrl(null);
+                    setReuploadPromptOpen(false);
+                  }}
                   className="text-slate-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
-            <div className="rounded-2xl overflow-hidden border border-slate-800 max-h-[70vh] min-h-[220px] flex items-center justify-center bg-black p-2">
+
+            <div className="rounded-2xl overflow-hidden border border-slate-800 max-h-[60vh] min-h-[260px] flex items-center justify-center bg-black/60 p-2 relative">
               {isPdfAttachment(proofModalUrl) ? (
-                <iframe src={proofModalUrl} title={proofModalTitle} className="w-full h-[65vh] bg-white rounded-xl" />
+                <iframe src={proofModalUrl} title={proofModalTitle} className="w-full h-[55vh] bg-white rounded-xl" />
               ) : proofLoadError ? (
-                <div className="p-6 text-center space-y-2 max-w-md">
+                <div className="p-6 text-center space-y-3 max-w-md">
                   <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto" />
-                  <p className="text-sm font-bold text-white">Document File Unavailable on Server</p>
+                  <p className="text-sm font-bold text-white">Legacy File Ingestion Record</p>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    This legacy file was stored only on temporary disk before persistent database upload storage was enabled and was cleared by a prior server redeploy. New uploads persist permanently across deployments.
+                    This file was ingested before persistent database storage was enabled. You can upload a replacement verified document below, or request fresh documentation from the applicant.
                   </p>
+                  {proofModalApp && (
+                    <button
+                      type="button"
+                      onClick={() => replacementInputRef.current?.click()}
+                      disabled={uploadingReplacement}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
+                    >
+                      {uploadingReplacement ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      <span>Upload Replacement Document</span>
+                    </button>
+                  )}
                 </div>
               ) : (
                 <img
                   src={proofModalUrl}
                   alt={proofModalTitle}
                   onError={() => setProofLoadError(true)}
-                  className="max-h-[70vh] object-contain"
+                  className="max-h-[58vh] object-contain rounded-xl shadow-lg"
                 />
               )}
             </div>
+
+            {/* Document Management Action Bar (when reviewing an application) */}
+            {proofModalApp && (
+              <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <input
+                  type="file"
+                  ref={replacementInputRef}
+                  onChange={handleUploadReplacement}
+                  className="hidden"
+                  accept="image/*,application/pdf"
+                />
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => replacementInputRef.current?.click()}
+                    disabled={uploadingReplacement}
+                    className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+                    title="Upload and permanently replace this document on the application"
+                  >
+                    {uploadingReplacement ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    <span>{uploadingReplacement ? 'Uploading...' : 'Upload Replacement Doc'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setReuploadPromptOpen(!reuploadPromptOpen)}
+                    className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="Notify user to submit fresh documents from their P2P Member dashboard"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>Request Re-upload from User</span>
+                  </button>
+                </div>
+
+                {proofModalApp.status === 'PENDING' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!confirm(`Approve P2P verification for ${proofModalApp.user?.email || 'applicant'} (${proofModalApp.applicationCode})?`)) return;
+                      setSubmittingAppReview(true);
+                      try {
+                        await api.post(`/admin/p2p/applications/${proofModalApp.id}/review`, {
+                          decision: 'APPROVE',
+                          reviewNotes: 'Verified by Compliance Officer. Supporting verification documentation reviewed.',
+                          approveKyc: true,
+                        });
+                        setApplications((prev) =>
+                          prev.map((a) => (a.id === proofModalApp.id ? { ...a, status: 'APPROVED' } : a))
+                        );
+                        if (reviewingApp && reviewingApp.id === proofModalApp.id) {
+                          setReviewingApp({ ...reviewingApp, status: 'APPROVED' });
+                        }
+                        setProofModalUrl(null);
+                        setProofModalApp(null);
+                        onFeedback({
+                          type: 'success',
+                          text: `P2P verification approved for ${proofModalApp.user?.email || 'applicant'}!`,
+                        });
+                      } catch (err: any) {
+                        onFeedback({
+                          type: 'error',
+                          text: extractErrorMessage(err, 'Failed to approve application.'),
+                        });
+                      } finally {
+                        setSubmittingAppReview(false);
+                      }
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Approve Merchant</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Re-upload Note Input Drawer */}
+            {reuploadPromptOpen && proofModalApp && (
+              <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 space-y-2 text-xs">
+                <p className="font-bold text-rose-300 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Request Updated Documentation from {proofModalApp.user?.email}</span>
+                </p>
+                <input
+                  type="text"
+                  placeholder="Reason for requesting new document (e.g. Please provide a clear ID photo or recent bank statement)..."
+                  value={reuploadReason}
+                  onChange={(e) => setReuploadReason(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 outline-none focus:border-rose-400"
+                />
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setReuploadPromptOpen(false)}
+                    className="px-3 py-1 rounded-lg bg-slate-800 text-slate-300 font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRequestReupload}
+                    disabled={requestingReupload}
+                    className="px-3.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    {requestingReupload ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                    <span>Send Re-upload Request</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

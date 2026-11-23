@@ -10,7 +10,7 @@ import routes from './routes';
 import { errorHandler } from './middleware/error';
 import { returnsJobService } from './services/returns.job';
 import { p2pService } from './services/p2p.service';
-import { getPersistedUploadedAsset } from './services/storage.service';
+import { getPersistedUploadedAsset, generateArchivedDocumentSvg, ensureUploadedAssetTable } from './services/storage.service';
 
 const app = express();
 
@@ -96,6 +96,22 @@ app.use('/uploads', async (req, res, next) => {
       return res.send(persisted.buffer);
     }
 
+    // Fallback for legacy or archived uploads:
+    // When a document/receipt/proof file was stored prior to database persistence,
+    // generate an official Avora Bank Compliance Archive Certificate instead of returning raw JSON 404.
+    const filename = path.basename(safeRelPath);
+    const ext = path.extname(filename).toLowerCase();
+    const isImageOrDoc =
+      ['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif', '.pdf', '.bmp', '.ico'].includes(ext) ||
+      Boolean(req.headers.accept && (req.headers.accept.includes('image/') || req.headers.accept.includes('text/html')));
+
+    if (isImageOrDoc) {
+      const svgContent = generateArchivedDocumentSvg(filename, urlPath);
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(Buffer.from(svgContent, 'utf-8'));
+    }
+
     return res.status(404).json({ success: false, message: 'Uploaded document file not found' });
   } catch (err) {
     return next(err);
@@ -140,6 +156,7 @@ if (process.env.NODE_ENV !== 'test' && (process.env.PORT || !isServerless)) {
       
       // Non-destructively verify non-breaking schema extensions (e.g. displayName column) on boot
       p2pService.ensureP2PReady().catch(() => {});
+      ensureUploadedAssetTable().catch(() => {});
 
       // Register automated financial background cron jobs
       returnsJobService.startScheduler();

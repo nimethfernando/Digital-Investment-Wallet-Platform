@@ -157,6 +157,12 @@ router.get('/p2p/applications', (req, res, next) => adminController.getP2PApplic
 router.post('/p2p/applications/:id/review', requireRole([Role.ADMIN, Role.STAFF]), requireAdmin2FA, (req, res, next) =>
   adminController.reviewP2PApplication(req, res, next)
 );
+router.patch('/p2p/applications/:id/documents', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) =>
+  adminController.updateP2PApplicationDocuments(req, res, next)
+);
+router.post('/p2p/applications/:id/request-reupload', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) =>
+  adminController.requestP2PApplicationReupload(req, res, next)
+);
 router.get('/p2p/orders', (req, res, next) => adminController.getP2POrders(req, res, next));
 router.post('/p2p/orders/:id/fulfill', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.fulfillP2POrder(req, res, next));
 router.post('/p2p/orders/:id/cancel', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.cancelP2POrder(req, res, next));

@@ -97,6 +97,7 @@ export function P2POnboardingWizard({
 
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [submittingApp, setSubmittingApp] = useState(false);
+  const [isResubmitting, setIsResubmitting] = useState(false);
   const [appFeedback, setAppFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const feedbackRef = useRef<HTMLDivElement | null>(null);
@@ -268,6 +269,7 @@ export function P2POnboardingWizard({
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new Event('avora-notifications-refresh'));
         }
+        setIsResubmitting(false);
         await onApplicationSubmitted();
       }
     } catch (err: any) {
@@ -616,27 +618,52 @@ export function P2POnboardingWizard({
           </div>
         )}
 
-        {/* Rejected Status Panel (One-Time Rule: Request Already Submitted — Cannot Re-Request) */}
-        {user && !isApproved && onboardingStatus === 'REJECTED' && (
+        {/* Rejected Status Panel with Document Resubmission Option */}
+        {user && !isApproved && onboardingStatus === 'REJECTED' && !isResubmitting && (
           <div className="p-5 rounded-2xl bg-rose-950/25 border border-rose-500/35 space-y-3 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-rose-300 font-extrabold text-sm">
                 <Ban className="w-5 h-5 text-rose-400" />
-                <span>Request Already Submitted — Application Declined</span>
+                <span>Verification Request Declined — Updates Requested</span>
               </div>
               {latestApp?.applicationCode && (
                 <span className="font-mono text-xs font-bold text-rose-300">{latestApp.applicationCode}</span>
               )}
             </div>
             <p className="text-slate-200 leading-relaxed">
-              Your P2P verification request has already been submitted and was declined by Admin Compliance. Each P2P member can only submit a P2P verification request once, so new submissions are locked.
+              Your previous P2P verification request was declined or requires updated supporting evidence. You can inspect the compliance notes below and resubmit with updated documents.
             </p>
             {latestApp?.reviewNotes && (
               <div className="p-3 rounded-xl bg-slate-950/80 border border-rose-500/25 text-rose-200">
                 <span className="font-bold text-rose-300">Admin Compliance Notes:</span> {latestApp.reviewNotes}
               </div>
             )}
-            <div className="pt-1">
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (latestApp) {
+                    setSourceOfFunds(latestApp.sourceOfFunds || SOURCE_OF_FUNDS_OPTIONS[0]);
+                    setSourceOfFundsDetails(latestApp.sourceOfFundsDetails || '');
+                    setTradingExperience(latestApp.tradingExperience || EXPERIENCE_OPTIONS[1]);
+                    setExpectedMonthlyVolume(latestApp.expectedMonthlyVolume || VOLUME_OPTIONS[1]);
+                    try {
+                      if (latestApp.paymentMethodsPlanned) {
+                        const pm = typeof latestApp.paymentMethodsPlanned === 'string'
+                          ? JSON.parse(latestApp.paymentMethodsPlanned)
+                          : latestApp.paymentMethodsPlanned;
+                        if (Array.isArray(pm)) setPlannedMethods(pm);
+                      }
+                    } catch {}
+                    setDocumentUrls([]);
+                  }
+                  setIsResubmitting(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-all shadow-md cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Resubmit with Fresh Documents</span>
+              </button>
               <Link
                 href="/contact"
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold"
@@ -648,17 +675,30 @@ export function P2POnboardingWizard({
           </div>
         )}
 
-        {/* Application Submission Form (Only shown once when NOT_APPLIED and no prior submission exists) */}
-        {user && !isApproved && onboardingStatus === 'NOT_APPLIED' && !latestApp && (
+        {/* Application Submission Form (Shown when NOT_APPLIED or when resubmitting) */}
+        {user && !isApproved && ((onboardingStatus === 'NOT_APPLIED' && !latestApp) || isResubmitting) && (
           <form onSubmit={handleSubmitApplication} className="p-5 sm:p-6 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 text-xs">
 
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-sm font-extrabold text-white">P2P Verification &amp; Source of Funds Application</h3>
+                <h3 className="text-sm font-extrabold text-white">
+                  {isResubmitting ? 'Resubmit P2P Verification & Supporting Documents' : 'P2P Verification & Source of Funds Application'}
+                </h3>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Reviewed by Avora Bank Admin Compliance prior to enabling P2P escrow trading &amp; merchant ads.
+                  {isResubmitting
+                    ? 'Upload clear replacement documents or screenshots to fulfill compliance requirements.'
+                    : 'Reviewed by Avora Bank Admin Compliance prior to enabling P2P escrow trading & merchant ads.'}
                 </p>
               </div>
+              {isResubmitting && (
+                <button
+                  type="button"
+                  onClick={() => setIsResubmitting(false)}
+                  className="text-xs text-slate-400 hover:text-white cursor-pointer px-2.5 py-1 rounded-lg bg-slate-800"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
 
             {user && !user.displayName && (
@@ -856,7 +896,7 @@ export function P2POnboardingWizard({
               className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {submittingApp ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-              <span>{submittingApp ? 'Submitting Application...' : 'Submit P2P Membership & SOF Application for Admin Review'}</span>
+              <span>{submittingApp ? 'Submitting Application...' : isResubmitting ? 'Resubmit Verification with New Documents' : 'Submit P2P Membership & SOF Application for Admin Review'}</span>
             </button>
           </form>
         )}

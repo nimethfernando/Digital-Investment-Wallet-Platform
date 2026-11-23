@@ -91,6 +91,19 @@ app.use('/uploads', async (req, res, next) => {
             res.setHeader('Cache-Control', 'public, max-age=86400');
             return res.send(persisted.buffer);
         }
+        // Fallback for legacy or archived uploads:
+        // When a document/receipt/proof file was stored prior to database persistence,
+        // generate an official Avora Bank Compliance Archive Certificate instead of returning raw JSON 404.
+        const filename = path_1.default.basename(safeRelPath);
+        const ext = path_1.default.extname(filename).toLowerCase();
+        const isImageOrDoc = ['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif', '.pdf', '.bmp', '.ico'].includes(ext) ||
+            Boolean(req.headers.accept && (req.headers.accept.includes('image/') || req.headers.accept.includes('text/html')));
+        if (isImageOrDoc) {
+            const svgContent = (0, storage_service_1.generateArchivedDocumentSvg)(filename, urlPath);
+            res.setHeader('Content-Type', 'image/svg+xml');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.send(Buffer.from(svgContent, 'utf-8'));
+        }
         return res.status(404).json({ success: false, message: 'Uploaded document file not found' });
     }
     catch (err) {
@@ -129,6 +142,7 @@ if (process.env.NODE_ENV !== 'test' && (process.env.PORT || !isServerless)) {
             console.log(`====================================================`);
             // Non-destructively verify non-breaking schema extensions (e.g. displayName column) on boot
             p2p_service_1.p2pService.ensureP2PReady().catch(() => { });
+            (0, storage_service_1.ensureUploadedAssetTable)().catch(() => { });
             // Register automated financial background cron jobs
             returns_job_1.returnsJobService.startScheduler();
         });

@@ -3968,6 +3968,35 @@ export class AdminController {
     }
   }
 
+  async updateP2PApplicationDocuments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const id = String(req.params.id);
+      const { documentUrls, addUrl, removeUrl } = req.body || {};
+      const result = await p2pService.updateApplicationDocuments(id, adminUserId, {
+        documentUrls,
+        addUrl,
+        removeUrl,
+      });
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async requestP2PApplicationReupload(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user?.id ? String((req as any).user.id) : 'SYSTEM_ADMIN';
+      const adminEmail = (req as any).user?.email ? String((req as any).user.email) : 'admin@avorabank.com';
+      const id = String(req.params.id);
+      const { reason } = req.body || {};
+      const result = await p2pService.requestApplicationReupload(id, adminUserId, adminEmail, reason);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getP2POrders(req: Request, res: Response, next: NextFunction) {
     try {
       await p2pService.ensureP2PReady();
