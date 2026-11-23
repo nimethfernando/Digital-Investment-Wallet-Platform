@@ -1050,9 +1050,19 @@ export class LedgerService {
       });
     }
 
+    const normalizeCommitmentValuation = (c: any): Decimal => {
+      const netDec = new Decimal(c.netInvestedAmount?.toString() || '0');
+      const rawCurVal = c.currentValuation ? new Decimal(c.currentValuation.toString()) : netDec;
+      const rawRetPct = Number(c.unrealizedReturnPct || 0);
+      if (rawRetPct === 0 && rawCurVal.greaterThan(netDec.times(10))) {
+        return netDec;
+      }
+      return rawCurVal;
+    };
+
     let ventureTotalUsd = new Decimal(0);
     const ventureDeals = activeCommitments.map((c) => {
-      const val = new Decimal(c.currentValuation?.toString() || c.netInvestedAmount.toString());
+      const val = normalizeCommitmentValuation(c);
       ventureTotalUsd = ventureTotalUsd.plus(val);
       return {
         id: c.id,
@@ -1066,9 +1076,11 @@ export class LedgerService {
       };
     });
 
+    let activeFdPrincipalUsd = new Decimal(0);
     const fdPackagesList = activePackages.map((p) => {
       const pAmtDec = new Decimal(p.amount.toString());
       const pUsd = toUsd(pAmtDec, p.currency);
+      activeFdPrincipalUsd = activeFdPrincipalUsd.plus(pUsd);
       return {
         id: p.id,
         code: p.packageCode,
@@ -1139,7 +1151,7 @@ export class LedgerService {
     let ventureUnrealizedGainsUsd = new Decimal(0);
     for (const c of activeCommitments) {
       const netInvested = new Decimal(c.netInvestedAmount.toString());
-      const val = new Decimal(c.currentValuation?.toString() || c.netInvestedAmount.toString());
+      const val = normalizeCommitmentValuation(c);
       if (val.greaterThan(netInvested)) {
         ventureUnrealizedGainsUsd = ventureUnrealizedGainsUsd.plus(val.minus(netInvested));
       }
@@ -1167,6 +1179,7 @@ export class LedgerService {
       baseCurrency: 'USD',
       totalPortfolioValueUsd: grandTotal.toFixed(2),
       totalActiveInvestmentsUsd: locked.plus(ventureTotalUsd).toFixed(2),
+      activeFdPrincipalUsd: activeFdPrincipalUsd.toFixed(2),
       totalReturnsPaidUsd: accumulatedReturns.toFixed(2),
       totalPendingWithdrawalsUsd: pending.toFixed(2),
       summary: {

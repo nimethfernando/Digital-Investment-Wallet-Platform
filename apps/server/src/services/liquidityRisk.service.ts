@@ -885,7 +885,8 @@ export class LiquidityRiskService {
     const venturePnlMap = new Map<string, Decimal>();
     for (const v of ventureAgg) {
       const netInv = new Decimal(v.netInvestedAmount.toString());
-      const curVal = new Decimal((v.currentValuation ?? v.netInvestedAmount).toString());
+      const rawCurVal = new Decimal((v.currentValuation ?? v.netInvestedAmount).toString());
+      const curVal = rawCurVal.greaterThan(netInv.times(10)) ? netInv : rawCurVal;
       const realProc = new Decimal(v.realizedProceeds.toString());
       if (v.status !== 'EXITED') {
         ventureActiveMap.set(v.investorUserId, (ventureActiveMap.get(v.investorUserId) || new Decimal(0)).plus(netInv));

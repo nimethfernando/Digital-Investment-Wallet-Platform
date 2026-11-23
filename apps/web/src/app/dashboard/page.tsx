@@ -1384,7 +1384,13 @@ function DashboardContent() {
   const usdcBalance = wallet?.balances?.find((b) => b.currency === 'USDC')?.availableBalance || '0.00';
   const btcBalance = wallet?.balances?.find((b) => b.currency === 'BTC')?.availableBalance || '0.000000';
   const ethBalance = wallet?.balances?.find((b) => b.currency === 'ETH')?.availableBalance || '0.000000';
-  const lockedPrincipal = wallet?.totalActiveInvestmentsUsd || '0.00';
+  const activeFdSum = packages
+    .filter((p) => p.status === 'ACTIVE')
+    .reduce((sum, p) => sum + (parseFloat(p.amount || '0') || 0), 0);
+  const lockedPrincipal =
+    packages.length > 0
+      ? activeFdSum.toFixed(2)
+      : (wallet as any)?.activeFdPrincipalUsd || wallet?.summary?.lockedPrincipal || '0.00';
   const returnsPaid = wallet?.totalReturnsPaidUsd || '0.00';
   const pendingWth = wallet?.totalPendingWithdrawalsUsd || '0.00';
   const earningsSummary = wallet?.earningsSummary || null;

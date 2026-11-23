@@ -882,9 +882,18 @@ class LedgerService {
                 hasBalance: totalDec.greaterThan(0),
             });
         }
+        const normalizeCommitmentValuation = (c) => {
+            const netDec = new decimal_js_1.default(c.netInvestedAmount?.toString() || '0');
+            const rawCurVal = c.currentValuation ? new decimal_js_1.default(c.currentValuation.toString()) : netDec;
+            const rawRetPct = Number(c.unrealizedReturnPct || 0);
+            if (rawRetPct === 0 && rawCurVal.greaterThan(netDec.times(10))) {
+                return netDec;
+            }
+            return rawCurVal;
+        };
         let ventureTotalUsd = new decimal_js_1.default(0);
         const ventureDeals = activeCommitments.map((c) => {
-            const val = new decimal_js_1.default(c.currentValuation?.toString() || c.netInvestedAmount.toString());
+            const val = normalizeCommitmentValuation(c);
             ventureTotalUsd = ventureTotalUsd.plus(val);
             return {
                 id: c.id,
@@ -897,9 +906,11 @@ class LedgerService {
                 status: c.status,
             };
         });
+        let activeFdPrincipalUsd = new decimal_js_1.default(0);
         const fdPackagesList = activePackages.map((p) => {
             const pAmtDec = new decimal_js_1.default(p.amount.toString());
             const pUsd = toUsd(pAmtDec, p.currency);
+            activeFdPrincipalUsd = activeFdPrincipalUsd.plus(pUsd);
             return {
                 id: p.id,
                 code: p.packageCode,
@@ -964,7 +975,7 @@ class LedgerService {
         let ventureUnrealizedGainsUsd = new decimal_js_1.default(0);
         for (const c of activeCommitments) {
             const netInvested = new decimal_js_1.default(c.netInvestedAmount.toString());
-            const val = new decimal_js_1.default(c.currentValuation?.toString() || c.netInvestedAmount.toString());
+            const val = normalizeCommitmentValuation(c);
             if (val.greaterThan(netInvested)) {
                 ventureUnrealizedGainsUsd = ventureUnrealizedGainsUsd.plus(val.minus(netInvested));
             }
@@ -989,6 +1000,7 @@ class LedgerService {
             baseCurrency: 'USD',
             totalPortfolioValueUsd: grandTotal.toFixed(2),
             totalActiveInvestmentsUsd: locked.plus(ventureTotalUsd).toFixed(2),
+            activeFdPrincipalUsd: activeFdPrincipalUsd.toFixed(2),
             totalReturnsPaidUsd: accumulatedReturns.toFixed(2),
             totalPendingWithdrawalsUsd: pending.toFixed(2),
             summary: {

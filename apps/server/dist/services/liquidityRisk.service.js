@@ -751,7 +751,8 @@ class LiquidityRiskService {
         const venturePnlMap = new Map();
         for (const v of ventureAgg) {
             const netInv = new decimal_js_1.default(v.netInvestedAmount.toString());
-            const curVal = new decimal_js_1.default((v.currentValuation ?? v.netInvestedAmount).toString());
+            const rawCurVal = new decimal_js_1.default((v.currentValuation ?? v.netInvestedAmount).toString());
+            const curVal = rawCurVal.greaterThan(netInv.times(10)) ? netInv : rawCurVal;
             const realProc = new decimal_js_1.default(v.realizedProceeds.toString());
             if (v.status !== 'EXITED') {
                 ventureActiveMap.set(v.investorUserId, (ventureActiveMap.get(v.investorUserId) || new decimal_js_1.default(0)).plus(netInv));
