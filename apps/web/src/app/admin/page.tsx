@@ -192,11 +192,13 @@ export default function AdminPortalPage() {
     otc_platform_fee_percent: '0.5',
     otc_security_deposit_usd: '1000',
     withdrawal_fee_percent: '0.0',
-    withdrawal_international_fee_percent: '2.5',
-    withdrawal_domestic_fee_percent: '1.0',
+    withdrawal_bank_wire_fee_percent: '5.0',
+    withdrawal_international_fee_percent: '5.0',
+    withdrawal_domestic_fee_percent: '5.0',
     withdrawal_crypto_fee_percent: '1.0',
     withdrawal_fx_spread_percent: '0.0',
     withdrawal_min_amount_usd: '10.0',
+    withdrawal_trc20_enabled: 'false',
     p2p_fee_percent: '0.0',
     p2p_security_deposit_usd: '50',
     p2p_daily_limit_usd: '5000',
@@ -3274,66 +3276,136 @@ export default function AdminPortalPage() {
                       </p>
                     </div>
 
-                    {/* WITHDRAWAL PRICING CONTROLS */}
-                    <div className="p-4 rounded-2xl bg-slate-950/90 border border-amber-500/30 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-black uppercase font-mono text-amber-400">
-                          Withdrawal Pricing &amp; Multi-Rail Fee Controls
-                        </span>
-                        <span className="text-[10px] text-emerald-400 font-mono font-bold">Admin Managed</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono flex items-center justify-between">
-                            <span>Intl SWIFT Wire (%)</span>
-                            <span className="text-[9px] text-amber-400">Cross-border</span>
-                          </label>
-                          <input
-                            type="number"
-                            step="0.05"
-                            min="0"
-                            value={platformConfig.withdrawal_international_fee_percent || '2.5'}
-                            onChange={(e) =>
-                              setPlatformConfig({ ...platformConfig, withdrawal_international_fee_percent: e.target.value })
-                            }
-                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-amber-500"
-                          />
+                    {/* DEDICATED WITHDRAWAL PRICING & BANK WIRE FEE CONTROLS */}
+                    <div className="p-4 rounded-2xl bg-slate-950/90 border border-amber-500/40 space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <div>
+                          <span className="text-xs font-black uppercase font-mono text-amber-400 flex items-center gap-1.5">
+                            <Landmark className="w-3.5 h-3.5" />
+                            Bank Wire &amp; Multi-Rail Withdrawal Fee Controls
+                          </span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Bank withdrawals require minimum 5% standard fee to cover SWIFT network costs, correspondent bank deductions &amp; processing charges.
+                          </p>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono flex items-center justify-between">
-                            <span>Domestic Bank (%)</span>
-                            <span className="text-[9px] text-cyan-400">ACH / Local</span>
+                        <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                          Admin Configurable
+                        </span>
+                      </div>
+
+                      {/* Bank Wire Withdrawal Fee Card */}
+                      <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                            <span>🌐 Bank Wire (SWIFT / International) Fee (%)</span>
+                          </label>
+                          <span className="text-[10px] font-mono text-amber-400 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                            Minimum 5.0% Recommended
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={platformConfig.withdrawal_bank_wire_fee_percent || platformConfig.withdrawal_international_fee_percent || '5.0'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setPlatformConfig({
+                                ...platformConfig,
+                                withdrawal_bank_wire_fee_percent: val,
+                                withdrawal_international_fee_percent: val,
+                              });
+                            }}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-mono font-bold outline-none focus:border-amber-500"
+                            placeholder="5.0"
+                          />
+                          <div className="flex items-center gap-1 shrink-0">
+                            {['5.0', '6.0', '7.5', '10.0'].map((pct) => (
+                              <button
+                                key={pct}
+                                type="button"
+                                onClick={() => {
+                                  setPlatformConfig({
+                                    ...platformConfig,
+                                    withdrawal_bank_wire_fee_percent: pct,
+                                    withdrawal_international_fee_percent: pct,
+                                  });
+                                }}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                                  (platformConfig.withdrawal_bank_wire_fee_percent || platformConfig.withdrawal_international_fee_percent) === pct
+                                    ? 'bg-amber-500 text-black shadow-sm'
+                                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                }`}
+                              >
+                                {pct}%
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          Applied automatically on all Bank Wire payout requests. Covers SWIFT transmission fees, correspondent bank handling, FX processing, and compliance clearing.
+                        </p>
+                      </div>
+
+                      {/* Multi-Rail Secondary Fee Controls */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-300 uppercase font-mono flex items-center justify-between">
+                            <span>Domestic Bank Clearing Fee (%)</span>
+                            <span className="text-[9px] text-cyan-400">ACH / Local / SEPA</span>
                           </label>
                           <input
                             type="number"
-                            step="0.05"
+                            step="0.1"
                             min="0"
-                            value={platformConfig.withdrawal_domestic_fee_percent || '1.0'}
+                            value={platformConfig.withdrawal_domestic_fee_percent || '5.0'}
                             onChange={(e) =>
                               setPlatformConfig({ ...platformConfig, withdrawal_domestic_fee_percent: e.target.value })
                             }
-                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-amber-500"
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-amber-500"
                           />
+                          <span className="text-[9px] text-slate-500 block">Local clearing and automated clearing house charges</span>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono flex items-center justify-between">
-                            <span>Crypto / USDT (%)</span>
-                            <span className="text-[9px] text-emerald-400">Blockchain</span>
+
+                        <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-300 uppercase font-mono flex items-center justify-between">
+                            <span>USDT Crypto Withdrawal Fee (%)</span>
+                            <span className="text-[9px] text-emerald-400">BNB Chain (BEP20)</span>
                           </label>
                           <input
                             type="number"
-                            step="0.05"
+                            step="0.1"
                             min="0"
                             value={platformConfig.withdrawal_crypto_fee_percent || '1.0'}
                             onChange={(e) =>
                               setPlatformConfig({ ...platformConfig, withdrawal_crypto_fee_percent: e.target.value })
                             }
-                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-amber-500"
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono outline-none focus:border-amber-500"
                           />
+                          <span className="text-[9px] text-slate-500 block">Independent blockchain gas and transaction fee</span>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-800/80">
+                      {/* TRON Network Option Toggle & Limits */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 border-t border-slate-800/80">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
+                            TRON (TRC20) Network
+                          </label>
+                          <select
+                            value={platformConfig.withdrawal_trc20_enabled === 'true' ? 'true' : 'false'}
+                            onChange={(e) =>
+                              setPlatformConfig({ ...platformConfig, withdrawal_trc20_enabled: e.target.value })
+                            }
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-bold outline-none cursor-pointer"
+                          >
+                            <option value="false">Hidden / Disabled (Default)</option>
+                            <option value="true">Enabled for Users</option>
+                          </select>
+                          <span className="text-[9px] text-slate-500 block">Currently hidden to avoid high gas friction</span>
+                        </div>
+
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
                             Payout FX Spread Margin (%)
@@ -3349,6 +3421,7 @@ export default function AdminPortalPage() {
                             className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-xs font-mono outline-none focus:border-amber-500"
                           />
                         </div>
+
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">
                             Min Withdrawal Limit ($ USD)
@@ -3365,10 +3438,6 @@ export default function AdminPortalPage() {
                           />
                         </div>
                       </div>
-
-                      <p className="text-[10px] text-slate-400 leading-relaxed">
-                        International SWIFT withdrawals include network correspondent banking fees, while domestic bank transfers use local national clearing. Crypto withdrawals apply to on-chain USDT redemptions.
-                      </p>
                     </div>
 
                     <div className="space-y-1">

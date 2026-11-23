@@ -2882,7 +2882,13 @@ export class AdminController {
         otc_platform_fee_percent: configMap['otc_platform_fee_percent'] || '0.5',
         otc_security_deposit_usd: configMap['otc_security_deposit_usd'] || '1000',
         withdrawal_fee_percent: configMap['withdrawal_fee_percent'] || '0.0',
+        withdrawal_bank_wire_fee_percent: configMap['withdrawal_bank_wire_fee_percent'] || configMap['withdrawal_international_fee_percent'] || '5.0',
+        withdrawal_international_fee_percent: configMap['withdrawal_international_fee_percent'] || configMap['withdrawal_bank_wire_fee_percent'] || '5.0',
+        withdrawal_domestic_fee_percent: configMap['withdrawal_domestic_fee_percent'] || '5.0',
+        withdrawal_crypto_fee_percent: configMap['withdrawal_crypto_fee_percent'] || '1.0',
         withdrawal_fx_spread_percent: configMap['withdrawal_fx_spread_percent'] || '0.0',
+        withdrawal_min_amount_usd: configMap['withdrawal_min_amount_usd'] || '10.0',
+        withdrawal_trc20_enabled: configMap['withdrawal_trc20_enabled'] || 'false',
         p2p_fee_percent: configMap['p2p_fee_percent'] || '0.0',
         p2p_security_deposit_usd: configMap['p2p_security_deposit_usd'] || '50',
         p2p_daily_limit_usd: configMap['p2p_daily_limit_usd'] || '5000',
@@ -2927,7 +2933,13 @@ export class AdminController {
         'withdrawal_processing_days',
         'withdrawal_window_day',
         'withdrawal_fee_percent',
+        'withdrawal_bank_wire_fee_percent',
+        'withdrawal_international_fee_percent',
+        'withdrawal_domestic_fee_percent',
+        'withdrawal_crypto_fee_percent',
         'withdrawal_fx_spread_percent',
+        'withdrawal_min_amount_usd',
+        'withdrawal_trc20_enabled',
         'razorpay_commission_percent',
         'razorpay_gateway_fee_percent',
         'razorpay_key_id',
@@ -2996,6 +3008,30 @@ export class AdminController {
                 key: 'package_min_lockin_months',
                 value: String(value),
                 description: 'Synced FD lock-in duration in months',
+              },
+            });
+          }
+
+          if (key === 'withdrawal_bank_wire_fee_percent') {
+            await prisma.cmsSetting.upsert({
+              where: { key: 'withdrawal_international_fee_percent' },
+              update: { value: String(value), group: 'WITHDRAWAL' },
+              create: {
+                group: 'WITHDRAWAL',
+                key: 'withdrawal_international_fee_percent',
+                value: String(value),
+                description: 'Synced international SWIFT wire fee',
+              },
+            });
+          } else if (key === 'withdrawal_international_fee_percent') {
+            await prisma.cmsSetting.upsert({
+              where: { key: 'withdrawal_bank_wire_fee_percent' },
+              update: { value: String(value), group: 'WITHDRAWAL' },
+              create: {
+                group: 'WITHDRAWAL',
+                key: 'withdrawal_bank_wire_fee_percent',
+                value: String(value),
+                description: 'Synced bank wire fee',
               },
             });
           }

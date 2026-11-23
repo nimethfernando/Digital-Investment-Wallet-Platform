@@ -126,6 +126,10 @@ class WithdrawalService {
                 }
             }
             else {
+                const trc20Setting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_trc20_enabled' } }).catch(() => null);
+                if (trc20Setting?.value !== 'true') {
+                    throw this.validationError('TRON (TRC20) network is currently disabled for withdrawals to eliminate network gas friction. Please select BNB Smart Chain (BEP20) with a 0x address.');
+                }
                 if (!/^T[1-9A-HJ-NP-Za-km-z]{32,35}$/.test(rawAddress)) {
                     throw this.validationError('Invalid TRC20 wallet address. TRON (TRC20) addresses must start with "T" and be 34 characters long.');
                 }
@@ -148,16 +152,22 @@ class WithdrawalService {
                         : 'Available USD Wallet';
         }
         // 6. Compute Real-Time Currency Conversion & Withdrawal Pricing (Admin-controlled FX rates & fee/spread)
-        const [feeSetting, intlFeeSetting, domFeeSetting, cryptoFeeSetting, fxSpreadSetting,] = await Promise.all([
+        const [feeSetting, bankWireFeeSetting, intlFeeSetting, domFeeSetting, cryptoFeeSetting, fxSpreadSetting,] = await Promise.all([
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fee_percent' } }).catch(() => null),
+            prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_bank_wire_fee_percent' } }).catch(() => null),
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_international_fee_percent' } }).catch(() => null),
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_domestic_fee_percent' } }).catch(() => null),
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_crypto_fee_percent' } }).catch(() => null),
             prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'withdrawal_fx_spread_percent' } }).catch(() => null),
         ]);
         const defaultFeePct = Math.max(0, Number(feeSetting?.value || '0') || 0);
-        const intlFeePct = intlFeeSetting?.value ? Math.max(0, Number(intlFeeSetting.value)) : 2.5;
-        const domFeePct = domFeeSetting?.value ? Math.max(0, Number(domFeeSetting.value)) : 1.0;
+        const bankWireFeePct = bankWireFeeSetting?.value
+            ? Math.max(0, Number(bankWireFeeSetting.value))
+            : intlFeeSetting?.value
+                ? Math.max(0, Number(intlFeeSetting.value))
+                : 5.0; // 5% minimum standard for bank withdrawals
+        const intlFeePct = bankWireFeePct;
+        const domFeePct = domFeeSetting?.value ? Math.max(0, Number(domFeeSetting.value)) : 5.0;
         const cryptoFeePct = cryptoFeeSetting?.value ? Math.max(0, Number(cryptoFeeSetting.value)) : 1.0;
         const fxSpreadPct = Math.max(0, Number(fxSpreadSetting?.value || '0') || 0);
         // Determine withdrawal rail & applicable fee percentage
