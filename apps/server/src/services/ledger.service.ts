@@ -900,7 +900,18 @@ export class LedgerService {
    */
   async getUserWalletSummary(userId: string) {
     const wallet = await this.ensureWallet(userId);
-    const [balances, liveRates, returnsAgg, activePackages, activeCommitments, tokenAccess] = await Promise.all([
+    const [
+      balances,
+      liveRates,
+      returnsAgg,
+      activePackages,
+      activeCommitments,
+      tokenAccess,
+      creditedReturnsList,
+      p2pOrders,
+      otcTradesAgg,
+      ventureDistAgg,
+    ] = await Promise.all([
       prisma.walletBalance.findMany({
         where: { walletId: wallet.id },
       }),
@@ -908,6 +919,7 @@ export class LedgerService {
       prisma.packageReturn.aggregate({
         where: { userId, status: 'CREDITED' },
         _sum: { returnAmount: true },
+        _count: { id: true },
       }),
       prisma.investmentPackage.findMany({
         where: { userId, status: 'ACTIVE' },
@@ -919,6 +931,7 @@ export class LedgerService {
           returnRateSnapshot: true,
           lockInMonths: true,
           purchaseDate: true,
+          lockInStart: true,
           status: true,
         },
       }),
@@ -929,6 +942,42 @@ export class LedgerService {
       prisma.tokenEarlyAccess.findUnique({
         where: { userId },
       }).catch(() => null),
+      prisma.packageReturn.findMany({
+        where: { userId, status: 'CREDITED' },
+        include: { package: { select: { packageCode: true } } },
+        orderBy: { payoutDate: 'desc' },
+        take: 30,
+      }).catch(() => []),
+      prisma.p2POrder.findMany({
+        where: {
+          OR: [{ buyerId: userId }, { sellerId: userId }],
+          status: 'COMPLETED',
+        },
+        select: {
+          id: true,
+          orderCode: true,
+          buyerId: true,
+          sellerId: true,
+          cryptoAmount: true,
+          cryptoCurrency: true,
+          fiatAmount: true,
+          fiatCurrency: true,
+          price: true,
+          completedAt: true,
+          createdAt: true,
+        },
+        orderBy: { completedAt: 'desc' },
+        take: 30,
+      }).catch(() => []),
+      prisma.otcTrade.aggregate({
+        where: { operatorId: userId, status: 'COMPLETED' },
+        _sum: { operatorFee: true },
+        _count: { id: true },
+      }).catch(() => ({ _sum: { operatorFee: null }, _count: { id: 0 } })),
+      prisma.investmentCommitment.aggregate({
+        where: { investorUserId: userId },
+        _sum: { netDistributedProfit: true, realizedProceeds: true },
+      }).catch(() => ({ _sum: { netDistributedProfit: null, realizedProceeds: null } })),
     ]);
 
     const toUsd = (amt: Decimal, currency: string): Decimal => {
@@ -1036,6 +1085,71 @@ export class LedgerService {
     const grandTotal = totalWallet.plus(ventureTotalUsd);
     const accumulatedReturns = new Decimal(returnsAgg._sum.returnAmount?.toString() || '0');
 
+    // Consolidated user earnings calculation across all platform channels
+    const fdYieldsPaidUsd = accumulatedReturns;
+    let totalMonthlyYieldObligation = new Decimal(0);
+    let earliestNextYieldDate: Date | null = null;
+    const now = new Date();
+
+    for (const p of activePackages) {
+      const pAmt = new Decimal(p.amount.toString());
+      const rawRateStr = p.returnRateSnapshot ? String(p.returnRateSnapshot).replace('%', '') : '1.0';
+      const parsedRate = parseFloat(rawRateStr);
+      const rateDec = new Decimal(Number.isFinite(parsedRate) && parsedRate > 1 ? parsedRate / 100 : (parsedRate || 0.01));
+      const mYield = pAmt.times(rateDec);
+      totalMonthlyYieldObligation = totalMonthlyYieldObligation.plus(mYield);
+
+      const startRaw = (p as any).lockInStart || p.purchaseDate || now;
+      const startDate = new Date(startRaw);
+      const lockMonths = p.lockInMonths || 6;
+      for (let m = 1; m <= lockMonths; m++) {
+        const cycleDue = new Date(startDate);
+        cycleDue.setMonth(cycleDue.getMonth() + m);
+        if (cycleDue.getTime() > now.getTime()) {
+          if (!earliestNextYieldDate || cycleDue.getTime() < earliestNextYieldDate.getTime()) {
+            earliestNextYieldDate = cycleDue;
+          }
+          break;
+        }
+      }
+    }
+    const daysUntilNextYield = earliestNextYieldDate
+      ? Math.max(0, Math.ceil((earliestNextYieldDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+      : null;
+
+    let p2pTradingProfitUsd = new Decimal(0);
+    let p2pFeeSavingsUsd = new Decimal(0);
+    for (const o of p2pOrders) {
+      const isSeller = o.sellerId === userId;
+      const cryptoAmt = new Decimal(o.cryptoAmount.toString());
+      const rate = new Decimal(o.price.toString());
+      const cur = (o.fiatCurrency || 'USD').toUpperCase();
+      const benchmarkRate = liveRates.rates[cur] ? new Decimal(liveRates.rates[cur]) : rate;
+      if (isSeller && benchmarkRate.greaterThan(0)) {
+        const diff = rate.minus(benchmarkRate);
+        if (diff.greaterThan(0)) {
+          p2pTradingProfitUsd = p2pTradingProfitUsd.plus(diff.times(cryptoAmt).div(benchmarkRate));
+        }
+      }
+      p2pFeeSavingsUsd = p2pFeeSavingsUsd.plus(cryptoAmt.times(0.005));
+    }
+
+    const otcCommissionsUsd = new Decimal(otcTradesAgg._sum?.operatorFee?.toString() || '0');
+    const ventureRealizedProfitsUsd = new Decimal(ventureDistAgg._sum?.netDistributedProfit?.toString() || '0');
+    let ventureUnrealizedGainsUsd = new Decimal(0);
+    for (const c of activeCommitments) {
+      const netInvested = new Decimal(c.netInvestedAmount.toString());
+      const val = new Decimal(c.currentValuation?.toString() || c.netInvestedAmount.toString());
+      if (val.greaterThan(netInvested)) {
+        ventureUnrealizedGainsUsd = ventureUnrealizedGainsUsd.plus(val.minus(netInvested));
+      }
+    }
+
+    const totalCumulativeEarningsUsd = fdYieldsPaidUsd
+      .plus(p2pTradingProfitUsd)
+      .plus(otcCommissionsUsd)
+      .plus(ventureRealizedProfitsUsd);
+
     // Add portfolio percentage to each item
     const formattedItems = assetItems.map((item) => {
       const itemUsd = new Decimal(item.totalUsd);
@@ -1104,6 +1218,41 @@ export class LedgerService {
           pendingSettlement: pendingStr,
         };
       }),
+      earningsSummary: {
+        totalCumulativeEarningsUsd: totalCumulativeEarningsUsd.toFixed(2),
+        fdYieldsPaidUsd: fdYieldsPaidUsd.toFixed(2),
+        fdYieldsCount: returnsAgg._count?.id || creditedReturnsList.length,
+        monthlyYieldObligationUsd: totalMonthlyYieldObligation.toFixed(2),
+        nextScheduledYieldDate: earliestNextYieldDate ? earliestNextYieldDate.toISOString() : null,
+        daysUntilNextYield,
+        p2pTradingProfitUsd: p2pTradingProfitUsd.toFixed(2),
+        p2pCompletedTradesCount: p2pOrders.length,
+        p2pFeeSavingsUsd: p2pFeeSavingsUsd.toFixed(2),
+        otcCommissionsUsd: otcCommissionsUsd.toFixed(2),
+        otcCompletedTradesCount: otcTradesAgg._count?.id || 0,
+        ventureRealizedProfitsUsd: ventureRealizedProfitsUsd.toFixed(2),
+        ventureUnrealizedGainsUsd: ventureUnrealizedGainsUsd.toFixed(2),
+        creditedReturnsList: creditedReturnsList.map((r: any) => ({
+          id: r.id,
+          packageCode: r.package?.packageCode || 'FD-PACKAGE',
+          periodIndex: r.periodIndex,
+          amount: new Decimal(r.returnAmount.toString()).toFixed(2),
+          currency: r.currency || 'USD',
+          payoutDate: r.payoutDate,
+          status: r.status,
+        })),
+        p2pTradeProfitsList: p2pOrders.slice(0, 15).map((o: any) => ({
+          id: o.id,
+          orderCode: o.orderCode,
+          role: o.sellerId === userId ? 'Seller (Maker)' : 'Buyer',
+          cryptoAmount: new Decimal(o.cryptoAmount.toString()).toFixed(2),
+          cryptoCurrency: o.cryptoCurrency,
+          fiatAmount: new Decimal(o.fiatAmount.toString()).toFixed(2),
+          fiatCurrency: o.fiatCurrency,
+          price: new Decimal(o.price.toString()).toFixed(2),
+          completedAt: o.completedAt || o.createdAt,
+        })),
+      },
     };
   }
 

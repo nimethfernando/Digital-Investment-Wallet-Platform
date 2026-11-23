@@ -65,6 +65,8 @@ import {
   ArrowLeftRight,
   Eye,
   FileText,
+  DollarSign,
+  Calendar,
 } from 'lucide-react';
 
 interface WalletSummary {
@@ -79,6 +81,41 @@ interface WalletSummary {
   totalActiveInvestmentsUsd: string;
   totalReturnsPaidUsd: string;
   totalPendingWithdrawalsUsd: string;
+  earningsSummary?: {
+    totalCumulativeEarningsUsd: string;
+    fdYieldsPaidUsd: string;
+    fdYieldsCount: number;
+    monthlyYieldObligationUsd: string;
+    nextScheduledYieldDate: string | null;
+    daysUntilNextYield: number | null;
+    p2pTradingProfitUsd: string;
+    p2pCompletedTradesCount: number;
+    p2pFeeSavingsUsd: string;
+    otcCommissionsUsd: string;
+    otcCompletedTradesCount: number;
+    ventureRealizedProfitsUsd: string;
+    ventureUnrealizedGainsUsd: string;
+    creditedReturnsList?: Array<{
+      id: string;
+      packageCode: string;
+      periodIndex: number;
+      amount: string;
+      currency: string;
+      payoutDate: string;
+      status: string;
+    }>;
+    p2pTradeProfitsList?: Array<{
+      id: string;
+      orderCode: string;
+      role: string;
+      cryptoAmount: string;
+      cryptoCurrency: string;
+      fiatAmount: string;
+      fiatCurrency: string;
+      price: string;
+      completedAt: string;
+    }>;
+  };
 }
 
 interface PackageItem {
@@ -278,7 +315,8 @@ function DashboardContent() {
   const [inspectedUser, setInspectedUser] = useState<any | null>(null);
   const viewedUser: any = isInspectMode && inspectedUser ? inspectedUser : user;
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'notifications' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'swap' | 'bank_details'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'notifications' | 'packages' | 'card' | 'transactions' | 'withdrawals' | 'p2p' | 'transfers' | 'support' | 'security' | 'swap' | 'bank_details' | 'earnings'>('overview');
+  const [earningsSubTab, setEarningsSubTab] = useState<'ALL' | 'FD' | 'P2P_OTC' | 'VENTURE'>('ALL');
   const [virtualCardsEnabled, setVirtualCardsEnabled] = useState(false);
 
   useEffect(() => {
@@ -541,6 +579,8 @@ function DashboardContent() {
       setQrModalOpen(true);
     } else if (tab === 'packages' || tab === 'investments' || tab === 'portfolio') {
       setActiveTab('packages');
+    } else if (tab === 'earnings' || tab === 'gains' || tab === 'yields' || tab === 'commissions') {
+      setActiveTab('earnings');
     } else if (tab === 'withdraw') {
       setWithdrawModalOpen(true);
     } else if (tab === 'withdrawals') {
@@ -1334,6 +1374,8 @@ function DashboardContent() {
   const lockedPrincipal = wallet?.totalActiveInvestmentsUsd || '0.00';
   const returnsPaid = wallet?.totalReturnsPaidUsd || '0.00';
   const pendingWth = wallet?.totalPendingWithdrawalsUsd || '0.00';
+  const earningsSummary = wallet?.earningsSummary || null;
+  const totalCumulativeEarnings = earningsSummary?.totalCumulativeEarningsUsd || returnsPaid;
 
   const availUsdNum = parseFloat(usdBalance || '0') || 0;
   const availUsdtNum = parseFloat(usdtBalance || '0') || 0;
@@ -1370,7 +1412,20 @@ function DashboardContent() {
 
   // Filtered Transactions
   const filteredTransactions = transactions.filter((tx) => {
-    if (txTypeFilter && tx.type !== txTypeFilter) return false;
+    if (txTypeFilter === 'ALL_EARNINGS') {
+      const isEarning = [
+        'MONTHLY_RETURN',
+        'INVESTMENT_DISTRIBUTION',
+        'INVESTMENT_PROFIT_SHARE',
+        'P2P_TRANSFER_IN',
+        'OTC_TRADE',
+        'COMMISSION',
+        'PRINCIPAL_RELEASE',
+      ].includes(tx.type);
+      if (!isEarning) return false;
+    } else if (txTypeFilter && tx.type !== txTypeFilter) {
+      return false;
+    }
     if (txCurrencyFilter && tx.currency !== txCurrencyFilter) return false;
     if (txSearch) {
       const q = txSearch.toLowerCase();
@@ -1681,6 +1736,12 @@ function DashboardContent() {
                 { key: 'bank_details', label: 'Bank Details', icon: Landmark },
                 ...(virtualCardsEnabled ? [{ key: 'card', label: 'Virtual Cards', icon: CreditCard }] : []),
                 { key: 'packages', label: `Investments (${packages.length + startupInvestments.length + (tokenStatus?.earlyAccess?.registeredInterest ? 1 : 0)})`, icon: Package },
+                {
+                  key: 'earnings',
+                  label: 'Earnings & Gains',
+                  icon: TrendingUp,
+                  badgeCount: earningsSummary?.fdYieldsCount || 0,
+                },
                 { key: 'withdrawals', label: `Withdrawals (${withdrawals.length})`, icon: ArrowUpRight },
                 { key: 'transactions', label: 'Ledger Audit', icon: Clock },
                 { key: 'security', label: 'Security', icon: ShieldCheck },
@@ -2027,27 +2088,37 @@ function DashboardContent() {
                 </div>
               </button>
 
-              {/* Card 3: Accumulated Yields */}
+              {/* Card 3: Accumulated Yields & Consolidated Earnings */}
               <button
                 type="button"
-                onClick={() => setActiveTab('transactions')}
+                onClick={() => setActiveTab('earnings')}
                 className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/50 hover:shadow-md transition-all shadow-sm space-y-2 text-left cursor-pointer group"
               >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                  <span>Monthly Yields Paid</span>
+                  <span className="font-bold">Total Earnings &amp; Yields</span>
                   <TrendingUp className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform" />
                 </div>
-                <div className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">
-                  +${parseFloat(returnsPaid).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                <div className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-600 dark:text-emerald-400 font-mono">
+                  +${parseFloat(totalCumulativeEarnings).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
                   <span>
-                    Rate:{' '}
-                    <span className="font-semibold text-slate-700 dark:text-slate-300">
-                      {packages.find((p) => p.status === 'ACTIVE')?.returnRatePercent || '1.0%'} Monthly Return
-                    </span>
+                    {earningsSummary?.nextScheduledYieldDate && earningsSummary?.daysUntilNextYield !== null && earningsSummary?.daysUntilNextYield !== undefined ? (
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        Next Yield in {earningsSummary.daysUntilNextYield}d (+${parseFloat(earningsSummary.monthlyYieldObligationUsd || '0').toFixed(2)}/mo)
+                      </span>
+                    ) : (
+                      <span>
+                        Rate:{' '}
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          {packages.find((p) => p.status === 'ACTIVE')?.returnRatePercent || '1.0%'} Monthly Return
+                        </span>
+                      </span>
+                    )}
                   </span>
-                  <span className="text-emerald-500 font-bold opacity-80 group-hover:opacity-100">Ledger →</span>
+                  <span className="text-emerald-500 font-bold opacity-80 group-hover:opacity-100 flex items-center gap-0.5">
+                    Earnings Hub →
+                  </span>
                 </div>
               </button>
 
@@ -2777,6 +2848,55 @@ function DashboardContent() {
                   </div>
                 </div>
 
+                {/* FD Yield Accruals & Payout Status Banner */}
+                {packages.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Locked FD Capital</span>
+                      <div className="text-xl font-black text-slate-900 dark:text-white font-mono mt-0.5">
+                        ${parseFloat(lockedPrincipal).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                      </div>
+                      <span className="text-[11px] text-slate-400">{packages.filter((p) => p.status === 'ACTIVE').length} Active Packages</span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">FD Yields Paid to Date</span>
+                      <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
+                        +${parseFloat(returnsPaid).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                      </div>
+                      <span className="text-[11px] text-emerald-600/80 font-semibold">{earningsSummary?.fdYieldsCount || 0} Monthly Cycles Credited</span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Monthly Yield Rate</span>
+                      <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
+                        {packages.find((p) => p.status === 'ACTIVE')?.returnRatePercent || '1.0%'} / mo
+                      </div>
+                      <span className="text-[11px] text-slate-400">
+                        Obligation: +${parseFloat(earningsSummary?.monthlyYieldObligationUsd || '0').toFixed(2)} USD/mo
+                      </span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Next Scheduled Payout</span>
+                      <div className="text-base font-black text-slate-900 dark:text-white font-mono mt-1">
+                        {earningsSummary?.nextScheduledYieldDate ? (
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            {new Date(earningsSummary.nextScheduledYieldDate).toLocaleDateString()}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-sm">Active Cycle</span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-slate-400">
+                        {earningsSummary?.daysUntilNextYield !== null && earningsSummary?.daysUntilNextYield !== undefined
+                          ? `${earningsSummary.daysUntilNextYield} days remaining until automatic credit`
+                          : 'Credited to Available USD Wallet'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {packages.length === 0 ? (
                   <div className="p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-3">
                     <p className="text-xs text-slate-500">You do not have any active Fixed Deposit packages yet.</p>
@@ -3354,6 +3474,329 @@ function DashboardContent() {
           </div>
         )}
 
+        {/* EARNINGS, YIELDS & COMMISSIONS HUB */}
+        {activeTab === 'earnings' && (
+          <div className="space-y-8 animate-in fade-in duration-200">
+            {/* Header & Quick Action CTAs */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold mb-2">
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Institutional Wealth &amp; Yield Distribution</span>
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Earnings, Gains &amp; Commissions Hub</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl mt-1">
+                  Permanent audited record of your Digital Fixed Deposit 1% monthly yields, P2P merchant spreads, OTC broker commissions, and venture startup equity distributions.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setWithdrawModalOpen(true)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowUpRight className="w-4 h-4" />
+                  Withdraw Earnings
+                </button>
+                <Link
+                  href="/packages"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-900 dark:bg-slate-800 hover:bg-black text-white border border-slate-700 shadow-md transition-all flex items-center gap-1.5"
+                >
+                  <Package className="w-4 h-4 text-emerald-400" />
+                  + Deploy 1% Monthly FD
+                </Link>
+                <Link
+                  href="/p2p"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 shadow-sm transition-all flex items-center gap-1.5"
+                >
+                  <Users className="w-4 h-4 text-blue-500" />
+                  P2P Desk
+                </Link>
+              </div>
+            </div>
+
+            {/* 4 Hero KPI Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Card 1: Total Cumulative All-Time Earnings */}
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-bold">Total Audited Earnings</span>
+                  <Award className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-600 dark:text-emerald-400 font-mono">
+                  +${parseFloat(totalCumulativeEarnings).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  <span className="inline-block px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] mb-1">
+                    ✓ Credited to Available USD Wallet
+                  </span>
+                  <p className="text-[11px] text-slate-400">Withdrawable immediately via bank wire or USDT</p>
+                </div>
+              </div>
+
+              {/* Card 2: Digital Fixed Deposit Yields */}
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-bold">Fixed Deposit Yields</span>
+                  <Package className="w-4 h-4 text-teal-500" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white font-mono">
+                  +${parseFloat(returnsPaid).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
+                  <div className="flex justify-between text-[11px]">
+                    <span>Monthly Yield Rate:</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                      {packages.find((p) => p.status === 'ACTIVE')?.returnRatePercent || '1.0%'} / mo
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span>Monthly Obligation:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                      +${parseFloat(earningsSummary?.monthlyYieldObligationUsd || '0').toFixed(2)} USD/mo
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 3: P2P & OTC Trading Margins */}
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-bold">P2P &amp; OTC Trading Profits</span>
+                  <Users className="w-4 h-4 text-blue-500" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white font-mono">
+                  +${(parseFloat(earningsSummary?.p2pTradingProfitUsd || '0') + parseFloat(earningsSummary?.otcCommissionsUsd || '0')).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
+                  <div className="flex justify-between text-[11px]">
+                    <span>Completed Trades:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                      {(earningsSummary?.p2pCompletedTradesCount || 0) + (earningsSummary?.otcCompletedTradesCount || 0)} Orders
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span>Escrow Fees Saved:</span>
+                    <span className="font-bold text-blue-600 dark:text-blue-400">
+                      +${parseFloat(earningsSummary?.p2pFeeSavingsUsd || '0').toFixed(2)} USD
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4: Venture Crowdfunding & Capital Gains */}
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-bold">Venture Equity Dividends</span>
+                  <Building className="w-4 h-4 text-amber-500" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white font-mono">
+                  +${parseFloat(earningsSummary?.ventureRealizedProfitsUsd || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
+                  <div className="flex justify-between text-[11px]">
+                    <span>Active Portfolios:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-300">{startupInvestments.length} Startups</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span>Paper Valuation Gains:</span>
+                    <span className="font-bold text-amber-600 dark:text-amber-400">
+                      +${parseFloat(earningsSummary?.ventureUnrealizedGainsUsd || '0').toFixed(2)} USD
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* UPCOMING YIELD PAYOUT SCHEDULE BANNER */}
+            {earningsSummary?.nextScheduledYieldDate && (
+              <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 text-white text-[11px] font-bold">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Guaranteed Monthly Yield Distribution</span>
+                  </div>
+                  <h3 className="text-lg font-black tracking-tight">
+                    Next Distribution: {new Date(earningsSummary.nextScheduledYieldDate).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </h3>
+                  <p className="text-xs text-emerald-100 max-w-xl">
+                    Estimated yield of <span className="font-mono font-bold text-white">+${parseFloat(earningsSummary.monthlyYieldObligationUsd || '0').toFixed(2)} USD</span> will automatically credit to your Available USD Wallet balance.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 text-center min-w-[100px]">
+                    <span className="text-[10px] text-emerald-100 uppercase tracking-wider block font-bold">Countdown</span>
+                    <span className="text-xl font-black font-mono">
+                      {earningsSummary.daysUntilNextYield} {earningsSummary.daysUntilNextYield === 1 ? 'Day' : 'Days'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPortfolioSubTab('FD');
+                      setActiveTab('packages');
+                    }}
+                    className="px-4 py-3 rounded-xl bg-white text-emerald-800 hover:bg-emerald-50 text-xs font-bold transition-all shadow-md cursor-pointer"
+                  >
+                    View Packages →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Interactive Stream Filter Pills */}
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3 overflow-x-auto">
+              <div className="flex items-center gap-2">
+                {[
+                  { key: 'ALL', label: 'All Earnings Streams' },
+                  { key: 'FD', label: `Fixed Deposit Yields (${packages.reduce((acc, p) => acc + (p.returns?.length || 0), 0) || earningsSummary?.fdYieldsCount || 0})` },
+                  { key: 'P2P_OTC', label: `P2P & OTC Trading Margins (${(earningsSummary?.p2pCompletedTradesCount || 0) + (earningsSummary?.otcCompletedTradesCount || 0)})` },
+                  { key: 'VENTURE', label: `Venture Equity Distributions (${startupInvestments.length})` },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => setEarningsSubTab(f.key as any)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                      earningsSubTab === f.key
+                        ? 'bg-slate-900 text-white dark:bg-emerald-600 dark:text-white shadow-sm'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTxTypeFilter('ALL_EARNINGS');
+                  setActiveTab('transactions');
+                }}
+                className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 shrink-0 cursor-pointer"
+              >
+                <span>Full Ledger Audit View</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Stream Table */}
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto">
+              {(() => {
+                const streamItems = transactions.filter((tx) => {
+                  if (earningsSubTab === 'FD') return tx.type === 'MONTHLY_RETURN';
+                  if (earningsSubTab === 'P2P_OTC') return tx.type === 'P2P_TRANSFER_IN' || tx.type === 'OTC_TRADE';
+                  if (earningsSubTab === 'VENTURE') return tx.type === 'INVESTMENT_DISTRIBUTION' || tx.type === 'INVESTMENT_PROFIT_SHARE';
+                  return ['MONTHLY_RETURN', 'INVESTMENT_DISTRIBUTION', 'INVESTMENT_PROFIT_SHARE', 'P2P_TRANSFER_IN', 'OTC_TRADE', 'COMMISSION'].includes(tx.type);
+                });
+
+                if (streamItems.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-slate-400 text-xs space-y-2">
+                      <Sparkles className="w-8 h-8 mx-auto text-emerald-500/50" />
+                      <p className="font-semibold text-slate-600 dark:text-slate-300">
+                        No credited earnings recorded under this filter yet.
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        Monthly returns from active FD packages automatically credit on the 1st of every month.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-semibold">
+                      <tr>
+                        <th className="pb-3">Reference / Code</th>
+                        <th className="pb-3">Credit Date</th>
+                        <th className="pb-3">Earning Source</th>
+                        <th className="pb-3">Amount Credited</th>
+                        <th className="pb-3">Settlement Balance After</th>
+                        <th className="pb-3">Status</th>
+                        <th className="pb-3 text-right">Ledger Verification</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {streamItems.slice(0, 50).map((item) => {
+                        const isMonthlyReturn = item.type === 'MONTHLY_RETURN';
+                        const isVenture = item.type === 'INVESTMENT_DISTRIBUTION' || item.type === 'INVESTMENT_PROFIT_SHARE';
+                        const isP2p = item.type === 'P2P_TRANSFER_IN';
+                        const isOtc = item.type === 'OTC_TRADE';
+
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                            <td className="py-3.5 font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                              <div>{item.transactionCode}</div>
+                              {item.notes && (
+                                <div className="text-[10px] text-slate-400 font-sans font-normal truncate max-w-[220px]">
+                                  {item.notes}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3.5 text-slate-500 whitespace-nowrap">
+                              {new Date(item.createdAt).toLocaleString()}
+                            </td>
+                            <td className="py-3.5">
+                              {isMonthlyReturn ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-extrabold text-[11px] border border-emerald-500/30">
+                                  <Sparkles className="w-3 h-3 text-emerald-500" /> Fixed Deposit 1% Yield
+                                </span>
+                              ) : isVenture ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-extrabold text-[11px] border border-amber-500/30">
+                                  <Building className="w-3 h-3 text-amber-500" /> Venture Dividend Payout
+                                </span>
+                              ) : isP2p ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 font-bold text-[11px] border border-blue-500/30">
+                                  <Users className="w-3 h-3 text-blue-500" /> P2P Escrow Release / Settle
+                                </span>
+                              ) : isOtc ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-cyan-100 dark:bg-cyan-950/80 text-cyan-800 dark:text-cyan-300 font-bold text-[11px] border border-cyan-500/30">
+                                  <Award className="w-3 h-3 text-cyan-500" /> OTC Broker Commission
+                                </span>
+                              ) : (
+                                <span className="inline-block px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px] font-bold">
+                                  {item.type.replace(/_/g, ' ')}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 font-mono font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap text-sm">
+                              +{item.currency === 'USD' ? `$${parseFloat(item.amount).toFixed(2)} USD` : `${parseFloat(item.amount).toFixed(2)} ${item.currency}`}
+                            </td>
+                            <td className="py-3.5 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                              {parseFloat(item.balanceAfter).toFixed(2)} {item.currency}
+                            </td>
+                            <td className="py-3.5">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                                ✓ CREDITED
+                              </span>
+                            </td>
+                            <td className="py-3.5 text-right font-mono">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTxSearch(item.transactionCode);
+                                  setActiveTab('transactions');
+                                }}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                              >
+                                View in Ledger →
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
         {/* TRANSACTIONS TAB */}
         {activeTab === 'transactions' && (
           <div className="space-y-6">
@@ -3371,6 +3814,77 @@ function DashboardContent() {
                 <Download className="w-3.5 h-3.5" />
                 Export CSV
               </button>
+            </div>
+
+            {/* Audited Cumulative Earnings Strip & Quick Filter Pills */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border border-emerald-500/25 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shrink-0">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400">Audited Cumulative Earnings Credited</div>
+                  <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono">
+                    +${parseFloat(totalCumulativeEarnings).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    Fixed Deposits: +${parseFloat(returnsPaid).toFixed(2)} USD • P2P &amp; OTC Spreads: +${(parseFloat(earningsSummary?.p2pTradingProfitUsd || '0') + parseFloat(earningsSummary?.otcCommissionsUsd || '0')).toFixed(2)} USD
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTxTypeFilter('ALL_EARNINGS')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    txTypeFilter === 'ALL_EARNINGS'
+                      ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/50'
+                      : 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Earnings &amp; Yields Only</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTxTypeFilter('MONTHLY_RETURN')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    txTypeFilter === 'MONTHLY_RETURN'
+                      ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/50'
+                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  FD Yields
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTxTypeFilter('P2P_TRANSFER_IN')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    txTypeFilter === 'P2P_TRANSFER_IN'
+                      ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/50'
+                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  P2P Inbound
+                </button>
+                {txTypeFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setTxTypeFilter('')}
+                    className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 transition-all cursor-pointer"
+                  >
+                    Clear Filter
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('earnings')}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-black transition-all cursor-pointer ml-auto sm:ml-0"
+                >
+                  Open Earnings Hub →
+                </button>
+              </div>
             </div>
 
             {/* Filter Bar */}
@@ -3405,12 +3919,14 @@ function DashboardContent() {
                 className="w-full sm:w-56 px-3 py-2.5 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none"
               >
                 <option value="" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All Movement Types</option>
+                <option value="ALL_EARNINGS" className="bg-white dark:bg-slate-900 font-bold text-emerald-600 dark:text-emerald-400">💰 All Earnings &amp; Gains Only</option>
+                <option value="MONTHLY_RETURN" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">FD Monthly Yields (Returns)</option>
+                <option value="P2P_TRANSFER_IN" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">P2P Escrow Inbound / Settle</option>
+                <option value="OTC_TRADE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">OTC Trades &amp; Broker Commissions</option>
+                <option value="INVESTMENT_DISTRIBUTION" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Venture Equity Profit Share</option>
                 <option value="DEPOSIT" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Deposits</option>
                 <option value="PACKAGE_PURCHASE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Package Purchases</option>
-                <option value="MONTHLY_RETURN" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Monthly Returns</option>
                 <option value="P2P_TRANSFER_OUT" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">P2P Outbound</option>
-                <option value="P2P_TRANSFER_IN" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">P2P Inbound</option>
-                <option value="OTC_TRADE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">OTC Trades &amp; Commissions</option>
                 <option value="WITHDRAWAL_REQUEST" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Withdrawals</option>
               </select>
             </div>
@@ -3452,12 +3968,36 @@ function DashboardContent() {
                             {new Date(tx.createdAt).toLocaleString()}
                           </td>
                           <td className="py-3 font-bold text-slate-900 dark:text-white">
-                            <span className="inline-block px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px]">
-                              {tx.type.replace(/_/g, ' ')}
-                            </span>
+                            {tx.type === 'MONTHLY_RETURN' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-extrabold text-[11px] border border-emerald-500/30">
+                                <Sparkles className="w-3 h-3 text-emerald-500" /> FD YIELD PAID
+                              </span>
+                            ) : tx.type === 'INVESTMENT_DISTRIBUTION' || tx.type === 'INVESTMENT_PROFIT_SHARE' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-extrabold text-[11px] border border-amber-500/30">
+                                <Building className="w-3 h-3 text-amber-500" /> VENTURE PROFIT
+                              </span>
+                            ) : tx.type === 'P2P_TRANSFER_IN' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 font-bold text-[11px] border border-blue-500/30">
+                                <Users className="w-3 h-3 text-blue-500" /> P2P ESCROW IN
+                              </span>
+                            ) : tx.type === 'OTC_TRADE' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-cyan-100 dark:bg-cyan-950/80 text-cyan-800 dark:text-cyan-300 font-bold text-[11px] border border-cyan-500/30">
+                                <Award className="w-3 h-3 text-cyan-500" /> OTC TRADE
+                              </span>
+                            ) : (
+                              <span className="inline-block px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px]">
+                                {tx.type.replace(/_/g, ' ')}
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                            {isUsd ? `$${parseFloat(tx.amount).toFixed(2)} USD` : `${parseFloat(tx.amount).toFixed(2)} ${tx.currency}`}
+                            {['MONTHLY_RETURN', 'INVESTMENT_DISTRIBUTION', 'INVESTMENT_PROFIT_SHARE', 'P2P_TRANSFER_IN', 'PRINCIPAL_RELEASE'].includes(tx.type) ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-black">
+                                +{isUsd ? `$${parseFloat(tx.amount).toFixed(2)} USD` : `${parseFloat(tx.amount).toFixed(2)} ${tx.currency}`}
+                              </span>
+                            ) : (
+                              <span>{isUsd ? `$${parseFloat(tx.amount).toFixed(2)} USD` : `${parseFloat(tx.amount).toFixed(2)} ${tx.currency}`}</span>
+                            )}
                           </td>
                           <td className="py-3 font-mono text-slate-500 whitespace-nowrap">
                             {parseFloat(tx.balanceBefore).toFixed(2)} {tx.currency}

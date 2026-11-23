@@ -52,6 +52,19 @@ class WalletController {
         }
     }
     /**
+     * Get authenticated user's comprehensive earnings & commission summary
+     */
+    async getUserEarnings(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const summary = await ledger_service_1.ledgerService.getUserWalletSummary(userId);
+            res.json({ success: true, data: summary.earningsSummary || null });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * Get user's transaction history with filtering and pagination
      */
     async getTransactions(req, res, next) {
