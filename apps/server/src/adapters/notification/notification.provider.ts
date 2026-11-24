@@ -1,11 +1,18 @@
 import nodemailer from 'nodemailer';
 import { config } from '../../config';
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer | string;
+  contentType?: string;
+}
+
 export interface EmailOptions {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface NotificationProvider {
@@ -93,6 +100,7 @@ export class SmtpNotificationProvider implements NotificationProvider {
           subject: options.subject,
           html: options.html,
           text: options.text,
+          ...(options.attachments && options.attachments.length > 0 ? { attachments: options.attachments } : {}),
         });
 
         const timeoutPromise = new Promise<never>((_, reject) =>

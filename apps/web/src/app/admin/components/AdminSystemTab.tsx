@@ -14,6 +14,9 @@ import {
   XCircle,
   Play,
   Activity,
+  Download,
+  Mail,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { allLanguageNames, Language } from '../../../context/LanguageContext';
 import { api, extractErrorMessage } from '../../../lib/api';
@@ -79,6 +82,111 @@ export default function AdminSystemTab({
   const [saving, setSaving] = useState(false);
   const [runningSelfTest, setRunningSelfTest] = useState(false);
   const [selfTestReport, setSelfTestReport] = useState<SelfTestReport | null>(null);
+
+  // Automated Daily End-of-Day (EOD) Master Excel Backup & Email State
+  const [backupEnabled, setBackupEnabled] = useState(true);
+  const [backupEmails, setBackupEmails] = useState('avorabank@gmail.com');
+  const [backupLastSentAt, setBackupLastSentAt] = useState<string | null>(null);
+  const [backupLastStatus, setBackupLastStatus] = useState<string>('READY');
+  const [backupLastFilename, setBackupLastFilename] = useState<string | null>(null);
+  const [sendingBackupEmail, setSendingBackupEmail] = useState(false);
+  const [downloadingBackupExcel, setDownloadingBackupExcel] = useState(false);
+  const [savingBackupConfig, setSavingBackupConfig] = useState(false);
+
+  useEffect(() => {
+    api
+      .get('/admin/system/backup-excel/status')
+      .then((res) => {
+        if (res.data?.success && res.data?.data) {
+          const d = res.data.data;
+          setBackupEnabled(d.enabled !== false);
+          if (d.recipientEmails) setBackupEmails(d.recipientEmails);
+          setBackupLastSentAt(d.lastSentAt || null);
+          setBackupLastStatus(d.lastStatus || 'READY');
+          setBackupLastFilename(d.lastFilename || null);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveBackupConfig = async () => {
+    setSavingBackupConfig(true);
+    try {
+      const res = await api.post('/admin/system/backup-excel/config', {
+        enabled: backupEnabled,
+        recipientEmails: backupEmails,
+      });
+      if (res.data?.success) {
+        onFeedback({
+          text: 'Daily End-of-Day Master Excel Backup schedule & recipient email saved.',
+          type: 'success',
+        });
+      }
+    } catch (err: any) {
+      onFeedback({
+        text: extractErrorMessage(err, 'Failed to save Excel backup settings'),
+        type: 'error',
+      });
+    } finally {
+      setSavingBackupConfig(false);
+    }
+  };
+
+  const handleSendMasterExcelEmail = async () => {
+    setSendingBackupEmail(true);
+    try {
+      const res = await api.post('/admin/system/backup-excel/send', {
+        recipientEmails: backupEmails,
+      });
+      if (res.data?.success) {
+        setBackupLastSentAt(res.data.data?.sentAt || new Date().toISOString());
+        setBackupLastFilename(res.data.data?.filename || null);
+        setBackupLastStatus('SUCCESS (On-Demand Admin Dispatch)');
+        onFeedback({
+          text: res.data.message || `Complete 8-Sheet Master Excel Backup emailed to ${backupEmails}!`,
+          type: 'success',
+        });
+      }
+    } catch (err: any) {
+      onFeedback({
+        text: extractErrorMessage(err, 'Failed to send Master Excel Backup email'),
+        type: 'error',
+      });
+    } finally {
+      setSendingBackupEmail(false);
+    }
+  };
+
+  const handleDownloadMasterExcel = async () => {
+    setDownloadingBackupExcel(true);
+    try {
+      const res = await api.get('/admin/system/backup-excel/download', {
+        responseType: 'blob',
+      });
+      const dateStr = new Date().toISOString().split('T')[0];
+      const fname = `Avora_Bank_Master_Backup_${dateStr}.xls`;
+      const blob = new Blob([res.data], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fname);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      onFeedback({
+        text: `Downloaded complete 8-Sheet Master Excel Workbook (${fname}).`,
+        type: 'success',
+      });
+    } catch (err: any) {
+      onFeedback({
+        text: extractErrorMessage(err, 'Failed to download Master Excel Workbook'),
+        type: 'error',
+      });
+    } finally {
+      setDownloadingBackupExcel(false);
+    }
+  };
 
   const handleRunSelfTest = async () => {
     setRunningSelfTest(true);
@@ -155,6 +263,110 @@ export default function AdminSystemTab({
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           <span>Save System Settings</span>
         </button>
+      </div>
+
+      {/* AUTOMATED END-OF-DAY (EOD) MASTER EXCEL DATA BACKUP & EMAIL VAULT */}
+      <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950/50 via-slate-900 to-slate-950 border border-emerald-500/40 space-y-5 shadow-xl">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+          <div className="flex items-start gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
+              <FileSpreadsheet className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="font-black text-white text-base">
+                  Automated Daily End-of-Day (EOD) Master Excel Backup &amp; Email Vault
+                </h4>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  {backupEnabled ? '● DAILY 23:55 UTC ACTIVE' : '○ PAUSED'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-1 max-w-3xl leading-relaxed">
+                Every day at the end of the day (23:55 UTC), the system automatically compiles all live platform data into an <strong>8-Worksheet Microsoft Excel Workbook (<code>.xls</code>)</strong>—including Executive Summary, Users &amp; Wallet Balances, Fixed Deposits (FD), Deposits, Withdrawals, Complete Double-Entry Ledger Transactions, P2P &amp; OTC Trades, and Startup/Token Allocations—and emails it directly to your inbox.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleDownloadMasterExcel}
+              disabled={downloadingBackupExcel}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/40 font-black text-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shadow-md"
+            >
+              {downloadingBackupExcel ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              <span>Download Full Excel (.xls) Now</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleSendMasterExcelEmail}
+              disabled={sendingBackupEmail}
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shadow-lg shadow-emerald-600/30"
+            >
+              {sendingBackupEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+              <span>Email Latest Excel Backup Now</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
+          <div className="lg:col-span-2 p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+            <label className="text-[11px] font-bold text-slate-300 uppercase font-mono block">
+              Daily End-of-Day Excel Backup Recipient Email(s) (Comma-Separated)
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <input
+                type="text"
+                value={backupEmails}
+                onChange={(e) => setBackupEmails(e.target.value)}
+                placeholder="avorabank@gmail.com, owner@example.com"
+                className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-xs outline-none focus:border-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={() => setBackupEnabled(!backupEnabled)}
+                className={`px-3.5 py-2 rounded-xl font-bold text-xs border cursor-pointer transition-all ${
+                  backupEnabled
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}
+              >
+                {backupEnabled ? 'Daily Auto-Email: ON' : 'Daily Auto-Email: OFF'}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveBackupConfig}
+                disabled={savingBackupConfig}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {savingBackupConfig ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                <span>Save Schedule</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Worksheets inside every Excel file: <strong>1. Executive Summary</strong> • <strong>2. Users &amp; Wallets</strong> • <strong>3. Fixed Deposits (FD)</strong> • <strong>4. Deposits</strong> • <strong>5. Withdrawals</strong> • <strong>6. Financial Ledger Txs</strong> • <strong>7. P2P &amp; OTC Trades</strong> • <strong>8. Startups &amp; $AVR Token</strong>
+            </p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-1.5 flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
+              Last Excel Backup Dispatch Status
+            </span>
+            <div className="text-sm font-black text-emerald-400 font-mono truncate">
+              {backupLastStatus}
+            </div>
+            <div className="text-[11px] text-slate-300 font-mono">
+              {backupLastSentAt
+                ? `Last Sent: ${new Date(backupLastSentAt).toLocaleString()}`
+                : 'Ready for first dispatch'}
+            </div>
+            {backupLastFilename && (
+              <div className="text-[10px] text-slate-500 font-mono truncate">
+                File: {backupLastFilename}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

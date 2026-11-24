@@ -193,6 +193,10 @@ router.get('/audit-logs', requireRole([Role.ADMIN]), (req, res, next) => adminCo
 router.get('/system/status', (req, res, next) => adminController.getSystemStatus(req, res, next));
 router.post('/system/settings', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateSystemStatus(req, res, next));
 router.post('/system/self-test', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.runFinancialSelfTest(req, res, next));
+router.get('/system/backup-excel/status', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.getExcelBackupStatus(req, res, next));
+router.post('/system/backup-excel/config', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateExcelBackupConfig(req, res, next));
+router.get('/system/backup-excel/download', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.downloadExcelBackup(req, res, next));
+router.post('/system/backup-excel/send', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.sendExcelBackupEmail(req, res, next));
 
 // Platform Analytics Overview & Real-Time Admin Notifications
 router.get('/analytics/overview', (req, res, next) => adminController.getPlatformOverviewAnalytics(req, res, next));

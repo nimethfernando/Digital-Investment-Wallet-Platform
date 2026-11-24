@@ -482,6 +482,21 @@ export class ReturnsJobService {
       }
     });
     console.log('✅ Automated P2P Timeout & Dispute Escalation Cron registered (every 1 minute)');
+
+    // Automated Daily End-of-Day (23:55 UTC) Master Excel Backup & Email Dispatch
+    cron.schedule('55 23 * * *', async () => {
+      console.log('[Backup Cron] Executing scheduled End-of-Day Master Excel Backup & Email Dispatch...');
+      try {
+        const { platformBackupService } = await import('./backup.service');
+        const cfg = await platformBackupService.getBackupConfig();
+        if (cfg.enabled) {
+          await platformBackupService.sendDailyExcelBackupEmail({ triggerSource: 'SCHEDULED_EOD' });
+        }
+      } catch (err) {
+        console.error('[Backup Cron] End-of-Day Excel backup error:', err);
+      }
+    });
+    console.log('✅ Automated End-of-Day Master Excel Backup & Email Cron registered (23:55 UTC daily)');
   }
 }
 

@@ -2059,6 +2059,34 @@ export default function AdminPortalPage() {
               <Building2 className="w-3.5 h-3.5" />
               <span>+ OTC Desk</span>
             </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  showToast('Generating complete 8-Sheet Master Excel Backup...', 'success');
+                  const res = await api.get('/admin/system/backup-excel/download', { responseType: 'blob' });
+                  const dateStr = new Date().toISOString().split('T')[0];
+                  const fname = `Avora_Bank_Master_Backup_${dateStr}.xls`;
+                  const blob = new Blob([res.data], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.setAttribute('download', fname);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  URL.revokeObjectURL(url);
+                  showToast(`Downloaded ${fname} (8 Worksheets)!`, 'success');
+                } catch {
+                  showToast('Failed to download Master Excel Backup.', 'error');
+                }
+              }}
+              className="text-xs font-black bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1.5 rounded-xl transition-all shadow-md shadow-cyan-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              title="Download complete 8-Sheet Master Excel Workbook (.xls) of all platform data"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Excel Backup</span>
+            </button>
 
             {/* Real-Time Notification Bell & Popover Drawer */}
             <div className="relative">

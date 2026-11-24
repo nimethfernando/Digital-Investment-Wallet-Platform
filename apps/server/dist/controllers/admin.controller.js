@@ -5758,8 +5758,7 @@ class AdminController {
                 .count({ where: { subject: { startsWith: 'NEWSLETTER:' } } })
                 .catch(() => 0);
             res.json({
-                success: true,
-                data: {
+                const: payloadData = {
                     totalUsers,
                     totalPackages,
                     activeCapital: activeCapital.toFixed(2),
@@ -5776,10 +5775,22 @@ class AdminController {
                     commandCenter,
                     platformRevenueSummary,
                     sectionMetrics,
-                },
+                }
+            }(globalThis).__avoraLastOverviewAnalytics = payloadData);
+            globalThis.__avoraLastOverviewTime = Date.now();
+            res.json({
+                success: true,
+                data: payloadData,
             });
         }
         catch (err) {
+            if (globalThis.__avoraLastOverviewAnalytics) {
+                return res.json({
+                    success: true,
+                    data: globalThis.__avoraLastOverviewAnalytics,
+                    cachedFallback: true,
+                });
+            }
             next(err);
         }
     }
@@ -7072,6 +7083,83 @@ class AdminController {
             return res.status(500).json({
                 success: false,
                 message: err.message || 'Failed to execute financial self-test suite.',
+            });
+        }
+    }
+    /**
+     * GET /api/v1/admin/system/backup-excel/status
+     */
+    async getExcelBackupStatus(req, res, next) {
+        try {
+            const { platformBackupService } = await Promise.resolve().then(() => __importStar(require('../services/backup.service')));
+            const status = await platformBackupService.getBackupConfig();
+            res.json({ success: true, data: status });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/system/backup-excel/config
+     */
+    async updateExcelBackupConfig(req, res, next) {
+        try {
+            const { platformBackupService } = await Promise.resolve().then(() => __importStar(require('../services/backup.service')));
+            const updated = await platformBackupService.updateBackupConfig({
+                enabled: req.body?.enabled,
+                recipientEmails: req.body?.recipientEmails,
+            });
+            res.json({
+                success: true,
+                message: 'End-of-Day Master Excel Backup configuration updated.',
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * GET /api/v1/admin/system/backup-excel/download
+     * Immediately generate and download the 8-sheet Master Excel (.xls) workbook
+     */
+    async downloadExcelBackup(req, res, next) {
+        try {
+            const { platformBackupService } = await Promise.resolve().then(() => __importStar(require('../services/backup.service')));
+            const { buffer, filename } = await platformBackupService.generateFullPlatformExcel();
+            res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            return res.send(buffer);
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/system/backup-excel/send
+     * Immediately generate and email the 8-sheet Master Excel (.xls) workbook to configured recipients
+     */
+    async sendExcelBackupEmail(req, res, next) {
+        try {
+            const { platformBackupService } = await Promise.resolve().then(() => __importStar(require('../services/backup.service')));
+            const recipientOverride = req.body?.recipientEmails || req.body?.email || undefined;
+            if (recipientOverride) {
+                await platformBackupService.updateBackupConfig({ recipientEmails: recipientOverride });
+            }
+            const result = await platformBackupService.sendDailyExcelBackupEmail({
+                recipientOverride,
+                triggerSource: 'MANUAL_ADMIN',
+            });
+            res.json({
+                success: true,
+                message: `Complete 8-Sheet Master Excel Backup (${result.filename}) emailed to ${result.recipients.join(', ')}!`,
+                data: result,
+            });
+        }
+        catch (err) {
+            return res.status(500).json({
+                success: false,
+                message: err.message || 'Failed to dispatch Excel backup email.',
             });
         }
     }

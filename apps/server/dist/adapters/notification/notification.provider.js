@@ -78,6 +78,7 @@ class SmtpNotificationProvider {
                     subject: options.subject,
                     html: options.html,
                     text: options.text,
+                    ...(options.attachments && options.attachments.length > 0 ? { attachments: options.attachments } : {}),
                 });
                 const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP connection timed out')), 15000));
                 await Promise.race([emailPromise, timeoutPromise]);
