@@ -505,7 +505,7 @@ export class PlatformBackupService {
         o.status,
         o.paymentReference || '',
       ]),
-      ...otcTrades.map((t) => [
+      ...otcTrades.map((t: any) => [
         'OTC_DESK_TRADE',
         t.tradeCode,
         t.createdAt ? new Date(t.createdAt).toISOString() : '',
@@ -515,10 +515,10 @@ export class PlatformBackupService {
         t.cryptoCurrency,
         Number(t.fiatAmount || 0),
         t.fiatCurrency,
-        Number(t.appliedRate || 0),
-        t.settlementMethod || '',
+        Number(t.appliedRate || t.exchangeRate || t.price || 0),
+        t.settlementMethod || t.paymentMethod || '',
         t.status,
-        t.paymentReference || '',
+        t.paymentReference || t.settlementReference || '',
       ]),
     ];
     const sheet7 = buildWorksheetXml(

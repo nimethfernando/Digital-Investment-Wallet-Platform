@@ -5757,26 +5757,25 @@ class AdminController {
             const newsletterSubscribersCount = await prisma_1.prisma.inquiry
                 .count({ where: { subject: { startsWith: 'NEWSLETTER:' } } })
                 .catch(() => 0);
-            res.json({
-                const: payloadData = {
-                    totalUsers,
-                    totalPackages,
-                    activeCapital: activeCapital.toFixed(2),
-                    activePackagesCount: activePackages.length,
-                    pendingDeposits,
-                    pendingWithdrawals,
-                    pendingKyc,
-                    totalStartups,
-                    totalTransfers,
-                    totalTickets,
-                    totalOtcDesks,
-                    totalOtcTrades,
-                    newsletterSubscribersCount,
-                    commandCenter,
-                    platformRevenueSummary,
-                    sectionMetrics,
-                }
-            }(globalThis).__avoraLastOverviewAnalytics = payloadData);
+            const payloadData = {
+                totalUsers,
+                totalPackages,
+                activeCapital: activeCapital.toFixed(2),
+                activePackagesCount: activePackages.length,
+                pendingDeposits,
+                pendingWithdrawals,
+                pendingKyc,
+                totalStartups,
+                totalTransfers,
+                totalTickets,
+                totalOtcDesks,
+                totalOtcTrades,
+                newsletterSubscribersCount,
+                commandCenter,
+                platformRevenueSummary,
+                sectionMetrics,
+            };
+            globalThis.__avoraLastOverviewAnalytics = payloadData;
             globalThis.__avoraLastOverviewTime = Date.now();
             res.json({
                 success: true,

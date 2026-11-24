@@ -6296,7 +6296,6 @@ export class AdminController {
         .count({ where: { subject: { startsWith: 'NEWSLETTER:' } } })
         .catch(() => 0);
 
-      res.json({
       const payloadData = {
         totalUsers,
         totalPackages,
