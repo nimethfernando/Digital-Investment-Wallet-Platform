@@ -1106,7 +1106,7 @@ class AdminController {
             };
             const now = new Date();
             const formattedListings = listings.map((l) => {
-                const listingCommitments = commitments.filter((c) => c.listingId === l.id);
+                const listingCommitments = commitments.filter((c) => c.listingId === l.id && c.status !== 'DELETED' && c.status !== 'CANCELLED');
                 const realWalletRows = listingCommitments.filter((c) => resolveSourceType(c) === 'REAL_WALLET');
                 const externalRows = listingCommitments.filter((c) => resolveSourceType(c) === 'ADMIN_EXTERNAL_VERIFIED');
                 const mockRows = listingCommitments.filter((c) => resolveSourceType(c) === 'ADMIN_DISPLAY_MOCK');
@@ -2146,10 +2146,12 @@ class AdminController {
             let paidHoldersCount = 0;
             let whitelistOnlyCount = 0;
             let unlockedHoldersCount = 0;
+            let deletedCount = 0;
             let totalTokensAllocated = 0;
             let totalPaidUsd = 0;
             let currentLiabilityUsd = 0;
             const holders = records.map((r) => {
+                const isDeleted = r.status === 'DELETED';
                 const tokensAllocated = Number(r.tokensAllocated || 0);
                 const paidAllocationUsd = Number(r.paidAllocationUsd || 0);
                 const requestedAllocationUsd = Number(r.requestedAllocationUsd || 0);
@@ -2168,17 +2170,22 @@ class AdminController {
                 const daysRemaining = tokensAllocated > 0 && unlockAt && !isUnlocked
                     ? Math.max(0, Math.ceil((unlockAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
                     : 0;
-                if (tokensAllocated > 0 || paidAllocationUsd > 0) {
-                    paidHoldersCount += 1;
-                    if (isUnlocked)
-                        unlockedHoldersCount += 1;
+                if (isDeleted) {
+                    deletedCount += 1;
                 }
                 else {
-                    whitelistOnlyCount += 1;
+                    if (tokensAllocated > 0 || paidAllocationUsd > 0) {
+                        paidHoldersCount += 1;
+                        if (isUnlocked)
+                            unlockedHoldersCount += 1;
+                    }
+                    else {
+                        whitelistOnlyCount += 1;
+                    }
+                    totalTokensAllocated += tokensAllocated;
+                    totalPaidUsd += paidAllocationUsd;
+                    currentLiabilityUsd += currentValueUsd;
                 }
-                totalTokensAllocated += tokensAllocated;
-                totalPaidUsd += paidAllocationUsd;
-                currentLiabilityUsd += currentValueUsd;
                 return {
                     id: r.id,
                     userId: r.userId,
@@ -2220,11 +2227,12 @@ class AdminController {
                         stageProgressPct: policy.stageProgressPct,
                     },
                     summary: {
-                        totalRecords: holders.length,
+                        totalRecords: holders.length - deletedCount,
                         paidHoldersCount,
                         whitelistOnlyCount,
                         unlockedHoldersCount,
                         lockedHoldersCount: Math.max(0, paidHoldersCount - unlockedHoldersCount),
+                        deletedCount,
                         totalTokensAllocated,
                         totalPaidUsd,
                         currentLiabilityUsd,
@@ -2232,6 +2240,100 @@ class AdminController {
                     },
                     holders,
                 },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Move an Avora Token ($AVR) holder/buyer record to the Deleted List or permanently delete it
+     */
+    async deleteTokenHolder(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const id = String(req.params.id);
+            const permanent = req.query.permanent === 'true';
+            const existing = await prisma_1.prisma.tokenEarlyAccess.findUnique({
+                where: { id },
+                include: { user: { select: { email: true, firstName: true, lastName: true } } },
+            });
+            if (!existing) {
+                return res.status(404).json({ success: false, message: 'Token holder record not found' });
+            }
+            const label = existing.user?.email || existing.userId;
+            if (permanent) {
+                await prisma_1.prisma.tokenEarlyAccess.delete({ where: { id } });
+                await prisma_1.prisma.adminAuditLog.create({
+                    data: {
+                        userId: adminUserId,
+                        action: 'PERMANENT_DELETE_TOKEN_HOLDER',
+                        entity: 'TokenEarlyAccess',
+                        entityId: id,
+                        details: `Permanently deleted $AVR token record for ${label} (${Number(existing.tokensAllocated || 0)} AVR / $${Number(existing.paidAllocationUsd || 0).toFixed(2)})`,
+                    },
+                });
+                return res.json({
+                    success: true,
+                    message: `Permanently deleted $AVR token record for ${label}`,
+                });
+            }
+            const updated = await prisma_1.prisma.tokenEarlyAccess.update({
+                where: { id },
+                data: { status: 'DELETED' },
+            });
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'DELETE_TOKEN_HOLDER',
+                    entity: 'TokenEarlyAccess',
+                    entityId: id,
+                    details: `Moved $AVR token record for ${label} (${Number(existing.tokensAllocated || 0)} AVR / $${Number(existing.paidAllocationUsd || 0).toFixed(2)}) to Deleted List`,
+                },
+            });
+            res.json({
+                success: true,
+                message: `Moved $AVR token record for ${label} to the Deleted List`,
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Restore a deleted Avora Token ($AVR) holder/buyer record from the Deleted List
+     */
+    async restoreTokenHolder(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const id = String(req.params.id);
+            const existing = await prisma_1.prisma.tokenEarlyAccess.findUnique({
+                where: { id },
+                include: { user: { select: { email: true } } },
+            });
+            if (!existing) {
+                return res.status(404).json({ success: false, message: 'Token holder record not found' });
+            }
+            const nextStatus = Number(existing.tokensAllocated || 0) > 0 ? 'ALLOCATED' : 'REGISTERED';
+            const updated = await prisma_1.prisma.tokenEarlyAccess.update({
+                where: { id },
+                data: { status: nextStatus },
+            });
+            const label = existing.user?.email || existing.userId;
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'RESTORE_TOKEN_HOLDER',
+                    entity: 'TokenEarlyAccess',
+                    entityId: id,
+                    details: `Restored $AVR token record for ${label} from Deleted List (${nextStatus})`,
+                },
+            });
+            res.json({
+                success: true,
+                message: `Restored $AVR token record for ${label} to active records`,
+                data: updated,
             });
         }
         catch (err) {
@@ -3476,13 +3578,6 @@ class AdminController {
                 return res.status(404).json({ success: false, message: 'Startup listing not found' });
             }
             if (permanent) {
-                const realCommitments = existing.investments.filter((c) => c.sourceType !== 'ADMIN_DISPLAY_MOCK');
-                if (realCommitments.length > 0) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `Cannot permanently delete "${existing.companyName}" because it has ${realCommitments.length} real investor commitment(s) on the ledger. It remains safely archived in the Deleted List.`,
-                    });
-                }
                 await prisma_1.prisma.$transaction([
                     prisma_1.prisma.investmentCommitment.deleteMany({ where: { listingId: id } }),
                     prisma_1.prisma.investmentWatchlist.deleteMany({ where: { listingId: id } }),
@@ -3569,7 +3664,7 @@ class AdminController {
             if (!listing) {
                 return res.status(404).json({ success: false, message: 'Startup listing not found' });
             }
-            const realEligible = listing.investments.filter((c) => c.sourceType !== 'ADMIN_DISPLAY_MOCK');
+            const realEligible = listing.investments.filter((c) => c.sourceType !== 'ADMIN_DISPLAY_MOCK' && c.status !== 'DELETED' && c.status !== 'CANCELLED');
             const totalNet = realEligible.reduce((sum, c) => sum.plus(new decimal_js_1.default(c.netInvestedAmount.toString())), new decimal_js_1.default(0));
             const distinctInvestors = new Set(realEligible.map((c) => c.investorUserId)).size;
             const updated = await prisma_1.prisma.startupListing.update({
@@ -3801,12 +3896,13 @@ class AdminController {
         }
     }
     /**
-     * Admin: Remove a Display/Mock commitment safely (strictly blocks deleting real ledger-verified commitments)
+     * Admin: Move ANY investor commitment (trial or mock or real) to the Deleted List, or permanently delete when permanent=true
      */
     async deleteMockInvestmentCommitment(req, res, next) {
         try {
             const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
             const id = String(req.params.id);
+            const permanent = req.query.permanent === 'true';
             const inv = await prisma_1.prisma.investmentCommitment.findUnique({
                 where: { id },
             });
@@ -3819,38 +3915,113 @@ class AdminController {
                 select: { id: true, companyName: true },
             })
                 .catch(() => null);
-            const linkedTx = await prisma_1.prisma.transaction.findFirst({
-                where: {
-                    settlementReference: inv.investmentCode,
-                    type: client_1.TransactionType.INVESTMENT_ALLOCATION,
-                    status: client_1.TransactionStatus.COMPLETED,
-                },
+            const resyncListingTotals = async (listingId) => {
+                const activeCommits = await prisma_1.prisma.investmentCommitment.findMany({
+                    where: {
+                        listingId,
+                        status: { notIn: ['DELETED', 'CANCELLED'] },
+                        sourceType: { not: 'ADMIN_DISPLAY_MOCK' },
+                    },
+                });
+                const realRaised = activeCommits.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+                const distinctInvestors = new Set(activeCommits.map((c) => c.investorUserId)).size;
+                await prisma_1.prisma.startupListing
+                    .update({
+                    where: { id: listingId },
+                    data: {
+                        verifiedFundsRaised: Number(realRaised.toFixed(2)),
+                        investorCount: distinctInvestors,
+                    },
+                })
+                    .catch(() => { });
+            };
+            if (permanent) {
+                await prisma_1.prisma.investmentCommitment.delete({ where: { id } });
+                await resyncListingTotals(inv.listingId);
+                await prisma_1.prisma.adminAuditLog.create({
+                    data: {
+                        userId: adminUserId,
+                        action: 'PERMANENT_DELETE_INVESTMENT_COMMITMENT',
+                        entity: 'InvestmentCommitment',
+                        entityId: id,
+                        details: `Permanently deleted commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) from ${invListing?.companyName || inv.listingId}.`,
+                    },
+                });
+                return res.json({
+                    success: true,
+                    message: `Permanently deleted commitment ${inv.investmentCode}.`,
+                });
+            }
+            const updated = await prisma_1.prisma.investmentCommitment.update({
+                where: { id },
+                data: { status: 'DELETED' },
             });
-            if (linkedTx || inv.sourceType === 'REAL_WALLET') {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Real wallet-debited commitments backed by immutable ledger transactions cannot be deleted. Only ADMIN_DISPLAY_MOCK entries can be removed.',
-                });
-            }
-            if (inv.sourceType !== 'ADMIN_DISPLAY_MOCK') {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Only Display/Mock entries can be deleted via this action.',
-                });
-            }
-            await prisma_1.prisma.investmentCommitment.delete({ where: { id } });
+            await resyncListingTotals(inv.listingId);
             await prisma_1.prisma.adminAuditLog.create({
                 data: {
                     userId: adminUserId,
-                    action: 'DELETE_MOCK_INVESTMENT_COMMITMENT',
+                    action: 'DELETE_INVESTMENT_COMMITMENT',
                     entity: 'InvestmentCommitment',
                     entityId: id,
-                    details: `Removed display/mock commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) from ${invListing?.companyName || inv.listingId}.`,
+                    details: `Moved commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) in ${invListing?.companyName || inv.listingId} to Deleted List.`,
                 },
             });
             res.json({
                 success: true,
-                message: `Removed display/mock commitment ${inv.investmentCode}. Click Sync Card to Real Ledger if card headline totals still reflect display offsets.`,
+                message: `Moved commitment ${inv.investmentCode} to the Deleted List.`,
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Admin: Restore a deleted investor commitment from the Deleted List back to CLEARED_FUNDS
+     */
+    async restoreInvestmentCommitment(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const id = String(req.params.id);
+            const inv = await prisma_1.prisma.investmentCommitment.findUnique({ where: { id } });
+            if (!inv) {
+                return res.status(404).json({ success: false, message: 'Commitment not found' });
+            }
+            const updated = await prisma_1.prisma.investmentCommitment.update({
+                where: { id },
+                data: { status: 'CLEARED_FUNDS' },
+            });
+            const activeCommits = await prisma_1.prisma.investmentCommitment.findMany({
+                where: {
+                    listingId: inv.listingId,
+                    status: { notIn: ['DELETED', 'CANCELLED'] },
+                    sourceType: { not: 'ADMIN_DISPLAY_MOCK' },
+                },
+            });
+            const realRaised = activeCommits.reduce((s, c) => s + Number(c.netInvestedAmount || 0), 0);
+            const distinctInvestors = new Set(activeCommits.map((c) => c.investorUserId)).size;
+            await prisma_1.prisma.startupListing
+                .update({
+                where: { id: inv.listingId },
+                data: {
+                    verifiedFundsRaised: Number(realRaised.toFixed(2)),
+                    investorCount: distinctInvestors,
+                },
+            })
+                .catch(() => { });
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'RESTORE_INVESTMENT_COMMITMENT',
+                    entity: 'InvestmentCommitment',
+                    entityId: id,
+                    details: `Restored commitment ${inv.investmentCode} ($${Number(inv.netInvestedAmount).toFixed(2)}) from Deleted List.`,
+                },
+            });
+            res.json({
+                success: true,
+                message: `Restored commitment ${inv.investmentCode} to Active Commitments.`,
+                data: updated,
             });
         }
         catch (err) {

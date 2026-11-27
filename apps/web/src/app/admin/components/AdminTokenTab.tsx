@@ -25,6 +25,8 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  Trash2,
+  RotateCcw,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import PaginationControls from '../../../components/PaginationControls';
@@ -51,6 +53,7 @@ interface AdminTokenTabProps {
       whitelistOnlyCount: number;
       unlockedHoldersCount: number;
       lockedHoldersCount: number;
+      deletedCount?: number;
       totalTokensAllocated: number;
       totalPaidUsd: number;
       currentLiabilityUsd: number;
@@ -72,9 +75,50 @@ export default function AdminTokenTab({
   onFeedback,
 }: AdminTokenTabProps) {
   const [search, setSearch] = useState('');
-  const [filterMode, setFilterMode] = useState<'ALL' | 'PAID' | 'UNLOCKED' | 'LOCKED' | 'WHITELIST'>('PAID');
+  const [filterMode, setFilterMode] = useState<'ALL' | 'PAID' | 'UNLOCKED' | 'LOCKED' | 'WHITELIST' | 'DELETED'>('PAID');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+
+  const handleDeleteTokenRecord = async (id: string, label: string, permanent = false) => {
+    const msg = permanent
+      ? `Permanently delete $AVR token record for ${label} from the Deleted List? This cannot be undone.`
+      : `Move $AVR token record for ${label} to the Deleted List? It will be removed from active totals and stored in the Deleted List.`;
+    if (!window.confirm(msg)) return;
+    try {
+      const res = await api.delete(`/admin/tokens/${id}${permanent ? '?permanent=true' : ''}`);
+      if (res.data?.success) {
+        onFeedback?.({
+          text: res.data.message || (permanent ? `Permanently deleted record for ${label}` : `Moved record for ${label} to the Deleted List`),
+          type: 'success',
+        });
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback?.({
+        text: err.response?.data?.message || 'Failed to delete token record',
+        type: 'error',
+      });
+    }
+  };
+
+  const handleRestoreTokenRecord = async (id: string, label: string) => {
+    if (!window.confirm(`Restore $AVR token record for ${label} back to active records?`)) return;
+    try {
+      const res = await api.post(`/admin/tokens/${id}/restore`);
+      if (res.data?.success) {
+        onFeedback?.({
+          text: res.data.message || `Restored record for ${label}`,
+          type: 'success',
+        });
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback?.({
+        text: err.response?.data?.message || 'Failed to restore token record',
+        type: 'error',
+      });
+    }
+  };
 
   const policy = data?.policy || {
     priceUsd: 0.1,
@@ -146,15 +190,22 @@ export default function AdminTokenTab({
     totalUnrealizedProfitUsd: 0,
   };
   const holders = Array.isArray(data?.holders) ? data!.holders : [];
+  const deletedHoldersCount = summary.deletedCount ?? holders.filter((h) => h.status === 'DELETED').length;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return holders.filter((h) => {
-      const isPaid = Number(h.tokensAllocated || 0) > 0 || Number(h.paidAllocationUsd || 0) > 0;
-      if (filterMode === 'PAID' && !isPaid) return false;
-      if (filterMode === 'WHITELIST' && isPaid) return false;
-      if (filterMode === 'UNLOCKED' && (!isPaid || !h.isUnlocked)) return false;
-      if (filterMode === 'LOCKED' && (!isPaid || h.isUnlocked)) return false;
+      const isDeleted = h.status === 'DELETED';
+      if (filterMode === 'DELETED') {
+        if (!isDeleted) return false;
+      } else {
+        if (isDeleted) return false;
+        const isPaid = Number(h.tokensAllocated || 0) > 0 || Number(h.paidAllocationUsd || 0) > 0;
+        if (filterMode === 'PAID' && !isPaid) return false;
+        if (filterMode === 'WHITELIST' && isPaid) return false;
+        if (filterMode === 'UNLOCKED' && (!isPaid || !h.isUnlocked)) return false;
+        if (filterMode === 'LOCKED' && (!isPaid || h.isUnlocked)) return false;
+      }
 
       if (!q) return true;
       const fullName = `${h.user?.firstName || ''} ${h.user?.lastName || ''}`.trim().toLowerCase();
@@ -898,6 +949,7 @@ export default function AdminTokenTab({
             { id: 'LOCKED', label: `Locked (${summary.lockedHoldersCount})` },
             { id: 'WHITELIST', label: `Whitelist Only (${summary.whitelistOnlyCount})` },
             { id: 'ALL', label: `All Records (${summary.totalRecords})` },
+            { id: 'DELETED', label: `Deleted List (${deletedHoldersCount})` },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -906,13 +958,18 @@ export default function AdminTokenTab({
                 setFilterMode(tab.id as any);
                 setPage(1);
               }}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 filterMode === tab.id
-                  ? 'bg-purple-600 text-white shadow-md'
+                  ? tab.id === 'DELETED'
+                    ? 'bg-rose-600 text-white shadow-md'
+                    : 'bg-purple-600 text-white shadow-md'
+                  : tab.id === 'DELETED'
+                  ? 'text-rose-400 hover:text-white hover:bg-rose-950/50'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
-              {tab.label}
+              {tab.id === 'DELETED' && <Trash2 className="w-3.5 h-3.5" />}
+              <span>{tab.label}</span>
             </button>
           ))}
         </div>
@@ -945,20 +1002,23 @@ export default function AdminTokenTab({
                 <th className="py-3 px-4">Unrealized Gain / ROI</th>
                 <th className="py-3 px-4">Lock &amp; Redemption Status</th>
                 <th className="py-3 px-4">Purchase Date</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-purple-400" />
                     <span>Loading $AVR token investor records...</span>
                   </td>
                 </tr>
               ) : pageItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-500">
-                    No token investor records match the selected filter.
+                  <td colSpan={8} className="py-12 text-center text-slate-500">
+                    {filterMode === 'DELETED'
+                      ? 'No deleted $AVR token records.'
+                      : 'No token investor records match the selected filter.'}
                   </td>
                 </tr>
               ) : (
@@ -1069,6 +1129,59 @@ export default function AdminTokenTab({
                           })
                         ) : (
                           '—'
+                        )}
+                      </td>
+
+                      {/* Actions (Delete to Deleted List / Restore / Permanent Delete) */}
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        {h.status === 'DELETED' ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleRestoreTokenRecord(
+                                  h.id,
+                                  h.user?.email || `${h.user?.firstName || ''} ${h.user?.lastName || ''}`.trim() || h.accountNumber
+                                )
+                              }
+                              className="px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-[11px] font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+                              title="Restore this record back to active records"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Restore</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDeleteTokenRecord(
+                                  h.id,
+                                  h.user?.email || `${h.user?.firstName || ''} ${h.user?.lastName || ''}`.trim() || h.accountNumber,
+                                  true
+                                )
+                              }
+                              className="px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-[11px] font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+                              title="Permanently delete this record from the database"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Delete Permanently</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDeleteTokenRecord(
+                                h.id,
+                                h.user?.email || `${h.user?.firstName || ''} ${h.user?.lastName || ''}`.trim() || h.accountNumber,
+                                false
+                              )
+                            }
+                            className="p-2 rounded-xl bg-rose-500/15 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 transition-all cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold"
+                            title="Delete entry (Move to Deleted List)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
                         )}
                       </td>
                     </tr>

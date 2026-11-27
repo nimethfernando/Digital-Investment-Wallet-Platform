@@ -14,6 +14,8 @@ router.post('/users/create', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (re
 router.get('/users/:id/client-view', (req, res, next) => admin_controller_1.adminController.getUserClientView(req, res, next));
 router.get('/users/:id/portfolio-breakdown', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.getUserPortfolioBreakdown(req, res, next));
 router.get('/tokens', (req, res, next) => admin_controller_1.adminController.getTokenHolders(req, res, next));
+router.delete('/tokens/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.deleteTokenHolder(req, res, next));
+router.post('/tokens/:id/restore', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.restoreTokenHolder(req, res, next));
 router.post('/token/policy', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateTokenPolicy(req, res, next));
 router.patch('/token/policy', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateTokenPolicy(req, res, next));
 router.get('/newsletter/subscribers', (req, res, next) => admin_controller_1.adminController.getNewsletterSubscribers(req, res, next));
@@ -82,6 +84,7 @@ router.post('/investments/listings/:id/restore', (0, auth_1.requireRole)([client
 router.post('/investments/listings/:id/sync-metrics', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.syncStartupListingMetrics(req, res, next));
 router.post('/investments/commitments', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.createManualInvestmentCommitment(req, res, next));
 router.delete('/investments/commitments/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.deleteMockInvestmentCommitment(req, res, next));
+router.post('/investments/commitments/:id/restore', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.restoreInvestmentCommitment(req, res, next));
 router.post('/investments/inquiries/:id/reply', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.replyStartupInquiry(req, res, next));
 // Venture Fund Dealflow & Capital Matchmaking Desk
 router.get('/dealflow/opportunities', (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.adminListOpportunities(req, res, next));

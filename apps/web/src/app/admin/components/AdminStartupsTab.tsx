@@ -89,7 +89,7 @@ export default function AdminStartupsTab({
   const [search, setSearch] = useState('');
   const [selectedListingFilterId, setSelectedListingFilterId] = useState<string>('ALL');
   const [commitmentSearch, setCommitmentSearch] = useState('');
-  const [commitmentStatusFilter, setCommitmentStatusFilter] = useState<'ALL' | 'CLEARED_FUNDS' | 'ACTIVE' | 'DOCUMENT_SIGNED' | 'EXITED'>('ALL');
+  const [commitmentStatusFilter, setCommitmentStatusFilter] = useState<'ALL' | 'CLEARED_FUNDS' | 'ACTIVE' | 'DOCUMENT_SIGNED' | 'EXITED' | 'DELETED'>('ALL');
   const [commitmentSourceFilter, setCommitmentSourceFilter] = useState<'ALL' | 'REAL_WALLET' | 'ADMIN_EXTERNAL_VERIFIED' | 'ADMIN_DISPLAY_MOCK'>('ALL');
   const [commitmentPage, setCommitmentPage] = useState(1);
   const [commitmentPageSize, setCommitmentPageSize] = useState(50);
@@ -690,19 +690,48 @@ export default function AdminStartupsTab({
     }
   };
 
-  const handleDeleteMockCommitment = async (id: string, code: string) => {
-    if (!confirm(`Remove unbacked Display/Mock entry ${code}? Real wallet transactions can never be deleted.`)) return;
+  const handleDeleteMockCommitment = async (id: string, code: string, permanent = false) => {
+    const msg = permanent
+      ? `Permanently delete commitment ${code} from the Deleted List? This cannot be undone.`
+      : `Move investor commitment ${code} to the Deleted List? It will be removed from active startup totals and saved in the Deleted List.`;
+    if (!confirm(msg)) return;
     try {
-      const res = await api.delete(`/admin/investments/commitments/${id}`, {
+      const res = await api.delete(`/admin/investments/commitments/${id}${permanent ? '?permanent=true' : ''}`, {
         headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {},
       });
       if (res.data?.success) {
-        onFeedback({ text: res.data.message || `Removed display/mock entry ${code}`, type: 'success' });
+        onFeedback({
+          text: res.data.message || (permanent ? `Permanently deleted commitment ${code}` : `Moved commitment ${code} to the Deleted List`),
+          type: 'success',
+        });
         onRefresh();
       }
     } catch (err: any) {
       onFeedback({
-        text: err.response?.data?.message || 'Failed to remove mock entry (enter 2FA code if enabled)',
+        text: err.response?.data?.message || 'Failed to delete commitment (enter 2FA code if enabled)',
+        type: 'error',
+      });
+    }
+  };
+
+  const handleRestoreCommitment = async (id: string, code: string) => {
+    if (!confirm(`Restore investor commitment ${code} back to Active Commitments?`)) return;
+    try {
+      const res = await api.post(
+        `/admin/investments/commitments/${id}/restore`,
+        { admin2FaCode: effective2Fa || undefined },
+        { headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {} }
+      );
+      if (res.data?.success) {
+        onFeedback({
+          text: res.data.message || `Restored commitment ${code} to Active Commitments`,
+          type: 'success',
+        });
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback({
+        text: err.response?.data?.message || 'Failed to restore commitment (enter 2FA code if enabled)',
         type: 'error',
       });
     }
@@ -915,9 +944,10 @@ export default function AdminStartupsTab({
 
       {/* Summary KPI Cards: Strictly Separates Real Ledger-Backed vs Admin Display / Mock Numbers */}
       {(() => {
-        const realWalletRows = commitments.filter((c) => (c.sourceType || 'REAL_WALLET') === 'REAL_WALLET');
-        const externalRows = commitments.filter((c) => c.sourceType === 'ADMIN_EXTERNAL_VERIFIED');
-        const mockRows = commitments.filter((c) => c.sourceType === 'ADMIN_DISPLAY_MOCK');
+        const activeCommitments = commitments.filter((c) => c.status !== 'DELETED' && c.status !== 'CANCELLED');
+        const realWalletRows = activeCommitments.filter((c) => (c.sourceType || 'REAL_WALLET') === 'REAL_WALLET');
+        const externalRows = activeCommitments.filter((c) => c.sourceType === 'ADMIN_EXTERNAL_VERIFIED');
+        const mockRows = activeCommitments.filter((c) => c.sourceType === 'ADMIN_DISPLAY_MOCK');
 
         const realWalletNetUsd = realWalletRows.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0);
         const externalNetUsd = externalRows.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0);
@@ -1312,11 +1342,18 @@ export default function AdminStartupsTab({
           selectedListingFilterId !== 'ALL'
             ? listings.find((l) => l.id === selectedListingFilterId) || null
             : null;
+        const deletedCommitmentsCount = commitments.filter((c) => c.status === 'DELETED').length;
+        const activeCommitmentsTotal = commitments.length - deletedCommitmentsCount;
         const cQuery = commitmentSearch.trim().toLowerCase();
         const filteredCommitments = commitments.filter((inv) => {
           const lid = inv.listing?.id || inv.listingId;
           if (selectedListingFilterId !== 'ALL' && lid !== selectedListingFilterId) return false;
-          if (commitmentStatusFilter !== 'ALL' && inv.status !== commitmentStatusFilter) return false;
+          if (commitmentStatusFilter === 'DELETED') {
+            if (inv.status !== 'DELETED') return false;
+          } else {
+            if (inv.status === 'DELETED') return false;
+            if (commitmentStatusFilter !== 'ALL' && inv.status !== commitmentStatusFilter) return false;
+          }
           const invSrc = inv.sourceType || 'REAL_WALLET';
           if (commitmentSourceFilter !== 'ALL' && invSrc !== commitmentSourceFilter) return false;
           if (!cQuery) return true;
@@ -1341,10 +1378,31 @@ export default function AdminStartupsTab({
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-extrabold text-base text-white">
-                    {selectedStartupObj
+                    {commitmentStatusFilter === 'DELETED'
+                      ? `Deleted Investor Commitments (${filteredCommitments.length})`
+                      : selectedStartupObj
                       ? `Investors in ${selectedStartupObj.companyName} (${filteredCommitments.length})`
-                      : `All Investor Commitments (${filteredCommitments.length} / ${commitments.length})`}
+                      : `All Investor Commitments (${filteredCommitments.length} / ${activeCommitmentsTotal})`}
                   </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommitmentStatusFilter(commitmentStatusFilter === 'DELETED' ? 'ALL' : 'DELETED');
+                      setCommitmentPage(1);
+                    }}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                      commitmentStatusFilter === 'DELETED'
+                        ? 'bg-rose-600 text-white border-rose-500'
+                        : 'bg-slate-950 text-rose-300 border-rose-500/30 hover:bg-rose-950/40'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>
+                      {commitmentStatusFilter === 'DELETED'
+                        ? `← Back to Active Commitments (${activeCommitmentsTotal})`
+                        : `Deleted List (${deletedCommitmentsCount})`}
+                    </span>
+                  </button>
                   {selectedStartupObj && (
                     <button
                       type="button"
@@ -1391,11 +1449,12 @@ export default function AdminStartupsTab({
                   }}
                   className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-semibold outline-none focus:border-purple-500"
                 >
-                  <option value="ALL">All Statuses</option>
+                  <option value="ALL">All Active Statuses</option>
                   <option value="CLEARED_FUNDS">CLEARED_FUNDS</option>
                   <option value="ACTIVE">ACTIVE</option>
                   <option value="DOCUMENT_SIGNED">DOCUMENT_SIGNED</option>
                   <option value="EXITED">EXITED</option>
+                  <option value="DELETED">DELETED (Deleted List)</option>
                 </select>
 
                 <select
@@ -1580,17 +1639,44 @@ export default function AdminStartupsTab({
                           </td>
                           <td className="py-3 text-right whitespace-nowrap">
                             <div className="inline-flex items-center gap-1.5">
-                              {srcType === 'ADMIN_DISPLAY_MOCK' && (
+                              {inv.status === 'DELETED' ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRestoreCommitment(inv.id, inv.investmentCode);
+                                    }}
+                                    className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-[10px] font-bold cursor-pointer inline-flex items-center gap-1"
+                                    title="Restore this commitment back to Active Commitments"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    <span>Restore</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteMockCommitment(inv.id, inv.investmentCode, true);
+                                    }}
+                                    className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-[10px] font-bold cursor-pointer inline-flex items-center gap-1"
+                                    title="Permanently delete this commitment from the database"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>Delete Permanently</span>
+                                  </button>
+                                </>
+                              ) : (
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDeleteMockCommitment(inv.id, inv.investmentCode);
+                                    handleDeleteMockCommitment(inv.id, inv.investmentCode, false);
                                   }}
-                                  className="p-1 rounded-lg bg-rose-500/15 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/30 cursor-pointer"
-                                  title="Delete this Display/Mock entry (requires 2FA if enabled)"
+                                  className="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 cursor-pointer"
+                                  title="Delete commitment (Move to Deleted List)"
                                 >
-                                  <Trash2 className="w-3 h-3" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               )}
                               <button
@@ -3706,9 +3792,10 @@ export default function AdminStartupsTab({
 
       {/* Startup Portfolios KPI Drill-Down Modal */}
       {startupKpiModal && (() => {
-        const realRows = commitments.filter((c) => (c.sourceType || 'REAL_WALLET') === 'REAL_WALLET');
-        const extRows = commitments.filter((c) => c.sourceType === 'ADMIN_EXTERNAL_VERIFIED');
-        const mockRowsList = commitments.filter((c) => c.sourceType === 'ADMIN_DISPLAY_MOCK');
+        const activeCommitsList = commitments.filter((c) => c.status !== 'DELETED' && c.status !== 'CANCELLED');
+        const realRows = activeCommitsList.filter((c) => (c.sourceType || 'REAL_WALLET') === 'REAL_WALLET');
+        const extRows = activeCommitsList.filter((c) => c.sourceType === 'ADMIN_EXTERNAL_VERIFIED');
+        const mockRowsList = activeCommitsList.filter((c) => c.sourceType === 'ADMIN_DISPLAY_MOCK');
         const realAndExtRows = [...realRows, ...extRows];
         const realNetSum = realRows.reduce((s, c) => s + parseFloat(c.netInvestedAmount || '0'), 0);
         const extNetSum = extRows.reduce((s, c) => s + parseFloat(c.netInvestedAmount || '0'), 0);

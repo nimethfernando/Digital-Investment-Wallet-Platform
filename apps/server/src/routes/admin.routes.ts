@@ -15,6 +15,8 @@ router.post('/users/create', requireRole([Role.ADMIN]), (req, res, next) => admi
 router.get('/users/:id/client-view', (req, res, next) => adminController.getUserClientView(req, res, next));
 router.get('/users/:id/portfolio-breakdown', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.getUserPortfolioBreakdown(req, res, next));
 router.get('/tokens', (req, res, next) => adminController.getTokenHolders(req, res, next));
+router.delete('/tokens/:id', requireRole([Role.ADMIN]), (req, res, next) => adminController.deleteTokenHolder(req, res, next));
+router.post('/tokens/:id/restore', requireRole([Role.ADMIN]), (req, res, next) => adminController.restoreTokenHolder(req, res, next));
 router.post('/token/policy', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateTokenPolicy(req, res, next));
 router.patch('/token/policy', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateTokenPolicy(req, res, next));
 router.get('/newsletter/subscribers', (req, res, next) => adminController.getNewsletterSubscribers(req, res, next));
@@ -142,6 +144,7 @@ router.post('/investments/listings/:id/restore', requireRole([Role.ADMIN]), requ
 router.post('/investments/listings/:id/sync-metrics', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.syncStartupListingMetrics(req, res, next));
 router.post('/investments/commitments', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.createManualInvestmentCommitment(req, res, next));
 router.delete('/investments/commitments/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.deleteMockInvestmentCommitment(req, res, next));
+router.post('/investments/commitments/:id/restore', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.restoreInvestmentCommitment(req, res, next));
 router.post('/investments/inquiries/:id/reply', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.replyStartupInquiry(req, res, next));
 
 // Venture Fund Dealflow & Capital Matchmaking Desk

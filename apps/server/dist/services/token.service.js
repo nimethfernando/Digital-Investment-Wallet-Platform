@@ -253,9 +253,10 @@ class TokenService {
                 nextClaimAllowedAt = cooldownEnd;
             }
         }
-        const requestedUsd = Number(access.requestedAllocationUsd || 0);
-        const paidUsd = Number(access.paidAllocationUsd || 0);
-        const tokensAllocated = Number(access.tokensAllocated || 0);
+        const isDeletedRecord = access.status === 'DELETED';
+        const requestedUsd = isDeletedRecord ? 0 : Number(access.requestedAllocationUsd || 0);
+        const paidUsd = isDeletedRecord ? 0 : Number(access.paidAllocationUsd || 0);
+        const tokensAllocated = isDeletedRecord ? 0 : Number(access.tokensAllocated || 0);
         const currentPriceNum = Number(policy.currentPriceUsd);
         const currentValueUsd = Number((tokensAllocated * currentPriceNum).toFixed(2));
         const unrealizedProfitUsd = Number((currentValueUsd - paidUsd).toFixed(2));
