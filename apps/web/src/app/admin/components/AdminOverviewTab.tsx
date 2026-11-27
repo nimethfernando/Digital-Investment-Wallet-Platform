@@ -43,6 +43,20 @@ interface OverviewProps {
     commandCenter?: any;
     platformRevenueSummary?: any;
     sectionMetrics?: any;
+    securityMetrics?: {
+      newRegistrations24h: number;
+      newRegistrations7d: number;
+      notSubmittedKycUsers: number;
+      pendingKycUsers: number;
+      underReviewKycUsers: number;
+      approvedKycUsers: number;
+      rejectedKycUsers: number;
+      additionalInfoKycUsers: number;
+      expiredKycUsers: number;
+      suspendedUsers: number;
+      suspiciousUsers: number;
+      unverifiedEmailUsers: number;
+    };
   } | null;
   commandCenter?: any | null;
   ledgerReconciliation: any | null;
@@ -97,6 +111,7 @@ export default function AdminOverviewTab({
   const revBreakdown = revData?.moduleBreakdown || null;
   const revVault = revData?.vaultSummary || null;
   const sec = analytics?.sectionMetrics || null;
+  const secMetrics = analytics?.securityMetrics || null;
 
   return (
     <div className="space-y-6">
@@ -255,6 +270,96 @@ export default function AdminOverviewTab({
           </p>
         </button>
       </div>
+
+      {/* Onboarding, KYC & Anti-Spam Security Overview */}
+      {secMetrics && (
+        <div className="p-5 rounded-3xl bg-slate-900/80 border border-indigo-500/30 space-y-3 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-indigo-400 text-[11px] font-black uppercase tracking-wider font-mono">
+              <ShieldCheck className="w-4 h-4" />
+              <span>Onboarding, KYC Compliance &amp; Anti-Spam Security Overview</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateTab('kyc')}
+              className="text-xs font-bold text-indigo-400 hover:underline cursor-pointer"
+            >
+              Open KYC &amp; Anti-Spam Desk →
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <button
+              type="button"
+              onClick={() => onNavigateTab('users')}
+              className="p-3 rounded-2xl bg-slate-950 border border-slate-800 hover:border-cyan-500/50 text-left cursor-pointer"
+            >
+              <div className="text-[10px] font-mono font-bold uppercase text-cyan-400">New Registrations</div>
+              <div className="text-lg font-black text-white font-mono mt-0.5">
+                {secMetrics.newRegistrations24h} <span className="text-[11px] text-slate-400 font-normal">/24h</span>
+              </div>
+              <div className="text-[10px] text-slate-400">{secMetrics.newRegistrations7d} last 7d</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigateTab('kyc')}
+              className="p-3 rounded-2xl bg-slate-950 border border-slate-800 hover:border-amber-500/50 text-left cursor-pointer"
+            >
+              <div className="text-[10px] font-mono font-bold uppercase text-amber-400">Pending KYC</div>
+              <div className="text-lg font-black text-white font-mono mt-0.5">
+                {secMetrics.pendingKycUsers + secMetrics.underReviewKycUsers}
+              </div>
+              <div className="text-[10px] text-slate-400">{secMetrics.underReviewKycUsers} under review</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigateTab('kyc')}
+              className="p-3 rounded-2xl bg-slate-950 border border-slate-800 hover:border-emerald-500/50 text-left cursor-pointer"
+            >
+              <div className="text-[10px] font-mono font-bold uppercase text-emerald-400">Approved KYC</div>
+              <div className="text-lg font-black text-emerald-400 font-mono mt-0.5">{secMetrics.approvedKycUsers}</div>
+              <div className="text-[10px] text-slate-400">{secMetrics.notSubmittedKycUsers} not submitted</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigateTab('kyc')}
+              className="p-3 rounded-2xl bg-slate-950 border border-slate-800 hover:border-rose-500/50 text-left cursor-pointer"
+            >
+              <div className="text-[10px] font-mono font-bold uppercase text-rose-400">Rejected / Action</div>
+              <div className="text-lg font-black text-rose-400 font-mono mt-0.5">
+                {secMetrics.rejectedKycUsers + secMetrics.additionalInfoKycUsers + secMetrics.expiredKycUsers}
+              </div>
+              <div className="text-[10px] text-slate-400">{secMetrics.rejectedKycUsers} rejected • {secMetrics.expiredKycUsers} exp.</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigateTab('users')}
+              className="p-3 rounded-2xl bg-slate-950 border border-slate-800 hover:border-amber-500/50 text-left cursor-pointer"
+            >
+              <div className="text-[10px] font-mono font-bold uppercase text-amber-300">Suspended Users</div>
+              <div className="text-lg font-black text-white font-mono mt-0.5">{secMetrics.suspendedUsers}</div>
+              <div className="text-[10px] text-slate-400">{secMetrics.unverifiedEmailUsers} unverified emails</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigateTab('kyc')}
+              className={`p-3 rounded-2xl border text-left cursor-pointer ${
+                secMetrics.suspiciousUsers > 0
+                  ? 'bg-rose-950/30 border-rose-500/50 hover:border-rose-400'
+                  : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <div className="text-[10px] font-mono font-bold uppercase text-rose-400">Suspicious Flagged</div>
+              <div className="text-lg font-black text-rose-300 font-mono mt-0.5">{secMetrics.suspiciousUsers}</div>
+              <div className="text-[10px] text-slate-400">Anti-spam &amp; duplicate alerts</div>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Admin Commission Earnings & Claimable Revenue Vault */}
       {revData && (

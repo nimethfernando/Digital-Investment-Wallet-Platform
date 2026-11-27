@@ -433,12 +433,45 @@ export class CmsService {
     })}`;
   }
 
+  async getGuestPublicSettings(): Promise<Record<string, string>> {
+    const guestAllowedKeys = [
+      'logo_light_url',
+      'logo_dark_url',
+      'favicon_url',
+      'enabled_languages',
+      'show_about_leadership_section',
+    ];
+    const rows = await prisma.cmsSetting.findMany({
+      where: { key: { in: guestAllowedKeys } },
+    });
+    const map: Record<string, string> = {
+      show_about_leadership_section: 'false',
+    };
+    for (const r of rows) {
+      map[r.key] = r.value;
+    }
+    return map;
+  }
+
   async getPublicSettings() {
-    const settings = await prisma.cmsSetting.findMany();
+    const allowedAuthenticatedKeys = new Set([
+      ...Object.keys(PUBLIC_PLATFORM_CONFIG_DEFAULTS),
+      'logo_light_url',
+      'logo_dark_url',
+      'favicon_url',
+      'brochure_pdf_url',
+      'brochure_enabled',
+      'enabled_languages',
+      'show_about_leadership_section',
+    ]);
+    const settings = await prisma.cmsSetting.findMany({
+      where: { key: { in: Array.from(allowedAuthenticatedKeys) } },
+    });
     const map: Record<string, string> = { ...PUBLIC_PLATFORM_CONFIG_DEFAULTS };
     for (const s of settings) {
       if (
         SECRET_SETTING_KEYS.has(s.key) ||
+        !allowedAuthenticatedKeys.has(s.key) ||
         s.key.startsWith('admin_2fa_') ||
         s.key.startsWith('notif_state_') ||
         s.key.endsWith('_secret') ||

@@ -6,21 +6,20 @@ import { featureControlService } from '../services/featureControl.service';
 
 const router = Router();
 
-// Public: Marketplace directory, campaign details, fee calculation
+// Protected: All marketplace campaigns, dealflow opportunities, fee calculation, investor & founder routes require authentication
+router.use(authenticateToken);
+
 router.get('/campaigns', (req, res, next) => investmentsController.listCampaigns(req, res, next));
 router.get('/campaigns/:slug', (req, res, next) => investmentsController.getCampaign(req, res, next));
 router.post('/fee-quote', (req, res, next) => investmentsController.calculateFee(req, res, next));
 
-// Public / Directory: Browse Capital & Dealflow Matchmaking Opportunities
+// Browse Capital & Dealflow Matchmaking Opportunities
 router.get('/dealflow/opportunities', (req, res, next) =>
   ventureMatchmakingController.listOpportunities(req, res, next)
 );
 router.get('/dealflow/opportunities/:id', (req, res, next) =>
   ventureMatchmakingController.getOpportunity(req, res, next)
 );
-
-// Protected: Investor & Founder routes
-router.use(authenticateToken);
 router.post(
   '/invest',
   featureControlService.requireFeature('VENTURE_INVESTMENTS'),

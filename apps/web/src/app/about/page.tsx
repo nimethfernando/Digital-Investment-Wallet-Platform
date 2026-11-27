@@ -26,7 +26,7 @@ export default function AboutPage() {
   useEffect(() => {
     Promise.all([
       api.get('/cms/sections/ABOUT').catch(() => null),
-      api.get('/cms/platform-config').catch(() => null),
+      api.get('/cms/settings').catch(() => null),
     ]).then(([cmsRes, cfgRes]) => {
       if (cmsRes?.data?.sections) {
         const leaderSection = cmsRes.data.sections.find((s: any) => s.section === 'LEADERSHIP');
@@ -38,7 +38,7 @@ export default function AboutPage() {
           }
         }
       }
-      const cfg = cfgRes?.data?.data || cfgRes?.data;
+      const cfg = cfgRes?.data?.settings || cfgRes?.data?.data || cfgRes?.data;
       if (cfg && typeof cfg.show_about_leadership_section !== 'undefined') {
         setShowLeadershipSection(String(cfg.show_about_leadership_section) === 'true');
       }

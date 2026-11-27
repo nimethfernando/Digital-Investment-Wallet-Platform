@@ -111,7 +111,9 @@ export default function HomePage() {
       .then((res) => {
         if (res.data.settings) setSettings(res.data.settings);
       })
-      .catch((err) => console.log('CMS settings fetch:', err));
+      .catch(() => {});
+
+    if (!user) return;
 
     api.get('/cms/blogs')
       .then((res) => {
@@ -134,7 +136,7 @@ export default function HomePage() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [user]);
 
   const faqs = [
     {
@@ -226,6 +228,248 @@ export default function HomePage() {
   const filteredFaqs = faqCategory === 'all' 
     ? faqs 
     : faqs.filter((f) => f.category === faqCategory);
+
+  // CONTROLLED PUBLIC LANDING EXPERIENCE FOR NON-REGISTERED / FIRST-TIME VISITORS
+  if (!user) {
+    return (
+      <div className="flex flex-col gap-16 pb-20">
+        {/* Controlled Public Hero */}
+        <section className="relative overflow-hidden pt-14 pb-20 lg:pt-24 lg:pb-28 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-950">
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#0ea5e908_1px,transparent_1px),linear-gradient(to_bottom,#0ea5e908_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none" />
+          <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[780px] h-[440px] bg-gradient-to-tr from-emerald-500/15 via-cyan-500/10 to-indigo-500/10 blur-[120px] pointer-events-none rounded-full" />
+
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+              <div className="lg:col-span-7 space-y-6">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 text-xs font-mono tracking-tight">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="font-bold">AVORA BANK // PRIVATE CLIENT PORTAL</span>
+                </div>
+
+                <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 dark:text-white leading-[1.1]">
+                  Private Digital Wealth &amp;{' '}
+                  <span className="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 bg-clip-text text-transparent">
+                    Global Settlement
+                  </span>{' '}
+                  Platform.
+                </h1>
+
+                <p className="text-sm sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
+                  Avora Bank delivers institutional-grade digital asset management, structured wealth programs, and compliant cross-border settlement exclusively for registered and verified private clients.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <Link
+                    href="/login"
+                    className="w-full sm:w-auto px-7 py-3.5 rounded-2xl font-black text-sm text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 shadow-xl shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <span>Sign In to Client Portal</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
+
+                  <Link
+                    href="/register"
+                    className="w-full sm:w-auto px-7 py-3.5 rounded-2xl font-bold text-sm text-slate-800 dark:text-white bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <span>Create Client Account</span>
+                  </Link>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 pt-6 border-t border-slate-200 dark:border-slate-800/80">
+                  <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800">
+                    <p className="text-xs font-bold text-slate-900 dark:text-white">Verified Custody</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Segregated Client Accounts</p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800">
+                    <p className="text-xs font-bold text-slate-900 dark:text-white">Global Settlement</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Multi-Currency Clearing</p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-white/70 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800">
+                    <p className="text-xs font-bold text-slate-900 dark:text-white">24/7 Concierge</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Dedicated Client Desk</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Controlled Access Notice Card */}
+              <div className="lg:col-span-5">
+                <div className="rounded-3xl p-6 sm:p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                      <LockKeyhole className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                        Authenticated Access Required
+                      </span>
+                      <h2 className="text-lg font-black text-slate-900 dark:text-white">
+                        Private Client Environment
+                      </h2>
+                    </div>
+                  </div>
+
+                  <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                    To protect client confidentiality and platform security, detailed financial products, live market desks, portfolio analytics, and transaction services are available exclusively after authentication.
+                  </p>
+
+                  <div className="space-y-2.5 pt-1 text-xs text-slate-700 dark:text-slate-300">
+                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800">
+                      <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <span>Private Multi-Currency Wallets &amp; Custody</span>
+                    </div>
+                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800">
+                      <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <span>Structured Wealth &amp; Venture Allocation Programs</span>
+                    </div>
+                    <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800">
+                      <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <span>Compliant Cross-Border &amp; Escrow Settlement Desks</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
+                    <Link
+                      href="/login"
+                      className="flex-1 py-3 px-4 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white text-center transition-all shadow-md"
+                    >
+                      Sign In
+                    </Link>
+                    <Link
+                      href="/register"
+                      className="flex-1 py-3 px-4 rounded-xl font-bold text-xs border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-center transition-all"
+                    >
+                      Register Account
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Approved High-Level Public Overview */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+          <div className="text-center max-w-2xl mx-auto space-y-2.5">
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+              Platform Capabilities
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+              Designed for Private &amp; Institutional Clients
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+              Sign in or register an account to access our full suite of digital banking and wealth management services.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <Landmark className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Private Digital Banking
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Dedicated multi-currency accounts with strict ledger reconciliation and real-time balance verification.
+                </p>
+              </div>
+              <Link href="/login" className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline inline-flex items-center gap-1">
+                <span>Client Sign In</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="w-11 h-11 rounded-2xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Structured Wealth Programs
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Fixed-term digital allocation packages and curated venture opportunities for verified investors.
+                </p>
+              </div>
+              <Link href="/login" className="text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline inline-flex items-center gap-1">
+                <span>Client Sign In</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="w-11 h-11 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Global Settlement Rails
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  International transfer corridors and escrow-protected liquidity settlement for approved members.
+                </p>
+              </div>
+              <Link href="/login" className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1">
+                <span>Client Sign In</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Compliance &amp; Governance
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Comprehensive KYC/AML verification, two-factor authentication, and administrative audit controls.
+                </p>
+              </div>
+              <Link href="/about" className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline inline-flex items-center gap-1">
+                <span>Learn About Avora</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* Minimal Client Onboarding Call to Action */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+          <div className="rounded-3xl p-8 sm:p-12 bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white text-center shadow-2xl border border-slate-800 space-y-5">
+            <h3 className="text-2xl sm:text-3xl font-black tracking-tight">
+              Access Your Avora Bank Account
+            </h3>
+            <p className="text-slate-300 text-xs sm:text-sm max-w-xl mx-auto leading-relaxed">
+              Sign in with your client credentials or complete registration to unlock platform dashboards and services.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+              <Link
+                href="/login"
+                className="px-7 py-3 rounded-xl font-black text-xs text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-lg transition-all"
+              >
+                Sign In
+              </Link>
+              <Link
+                href="/register"
+                className="px-7 py-3 rounded-xl font-bold text-xs text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-colors"
+              >
+                Create Account
+              </Link>
+              <Link
+                href="/contact"
+                className="px-7 py-3 rounded-xl font-bold text-xs text-slate-300 hover:text-white transition-colors"
+              >
+                Contact Desk
+              </Link>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-20 pb-20">

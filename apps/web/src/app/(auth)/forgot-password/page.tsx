@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { api, extractErrorMessage } from '../../../lib/api';
 import { Mail, CheckCircle2, AlertCircle, ArrowLeft, KeyRound } from 'lucide-react';
@@ -10,6 +10,26 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaSvgUrl, setCaptchaSvgUrl] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+  const [captchaRequired, setCaptchaRequired] = useState(false);
+
+  const loadCaptcha = async () => {
+    try {
+      const res = await api.get('/auth/captcha');
+      if (res.data?.success) {
+        setCaptchaToken(res.data.captchaToken || '');
+        setCaptchaSvgUrl(res.data.svgDataUrl || '');
+        setCaptchaRequired(Boolean(res.data.requireOnForgotPassword));
+        setCaptchaAnswer('');
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadCaptcha();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,10 +37,14 @@ export default function ForgotPasswordPage() {
     setError(null);
 
     try {
-      await api.post('/auth/forgot-password', { email });
+      await api.post('/auth/forgot-password', {
+        email,
+        ...(captchaRequired ? { captchaToken, captchaAnswer: captchaAnswer.trim() } : {}),
+      });
       setSubmitted(true);
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Failed to dispatch reset instructions.'));
+      loadCaptcha();
     } finally {
       setLoading(false);
     }
@@ -90,6 +114,40 @@ export default function ForgotPasswordPage() {
                 />
               </div>
             </div>
+
+            {captchaRequired && (
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Security Verification Code *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={loadCaptcha}
+                    className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    Refresh Code
+                  </button>
+                </div>
+                <div className="flex items-center gap-3">
+                  {captchaSvgUrl && (
+                    <img
+                      src={captchaSvgUrl}
+                      alt="Security CAPTCHA"
+                      className="h-[46px] rounded-xl border border-slate-700 bg-slate-950 shrink-0"
+                    />
+                  )}
+                  <input
+                    type="text"
+                    required
+                    value={captchaAnswer}
+                    onChange={(e) => setCaptchaAnswer(e.target.value.toUpperCase())}
+                    placeholder="Enter code"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-sm font-bold tracking-widest uppercase outline-none"
+                  />
+                </div>
+              </div>
+            )}
 
             <button
               type="submit"

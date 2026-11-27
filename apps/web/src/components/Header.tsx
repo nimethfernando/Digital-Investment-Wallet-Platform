@@ -64,6 +64,10 @@ export const Header: React.FC = () => {
   const [virtualCardsEnabled, setVirtualCardsEnabled] = useState(false);
 
   useEffect(() => {
+    if (!user) {
+      setVirtualCardsEnabled(false);
+      return;
+    }
     api
       .get('/cms/settings')
       .then((res) => {
@@ -72,7 +76,7 @@ export const Header: React.FC = () => {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [user]);
 
   // Authenticated home destination: Admin goes to /admin, clients to /dashboard, guests to /
   const homeHref = user ? (isAdmin ? '/admin' : '/dashboard') : '/';
@@ -111,7 +115,7 @@ export const Header: React.FC = () => {
     setOpenDropdown(null);
   }, [pathname]);
 
-  const navGroups: NavGroup[] = [
+  const authenticatedNavGroups: NavGroup[] = [
     {
       id: 'banking',
       label: 'Banking & Transfers',
@@ -152,15 +156,6 @@ export const Header: React.FC = () => {
       id: 'exchange',
       label: 'Exchange & Liquidity',
       items: [
-        /* OTC Desk Network temporarily hidden until 3-4 international pilot hubs are ready
-        {
-          href: '/exchange',
-          label: t('nav.exchange', 'OTC Desk Network'),
-          description: 'Location-based institutional desks ($1,000 security bond)',
-          badge: '1.5% Fee',
-          icon: Landmark,
-        },
-        */
         {
           href: '/p2p',
           label: t('nav.p2p', 'P2P Escrow Marketplace'),
@@ -241,6 +236,22 @@ export const Header: React.FC = () => {
       ],
     },
   ];
+
+  const guestNavGroups: NavGroup[] = [
+    {
+      id: 'about',
+      label: t('nav.about', 'About'),
+      href: '/about',
+    },
+    {
+      id: 'contact',
+      label: t('nav.contact', 'Contact'),
+      href: '/contact',
+    },
+  ];
+
+  const navGroups: NavGroup[] = user ? authenticatedNavGroups : guestNavGroups;
+  const isOnAuthRoute = pathname === '/login' || pathname === '/register';
 
   const isPathActive = (href: string) => {
     const cleanHref = href.split('?')[0];
@@ -601,12 +612,14 @@ export const Header: React.FC = () => {
             <div className="hidden sm:flex items-center gap-2">
               <Link
                 href="/login"
+                replace={isOnAuthRoute}
                 className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 {t('nav.login', 'Sign In')}
               </Link>
               <Link
                 href="/register"
+                replace={isOnAuthRoute}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-700 shadow-md transition-all"
               >
                 {t('nav.register', 'Open Account')}
@@ -702,10 +715,17 @@ export const Header: React.FC = () => {
               ) : (
                 <Link
                   href={group.href || '/'}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900"
+                  onClick={closeMenus}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-colors ${
+                    isPathActive(group.href || '/')
+                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                      : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900'
+                  }`}
                 >
-                  <BookOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>{group.label} — Platform Notices &amp; Updates</span>
+                  <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-900 flex items-center justify-center shrink-0 text-emerald-600 dark:text-emerald-400">
+                    <BookOpen className="w-4 h-4" />
+                  </div>
+                  <span>{group.label}</span>
                 </Link>
               )}
             </div>
@@ -715,12 +735,14 @@ export const Header: React.FC = () => {
             <div className="pt-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-2.5">
               <Link
                 href="/login"
+                replace={isOnAuthRoute}
                 className="w-full text-center py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200"
               >
                 {t('nav.login', 'Sign In')}
               </Link>
               <Link
                 href="/register"
+                replace={isOnAuthRoute}
                 className="w-full text-center py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold shadow-md"
               >
                 {t('nav.register', 'Open Account')}

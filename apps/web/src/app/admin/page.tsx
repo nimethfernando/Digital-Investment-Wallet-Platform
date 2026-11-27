@@ -289,6 +289,7 @@ export default function AdminPortalPage() {
 
   // KYC State
   const [kycDocs, setKycDocs] = useState<any[]>([]);
+  const [kycOverview, setKycOverview] = useState<any | null>(null);
   const [kycLoading, setKycLoading] = useState(false);
 
   // Deposits State
@@ -734,7 +735,10 @@ export default function AdminPortalPage() {
       setKycLoading(true);
       try {
         const res = await api.get('/admin/kyc');
-        if (res.data?.success) setKycDocs(res.data.data || []);
+        if (res.data?.success) {
+          setKycDocs(res.data.data || []);
+          setKycOverview(res.data);
+        }
       } catch (e) {
         console.error('Failed to load KYC:', e);
       } finally {
@@ -1966,7 +1970,9 @@ export default function AdminPortalPage() {
     withdrawals: (Array.isArray(withdrawals) && withdrawals.length > 0)
       ? withdrawals.filter((w) => ['REQUESTED', 'UNDER_REVIEW', 'APPROVED'].includes(w?.status)).length
       : (overviewAnalytics?.pendingWithdrawals ?? 0),
-    kyc: kycDocs.length > 0 ? kycDocs.length : (overviewAnalytics?.pendingKyc ?? 0),
+    kyc: (overviewAnalytics?.securityMetrics?.pendingKycUsers !== undefined || overviewAnalytics?.securityMetrics?.underReviewKycUsers !== undefined)
+      ? ((overviewAnalytics?.securityMetrics?.pendingKycUsers ?? 0) + (overviewAnalytics?.securityMetrics?.underReviewKycUsers ?? 0))
+      : (kycDocs.length > 0 ? kycDocs.length : (overviewAnalytics?.pendingKyc ?? 0)),
     treasury: 0,
     addresses: 0,
     config: 0,
@@ -6468,7 +6474,9 @@ export default function AdminPortalPage() {
         {activeTab === 'kyc' && (
           <AdminKycTab
             kycDocs={kycDocs}
+            kycOverview={kycOverview}
             kycLoading={kycLoading}
+            admin2FaCode={admin2FaCode}
             onRefresh={loadData}
             onFeedback={setFeedback}
           />

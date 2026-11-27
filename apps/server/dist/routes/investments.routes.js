@@ -6,15 +6,14 @@ const ventureMatchmaking_controller_1 = require("../controllers/ventureMatchmaki
 const auth_1 = require("../middleware/auth");
 const featureControl_service_1 = require("../services/featureControl.service");
 const router = (0, express_1.Router)();
-// Public: Marketplace directory, campaign details, fee calculation
+// Protected: All marketplace campaigns, dealflow opportunities, fee calculation, investor & founder routes require authentication
+router.use(auth_1.authenticateToken);
 router.get('/campaigns', (req, res, next) => investments_controller_1.investmentsController.listCampaigns(req, res, next));
 router.get('/campaigns/:slug', (req, res, next) => investments_controller_1.investmentsController.getCampaign(req, res, next));
 router.post('/fee-quote', (req, res, next) => investments_controller_1.investmentsController.calculateFee(req, res, next));
-// Public / Directory: Browse Capital & Dealflow Matchmaking Opportunities
+// Browse Capital & Dealflow Matchmaking Opportunities
 router.get('/dealflow/opportunities', (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.listOpportunities(req, res, next));
 router.get('/dealflow/opportunities/:id', (req, res, next) => ventureMatchmaking_controller_1.ventureMatchmakingController.getOpportunity(req, res, next));
-// Protected: Investor & Founder routes
-router.use(auth_1.authenticateToken);
 router.post('/invest', featureControl_service_1.featureControlService.requireFeature('VENTURE_INVESTMENTS'), (req, res, next) => investments_controller_1.investmentsController.invest(req, res, next));
 router.post('/apply', featureControl_service_1.featureControlService.requireFeature('VENTURE_INVESTMENTS'), (req, res, next) => investments_controller_1.investmentsController.applyForFunding(req, res, next));
 router.post('/watchlist/toggle', (req, res, next) => investments_controller_1.investmentsController.toggleWatchlist(req, res, next));

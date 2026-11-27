@@ -30,6 +30,11 @@ export const subscribeNewsletter = async (req: Request, res: Response, next: Nex
 
 export const getSettings = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    if (!req.user) {
+      const guestSettings = await cmsService.getGuestPublicSettings();
+      return res.json({ success: true, settings: guestSettings, variables: {} });
+    }
     const [settings, variables] = await Promise.all([
       cmsService.getPublicSettings(),
       cmsService.getPlatformTemplateVars(),
@@ -72,7 +77,15 @@ export const updateSetting = async (req: Request, res: Response, next: NextFunct
 
 export const getPageSections = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const page = req.params.page as string;
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    const page = String(req.params.page || '').toUpperCase();
+    const guestAllowedPages = new Set(['ABOUT', 'CONTACT']);
+    if (!req.user && !guestAllowedPages.has(page)) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required to access internal page sections.',
+      });
+    }
     const sections = await cmsService.getPageSections(page);
     res.json({ success: true, sections });
   } catch (err) {

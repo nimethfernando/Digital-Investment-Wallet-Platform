@@ -51,10 +51,18 @@ router.post('/deposits/:id/reject', auth_1.requireAdmin2FA, (req, res, next) => 
 router.get('/withdrawals', (req, res, next) => admin_controller_1.adminController.getWithdrawals(req, res, next));
 router.post('/withdrawals/:id/settle', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.settleWithdrawal(req, res, next));
 router.post('/withdrawals/:id/reject', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.rejectWithdrawal(req, res, next));
-// KYC Compliance review operations
+// KYC Compliance review, private document streaming & manual/email-channel updates
 router.get('/kyc', (req, res, next) => admin_controller_1.adminController.getPendingKyc(req, res, next));
+router.get('/kyc/:id/document', (req, res, next) => admin_controller_1.adminController.getKycDocumentFile(req, res, next));
+router.post('/kyc/manual', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.manualUpdateKyc(req, res, next));
+router.patch('/kyc/:id/status', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateKycStatus(req, res, next));
 router.post('/kyc/:id/approve', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.approveKyc(req, res, next));
 router.post('/kyc/:id/reject', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.rejectKyc(req, res, next));
+// Compliance Policy (KYC Feature Gates, Anti-Spam, Duplicate Detection, New-User Limits)
+router.get('/compliance/policy', (req, res, next) => admin_controller_1.adminController.getCompliancePolicy(req, res, next));
+router.post('/compliance/policy', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateCompliancePolicy(req, res, next));
+router.post('/users/:id/suspicious', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.updateUserSuspiciousStatus(req, res, next));
+router.post('/users/:id/verify-email', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.verifyUserEmailAdmin(req, res, next));
 // Receiver Address Settings operations
 router.get('/settings/addresses', (0, auth_1.requireRole)([client_1.Role.ADMIN, client_1.Role.STAFF]), (req, res, next) => admin_controller_1.adminController.getReceiverAddresses(req, res, next));
 router.post('/settings/addresses', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateReceiverAddresses(req, res, next));

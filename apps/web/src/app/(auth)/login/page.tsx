@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { useLanguage } from '../../../context/LanguageContext';
-import { extractErrorMessage } from '../../../lib/api';
+import { api, extractErrorMessage } from '../../../lib/api';
 import { AvoraBankLogo } from '../../../components/AvoraBankLogo';
 import { Lock, Mail, KeyRound, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
 
@@ -21,11 +21,35 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const [redirectParam, setRedirectParam] = useState<string | null>(null);
+  const [requiresCaptcha, setRequiresCaptcha] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaSvgUrl, setCaptchaSvgUrl] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+
+  const loadLoginCaptcha = async () => {
+    try {
+      const res = await api.get('/auth/captcha');
+      if (res.data?.success) {
+        setCaptchaToken(res.data.captchaToken || '');
+        setCaptchaSvgUrl(res.data.svgDataUrl || '');
+        setCaptchaAnswer('');
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const reason = params.get('reason');
+    const redirect = params.get('redirect');
+    const prefillEmail = params.get('email');
+    if (prefillEmail && !email) {
+      setEmail(prefillEmail);
+    }
+    if (redirect && redirect.startsWith('/') && !redirect.startsWith('//')) {
+      setRedirectParam(redirect);
+    }
     if (reason === 'inactivity') {
       setSessionNotice(
         'Your session was closed after an extended period of inactivity. Sign back in to continue — any application drafts remain saved on this browser.'
@@ -33,6 +57,10 @@ export default function LoginPage() {
     } else if (reason === 'expired') {
       setSessionNotice(
         'Your session expired. Please sign back in to continue.'
+      );
+    } else if (redirect && redirect.startsWith('/')) {
+      setSessionNotice(
+        'Authentication required. Please sign in or create an account to access this platform area.'
       );
     }
   }, []);
@@ -61,7 +89,12 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const res = await login({ email, password, twoFactorCode: requires2FA ? twoFactorCode : undefined });
+      const res = await login({
+        email,
+        password,
+        twoFactorCode: requires2FA ? twoFactorCode : undefined,
+        ...(requiresCaptcha ? { captchaToken, captchaAnswer: captchaAnswer.trim() } : {}),
+      } as any);
       if (res.requires2FA) {
         setRequires2FA(true);
         setLoading(false);
@@ -83,6 +116,15 @@ export default function LoginPage() {
         router.replace('/dashboard');
       }
     } catch (err: any) {
+      const data = err?.response?.data;
+      if (data?.code === 'EMAIL_VERIFICATION_REQUIRED') {
+        router.replace(`/verify-email?email=${encodeURIComponent(data.email || email.trim())}`);
+        return;
+      }
+      if (data?.requiresCaptcha) {
+        setRequiresCaptcha(true);
+        loadLoginCaptcha();
+      }
       setError(extractErrorMessage(err, 'Login failed. Please check credentials.'));
     } finally {
       setLoading(false);
@@ -111,9 +153,24 @@ export default function LoginPage() {
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {requires2FA
               ? 'Enter the 6-digit TOTP code from your authenticator application.'
-              : 'Sign in to access all private banking facilities, global transfers, and investment desks.'}
+              : 'Sign in to access your private client portal and authorized platform services.'}
           </p>
         </div>
+
+        {!requires2FA && (
+          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-bold">
+            <div className="py-2 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-center shadow-xs">
+              Sign In
+            </div>
+            <Link
+              href={redirectParam ? `/register?redirect=${encodeURIComponent(redirectParam)}` : '/register'}
+              replace
+              className="py-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-center transition-colors"
+            >
+              Create Account
+            </Link>
+          </div>
+        )}
 
         {sessionNotice && !error && (
           <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-amber-800 dark:text-amber-200 text-xs flex items-start gap-2">
@@ -191,6 +248,40 @@ export default function LoginPage() {
             </div>
           )}
 
+          {requiresCaptcha && (
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Security Verification Code *
+                </label>
+                <button
+                  type="button"
+                  onClick={loadLoginCaptcha}
+                  className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                >
+                  Refresh Code
+                </button>
+              </div>
+              <div className="flex items-center gap-3">
+                {captchaSvgUrl && (
+                  <img
+                    src={captchaSvgUrl}
+                    alt="Security CAPTCHA"
+                    className="h-[48px] rounded-xl border border-slate-700 bg-slate-950 shrink-0"
+                  />
+                )}
+                <input
+                  type="text"
+                  required
+                  value={captchaAnswer}
+                  onChange={(e) => setCaptchaAnswer(e.target.value.toUpperCase())}
+                  placeholder="Enter code"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-sm font-bold tracking-widest uppercase outline-none"
+                />
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={loading}
@@ -203,8 +294,12 @@ export default function LoginPage() {
 
         <div className="text-center pt-2 text-xs text-slate-500 dark:text-slate-400">
           Don't have an account?{' '}
-          <Link href="/register" className="text-blue-600 dark:text-blue-400 font-bold hover:underline">
-            Open Account
+          <Link
+            href={redirectParam ? `/register?redirect=${encodeURIComponent(redirectParam)}` : '/register'}
+            replace
+            className="text-blue-600 dark:text-blue-400 font-bold hover:underline"
+          >
+            Create Account
           </Link>
         </div>
 

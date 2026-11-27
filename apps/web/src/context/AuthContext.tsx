@@ -3,6 +3,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
+export type KycStatusType =
+  | 'NOT_STARTED'
+  | 'PENDING'
+  | 'UNDER_REVIEW'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'ADDITIONAL_INFO_REQUIRED'
+  | 'EXPIRED';
+
 export interface User {
   id: string;
   email: string;
@@ -10,7 +19,12 @@ export interface User {
   lastName?: string;
   displayName?: string | null;
   role: 'USER' | 'STAFF' | 'ADMIN';
-  kycStatus: 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
+  kycStatus: KycStatusType;
+  kycStatusLabel?: string;
+  kycNotes?: string | null;
+  kycExpiresAt?: string | null;
+  kycSubmittedAt?: string | null;
+  emailVerified?: boolean;
   twoFactorEnabled: boolean;
   mustChangePassword?: boolean;
   isWithdrawalLocked?: boolean;
@@ -18,6 +32,11 @@ export interface User {
   accountNumber?: string;
   isAvailable?: boolean;
   availabilityUpdatedAt?: string | null;
+  complianceRequirements?: {
+    kycRequiredFeatures?: Record<string, boolean>;
+    requireEmailVerificationForSensitiveActions?: boolean;
+    newUserLimits?: any;
+  };
 }
 
 interface AuthContextType {
@@ -285,7 +304,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('nexis_user');
     localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
     const destination = typeof redirectTo === 'string' ? redirectTo : '/login';
-    window.location.href = destination;
+    window.location.replace(destination);
   };
 
   const refreshUser = async () => {

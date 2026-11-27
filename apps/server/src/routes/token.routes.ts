@@ -6,11 +6,10 @@ import { featureControlService } from '../services/featureControl.service';
 
 const router = Router();
 
-// Public: Token specifications & roadmap
-router.get('/info', (req, res, next) => tokenController.getInfo(req, res, next));
-
-// Protected: Testnet wallet & Early-access / Funded Allocation Purchase & Redemption
+// Protected: All token specifications, roadmap, testnet wallet & allocation endpoints require authentication
 router.use(authenticateToken);
+
+router.get('/info', (req, res, next) => tokenController.getInfo(req, res, next));
 router.get('/my-status', (req, res, next) => tokenController.getMyStatus(req, res, next));
 router.post('/faucet/claim', featureControlService.requireFeature('AVR_TOKEN_SALE'), (req, res, next) => tokenController.claimFaucet(req, res, next));
 router.post('/purchase', p2pActionLimiter, featureControlService.requireFeature('AVR_TOKEN_SALE'), (req, res, next) => tokenController.purchaseTokens(req, res, next));

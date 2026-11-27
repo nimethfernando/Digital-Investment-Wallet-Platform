@@ -5,9 +5,9 @@ const cms_controller_1 = require("../controllers/cms.controller");
 const auth_1 = require("../middleware/auth");
 const featureControl_service_1 = require("../services/featureControl.service");
 const router = (0, express_1.Router)();
-// Public & User CMS/Ticket routes
-router.get('/settings', cms_controller_1.getSettings);
-router.get('/feature-flags', async (req, res) => {
+// Minimal public & authenticated CMS/Ticket routes
+router.get('/settings', auth_1.optionalAuthenticateToken, cms_controller_1.getSettings);
+router.get('/feature-flags', auth_1.authenticateToken, async (req, res) => {
     try {
         const data = await featureControl_service_1.featureControlService.getAllFeatures();
         res.json({ success: true, data });
@@ -16,14 +16,14 @@ router.get('/feature-flags', async (req, res) => {
         res.status(500).json({ success: false, message: err.message || 'Failed to load feature flags' });
     }
 });
-router.get('/variables', cms_controller_1.getPlatformVariables);
-router.get('/sections/:page', cms_controller_1.getPageSections);
-router.get('/blogs', cms_controller_1.getBlogPosts);
-router.get('/blogs/cron-sync', cms_controller_1.syncAllTrackedBlogs);
-router.get('/blogs/:slug', cms_controller_1.getBlogPost);
-router.get('/media/banner/:slug', cms_controller_1.getBlogBannerMedia);
-router.get('/media/meme/:slug', cms_controller_1.getBlogMemeMedia);
-router.post('/inquiry', cms_controller_1.submitInquiry);
+router.get('/variables', auth_1.authenticateToken, cms_controller_1.getPlatformVariables);
+router.get('/sections/:page', auth_1.optionalAuthenticateToken, cms_controller_1.getPageSections);
+router.get('/blogs', auth_1.authenticateToken, cms_controller_1.getBlogPosts);
+router.get('/blogs/cron-sync', auth_1.authenticateToken, auth_1.requireAdmin, cms_controller_1.syncAllTrackedBlogs);
+router.get('/blogs/:slug', auth_1.authenticateToken, cms_controller_1.getBlogPost);
+router.get('/media/banner/:slug', auth_1.authenticateToken, cms_controller_1.getBlogBannerMedia);
+router.get('/media/meme/:slug', auth_1.authenticateToken, cms_controller_1.getBlogMemeMedia);
+router.post('/inquiry', auth_1.optionalAuthenticateToken, cms_controller_1.submitInquiry);
 router.post('/newsletter', cms_controller_1.subscribeNewsletter);
 router.get('/my-tickets', auth_1.authenticateToken, cms_controller_1.getMyInquiries);
 // Admin-only CMS & Auto-Publisher routes

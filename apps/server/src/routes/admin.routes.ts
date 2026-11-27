@@ -59,10 +59,19 @@ router.get('/withdrawals', (req, res, next) => adminController.getWithdrawals(re
 router.post('/withdrawals/:id/settle', requireAdmin2FA, (req, res, next) => adminController.settleWithdrawal(req, res, next));
 router.post('/withdrawals/:id/reject', requireAdmin2FA, (req, res, next) => adminController.rejectWithdrawal(req, res, next));
 
-// KYC Compliance review operations
+// KYC Compliance review, private document streaming & manual/email-channel updates
 router.get('/kyc', (req, res, next) => adminController.getPendingKyc(req, res, next));
+router.get('/kyc/:id/document', (req, res, next) => adminController.getKycDocumentFile(req, res, next));
+router.post('/kyc/manual', requireAdmin2FA, (req, res, next) => adminController.manualUpdateKyc(req, res, next));
+router.patch('/kyc/:id/status', requireAdmin2FA, (req, res, next) => adminController.updateKycStatus(req, res, next));
 router.post('/kyc/:id/approve', requireAdmin2FA, (req, res, next) => adminController.approveKyc(req, res, next));
 router.post('/kyc/:id/reject', requireAdmin2FA, (req, res, next) => adminController.rejectKyc(req, res, next));
+
+// Compliance Policy (KYC Feature Gates, Anti-Spam, Duplicate Detection, New-User Limits)
+router.get('/compliance/policy', (req, res, next) => adminController.getCompliancePolicy(req, res, next));
+router.post('/compliance/policy', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateCompliancePolicy(req, res, next));
+router.post('/users/:id/suspicious', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) => adminController.updateUserSuspiciousStatus(req, res, next));
+router.post('/users/:id/verify-email', requireRole([Role.ADMIN]), (req, res, next) => adminController.verifyUserEmailAdmin(req, res, next));
 
 // Receiver Address Settings operations
 router.get(

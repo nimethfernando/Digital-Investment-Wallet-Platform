@@ -10,11 +10,13 @@ const morgan_1 = __importDefault(require("morgan"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const config_1 = require("./config");
 const routes_1 = __importDefault(require("./routes"));
 const error_1 = require("./middleware/error");
 const returns_job_1 = require("./services/returns.job");
 const p2p_service_1 = require("./services/p2p.service");
+const compliancePolicy_service_1 = require("./services/compliancePolicy.service");
 const storage_service_1 = require("./services/storage.service");
 const prisma_1 = require("./lib/prisma");
 const app = (0, express_1.default)();
@@ -82,6 +84,74 @@ app.use(['/uploads', '/api/v1/uploads', '/api/uploads'], async (req, res, next) 
         if (safeRelPath.includes('..')) {
             return res.status(400).json({ success: false, message: 'Invalid upload path' });
         }
+        const isPublicBrandAsset = safeRelPath.startsWith('/branding/') || safeRelPath.startsWith('/brochures/');
+        // Sensitive documents & payment proofs require authenticated Admin/Staff or authorized token
+        if (!isPublicBrandAsset) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, private');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            const authHeader = req.headers['authorization'];
+            const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+            if (!bearerToken) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Authentication required. Private documents are not accessible via public URLs.',
+                });
+            }
+            let payload = null;
+            try {
+                try {
+                    payload = jsonwebtoken_1.default.verify(bearerToken, config_1.config.jwtSecret);
+                }
+                catch {
+                    payload = jsonwebtoken_1.default.verify(bearerToken, config_1.config.adminJwtSecret);
+                }
+            }
+            catch {
+                return res.status(403).json({ success: false, message: 'Invalid or expired access token.' });
+            }
+            const actor = await prisma_1.prisma.user.findUnique({
+                where: { id: payload.userId },
+                select: { id: true, role: true, status: true },
+            });
+            if (!actor || actor.status !== 'ACTIVE') {
+                return res.status(403).json({ success: false, message: 'Unauthorized account status.' });
+            }
+            const isAdminOrStaff = actor.role === 'ADMIN' || actor.role === 'STAFF';
+            // Strictly block non-admin access to KYC / documents directory via direct upload URLs
+            if (!isAdminOrStaff && safeRelPath.includes('/kyc')) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Forbidden: KYC documents are restricted to authorized compliance personnel.',
+                });
+            }
+            if (!isAdminOrStaff) {
+                // Non-admin authenticated users may only access receipts attached to their own P2P orders
+                const urlPathCheck = `/uploads${safeRelPath.startsWith('/') ? safeRelPath : `/${safeRelPath}`}`;
+                const ownedProof = await prisma_1.prisma.p2POrder
+                    .findFirst({
+                    where: {
+                        paymentProofUrl: { contains: path_1.default.basename(safeRelPath) },
+                        OR: [{ buyerId: actor.id }, { sellerId: actor.id }],
+                    },
+                    select: { id: true },
+                })
+                    .catch(() => null);
+                const ownedKyc = await prisma_1.prisma.kycDocument
+                    .findFirst({
+                    where: { userId: actor.id, documentUrl: { contains: path_1.default.basename(safeRelPath) } },
+                    select: { id: true },
+                })
+                    .catch(() => null);
+                if (!ownedProof && !ownedKyc && !urlPathCheck.includes(actor.id)) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Forbidden: You do not have permission to access this private document.',
+                    });
+                }
+            }
+        }
         const filePath = path_1.default.join(uploadsDirectory, safeRelPath);
         if (fs_1.default.existsSync(filePath)) {
             return next();
@@ -94,16 +164,15 @@ app.use(['/uploads', '/api/v1/uploads', '/api/uploads'], async (req, res, next) 
                 .then(() => fs_1.default.promises.writeFile(filePath, persisted.buffer))
                 .catch(() => { });
             res.setHeader('Content-Type', persisted.mimeType);
-            res.setHeader('Cache-Control', 'public, max-age=86400');
+            res.setHeader('Cache-Control', isPublicBrandAsset ? 'public, max-age=86400' : 'no-store, no-cache, must-revalidate, private');
             return res.send(persisted.buffer);
         }
-        // Fallback for legacy or archived uploads:
-        // When a document/receipt/proof file was stored prior to database persistence,
-        // generate an official Avora Bank Compliance Archive Certificate instead of returning raw JSON 404.
+        // Fallback for legacy or archived uploads (only for authenticated authorized requests, never unauthenticated!)
         const filename = path_1.default.basename(safeRelPath);
         const ext = path_1.default.extname(filename).toLowerCase();
-        const isImageOrDoc = ['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif', '.pdf', '.bmp', '.ico'].includes(ext) ||
-            Boolean(req.headers.accept && (req.headers.accept.includes('image/') || req.headers.accept.includes('text/html')));
+        const isImageOrDoc = !isPublicBrandAsset &&
+            (['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif', '.pdf', '.bmp', '.ico'].includes(ext) ||
+                Boolean(req.headers.accept && (req.headers.accept.includes('image/') || req.headers.accept.includes('text/html'))));
         if (isImageOrDoc) {
             let orderMeta = null;
             try {
@@ -141,7 +210,7 @@ app.use(['/uploads', '/api/v1/uploads', '/api/uploads'], async (req, res, next) 
             catch { }
             const svgContent = (0, storage_service_1.generateArchivedDocumentSvg)(filename, urlPath, orderMeta);
             res.setHeader('Content-Type', 'image/svg+xml');
-            res.setHeader('Cache-Control', 'public, max-age=86400');
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
             return res.send(Buffer.from(svgContent, 'utf-8'));
         }
         return res.status(404).json({ success: false, message: 'Uploaded document file not found' });
@@ -183,6 +252,7 @@ if (process.env.NODE_ENV !== 'test' && (process.env.PORT || !isServerless)) {
             // Non-destructively verify non-breaking schema extensions (e.g. displayName column) on boot
             p2p_service_1.p2pService.ensureP2PReady().catch(() => { });
             (0, storage_service_1.ensureUploadedAssetTable)().catch(() => { });
+            compliancePolicy_service_1.compliancePolicyService.ensureComplianceSchema().catch(() => { });
             // Register automated financial background cron jobs
             returns_job_1.returnsJobService.startScheduler();
         });

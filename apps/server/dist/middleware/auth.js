@@ -36,16 +36,19 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.requireAdmin2FA = exports.requireStaffOrAdmin = exports.requireAdmin = exports.requireRole = exports.authenticateToken = void 0;
+exports.requireAdmin2FA = exports.requireStaffOrAdmin = exports.requireAdmin = exports.requireRole = exports.optionalAuthenticateToken = exports.authenticateToken = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const config_1 = require("../config");
 const client_1 = require("@prisma/client");
 const prisma_1 = require("../lib/prisma");
 const authenticateToken = async (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
     if (!token) {
-        res.status(401).json({ success: false, message: 'Access token required' });
+        res.status(401).json({ success: false, message: 'Authentication required. Please sign in to access this resource.' });
         return;
     }
     let payload;
@@ -87,6 +90,43 @@ const authenticateToken = async (req, res, next) => {
     }
 };
 exports.authenticateToken = authenticateToken;
+const optionalAuthenticateToken = async (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, private');
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    if (!token) {
+        next();
+        return;
+    }
+    try {
+        let payload;
+        try {
+            payload = jsonwebtoken_1.default.verify(token, config_1.config.jwtSecret);
+        }
+        catch {
+            payload = jsonwebtoken_1.default.verify(token, config_1.config.adminJwtSecret);
+        }
+        const user = await prisma_1.prisma.user.findUnique({
+            where: { id: payload.userId },
+            select: { id: true, email: true, role: true, status: true, mustChangePassword: true, twoFactorEnabled: true },
+        });
+        if (user && user.status === 'ACTIVE') {
+            req.user = {
+                id: user.id,
+                userId: user.id,
+                email: user.email,
+                role: user.role,
+                mustChangePassword: user.mustChangePassword,
+                twoFactorEnabled: user.twoFactorEnabled,
+            };
+        }
+    }
+    catch {
+        // Proceed as unauthenticated guest
+    }
+    next();
+};
+exports.optionalAuthenticateToken = optionalAuthenticateToken;
 const requireRole = (allowedRoles) => {
     return (req, res, next) => {
         if (!req.user) {

@@ -15,6 +15,7 @@ const prisma_1 = require("../lib/prisma");
 const config_1 = require("../config");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
 const crypto_2 = require("../utils/crypto");
+const compliancePolicy_service_1 = require("./compliancePolicy.service");
 const RESERVED_DISPLAY_NAMES = new Set([
     'admin',
     'administrator',
@@ -138,17 +139,55 @@ class AuthService {
         return updated;
     }
     async register(data) {
+        await compliancePolicy_service_1.compliancePolicyService.ensureComplianceSchema();
+        const policy = await compliancePolicy_service_1.compliancePolicyService.getPolicy();
+        // 1. Bot honeypot trap
+        if (data.honeypot && String(data.honeypot).trim().length > 0) {
+            throw Object.assign(new Error('Automated registration rejected.'), { statusCode: 400 });
+        }
+        // 2. Self-hosted cryptographic CAPTCHA verification
+        if (policy.captcha.requireOnRegister) {
+            compliancePolicy_service_1.compliancePolicyService.verifyCaptchaChallenge(data.captchaToken, data.captchaAnswer);
+        }
         const { firstName: validFirstName, lastName: validLastName } = validatePersonNames(data.firstName, data.lastName);
         const validDisplayName = await this.ensureUniqueDisplayName(data.displayName);
-        const existing = await prisma_1.prisma.user.findUnique({ where: { email: data.email.toLowerCase().trim() } });
+        const cleanEmail = data.email.toLowerCase().trim();
+        const existing = await prisma_1.prisma.user.findUnique({ where: { email: cleanEmail } });
         if (existing) {
             throw new Error('An account with this email address already exists');
         }
+        // 3. Anti-spam & duplicate-account detection
+        const signals = await compliancePolicy_service_1.compliancePolicyService.evaluateRegistrationSignals({
+            email: cleanEmail,
+            phone: data.phone,
+            signupIp: data.signupIp,
+            deviceFingerprint: data.deviceFingerprint,
+        });
+        if (signals.blockedReason) {
+            await prisma_1.prisma.adminAuditLog
+                .create({
+                data: {
+                    action: 'REGISTRATION_BLOCKED_SPAM',
+                    entity: 'User',
+                    ipAddress: data.signupIp || null,
+                    details: `Blocked spam/duplicate signup for ${cleanEmail}: ${signals.reasons.join('; ')}`,
+                },
+            })
+                .catch(() => { });
+            throw Object.assign(new Error(signals.blockedReason), { statusCode: 403 });
+        }
         const passwordHash = await bcryptjs_1.default.hash(data.password, 12);
-        const emailVerificationToken = crypto_1.default.randomBytes(32).toString('hex');
+        const verificationCode = String(crypto_1.default.randomInt(100000, 999999));
+        const verificationSecretToken = crypto_1.default.randomBytes(32).toString('hex');
+        const verificationPayload = JSON.stringify({
+            code: verificationCode,
+            token: verificationSecretToken,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        });
         const user = await prisma_1.prisma.user.create({
             data: {
-                email: data.email.toLowerCase().trim(),
+                email: cleanEmail,
+                normalizedEmail: signals.normalizedEmail,
                 passwordHash,
                 firstName: validFirstName,
                 lastName: validLastName,
@@ -157,7 +196,14 @@ class AuthService {
                 country: data.country,
                 signupLocation: data.signupLocation,
                 signupIp: data.signupIp,
-                emailVerificationToken,
+                deviceFingerprint: data.deviceFingerprint || null,
+                isSuspicious: signals.isSuspicious,
+                suspiciousReason: signals.reasons.length > 0 ? signals.reasons.join(' | ') : null,
+                flaggedAt: signals.isSuspicious ? new Date() : null,
+                flaggedBy: signals.isSuspicious ? 'ANTI_SPAM_ENGINE' : null,
+                riskScore: signals.riskScore,
+                emailVerified: false,
+                emailVerificationToken: verificationPayload,
                 wallet: {
                     create: {
                         balances: {
@@ -178,20 +224,50 @@ class AuthService {
                 },
             },
         });
-        // Send welcome email (non-blocking)
+        // Audit Log for Registration (+ Duplicate / Suspicious signal if triggered)
+        await prisma_1.prisma.adminAuditLog
+            .create({
+            data: {
+                userId: user.id,
+                action: signals.isSuspicious ? 'DUPLICATE_ACCOUNT_DETECTED' : 'USER_REGISTERED',
+                entity: 'User',
+                entityId: user.id,
+                ipAddress: data.signupIp || null,
+                details: `New registration: ${user.email} (@${user.displayName}), Country: ${user.country || 'N/A'}, IP: ${data.signupIp || 'Unknown'}.${signals.isSuspicious ? ` FLAGGED SUSPICIOUS: ${signals.reasons.join('; ')}` : ''}`,
+            },
+        })
+            .catch(() => { });
+        if (signals.isSuspicious) {
+            notification_provider_1.notificationService
+                .sendAdminAlert(`Suspicious New Registration Flagged [${user.email}]`, `Account ${user.email} (@${user.displayName}) triggered anti-spam duplicate detection:\n${signals.reasons.join('\n')}`, { userId: user.id, email: user.email, riskScore: signals.riskScore })
+                .catch(() => { });
+        }
+        const clientUrl = process.env.CLIENT_URL || 'https://www.avorabank.com';
+        const verifyUrl = `${clientUrl}/verify-email?token=${verificationSecretToken}&email=${encodeURIComponent(user.email)}`;
+        // Send email verification link & 6-digit code (non-blocking)
         notification_provider_1.notificationService.sendEmail({
             to: user.email,
-            subject: 'Welcome to Avora Bank - Verify Your Account',
+            subject: 'Welcome to Avora Bank — Verify Your Email Address',
             html: `
-        <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
-          <h2>Welcome to Avora Bank, ${user.firstName || 'Investor'} (@${user.displayName})!</h2>
-          <p>Your digital investment wallet has been successfully created.</p>
-          <p>You can now explore our curated investment packages, check live USDT exchange rates, or fund your wallet.</p>
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; background: #090d16; color: #f8fafc; padding: 32px; border-radius: 16px; border: 1px solid #1e293b;">
+          <h2 style="color: #10b981; margin-top: 0;">Verify Your Avora Bank Account</h2>
+          <p style="color: #cbd5e1; font-size: 14px;">Welcome, ${user.firstName || 'Client'} (@${user.displayName}). Please verify your email address before submitting KYC or accessing platform services.</p>
+          <div style="margin: 24px 0; padding: 16px; background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; text-align: center;">
+            <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px;">Your 6-Digit Verification Code</div>
+            <div style="font-size: 28px; font-weight: 900; font-family: monospace; color: #10b981; letter-spacing: 6px; margin-top: 6px;">${verificationCode}</div>
+          </div>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${verifyUrl}" style="display: inline-block; background: #10b981; color: #090d16; font-weight: 800; padding: 12px 24px; border-radius: 10px; text-decoration: none;">Verify Email Address &rarr;</a>
+          </div>
+          <p style="font-size: 11px; color: #64748b;">This code expires in 24 hours. Note: Registration alone does not grant full financial access — KYC verification is required before using protected features.</p>
         </div>
       `,
         }).catch(() => { });
-        const token = this.generateToken(user.id, user.email, user.role);
+        const enforceOnLogin = policy.emailVerification.enforceEmailVerificationOnLoginForNewUsers;
+        const token = enforceOnLogin ? null : this.generateToken(user.id, user.email, user.role);
         return {
+            requiresEmailVerification: enforceOnLogin,
+            emailVerificationSent: true,
             user: {
                 id: user.id,
                 email: user.email,
@@ -203,14 +279,135 @@ class AuthService {
                 signupLocation: user.signupLocation,
                 role: user.role,
                 kycStatus: user.kycStatus,
+                emailVerified: user.emailVerified,
                 twoFactorEnabled: user.twoFactorEnabled,
                 isAvailable: user.isAvailable !== false,
                 availabilityUpdatedAt: user.availabilityUpdatedAt || null,
             },
-            token,
+            ...(token ? { token } : {}),
+        };
+    }
+    async verifyEmail(params) {
+        await compliancePolicy_service_1.compliancePolicyService.ensureComplianceSchema();
+        const cleanEmail = params.email ? params.email.toLowerCase().trim() : '';
+        const cleanCode = params.code ? params.code.trim() : '';
+        const cleanToken = params.token ? params.token.trim() : '';
+        if (!cleanToken && (!cleanEmail || !cleanCode)) {
+            throw Object.assign(new Error('Verification token or email with 6-digit code is required.'), { statusCode: 400 });
+        }
+        let user = cleanEmail
+            ? await prisma_1.prisma.user.findUnique({ where: { email: cleanEmail } })
+            : await prisma_1.prisma.user.findFirst({ where: { emailVerificationToken: { contains: cleanToken } } });
+        if (!user) {
+            throw Object.assign(new Error('Verification record not found or invalid.'), { statusCode: 400 });
+        }
+        if (user.emailVerified) {
+            const jwtToken = this.generateToken(user.id, user.email, user.role, user.mustChangePassword);
+            return {
+                success: true,
+                alreadyVerified: true,
+                message: 'Your email address is already verified.',
+                token: jwtToken,
+            };
+        }
+        if (!user.emailVerificationToken) {
+            throw Object.assign(new Error('No active verification token found. Please request a new code.'), { statusCode: 400 });
+        }
+        let parsed = {};
+        try {
+            parsed = JSON.parse(user.emailVerificationToken);
+        }
+        catch {
+            parsed = { token: user.emailVerificationToken };
+        }
+        if (parsed.expiresAt && Date.now() > new Date(parsed.expiresAt).getTime()) {
+            throw Object.assign(new Error('Verification code expired. Please request a new verification email.'), { statusCode: 400 });
+        }
+        const tokenMatched = Boolean(cleanToken && parsed.token && cleanToken === parsed.token);
+        const codeMatched = Boolean(cleanCode && parsed.code && cleanCode === parsed.code);
+        if (!tokenMatched && !codeMatched) {
+            throw Object.assign(new Error('Invalid verification code or token.'), { statusCode: 400 });
+        }
+        const updated = await prisma_1.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                emailVerified: true,
+                emailVerificationToken: null,
+            },
+        });
+        await prisma_1.prisma.adminAuditLog
+            .create({
+            data: {
+                userId: updated.id,
+                action: 'USER_EMAIL_VERIFIED',
+                entity: 'User',
+                entityId: updated.id,
+                ipAddress: params.ipAddress || null,
+                details: `Verified email address for ${updated.email}.`,
+            },
+        })
+            .catch(() => { });
+        const jwtToken = this.generateToken(updated.id, updated.email, updated.role, updated.mustChangePassword);
+        return {
+            success: true,
+            message: 'Email address verified successfully! You may now proceed to KYC verification in your Dashboard.',
+            token: jwtToken,
+            user: {
+                id: updated.id,
+                email: updated.email,
+                firstName: updated.firstName,
+                lastName: updated.lastName,
+                displayName: updated.displayName,
+                role: updated.role,
+                kycStatus: updated.kycStatus,
+                emailVerified: true,
+                twoFactorEnabled: updated.twoFactorEnabled,
+            },
+        };
+    }
+    async resendVerificationEmail(email) {
+        await compliancePolicy_service_1.compliancePolicyService.ensureComplianceSchema();
+        const cleanEmail = email.toLowerCase().trim();
+        const user = await prisma_1.prisma.user.findUnique({ where: { email: cleanEmail } });
+        if (!user) {
+            return { success: true, message: 'If an unverified account exists for this email, a verification code has been dispatched.' };
+        }
+        if (user.emailVerified) {
+            return { success: true, alreadyVerified: true, message: 'This email address is already verified.' };
+        }
+        const verificationCode = String(crypto_1.default.randomInt(100000, 999999));
+        const verificationSecretToken = crypto_1.default.randomBytes(32).toString('hex');
+        const verificationPayload = JSON.stringify({
+            code: verificationCode,
+            token: verificationSecretToken,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        });
+        await prisma_1.prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerificationToken: verificationPayload },
+        });
+        const clientUrl = process.env.CLIENT_URL || 'https://www.avorabank.com';
+        const verifyUrl = `${clientUrl}/verify-email?token=${verificationSecretToken}&email=${encodeURIComponent(user.email)}`;
+        notification_provider_1.notificationService.sendEmail({
+            to: user.email,
+            subject: 'Avora Bank — Your Email Verification Code',
+            html: `
+        <div style="font-family: sans-serif; padding: 24px; background: #090d16; color: #f8fafc; border-radius: 14px;">
+          <h2 style="color: #10b981;">Email Verification Code</h2>
+          <p>Use the 6-digit verification code below or click the link to verify your Avora Bank account:</p>
+          <p style="font-size: 28px; font-weight: 900; font-family: monospace; letter-spacing: 6px; color: #10b981;">${verificationCode}</p>
+          <p><a href="${verifyUrl}" style="color: #38bdf8;">Verify Email Address &rarr;</a></p>
+        </div>
+      `,
+        }).catch(() => { });
+        return {
+            success: true,
+            message: 'Verification email & 6-digit code dispatched. Please check your inbox.',
         };
     }
     async login(data) {
+        await compliancePolicy_service_1.compliancePolicyService.ensureComplianceSchema();
+        const policy = await compliancePolicy_service_1.compliancePolicyService.getPolicy();
         const cleanEmail = data.email.toLowerCase().trim();
         // Auto-ensure Master Admin account if credentials match
         if (cleanEmail === 'admin@avorabank.com') {
@@ -242,8 +439,62 @@ class AuthService {
         if (user.status !== client_1.UserStatus.ACTIVE) {
             throw new Error('Your account has been suspended or locked. Contact compliance.');
         }
+        if (user.lockedUntil && new Date() < user.lockedUntil) {
+            const minsLeft = Math.max(1, Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000));
+            throw Object.assign(new Error(`Account temporarily locked due to repeated failed sign-in attempts. Try again in ${minsLeft} minute(s).`), { statusCode: 429 });
+        }
+        // Require CAPTCHA after configured consecutive failed login attempts
+        const captchaThreshold = policy.captcha.requireOnLoginAfterFailedAttempts ?? 3;
+        if ((user.failedLoginAttempts || 0) >= captchaThreshold && captchaThreshold > 0) {
+            if (!data.captchaToken || !data.captchaAnswer) {
+                return {
+                    requiresCaptcha: true,
+                    message: 'Please complete the security CAPTCHA verification to sign in.',
+                };
+            }
+            compliancePolicy_service_1.compliancePolicyService.verifyCaptchaChallenge(data.captchaToken, data.captchaAnswer);
+        }
         const isValid = await bcryptjs_1.default.compare(data.password, user.passwordHash);
         if (!isValid) {
+            const nextFails = (user.failedLoginAttempts || 0) + 1;
+            const shouldLock = nextFails >= 5;
+            const shouldFlagSuspicious = nextFails >= 8;
+            await prisma_1.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    failedLoginAttempts: nextFails,
+                    ...(shouldLock ? { lockedUntil: new Date(Date.now() + 15 * 60 * 1000) } : {}),
+                    ...(shouldFlagSuspicious
+                        ? {
+                            isSuspicious: true,
+                            suspiciousReason: `Repeated failed login attempts (${nextFails}) from IP ${data.ipAddress || 'unknown'}`,
+                            flaggedAt: new Date(),
+                            flaggedBy: 'ANTI_SPAM_ENGINE',
+                            riskScore: Math.max(user.riskScore || 0, 70),
+                        }
+                        : {}),
+                },
+            });
+            if (shouldFlagSuspicious) {
+                await prisma_1.prisma.adminAuditLog
+                    .create({
+                    data: {
+                        userId: user.id,
+                        action: 'LOGIN_BRUTE_FORCE_FLAG',
+                        entity: 'User',
+                        entityId: user.id,
+                        ipAddress: data.ipAddress || null,
+                        details: `Flagged ${user.email} after ${nextFails} consecutive failed login attempts.`,
+                    },
+                })
+                    .catch(() => { });
+            }
+            if (nextFails >= captchaThreshold && captchaThreshold > 0) {
+                throw Object.assign(new Error('Invalid email or password. CAPTCHA verification is now required.'), {
+                    statusCode: 401,
+                    requiresCaptcha: true,
+                });
+            }
             throw new Error('Invalid email or password');
         }
         if (user.twoFactorEnabled) {
@@ -262,9 +513,22 @@ class AuthService {
                 throw new Error('Invalid 2FA authentication code');
             }
         }
+        if (policy.emailVerification.enforceEmailVerificationOnLoginForNewUsers &&
+            !user.emailVerified &&
+            user.role === client_1.Role.USER) {
+            return {
+                requiresEmailVerification: true,
+                email: user.email,
+                message: 'Please verify your email address before signing in.',
+            };
+        }
         await prisma_1.prisma.user.update({
             where: { id: user.id },
-            data: { lastLoginAt: new Date() },
+            data: {
+                lastLoginAt: new Date(),
+                failedLoginAttempts: 0,
+                lockedUntil: null,
+            },
         });
         const token = this.generateToken(user.id, user.email, user.role, user.mustChangePassword);
         return {
@@ -280,6 +544,9 @@ class AuthService {
                 signupLocation: user.signupLocation,
                 role: user.role,
                 kycStatus: user.kycStatus,
+                emailVerified: user.emailVerified,
+                kycNotes: user.kycNotes || null,
+                kycExpiresAt: user.kycExpiresAt || null,
                 twoFactorEnabled: user.twoFactorEnabled,
                 mustChangePassword: user.mustChangePassword,
                 isAvailable: user.isAvailable !== false,
@@ -289,7 +556,11 @@ class AuthService {
             token,
         };
     }
-    async forgotPassword(email) {
+    async forgotPassword(email, captchaToken, captchaAnswer) {
+        const policy = await compliancePolicy_service_1.compliancePolicyService.getPolicy();
+        if (policy.captcha.requireOnForgotPassword && captchaToken) {
+            compliancePolicy_service_1.compliancePolicyService.verifyCaptchaChallenge(captchaToken, captchaAnswer);
+        }
         const user = await prisma_1.prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
         if (!user) {
             return { success: true, message: 'If an account exists, a reset link has been dispatched.' };

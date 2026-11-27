@@ -28,14 +28,14 @@ import {
   getAiPublisherConfig,
   saveAiPublisherConfig,
 } from '../controllers/cms.controller';
-import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { authenticateToken, optionalAuthenticateToken, requireAdmin } from '../middleware/auth';
 import { featureControlService } from '../services/featureControl.service';
 
 const router = Router();
 
-// Public & User CMS/Ticket routes
-router.get('/settings', getSettings);
-router.get('/feature-flags', async (req, res) => {
+// Minimal public & authenticated CMS/Ticket routes
+router.get('/settings', optionalAuthenticateToken, getSettings);
+router.get('/feature-flags', authenticateToken, async (req, res) => {
   try {
     const data = await featureControlService.getAllFeatures();
     res.json({ success: true, data });
@@ -43,14 +43,14 @@ router.get('/feature-flags', async (req, res) => {
     res.status(500).json({ success: false, message: err.message || 'Failed to load feature flags' });
   }
 });
-router.get('/variables', getPlatformVariables);
-router.get('/sections/:page', getPageSections);
-router.get('/blogs', getBlogPosts);
-router.get('/blogs/cron-sync', syncAllTrackedBlogs);
-router.get('/blogs/:slug', getBlogPost);
-router.get('/media/banner/:slug', getBlogBannerMedia);
-router.get('/media/meme/:slug', getBlogMemeMedia);
-router.post('/inquiry', submitInquiry);
+router.get('/variables', authenticateToken, getPlatformVariables);
+router.get('/sections/:page', optionalAuthenticateToken, getPageSections);
+router.get('/blogs', authenticateToken, getBlogPosts);
+router.get('/blogs/cron-sync', authenticateToken, requireAdmin, syncAllTrackedBlogs);
+router.get('/blogs/:slug', authenticateToken, getBlogPost);
+router.get('/media/banner/:slug', authenticateToken, getBlogBannerMedia);
+router.get('/media/meme/:slug', authenticateToken, getBlogMemeMedia);
+router.post('/inquiry', optionalAuthenticateToken, submitInquiry);
 router.post('/newsletter', subscribeNewsletter);
 router.get('/my-tickets', authenticateToken, getMyInquiries);
 

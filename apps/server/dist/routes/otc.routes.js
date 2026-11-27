@@ -9,12 +9,11 @@ const requireOtcDesk = featureControl_service_1.featureControlService.requireFea
     await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.cryptoCurrency);
     await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.fiatCurrency);
 });
-// Public: Location-based OTC desk discovery, Corridors, and Live Benchmark Rates
+// Protected: All OTC desk discovery, corridors, rates, operator and customer routes require authentication
+router.use(auth_1.authenticateToken);
 router.get('/corridors', (req, res, next) => otc_controller_1.otcController.getCorridors(req, res, next));
 router.get('/desks', (req, res, next) => otc_controller_1.otcController.listDesks(req, res, next));
 router.get('/rates', (req, res, next) => otc_controller_1.otcController.getRates(req, res, next));
-// Protected: Authenticated operator and customer routes
-router.use(auth_1.authenticateToken);
 // Desk Operator Management
 router.post('/apply', requireOtcDesk, (req, res, next) => otc_controller_1.otcController.applyOtcDesk(req, res, next));
 router.post('/deposit/refund', (req, res, next) => otc_controller_1.otcController.refundOtcDeposit(req, res, next));

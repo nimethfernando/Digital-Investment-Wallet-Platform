@@ -49,11 +49,28 @@ export default function RegisterPage() {
   }>({ checking: false, available: null, message: null, suggestions: [] });
 
   // If user is already authenticated, redirect them away immediately so browser Back button does not show register form
+  const [redirectParam, setRedirectParam] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const redirect = params.get('redirect');
+    if (redirect && redirect.startsWith('/') && !redirect.startsWith('//')) {
+      setRedirectParam(redirect);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isLoading && user) {
-      router.replace('/dashboard');
+      if (user.role === 'ADMIN') {
+        router.replace('/admin');
+      } else if (redirectParam && !redirectParam.startsWith('/login') && !redirectParam.startsWith('/register')) {
+        router.replace(redirectParam);
+      } else {
+        router.replace('/dashboard');
+      }
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, redirectParam]);
 
   // Country & Location state
   const [selectedCountry, setSelectedCountry] = useState<CountryItem>(DEFAULT_COUNTRY);
@@ -67,6 +84,35 @@ export default function RegisterPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Anti-Spam & CAPTCHA challenge state
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaSvgUrl, setCaptchaSvgUrl] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+  const [captchaRequired, setCaptchaRequired] = useState(true);
+  const [captchaLoading, setCaptchaLoading] = useState(false);
+  const [honeypot, setHoneypot] = useState('');
+
+  const loadCaptcha = async () => {
+    setCaptchaLoading(true);
+    try {
+      const res = await api.get('/auth/captcha');
+      if (res.data?.success) {
+        setCaptchaToken(res.data.captchaToken || '');
+        setCaptchaSvgUrl(res.data.svgDataUrl || '');
+        setCaptchaRequired(res.data.requireOnRegister !== false);
+        setCaptchaAnswer('');
+      }
+    } catch {
+      // ignore transient error
+    } finally {
+      setCaptchaLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCaptcha();
+  }, []);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -234,8 +280,14 @@ export default function RegisterPage() {
     try {
       const fullPhoneNumber = phoneDigits ? `${selectedCountry.dialCode} ${phoneDigits}` : undefined;
       const signupLocationString = detectedCity ? `${detectedCity}, ${selectedCountry.name}` : selectedCountry.name;
+      const deviceFingerprint =
+        typeof window !== 'undefined'
+          ? btoa(
+              `${navigator.userAgent || ''}|${window.screen?.width || ''}x${window.screen?.height || ''}|${Intl.DateTimeFormat().resolvedOptions().timeZone || ''}`
+            ).slice(0, 64)
+          : undefined;
 
-      await register({
+      const regRes = await register({
         firstName: firstTrimmed,
         lastName: lastTrimmed,
         displayName: displayTrimmed,
@@ -245,11 +297,22 @@ export default function RegisterPage() {
         countryCode: selectedCountry.code,
         signupLocation: signupLocationString,
         password: formData.password,
+        deviceFingerprint,
+        captchaToken: captchaRequired ? captchaToken : undefined,
+        captchaAnswer: captchaRequired ? captchaAnswer.trim() : undefined,
+        honeypot,
       });
 
-      router.replace('/dashboard');
+      if (regRes?.requiresEmailVerification || (regRes?.emailVerificationSent && !regRes?.user?.emailVerified)) {
+        router.replace(`/verify-email?email=${encodeURIComponent(emailTrimmed)}`);
+      } else if (redirectParam && !redirectParam.startsWith('/login') && !redirectParam.startsWith('/register')) {
+        router.replace(redirectParam);
+      } else {
+        router.replace('/dashboard');
+      }
     } catch (err: any) {
       setError(extractErrorMessage(err, 'Registration failed.'));
+      loadCaptcha();
     } finally {
       setLoading(false);
     }
@@ -276,9 +339,29 @@ export default function RegisterPage() {
             Open Avora Bank Account
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Activate your digital investment wallet, receive your unique Account Number, and access all private banking facilities.
+            Create your client account to access authorized banking, settlement, and portfolio services.
           </p>
         </div>
+
+        <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-bold">
+          <Link
+            href={redirectParam ? `/login?redirect=${encodeURIComponent(redirectParam)}` : '/login'}
+            replace
+            className="py-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-center transition-colors"
+          >
+            Sign In
+          </Link>
+          <div className="py-2 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-center shadow-xs">
+            Create Account
+          </div>
+        </div>
+
+        {redirectParam && !error && (
+          <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-amber-800 dark:text-amber-200 text-xs flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>Authentication required. Complete your registration below or sign in to continue.</span>
+          </div>
+        )}
 
         {/* Error Display */}
         {error && (
@@ -290,7 +373,8 @@ export default function RegisterPage() {
             {error.toLowerCase().includes('already exists') && (
               <div className="pt-1">
                 <Link
-                  href={`/login?email=${encodeURIComponent(formData.email.trim())}`}
+                  href={`/login?email=${encodeURIComponent(formData.email.trim())}${redirectParam ? `&redirect=${encodeURIComponent(redirectParam)}` : ''}`}
+                  replace
                   className="font-bold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
                 >
                   Click here to sign in with this email &rarr;
@@ -570,6 +654,56 @@ export default function RegisterPage() {
             </div>
           </div>
 
+          {/* Bot Honeypot Trap (hidden from human users) */}
+          <div aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', overflow: 'hidden' }}>
+            <label htmlFor="website_trap">Company Website</label>
+            <input
+              id="website_trap"
+              type="text"
+              tabIndex={-1}
+              autoComplete="off"
+              value={honeypot}
+              onChange={(e) => setHoneypot(e.target.value)}
+            />
+          </div>
+
+          {/* Security CAPTCHA Challenge */}
+          {captchaRequired && (
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Security Verification Code *
+                </label>
+                <button
+                  type="button"
+                  onClick={loadCaptcha}
+                  disabled={captchaLoading}
+                  className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                >
+                  {captchaLoading ? 'Refreshing...' : 'Refresh Code'}
+                </button>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center gap-3">
+                {captchaSvgUrl && (
+                  <img
+                    src={captchaSvgUrl}
+                    alt="Security CAPTCHA"
+                    className="h-[52px] rounded-xl border border-slate-700 bg-slate-950 shrink-0 select-none"
+                  />
+                )}
+                <input
+                  type="text"
+                  required={captchaRequired}
+                  maxLength={8}
+                  value={captchaAnswer}
+                  onChange={(e) => setCaptchaAnswer(e.target.value.toUpperCase())}
+                  placeholder="Enter code"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-sm font-bold tracking-widest uppercase outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+          )}
+
           {/* Terms & Conditions */}
           <div className="text-[11px] text-slate-500 leading-relaxed pt-1">
             By signing up, you agree to our{' '}
@@ -600,7 +734,11 @@ export default function RegisterPage() {
 
         <div className="text-center pt-2 text-xs text-slate-500 dark:text-slate-400">
           Already registered?{' '}
-          <Link href="/login" className="text-blue-600 dark:text-blue-400 font-bold hover:underline">
+          <Link
+            href={redirectParam ? `/login?redirect=${encodeURIComponent(redirectParam)}` : '/login'}
+            replace
+            className="text-blue-600 dark:text-blue-400 font-bold hover:underline"
+          >
             Sign In
           </Link>
         </div>

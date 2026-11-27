@@ -2,23 +2,18 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, KycStatusType } from '../context/AuthContext';
 import {
   ShieldCheck,
   CheckCircle2,
   Clock,
   AlertCircle,
   UploadCloud,
-  FileText,
-  UserCheck,
   X,
   Loader2,
-  ExternalLink,
-  Camera,
-  Check,
-  Sparkles,
-  RefreshCw,
+  Mail,
   FileCheck,
+  Eye,
 } from 'lucide-react';
 import { SearchableCountrySelect } from './SearchableCountrySelect';
 
@@ -28,28 +23,69 @@ interface KycVerificationModalProps {
   onVerified?: () => void;
 }
 
+const KYC_STATUS_META: Record<
+  string,
+  { label: string; badgeClass: string; accountLevel: string }
+> = {
+  NOT_STARTED: {
+    label: 'KYC Not Submitted',
+    badgeClass: 'bg-slate-800 text-slate-300 border border-slate-700',
+    accountLevel: 'Tier 1 Basic Account (Restricted)',
+  },
+  PENDING: {
+    label: 'KYC Pending',
+    badgeClass: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+    accountLevel: 'Submission Queued for Review',
+  },
+  UNDER_REVIEW: {
+    label: 'Under Review',
+    badgeClass: 'bg-sky-500/20 text-sky-300 border border-sky-500/30',
+    accountLevel: 'Compliance Review In Progress',
+  },
+  APPROVED: {
+    label: 'KYC Approved',
+    badgeClass: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
+    accountLevel: 'Verified Client Account',
+  },
+  REJECTED: {
+    label: 'KYC Rejected',
+    badgeClass: 'bg-rose-500/20 text-rose-400 border border-rose-500/30',
+    accountLevel: 'Verification Declined — Re-submit',
+  },
+  ADDITIONAL_INFO_REQUIRED: {
+    label: 'Additional Info Required',
+    badgeClass: 'bg-orange-500/20 text-orange-300 border border-orange-500/30',
+    accountLevel: 'Action Required from Client',
+  },
+  EXPIRED: {
+    label: 'KYC Expired / Re-verify',
+    badgeClass: 'bg-rose-500/20 text-rose-300 border border-rose-500/30',
+    accountLevel: 'Re-verification Required',
+  },
+};
+
 export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
   isOpen,
   onClose,
   onVerified,
 }) => {
   const { user, refreshUser } = useAuth();
-  const [kycStatus, setKycStatus] = useState<'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED'>(
-    user?.kycStatus || 'NOT_STARTED'
-  );
+  const [kycStatus, setKycStatus] = useState<KycStatusType>(user?.kycStatus || 'NOT_STARTED');
+  const [kycNotes, setKycNotes] = useState<string | null>(null);
+  const [kycExpiresAt, setKycExpiresAt] = useState<string | null>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [viewingDocId, setViewingDocId] = useState<string | null>(null);
 
   // Form State
-  const [documentType, setDocumentType] = useState<'PASSPORT' | 'NATIONAL_ID' | 'DRIVERS_LICENSE'>('PASSPORT');
+  const [documentType, setDocumentType] = useState<'PASSPORT' | 'NATIONAL_ID' | 'DRIVERS_LICENSE' | 'PROOF_OF_ADDRESS'>('PASSPORT');
   const [documentUrl, setDocumentUrl] = useState('');
   const [selectedFileName, setSelectedFileName] = useState('');
   const [idNumber, setIdNumber] = useState('');
   const [country, setCountry] = useState('United States');
-  const [method, setMethod] = useState<'upload' | 'sumsub'>('upload');
-  const [sumsubActive, setSumsubActive] = useState(false);
+  const [submissionChannel, setSubmissionChannel] = useState<'upload' | 'email_guide'>('upload');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchKycStatus = async () => {
@@ -57,6 +93,8 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
       const res = await api.get('/auth/kyc/status');
       if (res.data?.success) {
         setKycStatus(res.data.kycStatus);
+        setKycNotes(res.data.kycNotes || null);
+        setKycExpiresAt(res.data.kycExpiresAt || null);
         setDocuments(res.data.documents || []);
       }
     } catch (err) {
@@ -71,6 +109,7 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
       if (user?.kycStatus) {
         setKycStatus(user.kycStatus);
       }
+      setFeedback(null);
       fetchKycStatus();
     }
   }, [isOpen, user?.kycStatus]);
@@ -78,6 +117,10 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        setFeedback({ text: 'Document file size must not exceed 10MB.', type: 'error' });
+        return;
+      }
       setSelectedFileName(file.name);
       const reader = new FileReader();
       reader.onload = () => {
@@ -87,62 +130,35 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
     }
   };
 
-  // 1-Click Instant Verification (For testing & sandbox)
-  const handleInstantVerify = async () => {
-    setSubmitting(true);
-    setFeedback(null);
-    try {
-      const res = await api.post('/auth/kyc/instant-verify', {
-        documentType: 'PASSPORT',
-        documentUrl: 'https://secure-docs.avora.bank/instant_institutional_verification.pdf',
-        idNumber: 'AVR-KYC-' + Math.floor(100000 + Math.random() * 900000),
-        country: country || 'United States',
-        provider: 'SUMSUB',
-      });
-
-      if (res.data?.success) {
-        setKycStatus('APPROVED');
-        setFeedback({
-          text: 'Instant identity verification approved! Your account has been upgraded to Verified Institutional Client.',
-          type: 'success',
-        });
-        await fetchKycStatus();
-        await refreshUser();
-        onVerified?.();
-      }
-    } catch (err: any) {
-      setFeedback({
-        text: err.response?.data?.message || 'Failed to complete instant verification.',
-        type: 'error',
-      });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const handleSubmitUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!documentUrl && !selectedFileName) {
-      setFeedback({ text: 'Please select a document image or PDF file to upload.', type: 'error' });
+    if (!documentUrl || !selectedFileName) {
+      setFeedback({ text: 'Please select an ID image or PDF document file to upload.', type: 'error' });
       return;
     }
-    const finalDocUrl = documentUrl || 'https://secure-docs.avora.bank/manual_upload_scan.pdf';
+    if (!idNumber.trim()) {
+      setFeedback({ text: 'Please enter your Government Document / ID Number.', type: 'error' });
+      return;
+    }
 
     setSubmitting(true);
     setFeedback(null);
     try {
       const res = await api.post('/auth/kyc/submit', {
         documentType,
-        documentUrl: finalDocUrl,
-        idNumber: idNumber || 'DOC-' + Math.floor(100000 + Math.random() * 900000),
+        documentUrl,
+        originalFilename: selectedFileName,
+        idNumber: idNumber.trim(),
         country,
         provider: 'MANUAL',
       });
 
       if (res.data?.success) {
         setKycStatus('PENDING');
+        setDocumentUrl('');
+        setSelectedFileName('');
         setFeedback({
-          text: 'Document submitted successfully! Your application has been sent to the Compliance Officer for review.',
+          text: 'Document uploaded securely! Your KYC submission is pending Compliance review.',
           type: 'success',
         });
         await fetchKycStatus();
@@ -159,96 +175,47 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
     }
   };
 
-  const handleLaunchSumsub = async () => {
-    setSubmitting(true);
-    setFeedback(null);
+  const handleOpenOwnDoc = async (docId: string) => {
+    setViewingDocId(docId);
     try {
-      const res = await api.post('/auth/kyc/sumsub-token', { provider: 'SUMSUB' });
-      if (res.data?.success) {
-        setSumsubActive(true);
-        // Simulate completing biometric facial scan and document inspection
-        setTimeout(async () => {
-          try {
-            await api.post('/auth/kyc/submit', {
-              documentType: 'PASSPORT',
-              documentUrl: 'https://secure-docs.avora.bank/verified_sumsub_session.pdf',
-              idNumber: 'SS-' + Math.floor(100000 + Math.random() * 900000),
-              country,
-              provider: 'SUMSUB',
-            });
-            setSumsubActive(false);
-            setKycStatus('PENDING');
-            setFeedback({
-              text: 'Biometric liveness check and ID document captured via Sumsub. Verification is pending compliance review.',
-              type: 'success',
-            });
-            await fetchKycStatus();
-            await refreshUser();
-            onVerified?.();
-          } catch (innerErr: any) {
-            setFeedback({
-              text: innerErr.response?.data?.message || 'Verification update failed.',
-              type: 'error',
-            });
-          } finally {
-            setSubmitting(false);
-          }
-        }, 2200);
-      }
+      const res = await api.get(`/auth/kyc/${docId}/document`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err: any) {
       setFeedback({
-        text: err.response?.data?.message || 'Failed to initialize Sumsub verification session.',
-        type: 'error',
-      });
-      setSubmitting(false);
-    }
-  };
-
-  const handleResetKyc = async () => {
-    setSubmitting(true);
-    setFeedback(null);
-    try {
-      const res = await api.post('/auth/kyc/reset');
-      if (res.data?.success) {
-        setKycStatus('NOT_STARTED');
-        setDocuments([]);
-        setFeedback({
-          text: 'KYC status reset to UNVERIFIED for testing. You may run the verification procedure again.',
-          type: 'success',
-        });
-        await fetchKycStatus();
-        await refreshUser();
-        onVerified?.();
-      }
-    } catch (err: any) {
-      setFeedback({
-        text: err.response?.data?.message || 'Failed to reset status.',
+        text: err.response?.data?.message || 'Unable to load private document preview.',
         type: 'error',
       });
     } finally {
-      setSubmitting(false);
+      setViewingDocId(null);
     }
   };
 
   if (!isOpen) return null;
 
+  const meta = KYC_STATUS_META[kycStatus] || KYC_STATUS_META.NOT_STARTED;
+  const canSubmitNewDoc = ['NOT_STARTED', 'REJECTED', 'ADDITIONAL_INFO_REQUIRED', 'EXPIRED'].includes(kycStatus);
+  const inReviewQueue = kycStatus === 'PENDING' || kycStatus === 'UNDER_REVIEW';
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-6 text-white shadow-2xl relative my-auto animate-in zoom-in-95">
-        
+      <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-5 text-white shadow-2xl relative my-auto max-h-[90dvh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
-              kycStatus === 'APPROVED'
-                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                : 'bg-rose-600/20 text-rose-500 border border-rose-500/30'
-            }`}>
+            <div
+              className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                kycStatus === 'APPROVED'
+                  ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
+              }`}
+            >
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-base">Identity &amp; AML Verification</h3>
-              <p className="text-[11px] text-slate-400">Sumsub / Onfido Tier 2 Compliance</p>
+              <h3 className="font-extrabold text-base">Identity &amp; AML Verification (KYC)</h3>
+              <p className="text-[11px] text-slate-400">Encrypted Private Compliance Submission</p>
             </div>
           </div>
           <button
@@ -256,7 +223,7 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
               onClose();
               refreshUser();
             }}
-            className="p-1 rounded-lg text-slate-400 hover:text-white transition-colors"
+            className="p-1 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -271,317 +238,250 @@ export const KycVerificationModal: React.FC<KycVerificationModalProps> = ({
                 : 'bg-rose-500/15 border border-rose-500/30 text-rose-300'
             }`}
           >
-            {feedback.type === 'success' ? (
-              <Check className="w-4 h-4 shrink-0 text-emerald-400" />
-            ) : (
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-            )}
+            <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{feedback.text}</span>
           </div>
         )}
 
-        {/* Status Card */}
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between">
-          <div className="space-y-0.5">
-            <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Account Level</div>
-            <div className="text-sm font-extrabold text-white">
-              {kycStatus === 'APPROVED' ? 'Verified Institutional Client' : 'Tier 1 Basic Investor'}
-            </div>
+        {/* Status Summary Card */}
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3">
+          <div className="space-y-0.5 min-w-0">
+            <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Verification Level</div>
+            <div className="text-sm font-extrabold text-white truncate">{meta.accountLevel}</div>
+            {kycExpiresAt && kycStatus === 'APPROVED' && (
+              <div className="text-[10px] text-slate-400">
+                Valid until: {new Date(kycExpiresAt).toLocaleDateString()}
+              </div>
+            )}
           </div>
-
-          <span
-            className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
-              kycStatus === 'APPROVED'
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                : kycStatus === 'PENDING'
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                : kycStatus === 'REJECTED'
-                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                : 'bg-slate-800 text-slate-400'
-            }`}
-          >
-            {kycStatus === 'NOT_STARTED' ? 'UNVERIFIED' : kycStatus}
+          <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider shrink-0 ${meta.badgeClass}`}>
+            {meta.label}
           </span>
         </div>
 
-        {/* When Approved */}
-        {kycStatus === 'APPROVED' && (
-          <div className="space-y-4">
-            <div className="p-5 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 space-y-3 text-center">
-              <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h4 className="font-bold text-sm text-white">Full Financial Verification Active</h4>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                  Your identity documents and biometric liveness checks have been verified. All P2P exchange rails, investment packages, and card spending limits are unlocked.
-                </p>
-              </div>
-
-              {documents.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-emerald-500/20 text-left text-xs space-y-1">
-                  <div className="text-slate-400 text-[11px] font-semibold">VERIFIED CREDENTIALS:</div>
-                  <div className="flex items-center justify-between text-slate-300">
-                    <span>Document:</span>
-                    <span className="font-mono text-emerald-400 font-bold">{documents[0].documentType || 'PASSPORT'}</span>
-                  </div>
-                  {documents[0].verifiedAt && (
-                    <div className="flex items-center justify-between text-slate-300">
-                      <span>Verified On:</span>
-                      <span className="text-slate-400">{new Date(documents[0].verifiedAt).toLocaleDateString()}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+        {/* Compliance Officer Notes (if Rejected, Additional Info Required, or Expired) */}
+        {kycNotes && kycStatus !== 'APPROVED' && (
+          <div className="p-4 rounded-2xl bg-orange-950/30 border border-orange-500/30 text-xs space-y-1">
+            <div className="font-bold text-orange-300 uppercase text-[10px] tracking-wider">
+              Compliance Officer Note / Action Required
             </div>
-
-            <div className="flex items-center justify-between gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleResetKyc}
-                disabled={submitting}
-                className="text-[11px] text-slate-500 hover:text-slate-300 underline flex items-center gap-1 cursor-pointer transition-colors"
-                title="Reset status to UNVERIFIED for sandbox testing"
-              >
-                <RefreshCw className="w-3 h-3" />
-                <span>Reset KYC (Sandbox Test)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  refreshUser();
-                }}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all"
-              >
-                Done
-              </button>
-            </div>
+            <p className="text-slate-200 leading-relaxed">{kycNotes}</p>
           </div>
         )}
 
-        {/* When Pending */}
-        {kycStatus === 'PENDING' && (
-          <div className="space-y-4">
-            <div className="p-5 rounded-2xl bg-amber-950/20 border border-amber-500/30 space-y-3 text-center">
-              <div className="w-12 h-12 rounded-full bg-amber-500/20 text-amber-300 mx-auto flex items-center justify-center">
-                <Clock className="w-6 h-6 animate-spin" />
-              </div>
-              <div>
-                <h4 className="font-bold text-sm text-white">Verification Under Compliance Review</h4>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                  Your submitted identification documents are undergoing AML screening and compliance verification by our risk officer.
-                </p>
-              </div>
-
-              {documents.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-amber-500/20 text-left text-xs space-y-1.5">
-                  <div className="text-slate-400 text-[11px] font-semibold">SUBMITTED APPLICATION:</div>
-                  <div className="flex items-center justify-between text-slate-300">
-                    <span>Document Type:</span>
-                    <span className="font-mono text-amber-400 font-bold">{documents[0].documentType || 'PASSPORT'}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-slate-300">
-                    <span>Document Number:</span>
-                    <span className="font-mono text-white">{documents[0].idNumber || 'Recorded'}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-slate-300">
-                    <span>Issuing Country:</span>
-                    <span className="text-slate-300">{documents[0].country || 'Standard'}</span>
-                  </div>
-                  {documents[0].createdAt && (
-                    <div className="flex items-center justify-between text-slate-300">
-                      <span>Submitted On:</span>
-                      <span className="text-slate-400">{new Date(documents[0].createdAt).toLocaleString()}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-1">
-              <div className="font-bold text-white flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Compliance Queue SLA</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Applications are reviewed directly by the Avora Compliance Officer in the Admin Portal. Standard review SLA is 15–30 minutes during banking hours. Once approved, your account will immediately unlock all features.
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleResetKyc}
-                disabled={submitting}
-                className="text-[11px] text-slate-500 hover:text-slate-300 underline flex items-center gap-1 cursor-pointer transition-colors"
-                title="Reset application to try again"
-              >
-                <RefreshCw className="w-3 h-3" />
-                <span>Reset KYC Application</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  refreshUser();
-                }}
-                className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all"
-              >
-                Close
-              </button>
-            </div>
+        {loading ? (
+          <div className="py-10 text-center text-slate-400 text-xs">
+            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
+            Loading verification status...
           </div>
-        )}
-
-        {/* When Unverified or Rejected */}
-        {(kycStatus === 'NOT_STARTED' || kycStatus === 'REJECTED') && (
-          <div className="space-y-4">
-            {/* KYC Procedure Info Banner */}
-            <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
-              <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Verification Procedure &amp; Requirements</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
-                <div className="flex items-start gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center shrink-0">1</span>
-                  <span>Select document type &amp; country</span>
-                </div>
-                <div className="flex items-start gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center shrink-0">2</span>
-                  <span>Upload ID photo or PDF scan</span>
-                </div>
-                <div className="flex items-start gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center shrink-0">3</span>
-                  <span>Admin review &amp; activation</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Method Tabs */}
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 border border-slate-800 rounded-2xl">
-              <button
-                type="button"
-                onClick={() => setMethod('sumsub')}
-                className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                  method === 'sumsub' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-200 hover:text-white hover:bg-slate-800/70'
-                }`}
-              >
-                Fast-Track (Sumsub SDK)
-              </button>
-              <button
-                type="button"
-                onClick={() => setMethod('upload')}
-                className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                  method === 'upload' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-200 hover:text-white hover:bg-slate-800/70'
-                }`}
-              >
-                Manual Document Upload
-              </button>
-            </div>
-
-            {method === 'sumsub' ? (
-              <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-rose-600/10 border border-rose-500/20 text-rose-500 mx-auto flex items-center justify-center">
-                  <Camera className="w-6 h-6" />
-                </div>
-                <div className="space-y-1">
-                  <h4 className="font-extrabold text-sm text-white">Sumsub Automated Verification</h4>
-                  <p className="text-xs text-slate-400">
-                    Takes 2 minutes. Scan your ID and perform biometric facial liveness on your mobile phone or webcam.
-                  </p>
-                </div>
-                <button
-                  onClick={handleLaunchSumsub}
-                  disabled={submitting}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
-                  <span>{submitting ? (sumsubActive ? 'Capturing Liveness & ID...' : 'Connecting to Sumsub...') : 'Launch Sumsub WebSDK'}</span>
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmitUpload} className="space-y-3 text-xs">
-                <div>
-                  <label className="text-slate-300 block mb-1 font-semibold">Document Type</label>
-                  <select
-                    value={documentType}
-                    onChange={(e: any) => setDocumentType(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
-                  >
-                    <option value="PASSPORT" className="bg-slate-900 text-white">Passport</option>
-                    <option value="NATIONAL_ID" className="bg-slate-900 text-white">National Identity Card</option>
-                    <option value="DRIVERS_LICENSE" className="bg-slate-900 text-white">Driver's License</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-slate-400 block mb-1">Issuing Country</label>
-                  <SearchableCountrySelect
-                    value={country}
-                    onChange={(c) => setCountry(c.name)}
-                    size="sm"
-                    placeholder="Select Issuing Country..."
-                    className="w-full"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-slate-400 block mb-1">Document ID Number</label>
-                  <input
-                    type="text"
-                    value={idNumber}
-                    onChange={(e) => setIdNumber(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
-                    placeholder="A12345678"
-                  />
-                </div>
-
-                {/* File picker & preview */}
-                <div>
-                  <label className="text-slate-400 block mb-1">Upload ID Document (Image or PDF)</label>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileUpload}
-                    accept="image/*,.pdf"
-                    className="hidden"
-                  />
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-slate-700 hover:border-rose-500 rounded-2xl p-4 text-center cursor-pointer bg-slate-900/50 hover:bg-slate-900 transition-all flex flex-col items-center justify-center gap-1.5"
-                  >
-                    <UploadCloud className="w-5 h-5 text-slate-400" />
-                    {selectedFileName ? (
-                      <div className="flex items-center gap-1.5 text-emerald-400 font-semibold text-xs">
-                        <FileCheck className="w-4 h-4" />
-                        <span>{selectedFileName}</span>
-                      </div>
-                    ) : (
-                      <>
-                        <span className="text-slate-300 font-semibold">Click to select document file</span>
-                        <span className="text-[10px] text-slate-500">Supports JPG, PNG, PDF up to 10MB</span>
-                      </>
-                    )}
+        ) : (
+          <>
+            {/* Approved State */}
+            {kycStatus === 'APPROVED' && (
+              <div className="space-y-4">
+                <div className="p-5 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 space-y-3 text-center">
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-white">KYC Approved &amp; Verified</h4>
+                    <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
+                      Your identity verification is complete. Eligible P2P trading, transfers, deposits, withdrawals, and wealth features are enabled for your account.
+                    </p>
                   </div>
                 </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
-                >
-                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>Submit for Verification</span>
-                </button>
-              </form>
+              </div>
             )}
-          </div>
-        )}
 
+            {/* Pending / Under Review State */}
+            {inReviewQueue && (
+              <div className="space-y-4">
+                <div className="p-5 rounded-2xl bg-amber-950/20 border border-amber-500/30 space-y-3 text-center">
+                  <div className="w-12 h-12 rounded-full bg-amber-500/20 text-amber-300 mx-auto flex items-center justify-center">
+                    <Clock className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-white">
+                      {kycStatus === 'UNDER_REVIEW' ? 'Currently Under Compliance Review' : 'KYC Submission Pending Review'}
+                    </h4>
+                    <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
+                      Your submitted documents are encrypted and queued for Admin/Compliance verification. Financial features gated by KYC remain restricted until approval.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Submission / Re-submission Form */}
+            {canSubmitNewDoc && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setSubmissionChannel('upload')}
+                    className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      submissionChannel === 'upload'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                    }`}
+                  >
+                    Upload on Platform
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSubmissionChannel('email_guide')}
+                    className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      submissionChannel === 'email_guide'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                    }`}
+                  >
+                    Approved Email / Support
+                  </button>
+                </div>
+
+                {submissionChannel === 'email_guide' ? (
+                  <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
+                    <div className="flex items-center gap-2 font-bold text-emerald-400">
+                      <Mail className="w-4 h-4" />
+                      <span>Submit KYC via Approved Compliance Email / Support</span>
+                    </div>
+                    <p className="text-slate-300 leading-relaxed">
+                      If required by your jurisdiction or onboarding process, email a clear scan of your government ID (Passport, National ID, or Driver&apos;s License) and proof of address to:
+                    </p>
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 font-mono text-emerald-300 space-y-1">
+                      <div>Compliance Desk: desk@avorabank.com</div>
+                      <div>Subject: KYC Verification — {user?.email}</div>
+                      <div>Account ID: {user?.accountNumber || 'Your Avora Account'}</div>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Once verified by our Compliance Officer, your account will be located and updated directly in the Admin KYC Compliance Console.
+                    </p>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmitUpload} className="space-y-3 text-xs">
+                    <div>
+                      <label className="text-slate-300 block mb-1 font-semibold">Document Type *</label>
+                      <select
+                        value={documentType}
+                        onChange={(e: any) => setDocumentType(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
+                      >
+                        <option value="PASSPORT">Passport</option>
+                        <option value="NATIONAL_ID">National Identity Card</option>
+                        <option value="DRIVERS_LICENSE">Driver&apos;s License</option>
+                        <option value="PROOF_OF_ADDRESS">Proof of Address / Utility Bill</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-slate-400 block mb-1">Issuing Country *</label>
+                      <SearchableCountrySelect
+                        value={country}
+                        onChange={(c) => setCountry(c.name)}
+                        size="sm"
+                        placeholder="Select Issuing Country..."
+                        className="w-full"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-slate-400 block mb-1">Government Document / ID Number *</label>
+                      <input
+                        type="text"
+                        required
+                        value={idNumber}
+                        onChange={(e) => setIdNumber(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono outline-none"
+                        placeholder="Enter exact ID / Passport number"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-slate-400 block mb-1">Upload Document File (Encrypted Private Storage) *</label>
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                        accept="image/*,.pdf"
+                        className="hidden"
+                      />
+                      <div
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-2xl p-4 text-center cursor-pointer bg-slate-900/50 hover:bg-slate-900 transition-all flex flex-col items-center justify-center gap-1.5"
+                      >
+                        <UploadCloud className="w-5 h-5 text-slate-400" />
+                        {selectedFileName ? (
+                          <div className="flex items-center gap-1.5 text-emerald-400 font-semibold text-xs">
+                            <FileCheck className="w-4 h-4" />
+                            <span>{selectedFileName}</span>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-slate-300 font-semibold">Click to select ID image or PDF</span>
+                            <span className="text-[10px] text-slate-500">JPG, PNG, WEBP, or PDF (max 10MB) • Private access only</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
+                    >
+                      {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                      <span>Submit KYC Documents for Compliance Review</span>
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* Submitted Document History */}
+            {documents.length > 0 && (
+              <div className="pt-2 border-t border-slate-800 space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Your Submission History ({documents.length})
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {documents.map((doc) => {
+                    const docMeta = KYC_STATUS_META[doc.status] || KYC_STATUS_META.PENDING;
+                    return (
+                      <div
+                        key={doc.id}
+                        className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-white truncate">
+                            {doc.documentType} {doc.idNumber ? `(${doc.idNumber})` : ''}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {new Date(doc.createdAt).toLocaleDateString()} • {doc.submissionSource || 'PLATFORM_UPLOAD'}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${docMeta.badgeClass}`}>
+                            {docMeta.label}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenOwnDoc(doc.id)}
+                            disabled={viewingDocId === doc.id}
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                            title="View submitted document securely"
+                          >
+                            {viewingDocId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

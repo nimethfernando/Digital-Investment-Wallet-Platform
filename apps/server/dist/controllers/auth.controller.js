@@ -1,10 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.instantVerifyKyc = exports.resetKyc = exports.getSumsubToken = exports.getKycStatus = exports.submitKyc = exports.updateAvailability = exports.updateDisplayName = exports.checkDisplayName = exports.refreshSession = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.detectLocation = exports.register = void 0;
+exports.instantVerifyKyc = exports.resetKyc = exports.getSumsubToken = exports.getKycStatus = exports.getMyKycDocumentFile = exports.submitKyc = exports.updateAvailability = exports.updateDisplayName = exports.checkDisplayName = exports.refreshSession = exports.getMe = exports.disable2fa = exports.verify2fa = exports.setup2fa = exports.changePassword = exports.resetPassword = exports.forgotPassword = exports.login = exports.resendVerification = exports.verifyEmail = exports.getCaptcha = exports.detectLocation = exports.register = void 0;
 const zod_1 = require("zod");
 const prisma_1 = require("../lib/prisma");
 const auth_service_1 = require("../services/auth.service");
 const kyc_service_1 = require("../services/kyc.service");
+const compliancePolicy_service_1 = require("../services/compliancePolicy.service");
 const registerSchema = zod_1.z.object({
     email: zod_1.z.string().email(),
     password: zod_1.z.string().min(8, 'Password must be at least 8 characters'),
@@ -15,11 +16,17 @@ const registerSchema = zod_1.z.object({
     country: zod_1.z.string().max(100).optional(),
     countryCode: zod_1.z.string().max(10).optional(),
     signupLocation: zod_1.z.string().max(191).optional(),
+    deviceFingerprint: zod_1.z.string().max(128).optional(),
+    captchaToken: zod_1.z.string().optional(),
+    captchaAnswer: zod_1.z.string().optional(),
+    honeypot: zod_1.z.string().optional(),
 });
 const loginSchema = zod_1.z.object({
     email: zod_1.z.string().email(),
     password: zod_1.z.string().min(1, 'Password is required'),
     twoFactorCode: zod_1.z.string().optional(),
+    captchaToken: zod_1.z.string().optional(),
+    captchaAnswer: zod_1.z.string().optional(),
 });
 const forgotPasswordSchema = zod_1.z.object({
     email: zod_1.z.string().email(),
@@ -59,13 +66,72 @@ const detectLocation = async (req, res) => {
     });
 };
 exports.detectLocation = detectLocation;
+const getCaptcha = async (_req, res, next) => {
+    try {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        const [policy, challenge] = await Promise.all([
+            compliancePolicy_service_1.compliancePolicyService.getPolicy(),
+            Promise.resolve(compliancePolicy_service_1.compliancePolicyService.generateCaptchaChallenge()),
+        ]);
+        res.json({
+            success: true,
+            captchaToken: challenge.captchaToken,
+            svgDataUrl: challenge.svgDataUrl,
+            requireOnRegister: policy.captcha.requireOnRegister,
+            requireOnForgotPassword: policy.captcha.requireOnForgotPassword,
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.getCaptcha = getCaptcha;
+const verifyEmail = async (req, res, next) => {
+    try {
+        const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || undefined;
+        const { email, code, token } = req.body || {};
+        const result = await auth_service_1.authService.verifyEmail({ email, code, token, ipAddress: clientIp });
+        res.json(result);
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.verifyEmail = verifyEmail;
+const resendVerification = async (req, res, next) => {
+    try {
+        const email = String(req.body?.email || req.user?.email || '').trim();
+        if (!email) {
+            return res.status(400).json({ success: false, message: 'Email address is required.' });
+        }
+        const result = await auth_service_1.authService.resendVerificationEmail(email);
+        res.json(result);
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.resendVerification = resendVerification;
 const login = async (req, res, next) => {
     try {
         const data = loginSchema.parse(req.body);
-        const result = await auth_service_1.authService.login(data);
+        const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || undefined;
+        const result = await auth_service_1.authService.login({ ...data, ipAddress: clientIp });
+        if (result.requiresCaptcha) {
+            return res.status(428).json({ success: false, ...result });
+        }
+        if (result.requiresEmailVerification) {
+            return res.status(403).json({ success: false, code: 'EMAIL_VERIFICATION_REQUIRED', ...result });
+        }
         res.json({ success: true, ...result });
     }
     catch (err) {
+        if (err?.requiresCaptcha) {
+            return res.status(401).json({ success: false, requiresCaptcha: true, message: err.message });
+        }
+        if (err?.statusCode) {
+            return res.status(err.statusCode).json({ success: false, message: err.message });
+        }
         next(err);
     }
 };
@@ -73,7 +139,7 @@ exports.login = login;
 const forgotPassword = async (req, res, next) => {
     try {
         const { email } = forgotPasswordSchema.parse(req.body);
-        const result = await auth_service_1.authService.forgotPassword(email);
+        const result = await auth_service_1.authService.forgotPassword(email, req.body?.captchaToken, req.body?.captchaAnswer);
         res.json(result);
     }
     catch (err) {
@@ -152,27 +218,38 @@ const getMe = async (req, res, next) => {
     try {
         if (!req.user)
             return res.status(401).json({ success: false, message: 'Unauthorized' });
-        const user = await prisma_1.prisma.user.findUnique({
-            where: { id: req.user.userId },
-            select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-                displayName: true,
-                phone: true,
-                country: true,
-                signupLocation: true,
-                role: true,
-                kycStatus: true,
-                twoFactorEnabled: true,
-                withdrawalLockedUntil: true,
-                passwordChangedAt: true,
-                isAvailable: true,
-                availabilityUpdatedAt: true,
-                status: true,
-            },
-        });
+        await compliancePolicy_service_1.compliancePolicyService.ensureComplianceSchema();
+        const [user, policy] = await Promise.all([
+            prisma_1.prisma.user.findUnique({
+                where: { id: req.user.userId },
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    displayName: true,
+                    phone: true,
+                    country: true,
+                    signupLocation: true,
+                    role: true,
+                    kycStatus: true,
+                    kycSubmittedAt: true,
+                    kycReviewedAt: true,
+                    kycExpiresAt: true,
+                    kycNotes: true,
+                    emailVerified: true,
+                    twoFactorEnabled: true,
+                    withdrawalLockedUntil: true,
+                    passwordChangedAt: true,
+                    isAvailable: true,
+                    availabilityUpdatedAt: true,
+                    status: true,
+                    bypassNewUserLimits: true,
+                    createdAt: true,
+                },
+            }),
+            compliancePolicy_service_1.compliancePolicyService.getPolicy(),
+        ]);
         const isWithdrawalLocked = !!(user?.withdrawalLockedUntil && new Date() < user.withdrawalLockedUntil);
         const { generateAvoraAccountNumber } = require('../services/p2p.service');
         const accountNumber = user ? generateAvoraAccountNumber(user.id) : null;
@@ -180,8 +257,14 @@ const getMe = async (req, res, next) => {
             success: true,
             user: {
                 ...user,
+                kycStatusLabel: user?.kycStatus ? compliancePolicy_service_1.KYC_STATUS_LABELS[user.kycStatus] || user.kycStatus : 'KYC Not Submitted',
                 accountNumber,
                 isWithdrawalLocked,
+                complianceRequirements: {
+                    kycRequiredFeatures: policy.kycRequiredFeatures,
+                    requireEmailVerificationForSensitiveActions: policy.emailVerification.requireEmailVerificationForSensitiveActions,
+                    newUserLimits: policy.newUserLimits,
+                },
             },
         });
     }
@@ -251,9 +334,9 @@ const submitKyc = async (req, res, next) => {
     try {
         if (!req.user)
             return res.status(401).json({ success: false, message: 'Unauthorized' });
-        const { documentType, documentUrl, idNumber, country, provider } = req.body;
+        const { documentType, documentUrl, idNumber, country, provider, originalFilename } = req.body;
         if (!documentType || !documentUrl) {
-            return res.status(400).json({ success: false, message: 'Document type and URL are required' });
+            return res.status(400).json({ success: false, message: 'Document type and file/URL are required' });
         }
         const result = await kyc_service_1.kycService.submitKyc(req.user.userId, {
             documentType,
@@ -261,6 +344,7 @@ const submitKyc = async (req, res, next) => {
             idNumber,
             country,
             provider,
+            originalFilename,
         });
         res.json({ success: true, ...result });
     }
@@ -269,6 +353,32 @@ const submitKyc = async (req, res, next) => {
     }
 };
 exports.submitKyc = submitKyc;
+const getMyKycDocumentFile = async (req, res, next) => {
+    try {
+        if (!req.user)
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const documentId = String(req.params.id || '');
+        const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || undefined;
+        const file = await kyc_service_1.kycService.getSecureDocumentFile({
+            documentId,
+            requesterId: req.user.userId,
+            requesterRole: req.user.role,
+            requesterIp: clientIp,
+        });
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Type', file.mimeType);
+        res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
+        res.send(file.buffer);
+    }
+    catch (err) {
+        if (err?.status)
+            return res.status(err.status).json({ success: false, message: err.message });
+        next(err);
+    }
+};
+exports.getMyKycDocumentFile = getMyKycDocumentFile;
 const getKycStatus = async (req, res, next) => {
     try {
         if (!req.user)

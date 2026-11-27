@@ -430,11 +430,14 @@ export default function AdminUsersTab({
             onChange={(e) => setKycFilter(e.target.value)}
             className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 outline-none focus:border-rose-500"
           >
-            <option value="">All KYC</option>
-            <option value="APPROVED">APPROVED (Verified)</option>
-            <option value="PENDING">PENDING</option>
-            <option value="REJECTED">REJECTED</option>
-            <option value="NOT_STARTED">NOT STARTED</option>
+            <option value="">All KYC Statuses</option>
+            <option value="APPROVED">KYC Approved</option>
+            <option value="PENDING">KYC Pending</option>
+            <option value="UNDER_REVIEW">Under Review</option>
+            <option value="ADDITIONAL_INFO_REQUIRED">Additional Info Required</option>
+            <option value="REJECTED">KYC Rejected</option>
+            <option value="EXPIRED">KYC Expired</option>
+            <option value="NOT_STARTED">KYC Not Submitted</option>
           </select>
 
           <select
@@ -629,14 +632,26 @@ export default function AdminUsersTab({
                             <UserX className="w-2.5 h-2.5" /> P2P BANNED
                           </span>
                         )}
+                        {u.isSuspicious && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-600/30 text-rose-200 border border-rose-500/50">
+                            SUSPICIOUS
+                          </span>
+                        )}
+                        {u.emailVerified === false && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            UNVERIFIED EMAIL
+                          </span>
+                        )}
                       </div>
                       <div>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           u.kycStatus === 'APPROVED' || u.kycStatus === 'VERIFIED'
                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : u.kycStatus === 'PENDING'
+                            : u.kycStatus === 'PENDING' || u.kycStatus === 'UNDER_REVIEW'
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : u.kycStatus === 'REJECTED'
+                            : u.kycStatus === 'ADDITIONAL_INFO_REQUIRED'
+                            ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                            : u.kycStatus === 'REJECTED' || u.kycStatus === 'EXPIRED'
                             ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                             : 'bg-slate-800 text-slate-400'
                         }`}>
@@ -1094,11 +1109,41 @@ export default function AdminUsersTab({
             </div>
 
             {/* KYC Documents Section */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-slate-400 uppercase font-mono">Submitted KYC Verification Documents</h4>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-xs font-bold text-slate-400 uppercase font-mono">Submitted KYC Verification Documents &amp; Status Override</h4>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-400">Set KYC Status:</span>
+                  <select
+                    value={selectedUser.kycStatus || 'NOT_STARTED'}
+                    onChange={async (e) => {
+                      const nextStatus = e.target.value;
+                      try {
+                        const res = await api.patch(`/admin/users/${selectedUser.id}`, { kycStatus: nextStatus });
+                        if (res.data?.success) {
+                          onFeedback({ text: `KYC status updated to ${nextStatus}`, type: 'success' });
+                          setSelectedUser({ ...selectedUser, kycStatus: nextStatus });
+                          onRefresh();
+                        }
+                      } catch (err: any) {
+                        onFeedback({ text: err.response?.data?.message || 'Failed to update KYC status', type: 'error' });
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white font-bold outline-none focus:border-emerald-500"
+                  >
+                    <option value="NOT_STARTED">KYC Not Submitted</option>
+                    <option value="PENDING">KYC Pending</option>
+                    <option value="UNDER_REVIEW">Under Review</option>
+                    <option value="APPROVED">KYC Approved</option>
+                    <option value="ADDITIONAL_INFO_REQUIRED">Additional Info Required</option>
+                    <option value="REJECTED">KYC Rejected</option>
+                    <option value="EXPIRED">KYC Expired / Re-verify</option>
+                  </select>
+                </div>
+              </div>
               {(selectedUser.kycDocuments || []).length === 0 ? (
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl text-xs text-slate-500 italic text-center">
-                  No identity documents submitted by this user yet.
+                  No identity documents submitted via platform yet (Admin may update KYC manually above if verified via email/support channel).
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1112,10 +1157,27 @@ export default function AdminUsersTab({
                           {doc.status}
                         </span>
                       </div>
-                      {doc.documentUrl && (
-                        <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
-                          <img src={doc.documentUrl} alt="KYC Document" className="w-full h-32 object-cover" />
-                        </div>
+                      <div className="text-[11px] text-slate-400 space-y-0.5">
+                        <div>Source: <span className="text-slate-200 font-semibold">{doc.submissionSource || 'PLATFORM_UPLOAD'}</span></div>
+                        {doc.idNumber && <div>ID Number: <span className="text-slate-200 font-mono">{doc.idNumber}</span></div>}
+                      </div>
+                      {(doc.hasDocumentFile || doc.documentUrl) && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await api.get(`/admin/kyc/${doc.id}/document`, { responseType: 'blob' });
+                              const blobUrl = URL.createObjectURL(res.data);
+                              window.open(blobUrl, '_blank', 'noopener,noreferrer');
+                              setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+                            } catch (err: any) {
+                              onFeedback({ text: err.response?.data?.message || 'Unable to load private KYC document', type: 'error' });
+                            }
+                          }}
+                          className="w-full py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700 text-emerald-400 text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          Open Private KYC Document (Audit-Logged)
+                        </button>
                       )}
                     </div>
                   ))}
@@ -1236,6 +1298,53 @@ export default function AdminUsersTab({
                 >
                   {selectedUser.status === 'SUSPENDED' ? 'Unsuspend Account' : 'Suspend Account'}
                 </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const nextFlag = !selectedUser.isSuspicious;
+                    const reason = nextFlag ? (window.prompt('Enter reason for flagging this account as suspicious:', selectedUser.suspiciousReason || 'Manual compliance risk flag') || 'Manual compliance risk flag') : '';
+                    try {
+                      const res = await api.post(`/admin/users/${selectedUser.id}/suspicious`, {
+                        isSuspicious: nextFlag,
+                        reason,
+                      });
+                      if (res.data?.success) {
+                        onFeedback({ text: res.data.message || 'Suspicious status updated', type: 'success' });
+                        setSelectedUser({ ...selectedUser, isSuspicious: nextFlag, suspiciousReason: reason || null });
+                        onRefresh();
+                      }
+                    } catch (err: any) {
+                      onFeedback({ text: err.response?.data?.message || 'Failed to update suspicious flag', type: 'error' });
+                    }
+                  }}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    selectedUser.isSuspicious
+                      ? 'bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30'
+                      : 'bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30'
+                  }`}
+                >
+                  {selectedUser.isSuspicious ? 'Clear Suspicious Flag' : 'Flag Suspicious Account'}
+                </button>
+                {selectedUser.emailVerified === false && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const res = await api.post(`/admin/users/${selectedUser.id}/verify-email`, { emailVerified: true });
+                        if (res.data?.success) {
+                          onFeedback({ text: 'Email marked verified by Admin', type: 'success' });
+                          setSelectedUser({ ...selectedUser, emailVerified: true });
+                          onRefresh();
+                        }
+                      } catch (err: any) {
+                        onFeedback({ text: err.response?.data?.message || 'Failed to verify email', type: 'error' });
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/30 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Mark Email Verified
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => handleToggleP2PBlock(selectedUser.id, !!selectedUser.p2pBlocked, selectedUser.email)}

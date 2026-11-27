@@ -17,8 +17,11 @@ enum Role {
 enum KycStatus {
   NOT_STARTED
   PENDING
+  UNDER_REVIEW
   APPROVED
   REJECTED
+  ADDITIONAL_INFO_REQUIRED
+  EXPIRED
 }
 
 enum UserStatus {
@@ -206,7 +209,22 @@ model User {
   country                String?    @db.VarChar(100)
   signupLocation         String?    @db.VarChar(191)
   signupIp               String?    @db.VarChar(64)
+  normalizedEmail        String?    @db.VarChar(191)
+  deviceFingerprint      String?    @db.VarChar(128)
   kycStatus              KycStatus  @default(NOT_STARTED)
+  kycSubmittedAt         DateTime?
+  kycReviewedAt          DateTime?
+  kycReviewedBy          String?    @db.VarChar(191)
+  kycExpiresAt           DateTime?
+  kycNotes               String?    @db.Text
+  isSuspicious           Boolean    @default(false)
+  suspiciousReason       String?    @db.Text
+  flaggedAt              DateTime?
+  flaggedBy              String?    @db.VarChar(191)
+  riskScore              Int        @default(0)
+  failedLoginAttempts    Int        @default(0)
+  lockedUntil            DateTime?
+  bypassNewUserLimits    Boolean    @default(false)
   twoFactorEnabled       Boolean    @default(false)
   twoFactorSecret        String?
   withdrawalLockedUntil  DateTime?
@@ -287,16 +305,23 @@ model RefreshToken {
 }
 
 model KycDocument {
-  id              String    @id @default(uuid())
-  userId          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  documentType    String // PASSPORT, NATIONAL_ID, DRIVERS_LICENSE, PROOF_OF_ADDRESS
-  documentUrl     String    @db.VarChar(500)
-  status          KycStatus @default(PENDING)
-  rejectionReason String?   @db.Text
-  verifiedAt      DateTime?
-  reviewedBy      String?
-  createdAt       DateTime  @default(now())
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType     String // PASSPORT, NATIONAL_ID, DRIVERS_LICENSE, PROOF_OF_ADDRESS, EMAIL_PACKAGE
+  documentUrl      String    @db.VarChar(500)
+  idNumber         String?   @db.VarChar(120)
+  issuingCountry   String?   @db.VarChar(100)
+  submissionSource String    @default("PLATFORM_UPLOAD") @db.VarChar(50) // PLATFORM_UPLOAD, EMAIL_CHANNEL, SUPPORT_DESK, ADMIN_MANUAL
+  complianceNotes  String?   @db.Text
+  originalFilename String?   @db.VarChar(255)
+  mimeType         String?   @db.VarChar(120)
+  status           KycStatus @default(PENDING)
+  rejectionReason  String?   @db.Text
+  expiresAt        DateTime?
+  verifiedAt       DateTime?
+  reviewedBy       String?
+  createdAt        DateTime  @default(now())
 
   @@map("diw_kyc_documents")
 }

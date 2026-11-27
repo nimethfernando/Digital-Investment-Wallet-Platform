@@ -56,6 +56,7 @@ const investments_service_1 = require("../services/investments.service");
 const token_service_1 = require("../services/token.service");
 const liquidityRisk_service_1 = require("../services/liquidityRisk.service");
 const featureControl_service_1 = require("../services/featureControl.service");
+const compliancePolicy_service_1 = require("../services/compliancePolicy.service");
 const financialSelfTest_service_1 = require("../services/financialSelfTest.service");
 const wallet_controller_1 = require("./wallet.controller");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
@@ -832,14 +833,112 @@ class AdminController {
         }
     }
     /**
-     * List pending KYC submissions
+     * List all KYC submissions with status filter, summary counts, and user compliance overview
      */
     async getPendingKyc(req, res, next) {
         try {
-            const documents = await kyc_service_1.kycService.getPendingKyc();
-            res.json({ success: true, data: documents });
+            const status = typeof req.query.status === 'string' ? req.query.status : 'ALL';
+            const search = typeof req.query.search === 'string' ? req.query.search : '';
+            const overview = await kyc_service_1.kycService.getAdminKycOverview({ status, search });
+            res.json({
+                success: true,
+                data: overview.documents,
+                documents: overview.documents,
+                statusCounts: overview.statusCounts,
+                users: overview.users,
+                auditLogs: overview.auditLogs,
+            });
         }
         catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Securely stream a KYC identity document to an authorized Admin/Staff officer (Audit Logged + No Cache)
+     */
+    async getKycDocumentFile(req, res, next) {
+        try {
+            const actor = req.user;
+            const documentId = String(req.params.id || '');
+            const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || undefined;
+            const file = await kyc_service_1.kycService.getSecureDocumentFile({
+                documentId,
+                requesterId: actor.id || actor.userId,
+                requesterRole: actor.role,
+                requesterIp: clientIp,
+            });
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, private');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            res.setHeader('Content-Type', file.mimeType);
+            res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
+            res.send(file.buffer);
+        }
+        catch (err) {
+            if (err?.status)
+                return res.status(err.status).json({ success: false, message: err.message });
+            next(err);
+        }
+    }
+    /**
+     * Transition KYC submission across any of the 7 compliance statuses
+     */
+    async updateKycStatus(req, res, next) {
+        try {
+            const adminUserId = req.user.id;
+            const adminEmail = req.user.email;
+            const documentId = String(req.params.id || '');
+            const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || undefined;
+            const { status, reason, complianceNotes, expiresAt } = req.body || {};
+            const result = await kyc_service_1.kycService.adminUpdateKycStatus({
+                documentId,
+                adminId: adminUserId,
+                adminEmail,
+                status,
+                reason,
+                complianceNotes,
+                expiresAt,
+                ipAddress: clientIp,
+            });
+            res.json(result);
+        }
+        catch (err) {
+            if (err?.status)
+                return res.status(err.status).json({ success: false, message: err.message });
+            next(err);
+        }
+    }
+    /**
+     * Admin manual / Email-Channel KYC update or submission on behalf of any user account
+     */
+    async manualUpdateKyc(req, res, next) {
+        try {
+            const adminUserId = req.user.id;
+            const adminEmail = req.user.email;
+            const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || undefined;
+            const { userId, status, reason, complianceNotes, expiresAt, submissionSource, documentType, idNumber, issuingCountry, fileDataUrl, originalFilename, } = req.body || {};
+            const result = await kyc_service_1.kycService.adminUpdateKycStatus({
+                userId,
+                adminId: adminUserId,
+                adminEmail,
+                status,
+                reason,
+                complianceNotes,
+                expiresAt,
+                submissionSource: submissionSource || 'EMAIL_CHANNEL',
+                documentType,
+                idNumber,
+                issuingCountry,
+                fileDataUrl,
+                originalFilename,
+                ipAddress: clientIp,
+            });
+            res.json(result);
+        }
+        catch (err) {
+            if (err?.status)
+                return res.status(err.status).json({ success: false, message: err.message });
             next(err);
         }
     }
@@ -849,21 +948,15 @@ class AdminController {
     async approveKyc(req, res, next) {
         try {
             const adminUserId = req.user.id;
+            const adminEmail = req.user.email;
             const documentId = req.params.id;
-            const result = await kyc_service_1.kycService.approveKyc(documentId, adminUserId);
-            // Audit Log
-            await prisma_1.prisma.adminAuditLog.create({
-                data: {
-                    userId: adminUserId,
-                    action: 'APPROVE_KYC',
-                    entity: 'KycDocument',
-                    entityId: documentId,
-                    details: 'Approved investor identity verification document.',
-                },
-            });
+            const { complianceNotes, expiresAt } = req.body || {};
+            const result = await kyc_service_1.kycService.approveKyc(documentId, adminUserId, adminEmail, complianceNotes, expiresAt);
             res.json(result);
         }
         catch (err) {
+            if (err?.status)
+                return res.status(err.status).json({ success: false, message: err.message });
             next(err);
         }
     }
@@ -873,22 +966,15 @@ class AdminController {
     async rejectKyc(req, res, next) {
         try {
             const adminUserId = req.user.id;
+            const adminEmail = req.user.email;
             const documentId = req.params.id;
             const reason = req.body?.reason || req.body?.rejectionReason;
-            const result = await kyc_service_1.kycService.rejectKyc(documentId, adminUserId, reason);
-            // Audit Log
-            await prisma_1.prisma.adminAuditLog.create({
-                data: {
-                    userId: adminUserId,
-                    action: 'REJECT_KYC',
-                    entity: 'KycDocument',
-                    entityId: documentId,
-                    details: `Rejected KYC document. Reason: ${reason || 'Unspecified'}`,
-                },
-            });
+            const result = await kyc_service_1.kycService.rejectKyc(documentId, adminUserId, reason, adminEmail);
             res.json(result);
         }
         catch (err) {
+            if (err?.status)
+                return res.status(err.status).json({ success: false, message: err.message });
             next(err);
         }
     }
@@ -1902,6 +1988,17 @@ class AdminController {
                     country: u.country,
                     role: u.role,
                     kycStatus: u.kycStatus,
+                    emailVerified: Boolean(u.emailVerified),
+                    kycSubmittedAt: u.kycSubmittedAt || null,
+                    kycReviewedAt: u.kycReviewedAt || null,
+                    kycExpiresAt: u.kycExpiresAt || null,
+                    kycNotes: u.kycNotes || null,
+                    isSuspicious: Boolean(u.isSuspicious),
+                    suspiciousReason: u.suspiciousReason || null,
+                    riskScore: Number(u.riskScore || 0),
+                    bypassNewUserLimits: Boolean(u.bypassNewUserLimits),
+                    signupIp: u.signupIp || null,
+                    signupLocation: u.signupLocation || null,
                     twoFactorEnabled: u.twoFactorEnabled,
                     accountNumber: (0, p2p_service_1.generateAvoraAccountNumber)(u.id),
                     isWithdrawalLocked: isLocked,
@@ -1987,10 +2084,28 @@ class AdminController {
             const pendingSwaps = await prisma_1.prisma.swapRequest
                 .findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 20 })
                 .catch(() => []);
+            const sanitizedKycDocuments = (user.kycDocuments || []).map((doc) => ({
+                id: doc.id,
+                userId: doc.userId,
+                documentType: doc.documentType,
+                idNumber: doc.idNumber || null,
+                issuingCountry: doc.issuingCountry || null,
+                submissionSource: doc.submissionSource || 'PLATFORM_UPLOAD',
+                status: doc.status,
+                rejectionReason: doc.rejectionReason || null,
+                complianceNotes: doc.complianceNotes || null,
+                originalFilename: doc.originalFilename || null,
+                mimeType: doc.mimeType || null,
+                hasDocumentFile: Boolean(doc.documentUrl),
+                secureDocumentPath: `/api/v1/admin/kyc/${doc.id}/document`,
+                createdAt: doc.createdAt,
+                updatedAt: doc.updatedAt,
+            }));
             res.json({
                 success: true,
                 data: {
                     ...user,
+                    kycDocuments: sanitizedKycDocuments,
                     accountNumber: (0, p2p_service_1.generateAvoraAccountNumber)(user.id),
                     riskMetrics: riskMetricsMap.get(id) || null,
                     swapRequests: pendingSwaps,
@@ -2596,8 +2711,9 @@ class AdminController {
     async updateUser(req, res, next) {
         try {
             const adminUserId = req.user?.id ? String(req.user.id) : undefined;
+            const adminEmail = req.user?.email ? String(req.user.email) : undefined;
             const id = String(req.params.id);
-            const { role, kycStatus, isWithdrawalLocked, notes } = req.body;
+            const { role, kycStatus, isWithdrawalLocked, notes, bypassNewUserLimits, emailVerified } = req.body;
             const dataToUpdate = {};
             if (role && Object.values(client_1.Role).includes(role)) {
                 dataToUpdate.role = role;
@@ -2609,9 +2725,19 @@ class AdminController {
                     : kycStatus;
             if (normalizedUpdateKyc && Object.values(client_1.KycStatus).includes(normalizedUpdateKyc)) {
                 dataToUpdate.kycStatus = normalizedUpdateKyc;
+                dataToUpdate.kycReviewedAt = new Date();
+                dataToUpdate.kycReviewedBy = adminEmail || adminUserId || 'ADMIN';
+                if (notes)
+                    dataToUpdate.kycNotes = String(notes).trim();
             }
             if (typeof isWithdrawalLocked === 'boolean') {
                 dataToUpdate.withdrawalLockedUntil = isWithdrawalLocked ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) : null;
+            }
+            if (typeof bypassNewUserLimits === 'boolean') {
+                dataToUpdate.bypassNewUserLimits = bypassNewUserLimits;
+            }
+            if (typeof emailVerified === 'boolean') {
+                dataToUpdate.emailVerified = emailVerified;
             }
             const updated = await prisma_1.prisma.user.update({
                 where: { id },
@@ -2621,7 +2747,7 @@ class AdminController {
                 await prisma_1.prisma.adminAuditLog.create({
                     data: {
                         userId: adminUserId,
-                        action: 'ADMIN_USER_UPDATE',
+                        action: dataToUpdate.kycStatus ? 'ADMIN_MANUAL_KYC_UPDATE' : 'ADMIN_USER_UPDATE',
                         entity: 'User',
                         entityId: id,
                         details: `Updated user ${updated.email}: ${JSON.stringify(dataToUpdate)}. Notes: ${notes || 'None'}`,
@@ -2635,6 +2761,8 @@ class AdminController {
                     id: updated.id,
                     role: updated.role,
                     kycStatus: updated.kycStatus,
+                    emailVerified: updated.emailVerified,
+                    bypassNewUserLimits: updated.bypassNewUserLimits,
                     isWithdrawalLocked: !!(updated.withdrawalLockedUntil && new Date() < updated.withdrawalLockedUntil),
                 },
             });
@@ -3002,6 +3130,110 @@ class AdminController {
                 message: `Account status updated to ${status} for ${user.email}`,
                 status: user.status,
             });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Flag or clear a user account as suspicious (Anti-Spam & Compliance Control)
+     */
+    async updateUserSuspiciousStatus(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const adminEmail = req.user?.email ? String(req.user.email) : adminUserId;
+            const id = String(req.params.id);
+            const { isSuspicious, reason, suspendAccount } = req.body || {};
+            const flagged = Boolean(isSuspicious);
+            const cleanReason = reason ? String(reason).trim() : null;
+            const user = await prisma_1.prisma.user.update({
+                where: { id },
+                data: {
+                    isSuspicious: flagged,
+                    suspiciousReason: flagged ? cleanReason || 'Flagged manually by Compliance' : null,
+                    flaggedAt: flagged ? new Date() : null,
+                    flaggedBy: flagged ? adminEmail : null,
+                    riskScore: flagged ? 80 : 0,
+                    ...(flagged && suspendAccount ? { status: client_1.UserStatus.SUSPENDED } : {}),
+                },
+            });
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: flagged ? 'USER_FLAGGED_SUSPICIOUS' : 'USER_SUSPICIOUS_CLEARED',
+                    entity: 'User',
+                    entityId: id,
+                    details: `Admin (${adminEmail}) ${flagged ? 'flagged suspicious' : 'cleared suspicious flag on'} ${user.email}. Reason: ${cleanReason || 'N/A'}.${flagged && suspendAccount ? ' Account suspended.' : ''}`,
+                },
+            });
+            res.json({
+                success: true,
+                message: flagged
+                    ? `${user.email} flagged as suspicious${suspendAccount ? ' and suspended' : ''}.`
+                    : `Suspicious flag cleared for ${user.email}.`,
+                data: {
+                    id: user.id,
+                    isSuspicious: user.isSuspicious,
+                    suspiciousReason: user.suspiciousReason,
+                    status: user.status,
+                },
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Get KYC feature gating & anti-spam compliance policy
+     */
+    async getCompliancePolicy(_req, res, next) {
+        try {
+            const policy = await compliancePolicy_service_1.compliancePolicyService.getPolicy();
+            res.json({ success: true, data: policy });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Update KYC feature gating & anti-spam compliance policy (Admin + 2FA)
+     */
+    async updateCompliancePolicy(req, res, next) {
+        try {
+            const adminId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const adminEmail = req.user?.email ? String(req.user.email) : undefined;
+            const updated = await compliancePolicy_service_1.compliancePolicyService.updatePolicy(req.body || {}, adminId, adminEmail);
+            res.json({
+                success: true,
+                message: 'Compliance, KYC feature access & anti-spam rules updated.',
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Trigger email verification resend or manual admin verification for a user
+     */
+    async verifyUserEmailAdmin(req, res, next) {
+        try {
+            const adminId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const id = String(req.params.id);
+            const user = await prisma_1.prisma.user.update({
+                where: { id },
+                data: { emailVerified: true, emailVerificationToken: null },
+            });
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminId,
+                    action: 'ADMIN_EMAIL_VERIFIED',
+                    entity: 'User',
+                    entityId: id,
+                    details: `Admin verified email status for ${user.email}.`,
+                },
+            });
+            res.json({ success: true, message: `Email verified for ${user.email}.` });
         }
         catch (err) {
             next(err);
@@ -6179,6 +6411,37 @@ class AdminController {
             const newsletterSubscribersCount = await prisma_1.prisma.inquiry
                 .count({ where: { subject: { startsWith: 'NEWSLETTER:' } } })
                 .catch(() => 0);
+            // Onboarding, KYC & Anti-Spam Security Metrics for Admin Overview
+            const dayAgoDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const weekAgoDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            const [newRegistrations24h, newRegistrations7d, notSubmittedKycUsers, pendingKycUsers, underReviewKycUsers, approvedKycUsers, rejectedKycUsers, additionalInfoKycUsers, expiredKycUsers, suspendedUsers, suspiciousUsers, unverifiedEmailUsers,] = await Promise.all([
+                prisma_1.prisma.user.count({ where: { createdAt: { gte: dayAgoDate } } }),
+                prisma_1.prisma.user.count({ where: { createdAt: { gte: weekAgoDate } } }),
+                prisma_1.prisma.user.count({ where: { kycStatus: client_1.KycStatus.NOT_STARTED } }),
+                prisma_1.prisma.user.count({ where: { kycStatus: client_1.KycStatus.PENDING } }),
+                prisma_1.prisma.user.count({ where: { kycStatus: client_1.KycStatus.UNDER_REVIEW } }),
+                prisma_1.prisma.user.count({ where: { kycStatus: client_1.KycStatus.APPROVED } }),
+                prisma_1.prisma.user.count({ where: { kycStatus: client_1.KycStatus.REJECTED } }),
+                prisma_1.prisma.user.count({ where: { kycStatus: client_1.KycStatus.ADDITIONAL_INFO_REQUIRED } }),
+                prisma_1.prisma.user.count({ where: { kycStatus: client_1.KycStatus.EXPIRED } }),
+                prisma_1.prisma.user.count({ where: { status: { in: [client_1.UserStatus.SUSPENDED, client_1.UserStatus.LOCKED] } } }),
+                prisma_1.prisma.user.count({ where: { isSuspicious: true } }),
+                prisma_1.prisma.user.count({ where: { emailVerified: false } }),
+            ]).catch(() => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            const securityMetrics = {
+                newRegistrations24h,
+                newRegistrations7d,
+                notSubmittedKycUsers,
+                pendingKycUsers,
+                underReviewKycUsers,
+                approvedKycUsers,
+                rejectedKycUsers,
+                additionalInfoKycUsers,
+                expiredKycUsers,
+                suspendedUsers,
+                suspiciousUsers,
+                unverifiedEmailUsers,
+            };
             const payloadData = {
                 totalUsers,
                 totalPackages,
@@ -6186,13 +6449,14 @@ class AdminController {
                 activePackagesCount: activePackages.length,
                 pendingDeposits,
                 pendingWithdrawals,
-                pendingKyc,
+                pendingKyc: pendingKycUsers + underReviewKycUsers,
                 totalStartups,
                 totalTransfers,
                 totalTickets,
                 totalOtcDesks,
                 totalOtcTrades,
                 newsletterSubscribersCount,
+                securityMetrics,
                 commandCenter,
                 platformRevenueSummary,
                 sectionMetrics,

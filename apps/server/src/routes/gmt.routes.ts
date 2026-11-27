@@ -6,13 +6,12 @@ import { featureControlService } from '../services/featureControl.service';
 
 const router = Router();
 
-// Public: Countries, Quote Calculation & Live Transfer Tracking (For recipients & senders with tracking code)
+// Protected: All Global Money Transfer countries, quotes, tracking, and transfer routes require authentication
+router.use(authenticateToken);
+
 router.get('/countries', (req, res) => gmtController.getCountries(req, res));
 router.post('/quote', (req, res, next) => gmtController.calculateQuote(req, res, next));
 router.get('/track/:code', (req, res, next) => gmtController.trackTransferPublic(req, res, next));
-
-// Protected: Authenticated Customer Routes
-router.use(authenticateToken);
 
 router.post(
   '/transfers',

@@ -1,12 +1,11 @@
 import rateLimit from 'express-rate-limit';
 
 /**
- * Strict Rate Limiter for Authentication endpoints
- * Protects login, registration, password resets, and 2FA verification from brute force attacks.
+ * Strict Rate Limiter for Login / Password Reset / 2FA endpoints
  */
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 attempts per IP per window
+  max: 12, // 12 attempts per IP per window
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -16,12 +15,53 @@ export const authRateLimiter = rateLimit({
 });
 
 /**
+ * Dedicated Anti-Spam Rate Limiter for New Account Registration
+ */
+export const registerRateLimiter = rateLimit({
+  windowMs: 30 * 60 * 1000, // 30 minutes
+  max: 6, // Max 6 registration attempts per IP per 30 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many registration attempts from this IP address. Please wait 30 minutes before trying again.',
+  },
+});
+
+/**
+ * Rate Limiter for Email Verification & Resend requests
+ */
+export const verificationRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many verification attempts. Please wait before requesting another code.',
+  },
+});
+
+/**
+ * Anti-Enumeration Rate Limiter for Public Registration Helpers
+ */
+export const publicLookupRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 45,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many requests from this IP. Please slow down briefly.',
+  },
+});
+
+/**
  * Rate Limiter for Withdrawal & Sensitive Financial Submissions
- * Prevents rapid-fire automated withdrawal submissions.
  */
 export const withdrawalRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // 10 withdrawal submissions per IP per hour
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -32,11 +72,10 @@ export const withdrawalRateLimiter = rateLimit({
 
 /**
  * Rate Limiter for P2P Transfers & Recipient Lookups
- * Protects against automated recipient probing / email enumeration and rapid fund draining.
  */
 export const p2pRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // 20 requests per IP per 15 minutes
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -50,7 +89,7 @@ export const p2pRateLimiter = rateLimit({
  */
 export const p2pActionLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 60, // 60 P2P marketplace/order mutations per 10 mins per IP
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -64,7 +103,7 @@ export const p2pActionLimiter = rateLimit({
  */
 export const generalApiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 120, // 120 requests per minute
+  max: 120,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

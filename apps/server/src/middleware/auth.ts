@@ -22,11 +22,15 @@ declare global {
 }
 
 export const authenticateToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
 
   if (!token) {
-    res.status(401).json({ success: false, message: 'Access token required' });
+    res.status(401).json({ success: false, message: 'Authentication required. Please sign in to access this resource.' });
     return;
   }
 
@@ -68,6 +72,44 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
     res.status(503).json({ success: false, message: 'Service temporarily unavailable. Please retry.' });
     return;
   }
+};
+
+export const optionalAuthenticateToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, private');
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  if (!token) {
+    next();
+    return;
+  }
+
+  try {
+    let payload: AuthenticatedUser;
+    try {
+      payload = jwt.verify(token, config.jwtSecret) as AuthenticatedUser;
+    } catch {
+      payload = jwt.verify(token, config.adminJwtSecret) as AuthenticatedUser;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, email: true, role: true, status: true, mustChangePassword: true, twoFactorEnabled: true },
+    });
+
+    if (user && user.status === 'ACTIVE') {
+      req.user = {
+        id: user.id,
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        mustChangePassword: user.mustChangePassword,
+        twoFactorEnabled: user.twoFactorEnabled,
+      };
+    }
+  } catch {
+    // Proceed as unauthenticated guest
+  }
+  next();
 };
 
 export const requireRole = (allowedRoles: Role[]) => {

@@ -14,13 +14,13 @@ const requireP2PTrading = featureControl_service_1.featureControlService.require
     }
 });
 /**
- * Public P2P Offers / Market Ads & Trader Profiles (viewable before or after login)
+ * All P2P Offers, Order Books, Corridors & Trader Profiles require authentication
  */
+router.use(auth_1.authenticateToken);
 router.get('/corridors', (req, res, next) => p2p_controller_1.p2pController.getCorridors(req, res, next));
 router.get('/offers', (req, res, next) => p2p_controller_1.p2pController.getOffers(req, res, next));
 router.get('/promotion-tiers', (req, res, next) => p2p_controller_1.p2pController.getPromotionTiers(req, res, next));
 router.get('/users/:userId/profile', (req, res, next) => p2p_controller_1.p2pController.getTraderProfile(req, res, next));
-router.use(auth_1.authenticateToken);
 /**
  * P2P Onboarding & Compliance Verification Application
  */
@@ -72,6 +72,6 @@ router.get('/chats', (req, res, next) => p2p_controller_1.p2pController.getUserC
  * P2P $50 Merchant Security Deposit Lifecycle
  */
 router.get('/merchant/status', (req, res, next) => p2p_controller_1.p2pController.getMerchantStatus(req, res, next));
-router.post('/merchant/deposit', (req, res, next) => p2p_controller_1.p2pController.applyMerchant(req, res, next));
+router.post('/merchant/deposit', rate_limiter_1.p2pActionLimiter, requireP2PTrading, (req, res, next) => p2p_controller_1.p2pController.applyMerchant(req, res, next));
 router.post('/merchant/refund', (req, res, next) => p2p_controller_1.p2pController.refundMerchant(req, res, next));
 exports.default = router;

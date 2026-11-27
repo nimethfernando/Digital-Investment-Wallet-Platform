@@ -5,14 +5,13 @@ import { featureControlService } from '../services/featureControl.service';
 
 const router = Router();
 
-// Public endpoint to view package rules/tiers
-router.get('/tiers', (req, res, next) => packageController.getTiers(req, res, next));
+// All package rules, tiers, and investor endpoints require authentication
+router.use(authenticateToken);
 
-// Authenticated investor endpoints
-router.get('/', authenticateToken, (req, res, next) => packageController.getUserPackages(req, res, next));
+router.get('/tiers', (req, res, next) => packageController.getTiers(req, res, next));
+router.get('/', (req, res, next) => packageController.getUserPackages(req, res, next));
 router.post(
   '/purchase',
-  authenticateToken,
   featureControlService.requireFeature('FD_PACKAGES', async (req) => {
     await featureControlService.assertCurrencyEnabled(req.body?.currency);
     await featureControlService.assertGatewayEnabled(req.body?.depositMethod);

@@ -1619,6 +1619,8 @@ function DashboardContent() {
               Account Shield Active
             </div>
           </div>
+
+
         </div>
       )}
 
@@ -1652,18 +1654,18 @@ function DashboardContent() {
                   </button>
                 )}
 
-                {/* KYC Identity Verification Badge */}
+                {/* KYC Identity Verification Badge across all 7 Compliance Statuses */}
                 {viewedUser?.kycStatus === 'APPROVED' ? (
                   <button
                     type="button"
                     onClick={() => !isInspectMode && setKycModalOpen(true)}
                     className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-colors cursor-pointer"
-                    title="Click to view KYC Certificate"
+                    title="Click to view KYC verification status"
                   >
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    KYC Verified
+                    KYC Approved
                   </button>
-                ) : viewedUser?.kycStatus === 'PENDING' ? (
+                ) : viewedUser?.kycStatus === 'PENDING' || viewedUser?.kycStatus === 'UNDER_REVIEW' ? (
                   <button
                     type="button"
                     onClick={() => !isInspectMode && setKycModalOpen(true)}
@@ -1671,7 +1673,7 @@ function DashboardContent() {
                     title="Verification undergoing compliance review"
                   >
                     <Clock className="w-3.5 h-3.5" />
-                    KYC Pending Review
+                    {viewedUser?.kycStatus === 'UNDER_REVIEW' ? 'KYC Under Review' : 'KYC Pending Review'}
                   </button>
                 ) : (
                   <button
@@ -1680,7 +1682,15 @@ function DashboardContent() {
                     className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 hover:bg-rose-200 transition-colors cursor-pointer"
                   >
                     <ShieldAlert className="w-3.5 h-3.5" />
-                    {isInspectMode ? `KYC: ${viewedUser?.kycStatus || 'NOT_STARTED'}` : 'Verify Identity (KYC)'}
+                    {isInspectMode
+                      ? `KYC: ${viewedUser?.kycStatusLabel || viewedUser?.kycStatus || 'NOT_STARTED'}`
+                      : viewedUser?.kycStatus === 'ADDITIONAL_INFO_REQUIRED'
+                      ? 'KYC: Action Required'
+                      : viewedUser?.kycStatus === 'EXPIRED'
+                      ? 'KYC Expired — Re-verify'
+                      : viewedUser?.kycStatus === 'REJECTED'
+                      ? 'KYC Rejected — Re-submit'
+                      : 'Complete KYC Verification'}
                   </button>
                 )}
 
@@ -1792,6 +1802,52 @@ function DashboardContent() {
               </button>
             </div>
           </div>
+
+          {/* Compliance Onboarding & KYC Access Restriction Notice */}
+          {!isInspectMode && viewedUser && (viewedUser.emailVerified === false || viewedUser.kycStatus !== 'APPROVED') && (
+            <div className="mt-5 p-4 sm:p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1 text-xs">
+                  <div className="font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider">
+                    {viewedUser.emailVerified === false
+                      ? 'Email Verification & KYC Required for Full Financial Access'
+                      : `KYC Access Restriction — ${viewedUser.kycStatusLabel || viewedUser.kycStatus || 'Verification Needed'}`}
+                  </div>
+                  <p className="text-amber-800 dark:text-amber-300 leading-relaxed">
+                    {viewedUser.emailVerified === false
+                      ? 'Please verify your email address and complete KYC identity verification. P2P trading, transfers, deposits, withdrawals, and financial services are restricted until verified.'
+                      : viewedUser.kycStatus === 'PENDING' || viewedUser.kycStatus === 'UNDER_REVIEW'
+                      ? 'Your KYC documents are currently under review by Compliance. Restricted financial features will unlock once approved.'
+                      : viewedUser.kycNotes
+                      ? `Compliance Note: ${viewedUser.kycNotes}`
+                      : 'Registered accounts have limited access until identity verification (KYC) is approved by Administration. Upload documents or submit via desk@avorabank.com.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {viewedUser.emailVerified === false && (
+                  <Link
+                    href={`/verify-email?email=${encodeURIComponent(viewedUser.email)}`}
+                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-xs"
+                  >
+                    Verify Email
+                  </Link>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setKycModalOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer shadow-xs"
+                >
+                  {viewedUser.kycStatus === 'PENDING' || viewedUser.kycStatus === 'UNDER_REVIEW'
+                    ? 'View KYC Status'
+                    : 'Complete KYC Verification'}
+                </button>
+              </div>
+            </div>
+          )}
+
+
 
           {/* Navigation Tabs with Smooth Horizontal Scroll & Indicator Arrows */}
           <div className="relative mt-7">
@@ -2936,6 +2992,8 @@ function DashboardContent() {
               )}
             </div>
           </div>
+
+
         )}
 
         {/* LINKED REAL BANK ACCOUNTS & WITHDRAWAL DESTINATIONS */}
@@ -4038,6 +4096,8 @@ function DashboardContent() {
               })()}
             </div>
           </div>
+
+
         )}
 
         {/* TRANSACTIONS TAB */}
@@ -4338,6 +4398,8 @@ function DashboardContent() {
               )}
             </div>
           </div>
+
+
         )}
 
         {/* WITHDRAWALS TAB */}
@@ -4910,6 +4972,8 @@ function DashboardContent() {
               </Link>
             </div>
           </div>
+
+
         )}
 
         {/* NOTIFICATIONS CENTER TAB */}
@@ -5178,6 +5242,8 @@ function DashboardContent() {
               })()}
             </div>
           </div>
+
+
         )}
 
         {/* SUPPORT TICKETS TAB */}
@@ -5253,6 +5319,8 @@ function DashboardContent() {
               </div>
             </div>
           </div>
+
+
         )}
 
       </div>
@@ -6756,6 +6824,8 @@ function DashboardContent() {
               </div>
             </div>
           </div>
+
+
         );
       })()}
 
@@ -6840,6 +6910,8 @@ function DashboardContent() {
               </button>
             </div>
           </div>
+
+
         </div>
       )}
 
@@ -6906,6 +6978,8 @@ function DashboardContent() {
               </button>
             </div>
           </div>
+
+
         </div>
       )}
 

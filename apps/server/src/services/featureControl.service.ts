@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
 import { liquidityRiskService } from './liquidityRisk.service';
 import { notificationService } from '../adapters/notification/notification.provider';
+import { compliancePolicyService } from './compliancePolicy.service';
 
 const FEATURE_CONFIG_KEY = 'PLATFORM_FEATURE_CONTROLS_V1';
 const FEATURE_HISTORY_KEY = 'PLATFORM_FEATURE_CONTROL_HISTORY_V1';
@@ -1145,7 +1146,8 @@ export class FeatureControlService {
   }
 
   /**
-   * Express middleware factory to guard any route with a feature switch (plus optional dynamic currency/network/gateway check)
+   * Express middleware factory to guard any route with a feature switch,
+   * KYC-based access control, email verification, new-user limits, and optional dynamic currency/network/gateway check
    */
   requireFeature(
     featureKey: string,
@@ -1154,6 +1156,13 @@ export class FeatureControlService {
     return async (req: Request, res: Response, next: NextFunction) => {
       try {
         await this.assertFeatureEnabled(featureKey);
+        if (req.user?.userId) {
+          await compliancePolicyService.assertUserEligibleForFeature({
+            userId: req.user.userId,
+            featureKey,
+            amountUsd: compliancePolicyService.extractRequestUsdEstimate(req.body),
+          });
+        }
         if (extraCheck) {
           await extraCheck(req);
         }
@@ -1163,6 +1172,7 @@ export class FeatureControlService {
           success: false,
           code: err.code || 'FEATURE_DISABLED',
           featureKey: err.featureKey || featureKey,
+          kycStatus: err.kycStatus,
           message: err.message || `Feature ${featureKey} is currently disabled by Admin.`,
         });
       }

@@ -5,6 +5,7 @@ import { LanguageProvider } from '../context/LanguageContext';
 import { AuthProvider } from '../context/AuthContext';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
+import { PublicAccessGuard } from '../components/PublicAccessGuard';
 
 export const metadata: Metadata = {
   title: 'Avora Bank | Digital Wealth, Private Wallet & Institutional OTC Desk',
@@ -42,7 +43,9 @@ export default function RootLayout({
             <AuthProvider>
               <Header />
               <main className="flex-1">
-                {children}
+                <PublicAccessGuard>
+                  {children}
+                </PublicAccessGuard>
               </main>
               <Footer />
             </AuthProvider>
