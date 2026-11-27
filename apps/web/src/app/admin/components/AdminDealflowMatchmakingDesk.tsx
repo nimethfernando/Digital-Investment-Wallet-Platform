@@ -166,31 +166,67 @@ export default function AdminDealflowMatchmakingDesk({ onFeedback }: AdminDealfl
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 text-xs">
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] text-slate-400 uppercase font-mono font-bold">Total Posted Deals</span>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('ALL')}
+          className={`p-4 rounded-2xl bg-slate-900 border text-left space-y-1 transition-all cursor-pointer group ${
+            statusFilter === 'ALL' ? 'border-slate-600' : 'border-slate-800 hover:border-slate-600'
+          }`}
+        >
+          <span className="text-[10px] text-slate-400 uppercase font-mono font-bold flex items-center justify-between">
+            <span>Total Posted Deals</span>
+            <span className="text-[10px] text-slate-300 group-hover:underline">Show All →</span>
+          </span>
           <div className="text-2xl font-black text-white font-mono">{metrics.totalOpps}</div>
           <p className="text-[10px] text-slate-400">
             {metrics.offeringCapitalOpps} Capital Offers • {metrics.seekingCapitalOpps} Capital Demands
           </p>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-amber-500/30 space-y-1">
-          <span className="text-[10px] text-amber-400 uppercase font-mono font-bold">Pending Review</span>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('PENDING_REVIEW')}
+          className={`p-4 rounded-2xl bg-slate-900 border text-left space-y-1 transition-all cursor-pointer group ${
+            statusFilter === 'PENDING_REVIEW' ? 'border-amber-400 bg-amber-950/15' : 'border-amber-500/30 hover:border-amber-400'
+          }`}
+        >
+          <span className="text-[10px] text-amber-400 uppercase font-mono font-bold flex items-center justify-between">
+            <span>Pending Review</span>
+            <span className="text-[10px] text-amber-300 group-hover:underline">Filter →</span>
+          </span>
           <div className="text-2xl font-black text-amber-400 font-mono">{metrics.pendingApps}</div>
           <p className="text-[10px] text-slate-400">Applications awaiting curation</p>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-indigo-500/30 space-y-1">
-          <span className="text-[10px] text-indigo-400 uppercase font-mono font-bold">Shortlisted Deals</span>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('SHORTLISTED')}
+          className={`p-4 rounded-2xl bg-slate-900 border text-left space-y-1 transition-all cursor-pointer group ${
+            statusFilter === 'SHORTLISTED' ? 'border-indigo-400 bg-indigo-950/15' : 'border-indigo-500/30 hover:border-indigo-400'
+          }`}
+        >
+          <span className="text-[10px] text-indigo-400 uppercase font-mono font-bold flex items-center justify-between">
+            <span>Shortlisted Deals</span>
+            <span className="text-[10px] text-indigo-300 group-hover:underline">Filter →</span>
+          </span>
           <div className="text-2xl font-black text-indigo-400 font-mono">{metrics.shortlistedApps}</div>
           <p className="text-[10px] text-slate-400">Qualified for direct match</p>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1">
-          <span className="text-[10px] text-emerald-400 uppercase font-mono font-bold">Connected Matches</span>
+        <button
+          type="button"
+          onClick={() => setStatusFilter('CONNECTED')}
+          className={`p-4 rounded-2xl bg-slate-900 border text-left space-y-1 transition-all cursor-pointer group ${
+            statusFilter === 'CONNECTED' ? 'border-emerald-400 bg-emerald-950/15' : 'border-emerald-500/30 hover:border-emerald-400'
+          }`}
+        >
+          <span className="text-[10px] text-emerald-400 uppercase font-mono font-bold flex items-center justify-between">
+            <span>Connected Matches</span>
+            <span className="text-[10px] text-emerald-300 group-hover:underline">Filter →</span>
+          </span>
           <div className="text-2xl font-black text-emerald-400 font-mono">{metrics.connectedApps}</div>
           <p className="text-[10px] text-slate-400">Parties introduced successfully</p>
-        </div>
+        </button>
       </div>
 
       {/* Filter and Search Bar */}

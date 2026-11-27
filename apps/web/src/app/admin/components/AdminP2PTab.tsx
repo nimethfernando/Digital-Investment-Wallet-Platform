@@ -938,12 +938,21 @@ export default function AdminP2PTab({
         </div>
       </div>
 
-      {/* P2P Platform Earnings & Commission Summary Bar */}
+      {/* P2P Platform Earnings & Commission Summary Bar (All Clickable Filters) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
-          <div className="text-[10px] font-extrabold uppercase font-mono text-slate-400 flex items-center gap-1.5">
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-            <span>P2P Escrow Turnover</span>
+        <button
+          type="button"
+          onClick={() => setStatusFilter((prev) => (prev === 'COMPLETED' ? '' : 'COMPLETED'))}
+          className={`p-4 rounded-2xl bg-slate-900 border text-left shadow-md transition-all cursor-pointer group ${
+            statusFilter === 'COMPLETED' ? 'border-emerald-500/60 bg-emerald-950/15' : 'border-slate-800 hover:border-emerald-500/40'
+          }`}
+        >
+          <div className="text-[10px] font-extrabold uppercase font-mono text-slate-400 flex items-center justify-between gap-1.5">
+            <span className="flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+              <span>P2P Escrow Turnover</span>
+            </span>
+            <span className="text-[10px] text-emerald-400 group-hover:underline">Filter →</span>
           </div>
           <div className="text-xl font-black text-white font-mono mt-1">
             ${p2pMetrics.completedVolumeUsdt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -951,12 +960,19 @@ export default function AdminP2PTab({
           <div className="text-[10px] text-slate-500 mt-0.5">
             {p2pMetrics.completedCount} completed trade(s)
           </div>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
-          <div className="text-[10px] font-extrabold uppercase font-mono text-emerald-400 flex items-center gap-1.5">
-            <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Platform P2P Revenue</span>
+        <button
+          type="button"
+          onClick={() => setStatusFilter((prev) => (prev === 'COMPLETED' ? '' : 'COMPLETED'))}
+          className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-left shadow-md transition-all cursor-pointer group"
+        >
+          <div className="text-[10px] font-extrabold uppercase font-mono text-emerald-400 flex items-center justify-between gap-1.5">
+            <span className="flex items-center gap-1.5">
+              <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Platform P2P Revenue</span>
+            </span>
+            <span className="text-[10px] text-emerald-400 group-hover:underline">View →</span>
           </div>
           <div className="text-xl font-black text-emerald-400 font-mono mt-1">
             ${p2pMetrics.platformFeeTotalUsdt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -964,12 +980,21 @@ export default function AdminP2PTab({
           <div className="text-[10px] text-slate-500 mt-0.5">
             Platform escrow fees collected
           </div>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
-          <div className="text-[10px] font-extrabold uppercase font-mono text-amber-400 flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5 text-amber-400" />
-            <span>Active Escrow Locked</span>
+        <button
+          type="button"
+          onClick={() => setStatusFilter((prev) => (prev === 'PAYMENT_SENT' ? '' : 'PAYMENT_SENT'))}
+          className={`p-4 rounded-2xl bg-slate-900 border text-left shadow-md transition-all cursor-pointer group ${
+            statusFilter === 'PAYMENT_SENT' ? 'border-amber-500/60 bg-amber-950/15' : 'border-slate-800 hover:border-amber-500/40'
+          }`}
+        >
+          <div className="text-[10px] font-extrabold uppercase font-mono text-amber-400 flex items-center justify-between gap-1.5">
+            <span className="flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-amber-400" />
+              <span>Active Escrow Locked</span>
+            </span>
+            <span className="text-[10px] text-amber-400 group-hover:underline">Filter →</span>
           </div>
           <div className="text-xl font-black text-amber-300 font-mono mt-1">
             ${p2pMetrics.activeEscrowLockedUsdt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -977,12 +1002,21 @@ export default function AdminP2PTab({
           <div className="text-[10px] text-slate-500 mt-0.5">
             Across ongoing trade orders
           </div>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
-          <div className="text-[10px] font-extrabold uppercase font-mono text-rose-400 flex items-center gap-1.5">
-            <Scale className="w-3.5 h-3.5 text-rose-400" />
-            <span>Disputes &amp; Compliance</span>
+        <button
+          type="button"
+          onClick={() => setStatusFilter((prev) => (prev === 'DISPUTED' ? '' : 'DISPUTED'))}
+          className={`p-4 rounded-2xl bg-slate-900 border text-left shadow-md transition-all cursor-pointer group ${
+            statusFilter === 'DISPUTED' ? 'border-rose-500/60 bg-rose-950/20' : 'border-slate-800 hover:border-rose-500/40'
+          }`}
+        >
+          <div className="text-[10px] font-extrabold uppercase font-mono text-rose-400 flex items-center justify-between gap-1.5">
+            <span className="flex items-center gap-1.5">
+              <Scale className="w-3.5 h-3.5 text-rose-400" />
+              <span>Disputes &amp; Compliance</span>
+            </span>
+            <span className="text-[10px] text-rose-400 group-hover:underline">Filter →</span>
           </div>
           <div className="text-xl font-black text-white font-mono mt-1">
             {p2pMetrics.disputedCount}
@@ -990,7 +1024,7 @@ export default function AdminP2PTab({
           <div className="text-[10px] text-slate-500 mt-0.5">
             {p2pMetrics.disputedCount > 0 ? 'Requires arbitration review' : 'No open dispute claims'}
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Date Filter & Export Toolbar for P2P Orders */}

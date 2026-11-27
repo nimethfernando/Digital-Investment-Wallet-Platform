@@ -389,7 +389,15 @@ export default function AdminLiquidityTab({
 
       {/* Real-Time Answer Cards: "How much money do we have?" / "What is our exposure?" */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className="bg-[#0e1520] border border-gray-800 rounded-2xl p-5">
+        <button
+          type="button"
+          onClick={() => {
+            setSubTab('OVERVIEW');
+            setAssetClassFilter('ALL');
+            setOnlyAlertsFilter(false);
+          }}
+          className="bg-[#0e1520] border border-gray-800 hover:border-emerald-500/50 rounded-2xl p-5 text-left transition-all cursor-pointer"
+        >
           <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
             Total Platform Liquidity (Reserves)
           </p>
@@ -400,9 +408,17 @@ export default function AdminLiquidityTab({
             <span className="text-amber-400">Crypto: {fmtUsd(summary.cryptoLiquidityUsd)}</span>
             <span className="text-emerald-400">Fiat/USDT: {fmtUsd(summary.fiatStablecoinLiquidityUsd)}</span>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-[#0e1520] border border-gray-800 rounded-2xl p-5">
+        <button
+          type="button"
+          onClick={() => {
+            setSubTab('OVERVIEW');
+            setAssetClassFilter('ALL');
+            setOnlyAlertsFilter(false);
+          }}
+          className="bg-[#0e1520] border border-gray-800 hover:border-blue-500/50 rounded-2xl p-5 text-left transition-all cursor-pointer"
+        >
           <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
             Total User Holdings (Platform Liability)
           </p>
@@ -413,9 +429,16 @@ export default function AdminLiquidityTab({
             <span className="text-amber-300">Crypto: {fmtUsd(summary.totalUserCryptoUsd)}</span>
             <span className="text-blue-300">Fiat/USDT: {fmtUsd(summary.totalUserFiatStablecoinUsd)}</span>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-[#0e1520] border border-gray-800 rounded-2xl p-5">
+        <button
+          type="button"
+          onClick={() => {
+            setSubTab('OVERVIEW');
+            setOnlyAlertsFilter((prev) => !prev);
+          }}
+          className="bg-[#0e1520] border border-gray-800 hover:border-amber-500/50 rounded-2xl p-5 text-left transition-all cursor-pointer"
+        >
           <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
             Net Platform Reserve vs User Exposure
           </p>
@@ -434,7 +457,7 @@ export default function AdminLiquidityTab({
               {fmtUsd(unrealizedPnlNum)}
             </span>
           </div>
-        </div>
+        </button>
 
         <div
           onClick={() => setSubTab('APPROVALS')}

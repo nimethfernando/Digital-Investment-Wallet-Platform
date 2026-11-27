@@ -1293,7 +1293,7 @@ export default function AdminOtcTab({
         </div>
         )}
         </div>
-      ) : (
+      ) : subTab === 'INQUIRIES' ? (
         /* PRE-TRADE DESK INQUIRIES TABLE */
         inquiries.length === 0 ? (
           <div className="p-16 text-center text-slate-500 bg-slate-900/50 border border-slate-800 rounded-3xl">

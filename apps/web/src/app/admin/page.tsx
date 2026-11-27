@@ -2349,68 +2349,212 @@ export default function AdminPortalPage() {
               </div>
             </div>
 
-            {/* 4 Operational KPI Cards */}
+            {/* 4 Operational KPI Cards (All Clickable to Filter Alerts & Queue or Jump to Module) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className={`p-5 rounded-3xl border space-y-1.5 ${
-                (commandCenterSummary?.yieldDueCount ?? 0) > 0 || (commandCenterSummary?.maturedUnsettledCount ?? 0) > 0
-                  ? 'bg-emerald-950/25 border-emerald-500/40'
-                  : 'bg-slate-900 border-slate-800'
-              }`}>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setAlertCategoryFilter((prev) => (prev === 'YIELD_DUE' ? 'ALL' : 'YIELD_DUE'));
+                  setPendingUrgencyFilter((prev) => (prev === 'DUE_TODAY' ? 'ALL' : 'DUE_TODAY'));
+                  setPendingTypeFilter('ALL');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    setAlertCategoryFilter((prev) => (prev === 'YIELD_DUE' ? 'ALL' : 'YIELD_DUE'));
+                    setPendingUrgencyFilter((prev) => (prev === 'DUE_TODAY' ? 'ALL' : 'DUE_TODAY'));
+                    setPendingTypeFilter('ALL');
+                  }
+                }}
+                className={`p-5 rounded-3xl border space-y-1.5 text-left transition-all cursor-pointer group ${
+                  alertCategoryFilter === 'YIELD_DUE' || pendingUrgencyFilter === 'DUE_TODAY'
+                    ? 'bg-emerald-950/35 border-emerald-400 ring-1 ring-emerald-500/40'
+                    : (commandCenterSummary?.yieldDueCount ?? 0) > 0 || (commandCenterSummary?.maturedUnsettledCount ?? 0) > 0
+                    ? 'bg-emerald-950/25 border-emerald-500/40 hover:border-emerald-400'
+                    : 'bg-slate-900 border-slate-800 hover:border-emerald-500/50 hover:bg-slate-800/70'
+                }`}
+              >
                 <div className="flex items-center justify-between text-xs font-bold uppercase text-emerald-400">
                   <span>Due Today (Yields &amp; Maturities)</span>
-                  <Zap className="w-4 h-4" />
+                  <span className="flex items-center gap-1">
+                    <span className="text-[10px] font-bold text-emerald-400 opacity-80 group-hover:underline">Filter →</span>
+                    <Zap className="w-4 h-4" />
+                  </span>
                 </div>
                 <div className="text-2xl font-black font-mono text-white">
                   {commandCenterSummary?.yieldDueCount ?? 0} Yields · ${parseFloat(commandCenterSummary?.yieldDueTotalUsd || '0').toFixed(2)}
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  {commandCenterSummary?.maturedUnsettledCount ?? 0} matured FD(s) awaiting full settlement
-                </p>
+                <div className="text-[11px] text-slate-400 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveTab('packages');
+                      setPkgStatusFilter('MATURED');
+                    }}
+                    className="hover:text-emerald-300 hover:underline text-left cursor-pointer"
+                  >
+                    {commandCenterSummary?.maturedUnsettledCount ?? 0} matured FD(s) awaiting full settlement →
+                  </button>
+                </div>
               </div>
 
-              <div className="p-5 rounded-3xl bg-slate-900 border border-sky-500/30 space-y-1.5">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setAlertCategoryFilter('ALL');
+                  setPendingUrgencyFilter('ALL');
+                  setPendingTypeFilter('ALL');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    setAlertCategoryFilter('ALL');
+                    setPendingUrgencyFilter('ALL');
+                    setPendingTypeFilter('ALL');
+                  }
+                }}
+                className={`p-5 rounded-3xl bg-slate-900 hover:bg-slate-800/70 border space-y-1.5 text-left transition-all cursor-pointer group ${
+                  alertCategoryFilter === 'ALL' && pendingUrgencyFilter === 'ALL' && pendingTypeFilter === 'ALL'
+                    ? 'border-sky-500/60'
+                    : 'border-sky-500/30 hover:border-sky-400'
+                }`}
+              >
                 <div className="flex items-center justify-between text-xs font-bold uppercase text-sky-400">
                   <span>Pending Customer Requests</span>
-                  <Clock className="w-4 h-4" />
+                  <span className="flex items-center gap-1">
+                    <span className="text-[10px] font-bold text-sky-400 opacity-80 group-hover:underline">Show All →</span>
+                    <Clock className="w-4 h-4" />
+                  </span>
                 </div>
                 <div className="text-2xl font-black font-mono text-white">
                   {commandCenterSummary?.totalPendingCount ?? 0}
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  {commandCenterSummary?.pendingDepositsCount ?? 0} deposits • {commandCenterSummary?.pendingWithdrawalsCount ?? 0} withdrawals • {commandCenterSummary?.pendingKycCount ?? 0} KYC
-                </p>
+                <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAlertCategoryFilter('DEPOSITS');
+                      setPendingTypeFilter('DEPOSIT');
+                    }}
+                    className="hover:text-sky-300 hover:underline cursor-pointer"
+                  >
+                    {commandCenterSummary?.pendingDepositsCount ?? 0} deposits
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAlertCategoryFilter('WITHDRAWALS');
+                      setPendingTypeFilter('WITHDRAWAL');
+                    }}
+                    className="hover:text-sky-300 hover:underline cursor-pointer"
+                  >
+                    {commandCenterSummary?.pendingWithdrawalsCount ?? 0} withdrawals
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAlertCategoryFilter('COMPLIANCE');
+                      setPendingTypeFilter('KYC_VERIFICATION');
+                    }}
+                    className="hover:text-sky-300 hover:underline cursor-pointer"
+                  >
+                    {commandCenterSummary?.pendingKycCount ?? 0} KYC
+                  </button>
+                </div>
               </div>
 
-              <div className={`p-5 rounded-3xl border space-y-1.5 ${
-                (commandCenterSummary?.overdueCount ?? 0) > 0
-                  ? 'bg-rose-950/35 border-rose-500/60'
-                  : 'bg-slate-900 border-slate-800'
-              }`}>
+              <button
+                type="button"
+                onClick={() => {
+                  setAlertCategoryFilter((prev) => (prev === 'OVERDUE' ? 'ALL' : 'OVERDUE'));
+                  setPendingUrgencyFilter((prev) => (prev === 'OVERDUE' ? 'ALL' : 'OVERDUE'));
+                }}
+                className={`p-5 rounded-3xl border space-y-1.5 text-left transition-all cursor-pointer group ${
+                  alertCategoryFilter === 'OVERDUE' || pendingUrgencyFilter === 'OVERDUE'
+                    ? 'bg-rose-950/40 border-rose-400 ring-1 ring-rose-500/40'
+                    : (commandCenterSummary?.overdueCount ?? 0) > 0
+                    ? 'bg-rose-950/35 border-rose-500/60 hover:border-rose-400'
+                    : 'bg-slate-900 border-slate-800 hover:border-rose-500/50 hover:bg-slate-800/70'
+                }`}
+              >
                 <div className="flex items-center justify-between text-xs font-bold uppercase text-rose-400">
                   <span>Overdue Requests (&gt;48h)</span>
-                  <AlertTriangle className="w-4 h-4" />
+                  <span className="flex items-center gap-1">
+                    <span className="text-[10px] font-bold text-rose-400 opacity-80 group-hover:underline">Filter →</span>
+                    <AlertTriangle className="w-4 h-4" />
+                  </span>
                 </div>
                 <div className={`text-2xl font-black font-mono ${(commandCenterSummary?.overdueCount ?? 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                   {commandCenterSummary?.overdueCount ?? 0}
                 </div>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-slate-400 group-hover:text-slate-300">
                   {(commandCenterSummary?.overdueCount ?? 0) > 0
                     ? `Oldest request age: ${commandCenterSummary?.oldestPendingLabel || 'N/A'}`
-                    : 'No overdue requests across queues'}
+                    : 'No overdue requests across queues (click to filter)'}
                 </p>
-              </div>
+              </button>
 
-              <div className="p-5 rounded-3xl bg-slate-900 border border-amber-500/30 space-y-1.5">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setAlertCategoryFilter((prev) => (prev === 'MATURITY' ? 'ALL' : 'MATURITY'));
+                  setPendingTypeFilter((prev) => (prev === 'FD_MATURED' ? 'ALL' : 'FD_MATURED'));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    setAlertCategoryFilter((prev) => (prev === 'MATURITY' ? 'ALL' : 'MATURITY'));
+                    setPendingTypeFilter((prev) => (prev === 'FD_MATURED' ? 'ALL' : 'FD_MATURED'));
+                  }
+                }}
+                className={`p-5 rounded-3xl bg-slate-900 hover:bg-slate-800/70 border space-y-1.5 text-left transition-all cursor-pointer group ${
+                  alertCategoryFilter === 'MATURITY'
+                    ? 'border-amber-400 bg-amber-950/25 ring-1 ring-amber-500/40'
+                    : 'border-amber-500/30 hover:border-amber-400'
+                }`}
+              >
                 <div className="flex items-center justify-between text-xs font-bold uppercase text-amber-400">
                   <span>Upcoming (Next 15 Days)</span>
-                  <Calendar className="w-4 h-4" />
+                  <span className="flex items-center gap-1">
+                    <span className="text-[10px] font-bold text-amber-400 opacity-80 group-hover:underline">Filter →</span>
+                    <Calendar className="w-4 h-4" />
+                  </span>
                 </div>
                 <div className="text-2xl font-black font-mono text-white">
                   {(commandCenterSummary?.yieldDueSoonCount ?? 0) + (commandCenterSummary?.approachingMaturityCount ?? 0)}
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  {commandCenterSummary?.yieldDueSoonCount ?? 0} yield cycle(s) ≤5d • {commandCenterSummary?.approachingMaturityCount ?? 0} maturing ≤15d
-                </p>
+                <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAlertCategoryFilter('YIELD_DUE');
+                      setPendingTypeFilter('FD_YIELD_DUE');
+                    }}
+                    className="hover:text-amber-300 hover:underline cursor-pointer"
+                  >
+                    {commandCenterSummary?.yieldDueSoonCount ?? 0} yield cycle(s) ≤5d
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveTab('packages');
+                      setPkgHorizonFilter('ENDING_30D');
+                      setPkgStatusFilter('ACTIVE');
+                    }}
+                    className="hover:text-amber-300 hover:underline cursor-pointer"
+                  >
+                    {commandCenterSummary?.approachingMaturityCount ?? 0} maturing ≤15d →
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -6020,7 +6164,13 @@ export default function AdminPortalPage() {
 
             {/* 4 Top KPI Summary Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDepStatusFilter((prev) => (prev === 'APPROVED' ? 'ALL' : 'APPROVED'))}
+                className={`p-4 rounded-2xl bg-slate-900 border text-left transition-all cursor-pointer group ${
+                  depStatusFilter === 'APPROVED' ? 'border-emerald-500/60 bg-emerald-950/15' : 'border-slate-800 hover:border-emerald-500/40'
+                }`}
+              >
                 <p className="text-[11px] font-bold uppercase text-emerald-400 flex items-center justify-between">
                   <span>Total Approved Deposits</span>
                   <CheckCircle2 className="w-3.5 h-3.5" />
@@ -6028,10 +6178,10 @@ export default function AdminPortalPage() {
                 <p className="text-xl font-black font-mono text-white mt-1">
                   ${depositAuditStats.approvedVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  {depositAuditStats.approvedCount} verified inflow{depositAuditStats.approvedCount === 1 ? '' : 's'}
+                <p className="text-[11px] text-slate-400 mt-1 group-hover:text-emerald-300">
+                  {depositAuditStats.approvedCount} verified inflow{depositAuditStats.approvedCount === 1 ? '' : 's'} (click to filter)
                 </p>
-              </div>
+              </button>
 
               <button
                 type="button"
@@ -6052,7 +6202,14 @@ export default function AdminPortalPage() {
                 </p>
               </button>
 
-              <div className="p-4 rounded-2xl bg-slate-900 border border-indigo-500/25">
+              <button
+                type="button"
+                onClick={() => {
+                  setDepStatusFilter('ALL');
+                  setDepMethodFilter('ALL');
+                }}
+                className="p-4 rounded-2xl bg-slate-900 border border-indigo-500/25 hover:border-indigo-400 text-left transition-all cursor-pointer group"
+              >
                 <p className="text-[11px] font-bold uppercase text-indigo-400 flex items-center justify-between">
                   <span>Selected Period Volume</span>
                   <Calendar className="w-3.5 h-3.5" />
@@ -6060,13 +6217,19 @@ export default function AdminPortalPage() {
                 <p className="text-xl font-black font-mono text-white mt-1">
                   ${depositAuditStats.filteredVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
-                <p className="text-[11px] text-slate-400 mt-1 truncate" title={depPeriodLabel}>
+                <p className="text-[11px] text-slate-400 mt-1 truncate group-hover:text-indigo-300" title={depPeriodLabel}>
                   {depPeriodLabel} • {depositAuditStats.filteredCount} record{depositAuditStats.filteredCount === 1 ? '' : 's'} ($
                   {depositAuditStats.filteredApprovedVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} approved)
                 </p>
-              </div>
+              </button>
 
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDepStatusFilter((prev) => (prev === 'REJECTED' ? 'ALL' : 'REJECTED'))}
+                className={`p-4 rounded-2xl bg-slate-900 border text-left transition-all cursor-pointer group ${
+                  depStatusFilter === 'REJECTED' ? 'border-rose-500/60 bg-rose-950/15' : 'border-slate-800 hover:border-rose-500/40'
+                }`}
+              >
                 <p className="text-[11px] font-bold uppercase text-rose-400 flex items-center justify-between">
                   <span>Rejected &amp; Missing Ref</span>
                   <AlertCircle className="w-3.5 h-3.5" />
@@ -6074,10 +6237,10 @@ export default function AdminPortalPage() {
                 <p className="text-xl font-black font-mono text-white mt-1">
                   {depositAuditStats.rejectedCount} Rejected
                 </p>
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="text-[11px] text-slate-400 mt-1 group-hover:text-rose-300">
                   ${depositAuditStats.rejectedVolume.toLocaleString('en-US', { maximumFractionDigits: 0 })} rejected • {depositAuditStats.missingRefCount} missing gateway ref
                 </p>
-              </div>
+              </button>
             </div>
 
             {/* Top Date Selection & Filter Bar */}

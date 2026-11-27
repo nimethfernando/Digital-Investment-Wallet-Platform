@@ -671,30 +671,43 @@ export default function AdminFeatureControlTab({
 
       {/* Summary KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-[#0e1520] border border-gray-800 rounded-2xl p-4">
+        <button
+          type="button"
+          onClick={() => setStatusFilter('ALL')}
+          className={`bg-[#0e1520] border rounded-2xl p-4 text-left transition-all cursor-pointer ${
+            statusFilter === 'ALL' ? 'border-gray-600' : 'border-gray-800 hover:border-gray-700'
+          }`}
+        >
           <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
             Total Managed Features
           </p>
           <p className="text-2xl font-bold text-white font-mono mt-1">{summary.totalFeatures}</p>
           <p className="text-[11px] text-gray-500 mt-1">
-            Modules, gateways, currencies, networks &amp; swap pairs
+            Modules, gateways, currencies, networks &amp; swap pairs (click for all)
           </p>
-        </div>
+        </button>
 
-        <div className="bg-[#0e1520] border border-emerald-500/30 rounded-2xl p-4">
+        <button
+          type="button"
+          onClick={() => setStatusFilter(statusFilter === 'ENABLED' ? 'ALL' : 'ENABLED')}
+          className={`bg-[#0e1520] border rounded-2xl p-4 text-left transition-all cursor-pointer ${
+            statusFilter === 'ENABLED' ? 'border-emerald-400 bg-emerald-950/15' : 'border-emerald-500/30 hover:border-emerald-400'
+          }`}
+        >
           <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
             Features Active (ON)
           </p>
           <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">{summary.enabledCount}</p>
-          <p className="text-[11px] text-gray-500 mt-1">Operating normally in production</p>
-        </div>
+          <p className="text-[11px] text-gray-500 mt-1">Operating normally in production (click to filter)</p>
+        </button>
 
-        <div
+        <button
+          type="button"
           onClick={() => setStatusFilter(statusFilter === 'DISABLED' ? 'ALL' : 'DISABLED')}
-          className={`cursor-pointer bg-[#0e1520] border rounded-2xl p-4 transition-all ${
-            summary.disabledCount > 0
-              ? 'border-rose-500/60 bg-rose-950/15'
-              : 'border-gray-800'
+          className={`cursor-pointer bg-[#0e1520] border rounded-2xl p-4 text-left transition-all ${
+            statusFilter === 'DISABLED' || summary.disabledCount > 0
+              ? 'border-rose-500/60 bg-rose-950/15 hover:border-rose-400'
+              : 'border-gray-800 hover:border-gray-700'
           }`}
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-rose-400">
@@ -704,17 +717,24 @@ export default function AdminFeatureControlTab({
           <p className="text-[11px] text-gray-400 mt-1">
             {summary.disabledCount > 0 ? 'Click to filter paused features' : 'Zero active kill-switches'}
           </p>
-        </div>
+        </button>
 
-        <div className="bg-[#0e1520] border border-amber-500/30 rounded-2xl p-4">
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter('ALL');
+            setCategoryFilter('ALL');
+          }}
+          className="bg-[#0e1520] border border-amber-500/30 hover:border-amber-400 rounded-2xl p-4 text-left transition-all cursor-pointer"
+        >
           <p className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
             2FA &amp; Confirmation Protected
           </p>
           <p className="text-2xl font-bold text-amber-400 font-mono mt-1">{summary.sensitiveCount}</p>
           <p className="text-[11px] text-gray-500 mt-1">
-            High-impact financial &amp; settlement switches
+            High-impact financial &amp; settlement switches (click to inspect)
           </p>
-        </div>
+        </button>
       </div>
 
       {/* Active Disabled Features Alert Banner */}
