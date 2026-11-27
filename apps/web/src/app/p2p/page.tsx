@@ -2290,8 +2290,8 @@ function P2PPageContent() {
   const renderDisputeModal = () => {
     if (!disputeModalOrder) return null;
     return (
-      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-        <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white">
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] overflow-y-auto overscroll-contain flex items-center justify-center p-4">
+        <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full max-h-[90dvh] overflow-y-auto overscroll-contain my-auto space-y-4 text-white">
           <h3 className="font-bold text-base flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500" />
             <span>Open P2P Trade Dispute</span>
@@ -2333,8 +2333,8 @@ function P2PPageContent() {
   const renderReleaseConfirmModal = () => {
     if (!releaseConfirmOrder) return null;
     return (
-      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-        <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white text-center">
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] overflow-y-auto overscroll-contain flex items-center justify-center p-4">
+        <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full max-h-[90dvh] overflow-y-auto overscroll-contain my-auto space-y-4 text-white text-center">
           <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
             <ShieldCheck className="w-6 h-6" />
           </div>
@@ -5320,13 +5320,17 @@ function P2PPageContent() {
       {/* TRADE CONFIRMATION MODAL (Buyer opens escrow order) */}
       {/* -------------------------------------------------------------------- */}
       {selectedOfferForTrade && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-5 text-white shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] overflow-y-auto overscroll-contain flex items-start sm:items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-md w-full max-h-[90dvh] overflow-y-auto overscroll-contain my-auto space-y-4 text-white shadow-2xl animate-in zoom-in-95">
+            <div className="sticky top-0 z-10 -mx-5 sm:-mx-6 -mt-5 sm:-mt-6 px-5 sm:px-6 pt-4 pb-3 bg-slate-950/95 backdrop-blur-md flex items-center justify-between border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-base">Confirm P2P Escrow Order</span>
               </div>
-              <button onClick={() => setSelectedOfferForTrade(null)} className="p-1 text-slate-400 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setSelectedOfferForTrade(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-900 transition-colors cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -5594,13 +5598,22 @@ function P2PPageContent() {
                 </span>
               </div>
 
-              <button
-                type="submit"
-                disabled={tradeCreating}
-                className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-lg transition-all cursor-pointer disabled:opacity-50"
-              >
-                {tradeCreating ? 'Locking Escrow & Starting Trade...' : 'Confirm & Open Escrow Trade'}
-              </button>
+              <div className="sticky bottom-0 z-10 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 px-5 sm:px-6 pt-3 pb-4 bg-slate-950/95 backdrop-blur-md border-t border-slate-800/80 flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedOfferForTrade(null)}
+                  className="px-4 py-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={tradeCreating}
+                  className="flex-1 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-lg transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {tradeCreating ? 'Locking Escrow & Starting Trade...' : 'Confirm & Open Escrow Trade'}
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -5616,8 +5629,8 @@ function P2PPageContent() {
       {/* AVORA P2P PRIORITY SETTLEMENT DESK MODAL (Routes to Admin) */}
       {/* -------------------------------------------------------------------- */}
       {deskModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[120] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-zinc-950 border border-zinc-800 w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom duration-200">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[120] overflow-y-auto overscroll-contain flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-zinc-950 border border-zinc-800 w-full max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain my-auto rounded-t-[32px] sm:rounded-3xl p-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-900">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
@@ -5818,8 +5831,8 @@ function P2PPageContent() {
       {/* MODAL 1: EXPRESS ORDER CONFIRMATION MODAL */}
       {/* -------------------------------------------------------------------- */}
       {expressOrderModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[110] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-zinc-950 border border-zinc-800 w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[110] overflow-y-auto overscroll-contain flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-zinc-950 border border-zinc-800 w-full max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain my-auto rounded-t-[32px] sm:rounded-3xl p-6 space-y-5 text-white shadow-2xl animate-in slide-in-from-bottom duration-200 select-none">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-900">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
@@ -5947,8 +5960,8 @@ function P2PPageContent() {
       {/* EDIT EXISTING P2P AD MODAL (Provider Rate & Payment Method Editor)   */}
       {/* -------------------------------------------------------------------- */}
       {editingOffer && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-lg w-full max-h-[90dvh] overflow-y-auto overscroll-contain space-y-5 text-white shadow-2xl">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] overflow-y-auto overscroll-contain flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-lg w-full max-h-[90dvh] overflow-y-auto overscroll-contain my-auto space-y-5 text-white shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
                 <h3 className="font-extrabold text-base flex items-center gap-2">
@@ -6311,8 +6324,8 @@ function P2PPageContent() {
       {/* PROMOTE / SPONSOR LISTING MODAL */}
       {/* -------------------------------------------------------------------- */}
       {promoteModalOffer && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 text-white shadow-2xl">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] overflow-y-auto overscroll-contain flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full max-h-[90dvh] overflow-y-auto overscroll-contain my-auto space-y-4 text-white shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Megaphone className="w-4 h-4 text-amber-400" />
@@ -6455,8 +6468,8 @@ function P2PPageContent() {
 
       {/* P2P DESK SECURITY DEPOSIT REFUND CONFIRMATION MODAL */}
       {refundConfirmModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[120] flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-5 text-white shadow-2xl">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[120] overflow-y-auto overscroll-contain flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 max-w-md w-full max-h-[90dvh] overflow-y-auto overscroll-contain my-auto space-y-5 text-white shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
