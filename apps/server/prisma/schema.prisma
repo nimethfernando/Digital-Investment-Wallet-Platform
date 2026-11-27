@@ -800,23 +800,40 @@ model Transaction {
 }
 
 model DepositRequest {
-  id             String        @id @default(uuid())
-  depositCode    String        @unique @db.VarChar(36)
-  userId         String
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  amount         Decimal       @db.Decimal(20, 8)
-  currency       String        @default("USD") @db.VarChar(10)
-  depositMethod  String        @db.VarChar(50)
-  proofUrl       String?       @db.VarChar(500)
-  txHashOrRef    String?       @db.VarChar(128)
-  status         DepositStatus @default(PENDING)
-  adminNotes     String?       @db.Text
-  reviewedBy     String?
-  reviewedAt     DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id                    String        @id @default(uuid())
+  depositCode           String        @unique @db.VarChar(36)
+  userId                String
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount                Decimal       @db.Decimal(20, 8)
+  expectedAmount        Decimal?      @db.Decimal(20, 8)
+  detectedAmount        Decimal?      @db.Decimal(20, 8)
+  currency              String        @default("USD") @db.VarChar(10)
+  depositMethod         String        @db.VarChar(50)
+  network               String?       @db.VarChar(50)
+  tokenContract         String?       @db.VarChar(64)
+  destinationAddress    String?       @db.VarChar(100)
+  senderAddress         String?       @db.VarChar(100)
+  proofUrl              String?       @db.VarChar(500)
+  explorerUrl           String?       @db.VarChar(500)
+  txHashOrRef           String?       @db.VarChar(128)
+  status                DepositStatus @default(PENDING)
+  trackingStatus        String        @default("AWAITING_PAYMENT") @db.VarChar(40) // AWAITING_PAYMENT, PAYMENT_DETECTED, CONFIRMING, CONFIRMED, EXPIRED, LATE_PAYMENT, MANUAL_REVIEW, FAILED, REJECTED
+  confirmations         Int           @default(0)
+  requiredConfirmations Int           @default(12)
+  blockNumber           Int?
+  sessionStartBlock     Int?
+  expiresAt             DateTime?
+  detectedAt            DateTime?
+  confirmedAt           DateTime?
+  adminNotes            String?       @db.Text
+  reviewedBy            String?
+  reviewedAt            DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
   @@index([userId, status])
+  @@index([trackingStatus, expiresAt])
+  @@index([destinationAddress, trackingStatus])
   @@map("diw_deposits")
 }
 

@@ -23,6 +23,16 @@ router.post('/notifications/read', (req, res, next) => walletController.markNoti
 router.get('/transactions', (req, res, next) => walletController.getTransactions(req, res, next));
 router.get('/deposit/instructions', (req, res, next) => walletController.getDepositInstructions(req, res, next));
 router.post(
+  '/deposit/crypto-session',
+  featureControlService.requireFeature('DEPOSITS', async (req) => {
+    await featureControlService.assertCurrencyEnabled(req.body?.currency || 'USDT');
+    await featureControlService.assertNetworkEnabled('USDT_BEP20');
+  }),
+  (req, res, next) => walletController.createCryptoDepositSession(req, res, next)
+);
+router.get('/deposit/session/:id', (req, res, next) => walletController.getCryptoDepositSessionStatus(req, res, next));
+router.post('/deposit/session/:id/verify-tx', (req, res, next) => walletController.verifyCryptoDepositTransaction(req, res, next));
+router.post(
   '/deposit',
   featureControlService.requireFeature('DEPOSITS', async (req) => {
     await featureControlService.assertCurrencyEnabled(req.body?.currency);

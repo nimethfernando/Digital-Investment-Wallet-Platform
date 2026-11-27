@@ -5,6 +5,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.packageService = exports.PackageService = void 0;
 exports.getCycleDueDate = getCycleDueDate;
+exports.evaluatePackageRedemptionEligibility = evaluatePackageRedemptionEligibility;
+exports.assertPackageRedemptionEligible = assertPackageRedemptionEligible;
+exports.buildCompletePackagePayoutSchedule = buildCompletePackagePayoutSchedule;
 exports.computePackageYieldSchedule = computePackageYieldSchedule;
 const client_1 = require("@prisma/client");
 const decimal_js_1 = __importDefault(require("decimal.js"));
@@ -23,6 +26,202 @@ function getCycleDueDate(startDateInput, periodIndex) {
     const lastDayOfTargetMonth = new Date(firstOfTargetMonth.getFullYear(), firstOfTargetMonth.getMonth() + 1, 0).getDate();
     const clampedDay = Math.min(start.getDate(), lastDayOfTargetMonth);
     return new Date(firstOfTargetMonth.getFullYear(), firstOfTargetMonth.getMonth(), clampedDay, start.getHours(), start.getMinutes(), start.getSeconds(), start.getMilliseconds());
+}
+/**
+ * Computes and validates FD redemption / principal release eligibility.
+ * Enforces that no FD can be redeemed before its eligible maturity/redemption date.
+ */
+function evaluatePackageRedemptionEligibility(pkg, now = new Date()) {
+    const lockMonths = Math.max(1, Number(pkg.lockInMonths || 6));
+    const startRaw = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt || now;
+    const startDate = new Date(startRaw);
+    const computedMaturity = getCycleDueDate(startDate, lockMonths);
+    const maturityDate = pkg.lockInEnd ? new Date(pkg.lockInEnd) : computedMaturity;
+    const rawEligible = pkg.withdrawalEligibilityDate
+        ? new Date(pkg.withdrawalEligibilityDate)
+        : maturityDate;
+    // The effective eligible redemption date is never earlier than the lock-in maturity date
+    const eligibleRedemptionDate = rawEligible.getTime() >= maturityDate.getTime() ? rawEligible : maturityDate;
+    const msRemaining = eligibleRedemptionDate.getTime() - now.getTime();
+    const daysRemaining = msRemaining > 0 ? Math.ceil(msRemaining / (1000 * 60 * 60 * 24)) : 0;
+    const hasReachedMaturityDate = now.getTime() >= eligibleRedemptionDate.getTime();
+    const isStatusEligible = pkg.status === 'ACTIVE' || pkg.status === 'MATURED';
+    const isLocked = pkg.status === 'ACTIVE' && !hasReachedMaturityDate;
+    const isRedeemable = isStatusEligible && hasReachedMaturityDate;
+    const eligibleDateStr = eligibleRedemptionDate.toISOString().split('T')[0];
+    let lockStatusLabel = 'ELIGIBLE FOR REDEMPTION';
+    let blockReason = null;
+    if (pkg.status === 'PENDING_PAYMENT') {
+        lockStatusLabel = 'PENDING ACTIVATION — Not yet active';
+        blockReason = `Redemption Not Available: Package ${pkg.packageCode} is still pending payment activation.`;
+    }
+    else if (pkg.status === 'SETTLED' || pkg.status === 'MATURED') {
+        lockStatusLabel = 'MATURED & PRINCIPAL RELEASED';
+        blockReason = `Package ${pkg.packageCode} has already been redeemed/settled.`;
+    }
+    else if (pkg.status === 'CANCELLED') {
+        lockStatusLabel = 'CANCELLED';
+        blockReason = `Package ${pkg.packageCode} was cancelled.`;
+    }
+    else if (isLocked) {
+        lockStatusLabel = `LOCKED — Redemption unavailable until ${eligibleDateStr}`;
+        blockReason = `Redemption Not Available: This FD (${pkg.packageCode}) has not reached its eligible redemption date yet. Locked until ${eligibleDateStr} (${daysRemaining} day(s) remaining).`;
+    }
+    return {
+        isRedeemable,
+        isLocked,
+        startDate,
+        maturityDate,
+        eligibleRedemptionDate,
+        daysRemaining,
+        lockStatusLabel,
+        blockReason,
+    };
+}
+/**
+ * Strict backend assertion that throws HTTP 400 if an FD is not eligible for principal redemption.
+ * Impossible to bypass via UI or direct API requests.
+ */
+function assertPackageRedemptionEligible(pkg, now = new Date()) {
+    if (!pkg) {
+        const err = new Error('Fixed Deposit package not found.');
+        err.status = 404;
+        throw err;
+    }
+    const evalResult = evaluatePackageRedemptionEligibility(pkg, now);
+    if (pkg.status !== 'ACTIVE') {
+        const err = new Error(evalResult.blockReason ||
+            `Redemption Not Available: Package ${pkg.packageCode} is in status ${pkg.status} and cannot be redeemed.`);
+        err.status = 400;
+        err.code = 'FD_INVALID_STATUS_FOR_REDEMPTION';
+        throw err;
+    }
+    if (!evalResult.isRedeemable || evalResult.isLocked) {
+        const err = new Error(evalResult.blockReason ||
+            `Redemption Not Available: This FD (${pkg.packageCode}) has not reached its eligible redemption date yet.`);
+        err.status = 400;
+        err.code = 'FD_REDEMPTION_LOCKED';
+        throw err;
+    }
+    return evalResult;
+}
+/**
+ * Generates the complete month-by-month payout schedule for an FD package.
+ * Every period 1..N has its own distinct scheduled monthly date derived from the FD start date.
+ */
+function buildCompletePackagePayoutSchedule(pkg, now = new Date()) {
+    const lockMonths = Math.max(1, Number(pkg.lockInMonths || 6));
+    const startRaw = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt || now;
+    const startDate = new Date(startRaw);
+    const amountDec = new decimal_js_1.default(pkg.amount?.toString() || '0');
+    const rateDec = new decimal_js_1.default(pkg.returnRateSnapshot?.toString() || '0.01');
+    const expectedMonthlyStr = amountDec.times(rateDec).toFixed(2);
+    const returnsList = Array.isArray(pkg.returns) ? pkg.returns : [];
+    const returnByPeriod = new Map();
+    for (const r of returnsList) {
+        if (typeof r.periodIndex === 'number') {
+            returnByPeriod.set(r.periodIndex, r);
+        }
+    }
+    // Detect if multiple existing returns were erroneously stamped with the same calendar date
+    const dateCounts = new Map();
+    for (const r of returnsList) {
+        if (r.payoutDate) {
+            const dayKey = new Date(r.payoutDate).toISOString().split('T')[0];
+            dateCounts.set(dayKey, (dateCounts.get(dayKey) || 0) + 1);
+        }
+    }
+    const scheduleItems = [];
+    for (let period = 1; period <= lockMonths; period++) {
+        const scheduledDate = getCycleDueDate(startDate, period);
+        const matchedReturn = returnByPeriod.get(period);
+        const isDueByDate = now.getTime() >= scheduledDate.getTime();
+        if (matchedReturn) {
+            const rawPayoutDate = matchedReturn.payoutDate ? new Date(matchedReturn.payoutDate) : scheduledDate;
+            const dayKey = rawPayoutDate.toISOString().split('T')[0];
+            const hasDuplicateBatchDate = (dateCounts.get(dayKey) || 0) > 1;
+            // If batch-created on the same date, use the period's individual scheduled monthly date
+            const effectiveActualDate = hasDuplicateBatchDate ? scheduledDate : rawPayoutDate;
+            const actualAmt = new decimal_js_1.default(matchedReturn.returnAmount?.toString() || expectedMonthlyStr).toFixed(2);
+            const txRef = matchedReturn.transactionCode ||
+                matchedReturn.ledgerJournalId ||
+                `RETURN-${pkg.packageCode}-PERIOD-${period}`;
+            scheduleItems.push({
+                periodNumber: period,
+                periodIndex: period,
+                scheduledPayoutDate: scheduledDate.toISOString(),
+                expectedPayoutAmount: expectedMonthlyStr,
+                actualPayoutDate: effectiveActualDate.toISOString(),
+                actualPayoutAmount: actualAmt,
+                payoutStatus: 'PAID',
+                transactionReference: txRef,
+                ledgerJournalId: matchedReturn.ledgerJournalId || null,
+                processingStatus: 'COMPLETED',
+                isEligibleToProcess: false,
+            });
+        }
+        else if (pkg.status === 'PENDING_PAYMENT') {
+            scheduleItems.push({
+                periodNumber: period,
+                periodIndex: period,
+                scheduledPayoutDate: scheduledDate.toISOString(),
+                expectedPayoutAmount: expectedMonthlyStr,
+                actualPayoutDate: null,
+                actualPayoutAmount: null,
+                payoutStatus: 'AWAITING_ACTIVATION',
+                transactionReference: null,
+                ledgerJournalId: null,
+                processingStatus: 'AWAITING_ACTIVATION',
+                isEligibleToProcess: false,
+            });
+        }
+        else if (pkg.status === 'CANCELLED') {
+            scheduleItems.push({
+                periodNumber: period,
+                periodIndex: period,
+                scheduledPayoutDate: scheduledDate.toISOString(),
+                expectedPayoutAmount: expectedMonthlyStr,
+                actualPayoutDate: null,
+                actualPayoutAmount: null,
+                payoutStatus: 'CANCELLED',
+                transactionReference: null,
+                ledgerJournalId: null,
+                processingStatus: 'CANCELLED',
+                isEligibleToProcess: false,
+            });
+        }
+        else if (pkg.status === 'ACTIVE' && isDueByDate) {
+            scheduleItems.push({
+                periodNumber: period,
+                periodIndex: period,
+                scheduledPayoutDate: scheduledDate.toISOString(),
+                expectedPayoutAmount: expectedMonthlyStr,
+                actualPayoutDate: null,
+                actualPayoutAmount: null,
+                payoutStatus: 'DUE',
+                transactionReference: null,
+                ledgerJournalId: null,
+                processingStatus: 'ELIGIBLE_NOW',
+                isEligibleToProcess: true,
+            });
+        }
+        else {
+            scheduleItems.push({
+                periodNumber: period,
+                periodIndex: period,
+                scheduledPayoutDate: scheduledDate.toISOString(),
+                expectedPayoutAmount: expectedMonthlyStr,
+                actualPayoutDate: null,
+                actualPayoutAmount: null,
+                payoutStatus: 'PENDING',
+                transactionReference: null,
+                ledgerJournalId: null,
+                processingStatus: 'FUTURE_LOCKED',
+                isEligibleToProcess: false,
+            });
+        }
+    }
+    return scheduleItems;
 }
 /**
  * Computes date-based monthly yield completion cycles for an investment package.
@@ -165,6 +364,17 @@ class PackageService {
                 daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
             }
             const yieldSchedule = computePackageYieldSchedule(pkg, now);
+            const payoutSchedule = buildCompletePackagePayoutSchedule(pkg, now);
+            const redemptionCheck = evaluatePackageRedemptionEligibility(pkg, now);
+            // Detect if multiple returns share the same date so each return uses its scheduled monthly date
+            const returnDateCounts = new Map();
+            for (const r of pkg.returns) {
+                if (r.payoutDate) {
+                    const dayKey = new Date(r.payoutDate).toISOString().split('T')[0];
+                    returnDateCounts.set(dayKey, (returnDateCounts.get(dayKey) || 0) + 1);
+                }
+            }
+            const startBase = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt || now;
             return {
                 id: pkg.id,
                 packageCode: pkg.packageCode,
@@ -178,9 +388,14 @@ class PackageService {
                 status: pkg.status,
                 purchaseDate: pkg.purchaseDate,
                 lockInStart: pkg.lockInStart,
-                lockInEnd: pkg.lockInEnd,
-                withdrawalEligibilityDate: pkg.withdrawalEligibilityDate,
-                daysRemaining,
+                lockInEnd: pkg.lockInEnd || redemptionCheck.maturityDate,
+                withdrawalEligibilityDate: pkg.withdrawalEligibilityDate || redemptionCheck.eligibleRedemptionDate,
+                eligibleRedemptionDate: redemptionCheck.eligibleRedemptionDate,
+                isRedeemable: redemptionCheck.isRedeemable,
+                isLocked: redemptionCheck.isLocked,
+                redemptionLockStatusLabel: redemptionCheck.lockStatusLabel,
+                redemptionBlockReason: redemptionCheck.blockReason,
+                daysRemaining: redemptionCheck.daysRemaining,
                 progressPercent,
                 completedCycles: yieldSchedule.completedCycles,
                 duePeriodsCount: yieldSchedule.duePeriodsCount,
@@ -192,15 +407,28 @@ class PackageService {
                 daysUntilNextYield: yieldSchedule.daysUntilNextYield,
                 depositMethod: pkg.depositMethod,
                 depositProofUrl: pkg.depositProofUrl,
-                returns: pkg.returns.map((r) => {
+                payoutSchedule,
+                returns: [...pkg.returns]
+                    .sort((a, b) => a.periodIndex - b.periodIndex)
+                    .map((r) => {
                     const amtStr = new decimal_js_1.default(r.returnAmount.toString()).toFixed(2);
+                    const scheduledDate = getCycleDueDate(startBase, r.periodIndex);
+                    const rawDate = r.payoutDate ? new Date(r.payoutDate) : scheduledDate;
+                    const dayKey = rawDate.toISOString().split('T')[0];
+                    const effectivePayoutDate = (returnDateCounts.get(dayKey) || 0) > 1 ? scheduledDate : rawDate;
                     return {
+                        id: r.id,
                         periodIndex: r.periodIndex,
+                        periodNumber: r.periodIndex,
                         amount: amtStr,
                         returnAmount: amtStr,
+                        expectedAmount: projectedMonthly.toFixed(2),
                         currency: r.currency,
-                        payoutDate: r.payoutDate,
-                        paidAt: r.payoutDate,
+                        scheduledPayoutDate: scheduledDate,
+                        payoutDate: effectivePayoutDate,
+                        paidAt: effectivePayoutDate,
+                        ledgerJournalId: r.ledgerJournalId || null,
+                        transactionReference: r.ledgerJournalId || `RETURN-${pkg.packageCode}-PERIOD-${r.periodIndex}`,
                         status: r.status,
                     };
                 }),
@@ -648,7 +876,18 @@ class PackageService {
                     daysRemaining = Math.ceil((end - nowMs) / (1000 * 60 * 60 * 24));
                 }
                 const lastPayoutDate = pkg.returns.length > 0 ? pkg.returns[0].payoutDate : null;
-                const yieldSchedule = computePackageYieldSchedule(pkg, new Date(nowMs));
+                const nowObj = new Date(nowMs);
+                const yieldSchedule = computePackageYieldSchedule(pkg, nowObj);
+                const payoutSchedule = buildCompletePackagePayoutSchedule(pkg, nowObj);
+                const redemptionCheck = evaluatePackageRedemptionEligibility(pkg, nowObj);
+                const returnDateCounts = new Map();
+                for (const r of pkg.returns) {
+                    if (r.payoutDate) {
+                        const dayKey = new Date(r.payoutDate).toISOString().split('T')[0];
+                        returnDateCounts.set(dayKey, (returnDateCounts.get(dayKey) || 0) + 1);
+                    }
+                }
+                const startBase = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt || nowObj;
                 return {
                     id: pkg.id,
                     packageCode: pkg.packageCode,
@@ -669,9 +908,14 @@ class PackageService {
                     status: pkg.status,
                     purchaseDate: pkg.purchaseDate,
                     lockInStart: pkg.lockInStart,
-                    lockInEnd: pkg.lockInEnd,
-                    withdrawalEligibilityDate: pkg.withdrawalEligibilityDate,
-                    daysRemaining,
+                    lockInEnd: pkg.lockInEnd || redemptionCheck.maturityDate,
+                    withdrawalEligibilityDate: pkg.withdrawalEligibilityDate || redemptionCheck.eligibleRedemptionDate,
+                    eligibleRedemptionDate: redemptionCheck.eligibleRedemptionDate,
+                    isRedeemable: redemptionCheck.isRedeemable,
+                    isLocked: redemptionCheck.isLocked,
+                    redemptionLockStatusLabel: redemptionCheck.lockStatusLabel,
+                    redemptionBlockReason: redemptionCheck.blockReason,
+                    daysRemaining: pkg.status === 'PENDING_PAYMENT' ? null : redemptionCheck.daysRemaining,
                     progressPercent,
                     completedCycles: yieldSchedule.completedCycles,
                     duePeriodsCount: yieldSchedule.duePeriodsCount,
@@ -685,6 +929,31 @@ class PackageService {
                     depositProofUrl: pkg.depositProofUrl,
                     adminNotes: pkg.adminNotes,
                     returnsCount,
+                    payoutSchedule,
+                    returns: [...pkg.returns]
+                        .sort((a, b) => a.periodIndex - b.periodIndex)
+                        .map((r) => {
+                        const amtStr = new decimal_js_1.default(r.returnAmount.toString()).toFixed(2);
+                        const scheduledDate = getCycleDueDate(startBase, r.periodIndex);
+                        const rawDate = r.payoutDate ? new Date(r.payoutDate) : scheduledDate;
+                        const dayKey = rawDate.toISOString().split('T')[0];
+                        const effectivePayoutDate = (returnDateCounts.get(dayKey) || 0) > 1 ? scheduledDate : rawDate;
+                        return {
+                            id: r.id,
+                            periodIndex: r.periodIndex,
+                            periodNumber: r.periodIndex,
+                            amount: amtStr,
+                            returnAmount: amtStr,
+                            expectedAmount: monthlyYieldDec.toFixed(2),
+                            currency: r.currency,
+                            scheduledPayoutDate: scheduledDate,
+                            payoutDate: effectivePayoutDate,
+                            paidAt: effectivePayoutDate,
+                            ledgerJournalId: r.ledgerJournalId || null,
+                            transactionReference: r.ledgerJournalId || `RETURN-${pkg.packageCode}-PERIOD-${r.periodIndex}`,
+                            status: r.status,
+                        };
+                    }),
                     createdAt: pkg.createdAt,
                 };
             }),
@@ -692,6 +961,40 @@ class PackageService {
             page,
             totalPages: Math.ceil(total / limit),
         };
+    }
+    /**
+     * Repairs any existing PackageReturn records in the database that were batch-created
+     * with identical payoutDate values so every period has its individual scheduled monthly date.
+     */
+    async repairDuplicateReturnDates() {
+        const packagesWithReturns = await prisma_1.prisma.investmentPackage.findMany({
+            include: { returns: { orderBy: { periodIndex: 'asc' } } },
+        });
+        let repairedCount = 0;
+        for (const pkg of packagesWithReturns) {
+            if (!pkg.returns || pkg.returns.length <= 1)
+                continue;
+            const dateCounts = new Map();
+            for (const r of pkg.returns) {
+                const dayKey = new Date(r.payoutDate).toISOString().split('T')[0];
+                dateCounts.set(dayKey, (dateCounts.get(dayKey) || 0) + 1);
+            }
+            const hasDuplicateDates = Array.from(dateCounts.values()).some((cnt) => cnt > 1);
+            if (!hasDuplicateDates)
+                continue;
+            const startBase = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt;
+            for (const r of pkg.returns) {
+                const scheduledDate = getCycleDueDate(startBase, r.periodIndex);
+                await prisma_1.prisma.packageReturn
+                    .update({
+                    where: { id: r.id },
+                    data: { payoutDate: scheduledDate },
+                })
+                    .catch(() => { });
+                repairedCount++;
+            }
+        }
+        return repairedCount;
     }
 }
 exports.PackageService = PackageService;

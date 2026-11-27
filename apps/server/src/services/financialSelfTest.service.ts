@@ -728,8 +728,21 @@ export class FinancialSelfTestService {
             idempotencyKey: `SELFTEST-RET-${ts}-M1`,
           });
 
-          // Force-release matured principal ($1,000.00 from lockedPrincipal -> availableBalance)
-          await ledgerService.releaseMaturedPrincipal(pkg.id, adminUserId || userAId, true);
+          // Simulate package reaching its 6-month maturity date before releasing principal
+          const maturedStart = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+          const maturedEnd = new Date(Date.now() - 60 * 1000);
+          await prisma.investmentPackage.update({
+            where: { id: pkg.id },
+            data: {
+              lockInStart: maturedStart,
+              purchaseDate: maturedStart,
+              lockInEnd: maturedEnd,
+              withdrawalEligibilityDate: maturedEnd,
+            },
+          });
+
+          // Release matured principal ($1,000.00 from lockedPrincipal -> availableBalance)
+          await ledgerService.releaseMaturedPrincipal(pkg.id, adminUserId || userAId, false);
 
           const usdAfter = await getBalanceRow(userAId, 'USD');
           const expectedAvail = usdBefore.available.plus(new Decimal('10.00'));

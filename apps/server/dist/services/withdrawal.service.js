@@ -10,6 +10,7 @@ const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
 const auth_service_1 = require("./auth.service");
 const rate_service_1 = require("./rate.service");
+const package_service_1 = require("./package.service");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class WithdrawalService {
@@ -69,11 +70,10 @@ class WithdrawalService {
                 if (pkg.status === 'SETTLED' || pkg.status === 'CANCELLED') {
                     throw this.validationError(`Package ${pkg.packageCode} has already been settled or cancelled.`);
                 }
-                if (pkg.lockInEnd && today < pkg.lockInEnd && pkg.status !== 'MATURED') {
-                    const daysLeft = Math.ceil((pkg.lockInEnd.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                    throw this.validationError(`Package ${pkg.packageCode} ($${new decimal_js_1.default(pkg.amount.toString()).toFixed(2)} ${pkg.currency}) is still in its ${pkg.lockInMonths}-month lock-in period (${daysLeft} days remaining; matures on ${pkg.lockInEnd.toISOString().split('T')[0]}). To withdraw your liquid wallet funds now, please select "Available USD Wallet" or "Available USDT Wallet".`);
+                if (pkg.status !== 'MATURED') {
+                    (0, package_service_1.assertPackageRedemptionEligible)(pkg, today);
                 }
-                if (pkg.status === 'ACTIVE' && (!pkg.lockInEnd || today >= pkg.lockInEnd)) {
+                if (pkg.status === 'ACTIVE') {
                     await ledger_service_1.ledgerService.releaseMaturedPrincipal(pkg.id, userId, false);
                 }
             }

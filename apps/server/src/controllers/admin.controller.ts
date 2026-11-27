@@ -5,6 +5,7 @@ import Decimal from 'decimal.js';
 import { prisma } from '../lib/prisma';
 import { packageService, computePackageYieldSchedule } from '../services/package.service';
 import { depositService } from '../services/deposit.service';
+import { bscDepositMonitorService } from '../services/bscDepositMonitor.service';
 import { returnsJobService } from '../services/returns.job';
 import { ledgerService } from '../services/ledger.service';
 import { withdrawalService } from '../services/withdrawal.service';
@@ -95,6 +96,7 @@ export class AdminController {
   async getDeposits(req: Request, res: Response, next: NextFunction) {
     try {
       const { status, search, page, limit } = req.query;
+      bscDepositMonitorService.scanAndReconcileActiveDeposits().catch(() => {});
       const result = await depositService.getAllDeposits({
         status: status as DepositStatus | undefined,
         search: search as string | undefined,
@@ -110,6 +112,119 @@ export class AdminController {
           page: result.page,
           totalPages: result.totalPages,
         },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Trigger an immediate BSC blockchain scan across all active & expired crypto deposit sessions
+   */
+  async scanBscDeposits(req: Request, res: Response, next: NextFunction) {
+    try {
+      const stats = await bscDepositMonitorService.scanAndReconcileActiveDeposits();
+      res.json({
+        success: true,
+        message: `BSC scan complete: ${stats.matchedCount} matched, ${stats.confirmedCount} auto-confirmed, ${stats.expiredCount} expired.`,
+        data: stats,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Verify a specific deposit transaction hash directly on BNB Smart Chain via RPC
+   */
+  async verifyDepositOnChain(req: Request, res: Response, next: NextFunction) {
+    try {
+      const depositId = String(req.params.id);
+      const { txHash } = req.body;
+      const deposit = await prisma.depositRequest.findUnique({ where: { id: depositId } });
+      if (!deposit) {
+        return res.status(404).json({ success: false, message: 'Deposit not found' });
+      }
+      const hashToCheck = (txHash || deposit.txHashOrRef || '').trim();
+      if (!hashToCheck || !/^(0x)?[a-fA-F0-9]{64}$/.test(hashToCheck)) {
+        const stats = await bscDepositMonitorService.scanAndReconcileActiveDeposits();
+        const refreshed = await prisma.depositRequest.findUnique({ where: { id: depositId } });
+        return res.json({
+          success: true,
+          message: `Scanned BSC custody logs (${stats.matchedCount} matched).`,
+          data: refreshed ? bscDepositMonitorService.formatSessionPayload(refreshed) : null,
+        });
+      }
+      const verified = await bscDepositMonitorService.verifySpecificTransactionOnBsc(
+        depositId,
+        hashToCheck,
+        undefined,
+        true
+      );
+      res.json({
+        success: true,
+        message: `On-chain verification complete (${verified.confirmations}/${verified.requiredConfirmations} confirmations, status: ${verified.trackingStatus}).`,
+        data: verified,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Admin: Update trackingStatus of a deposit (e.g. move to MANUAL_REVIEW, LATE_PAYMENT, AWAITING_PAYMENT)
+   */
+  async updateDepositTrackingStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const adminUserId = (req as any).user.id;
+      const depositId = String(req.params.id);
+      const { trackingStatus, notes } = req.body;
+
+      const allowed = [
+        'AWAITING_PAYMENT',
+        'PAYMENT_DETECTED',
+        'CONFIRMING',
+        'EXPIRED',
+        'LATE_PAYMENT',
+        'MANUAL_REVIEW',
+        'FAILED',
+      ];
+      if (!trackingStatus || !allowed.includes(trackingStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid trackingStatus. Allowed: ${allowed.join(', ')}`,
+        });
+      }
+
+      const deposit = await prisma.depositRequest.findUnique({ where: { id: depositId } });
+      if (!deposit) {
+        return res.status(404).json({ success: false, message: 'Deposit not found' });
+      }
+
+      const updated = await prisma.depositRequest.update({
+        where: { id: depositId },
+        data: {
+          trackingStatus,
+          ...(notes
+            ? { adminNotes: `${deposit.adminNotes || ''} | [Admin Status -> ${trackingStatus}]: ${notes}` }
+            : {}),
+        },
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId: adminUserId,
+          action: 'UPDATE_DEPOSIT_TRACKING_STATUS',
+          entity: 'DepositRequest',
+          entityId: depositId,
+          details: `Updated deposit ${deposit.depositCode} trackingStatus to ${trackingStatus}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Deposit ${deposit.depositCode} moved to ${trackingStatus}.`,
+        data: updated,
       });
     } catch (err) {
       next(err);

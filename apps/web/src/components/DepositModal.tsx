@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import { api, extractErrorMessage } from '../lib/api';
 import { getExplorerInfo } from '../lib/blockchain';
@@ -15,12 +15,12 @@ import {
   ArrowDownLeft,
   Building2,
   Clock,
-  Sparkles,
   CheckCircle2,
   Coins,
   CreditCard,
   Loader2,
-  Clipboard,
+  RefreshCw,
+  Radio,
 } from 'lucide-react';
 
 interface DepositModalProps {
@@ -33,73 +33,88 @@ interface DepositModalProps {
   intendedPackageCode?: string;
 }
 
-type CryptoNetwork = 'TRC20' | 'BEP20' | 'ERC20';
+type CryptoNetwork = 'BEP20' | 'TRC20' | 'ERC20';
 type DepositRail = 'USDT' | 'RAZORPAY' | 'CARDS' | 'BANK_WIRE';
 
 interface NetworkConfig {
   id: string;
   network: string;
   chain: string;
+  chainId?: number;
+  tokenContract?: string;
   currency: string;
   address: string;
   minDeposit: number;
   confirmationBlocks: number;
+  sessionTtlMinutes?: number;
   tagline: string;
   explorerUrl: string;
   instructions: string[];
 }
 
-const DEFAULT_NETWORKS: Record<CryptoNetwork, NetworkConfig> = {
-  BEP20: {
-    id: 'USDT_BEP20',
-    network: 'BEP-20 (BNB Smart Chain)',
-    chain: 'BNB Smart Chain',
-    currency: 'USDT',
-    address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
-    minDeposit: 50,
-    confirmationBlocks: 15,
-    tagline: 'Trust Wallet Recommended • Lowest Network Fees (< $0.15)',
-    explorerUrl: 'https://bscscan.com/address/0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
-    instructions: [
-      'Send only USDT via BEP-20 (BNB Smart Chain) network to this address.',
-      '100% compatible with Trust Wallet, Binance, MetaMask, and SafePal.',
-      'Ensure the selected network in your sending wallet is BSC / BEP-20.',
-      'Minimum deposit: 50 USDT.',
-    ],
-  },
-  TRC20: {
-    id: 'USDT_TRC20',
-    network: 'TRC-20 (TRON)',
-    chain: 'TRON',
-    currency: 'USDT',
-    address: 'TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm',
-    minDeposit: 50,
-    confirmationBlocks: 1,
-    tagline: 'Fast Confirmation • TronLink / Binance Compatible',
-    explorerUrl: 'https://tronscan.org/#/address/TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm',
-    instructions: [
-      'Send only USDT (Tether) via the TRC-20 (TRON) network to this address.',
-      'Sending any other coin or token to this address will result in permanent loss.',
-      'Minimum deposit: 50 USDT. Deposits below minimum cannot be processed.',
-      'Credits after 1 network confirmation and review.',
-    ],
-  },
-  ERC20: {
-    id: 'USDT_ERC20',
-    network: 'ERC-20 (Ethereum)',
-    chain: 'Ethereum',
-    currency: 'USDT',
-    address: '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
-    minDeposit: 100,
-    confirmationBlocks: 12,
-    tagline: 'Ethereum Mainnet • Trust Wallet Compatible',
-    explorerUrl: 'https://etherscan.io/address/0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad',
-    instructions: [
-      'Send only USDT via Ethereum (ERC-20) network to this address.',
-      'Higher Ethereum network gas fees apply for the sender.',
-      'Minimum deposit: 100 USDT.',
-    ],
-  },
+interface CryptoDepositSession {
+  id: string;
+  depositCode: string;
+  asset: string;
+  network: string;
+  networkCode: string;
+  chainId: number;
+  tokenContract: string;
+  destinationAddress: string;
+  senderAddress: string | null;
+  amount: string;
+  expectedAmount: string;
+  detectedAmount: string | null;
+  status: string;
+  trackingStatus:
+    | 'AWAITING_PAYMENT'
+    | 'PAYMENT_DETECTED'
+    | 'CONFIRMING'
+    | 'CONFIRMED'
+    | 'EXPIRED'
+    | 'LATE_PAYMENT'
+    | 'MANUAL_REVIEW'
+    | 'FAILED'
+    | 'REJECTED';
+  confirmations: number;
+  requiredConfirmations: number;
+  blockNumber: number | null;
+  txHash: string | null;
+  explorerUrl: string | null;
+  addressExplorerUrl: string | null;
+  qrPayloadAddress: string;
+  eip681Uri: string;
+  trustWalletDeepLink: string;
+  expiresAt: string | null;
+  serverTime: string;
+  remainingSeconds: number;
+  detectedAt: string | null;
+  confirmedAt: string | null;
+  createdAt: string;
+}
+
+/**
+ * NOTE: No custody wallet address is ever hard-coded in the frontend.
+ * All destination addresses & payment parameters are fetched dynamically from the backend.
+ */
+const INITIAL_BEP20_META: NetworkConfig = {
+  id: 'USDT_BEP20',
+  network: 'BEP-20 (BNB Smart Chain)',
+  chain: 'BNB Smart Chain',
+  chainId: 56,
+  tokenContract: '0x55d398326f99059fF775485246999027B3197955',
+  currency: 'USDT',
+  address: '',
+  minDeposit: 50,
+  confirmationBlocks: 12,
+  sessionTtlMinutes: 15,
+  tagline: 'Recommended • Lowest Network Fees (< $0.15) • Automatic Blockchain Confirmation',
+  explorerUrl: 'https://bscscan.com',
+  instructions: [
+    'Enter your USDT deposit amount and generate a QR Payment Session.',
+    'Scan the QR code from Trust Wallet, Binance, MetaMask, OKX, or SafePal on BNB Smart Chain (BEP-20).',
+    'Our BSC blockchain monitor automatically detects your payment and credits your balance upon confirmation.',
+  ],
 };
 
 const DEFAULT_BANK_WIRE = {
@@ -129,13 +144,11 @@ export const DepositModal: React.FC<DepositModalProps> = ({
   onDepositSuccess,
   initialAmount,
   initialRail = 'USDT',
-  initialNetwork = 'BEP20',
   intendedPackageCode,
 }) => {
   const [selectedRail, setSelectedRail] = useState<DepositRail>(initialRail);
-  const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>('BEP20');
   const [selectedBankCurrency, setSelectedBankCurrency] = useState<'USD' | 'EUR'>('USD');
-  const [networks, setNetworks] = useState<Record<CryptoNetwork, NetworkConfig>>(DEFAULT_NETWORKS);
+  const [bep20Config, setBep20Config] = useState<NetworkConfig>(INITIAL_BEP20_META);
   const [bankWire, setBankWire] = useState(DEFAULT_BANK_WIRE);
   const [razorpayConfig, setRazorpayConfig] = useState({
     commissionPercent: 5.0,
@@ -145,40 +158,51 @@ export const DepositModal: React.FC<DepositModalProps> = ({
     hasLiveKeys: true,
     keyId: (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || null) as string | null,
   });
-  const [razorpayMethodTag, setRazorpayMethodTag] = useState<'CARD' | 'UPI' | 'NETBANKING'>('CARD');
 
-  // QR Code State
+  // Crypto QR Session State
+  const [cryptoSession, setCryptoSession] = useState<CryptoDepositSession | null>(null);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [qrMode, setQrMode] = useState<'ADDRESS' | 'EIP681'>('ADDRESS');
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
-  const [copiedAddress, setCopiedAddress] = useState<boolean>(false);
-  const [copiedIban, setCopiedIban] = useState<boolean>(false);
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
+  const [serverOffsetMs, setServerOffsetMs] = useState<number>(0);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  // Form Submission State
-  const [depositAmount, setDepositAmount] = useState<string>(initialAmount ? initialAmount.toString() : '1000');
-  const [txHash, setTxHash] = useState<string>('');
+  // Optional Manual TxHash Lookup Helper (for delayed external exchange withdrawals)
+  const [showManualLookup, setShowManualLookup] = useState(false);
+  const [manualTxHash, setManualTxHash] = useState('');
+  const [verifyingOnChain, setVerifyingOnChain] = useState(false);
+
+  // Form Submission State (Amount / Bank Wire / Cards)
+  const [depositAmount, setDepositAmount] = useState<string>(
+    initialAmount ? initialAmount.toString() : '1000'
+  );
+  const [senderWalletHint, setSenderWalletHint] = useState<string>('');
+  const [wireRef, setWireRef] = useState<string>('');
   const [proofUrl, setProofUrl] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successData, setSuccessData] = useState<any | null>(null);
+  const notifiedConfirmedRef = useRef<string | null>(null);
 
-  // Sync props when opening
   useEffect(() => {
     if (isOpen) {
       if (initialAmount) setDepositAmount(initialAmount.toString());
       if (initialRail) setSelectedRail(initialRail);
-      if (initialNetwork) setSelectedNetwork(initialNetwork);
     }
-  }, [isOpen, initialAmount, initialRail, initialNetwork]);
+  }, [isOpen, initialAmount, initialRail]);
 
-  // Fetch live deposit instructions from backend
+  // Fetch live deposit configuration from backend (custody address, min deposit, bank wire, Razorpay)
   useEffect(() => {
     if (!isOpen) return;
-    api.get('/wallet/deposit/instructions')
+    api
+      .get('/wallet/deposit/instructions')
       .then((res) => {
         if (res.data?.success && res.data?.data) {
-          if (res.data.data.usdt) {
-            setNetworks((prev) => ({
+          if (res.data.data.usdt?.BEP20) {
+            setBep20Config((prev) => ({
               ...prev,
-              ...res.data.data.usdt,
+              ...res.data.data.usdt.BEP20,
             }));
           }
           if (res.data.data.bankWire) {
@@ -197,19 +221,22 @@ export const DepositModal: React.FC<DepositModalProps> = ({
           }
         }
       })
-      .catch(() => {
-        // Retain fallback defaults
-      });
+      .catch(() => {});
   }, [isOpen]);
 
-  // Generate QR code whenever the selected network/address changes (BEP-20 active rail)
-  const activeConfig = networks['BEP20'] || DEFAULT_NETWORKS.BEP20;
-  const currentAddress = activeConfig.address;
-
+  // Generate QR code whenever an active crypto session or QR mode changes
   useEffect(() => {
-    if (!isOpen || selectedRail !== 'USDT' || !currentAddress) return;
+    if (!isOpen || selectedRail !== 'USDT' || !cryptoSession?.destinationAddress) {
+      setQrCodeUrl('');
+      return;
+    }
 
-    QRCode.toDataURL(currentAddress, {
+    const payload =
+      qrMode === 'EIP681' && cryptoSession.eip681Uri
+        ? cryptoSession.eip681Uri
+        : cryptoSession.destinationAddress;
+
+    QRCode.toDataURL(payload, {
       width: 320,
       margin: 2,
       color: {
@@ -219,22 +246,146 @@ export const DepositModal: React.FC<DepositModalProps> = ({
       errorCorrectionLevel: 'M',
     })
       .then((url) => setQrCodeUrl(url))
-      .catch((err) => console.error('Failed to generate deposit QR:', err));
-  }, [isOpen, selectedRail, currentAddress]);
+      .catch(() => {});
+  }, [isOpen, selectedRail, cryptoSession, qrMode]);
 
-  const handleCopy = (text: string, type: 'address' | 'iban') => {
+  // Server-synchronized countdown timer
+  useEffect(() => {
+    if (!cryptoSession?.expiresAt) return;
+    const expiresMs = new Date(cryptoSession.expiresAt).getTime();
+
+    const updateTimer = () => {
+      const alignedNow = Date.now() + serverOffsetMs;
+      const secsLeft = Math.max(0, Math.floor((expiresMs - alignedNow) / 1000));
+      setRemainingSeconds(secsLeft);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [cryptoSession?.expiresAt, serverOffsetMs]);
+
+  // Poll backend for live BSC blockchain detection & confirmation progress every 4 seconds
+  useEffect(() => {
+    if (!isOpen || selectedRail !== 'USDT' || !cryptoSession?.id) return;
+    if (
+      cryptoSession.trackingStatus === 'CONFIRMED' ||
+      cryptoSession.trackingStatus === 'REJECTED'
+    ) {
+      return;
+    }
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await api.get(`/wallet/deposit/session/${cryptoSession.id}`);
+        if (res.data?.success && res.data?.data) {
+          const updated: CryptoDepositSession = res.data.data;
+          setCryptoSession(updated);
+          if (updated.serverTime) {
+            setServerOffsetMs(new Date(updated.serverTime).getTime() - Date.now());
+          }
+          if (
+            updated.trackingStatus === 'CONFIRMED' &&
+            notifiedConfirmedRef.current !== updated.id
+          ) {
+            notifiedConfirmedRef.current = updated.id;
+            if (onDepositSuccess) onDepositSuccess();
+          }
+        }
+      } catch {
+        // continue polling
+      }
+    }, 4000);
+
+    return () => clearInterval(pollInterval);
+  }, [isOpen, selectedRail, cryptoSession?.id, cryptoSession?.trackingStatus, onDepositSuccess]);
+
+  const handleCopy = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
-    if (type === 'address') {
-      setCopiedAddress(true);
-      setTimeout(() => setCopiedAddress(false), 2500);
-    } else {
-      setCopiedIban(true);
-      setTimeout(() => setCopiedIban(false), 2500);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2500);
+  };
+
+  const formatTimer = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const remSecs = secs % 60;
+    return `${String(mins).padStart(2, '0')}:${String(remSecs).padStart(2, '0')}`;
+  };
+
+  // Step 1 -> Step 2: Create unique backend QR Payment Session
+  const handleCreateCryptoSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+
+    const amt = parseFloat(depositAmount);
+    if (isNaN(amt) || amt <= 0) {
+      setErrorMsg('Please enter a valid deposit amount.');
+      return;
+    }
+
+    if (amt < bep20Config.minDeposit) {
+      setErrorMsg(`Minimum USDT (BEP-20) deposit amount is ${bep20Config.minDeposit} USDT.`);
+      return;
+    }
+
+    setCreatingSession(true);
+    try {
+      const res = await api.post('/wallet/deposit/crypto-session', {
+        amount: amt,
+        currency: 'USDT',
+        network: 'BSC_BEP20',
+        intendedPackageCode,
+        senderAddress: senderWalletHint.trim() || undefined,
+      });
+
+      if (res.data?.success && res.data?.data) {
+        const session: CryptoDepositSession = res.data.data;
+        setCryptoSession(session);
+        if (session.serverTime) {
+          setServerOffsetMs(new Date(session.serverTime).getTime() - Date.now());
+        }
+        setRemainingSeconds(session.remainingSeconds || 900);
+      }
+    } catch (err: any) {
+      setErrorMsg(
+        extractErrorMessage(err, 'Could not initialize crypto deposit session. Please try again.')
+      );
+    } finally {
+      setCreatingSession(false);
     }
   };
 
-  const handleQuickAmount = (val: string) => {
-    setDepositAmount(val);
+  // Optional: Trigger immediate server-side BSC RPC check for a transaction hash
+  const handleVerifyOnChainTx = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cryptoSession || !manualTxHash.trim()) return;
+    setErrorMsg(null);
+    setVerifyingOnChain(true);
+    try {
+      const res = await api.post(`/wallet/deposit/session/${cryptoSession.id}/verify-tx`, {
+        txHash: manualTxHash.trim(),
+      });
+      if (res.data?.success && res.data?.data) {
+        const updated: CryptoDepositSession = res.data.data;
+        setCryptoSession(updated);
+        if (
+          updated.trackingStatus === 'CONFIRMED' &&
+          notifiedConfirmedRef.current !== updated.id
+        ) {
+          notifiedConfirmedRef.current = updated.id;
+          if (onDepositSuccess) onDepositSuccess();
+        }
+      }
+    } catch (err: any) {
+      setErrorMsg(
+        extractErrorMessage(
+          err,
+          'Transaction could not be verified on BNB Smart Chain yet. Please ensure it is confirmed on BSC.'
+        )
+      );
+    } finally {
+      setVerifyingOnChain(false);
+    }
   };
 
   const loadRazorpayCheckoutScript = (): Promise<boolean> => {
@@ -272,7 +423,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         currency: 'USD',
         checkoutCurrency: 'USD',
         feeMode: 'ADD_ON_TOP',
-        purpose: intendedPackageCode ? `PACKAGE_${intendedPackageCode}` : `WALLET_DEPOSIT_${razorpayMethodTag}`,
+        purpose: intendedPackageCode ? `PACKAGE_${intendedPackageCode}` : 'WALLET_DEPOSIT_CARD',
       });
 
       const orderData = orderRes.data?.data;
@@ -280,8 +431,11 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         throw new Error('Could not initialize Razorpay order');
       }
 
-      // If live Razorpay keys are configured on backend, open official Razorpay Checkout modal
-      const activeKeyId = orderData.keyId || razorpayConfig.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || null;
+      const activeKeyId =
+        orderData.keyId ||
+        razorpayConfig.keyId ||
+        process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
+        null;
       if (orderData.mode === 'LIVE' && activeKeyId) {
         const scriptLoaded = await loadRazorpayCheckoutScript();
         if (scriptLoaded && (window as any).Razorpay) {
@@ -302,9 +456,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
               name: orderData.user?.name || '',
               email: orderData.user?.email || '',
             },
-            theme: {
-              color: '#059669',
-            },
+            theme: { color: '#059669' },
             handler: async (response: any) => {
               try {
                 const verifyRes = await api.post('/wallet/razorpay/verify', {
@@ -323,7 +475,12 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                   if (onDepositSuccess) onDepositSuccess();
                 }
               } catch (vErr: any) {
-                setErrorMsg(extractErrorMessage(vErr, 'Payment verification failed. Contact support with your payment ID.'));
+                setErrorMsg(
+                  extractErrorMessage(
+                    vErr,
+                    'Payment verification failed. Contact support with your payment ID.'
+                  )
+                );
               } finally {
                 setSubmitting(false);
               }
@@ -339,8 +496,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         }
       }
 
-      // Assisted / Direct Razorpay Reference verification
-      const paymentRef = txHash.trim() || `pay_avr_${Date.now().toString(36).toUpperCase()}`;
+      const paymentRef = wireRef.trim() || `pay_avr_${Date.now().toString(36).toUpperCase()}`;
       const verifyRes = await api.post('/wallet/razorpay/verify', {
         depositId: orderData.deposit.id,
         razorpay_order_id: orderData.razorpayOrderId,
@@ -363,62 +519,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
     }
   };
 
-  // Helper to handle and smart-parse TxHash input
-  const handleTxHashChange = (val: string) => {
-    let clean = val.trim();
-    // If user pastes an explorer URL (e.g. bscscan.com/tx/0x... or bscscan.com/address/0x...)
-    if (clean.includes('bscscan.com') || clean.includes('etherscan.io') || clean.includes('tronscan.org') || clean.startsWith('http')) {
-      try {
-        const urlObj = new URL(clean);
-        const cleanUrl = `${urlObj.origin}${urlObj.pathname}`;
-        setProofUrl(cleanUrl);
-
-        const txMatch = urlObj.pathname.match(/\/tx\/(0x[a-fA-F0-9]+|[a-fA-F0-9]+)/);
-        if (txMatch && txMatch[1]) {
-          setTxHash(txMatch[1]);
-          return;
-        }
-        const addrMatch = urlObj.pathname.match(/\/address\/(0x[a-fA-F0-9]+|[a-fA-F0-9]+)/);
-        if (addrMatch && addrMatch[1]) {
-          setTxHash(addrMatch[1]);
-          return;
-        }
-      } catch (e) {
-        // fallback
-      }
-    }
-
-    setTxHash(clean);
-
-    // Auto-populate proofUrl with BscScan if it's a hex hash and proofUrl is blank or was auto-generated
-    if (clean.startsWith('0x') && clean.length >= 10) {
-      if (!proofUrl || proofUrl.includes('bscscan.com/tx/')) {
-        setProofUrl(`https://bscscan.com/tx/${clean}`);
-      }
-    }
-  };
-
-  const handleProofUrlChange = (val: string) => {
-    let clean = val.trim();
-    if (clean.includes('?__cf_chl')) {
-      clean = clean.split('?')[0];
-    }
-    setProofUrl(clean);
-
-    if (!txHash.trim()) {
-      const txMatch = clean.match(/\/tx\/(0x[a-fA-F0-9]+|[a-fA-F0-9]+)/);
-      if (txMatch && txMatch[1]) {
-        setTxHash(txMatch[1]);
-      } else {
-        const addrMatch = clean.match(/\/address\/(0x[a-fA-F0-9]+|[a-fA-F0-9]+)/);
-        if (addrMatch && addrMatch[1]) {
-          setTxHash(addrMatch[1]);
-        }
-      }
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleBankWireSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -427,24 +528,21 @@ export const DepositModal: React.FC<DepositModalProps> = ({
       setErrorMsg('Please enter a valid deposit amount.');
       return;
     }
-
-    const minRequired = selectedRail === 'USDT' ? activeConfig.minDeposit : bankWire.minDeposit;
-    if (amt < minRequired) {
-      setErrorMsg(`Minimum deposit amount for this method is ${minRequired} ${selectedRail === 'USDT' ? 'USDT' : selectedBankCurrency}.`);
+    if (amt < bankWire.minDeposit) {
+      setErrorMsg(
+        `Minimum deposit amount for Bank Wire is ${bankWire.minDeposit} ${selectedBankCurrency}.`
+      );
       return;
     }
-
-    const finalHash = txHash.trim() || undefined;
-    const finalProofUrl = proofUrl.trim() || (finalHash && finalHash.startsWith('0x') ? `https://bscscan.com/tx/${finalHash}` : undefined);
 
     setSubmitting(true);
     try {
       const res = await api.post('/wallet/deposit', {
         amount: amt,
-        currency: selectedRail === 'USDT' ? 'USDT' : selectedBankCurrency,
-        depositMethod: selectedRail === 'USDT' ? activeConfig.id : 'BANK_WIRE',
-        txHashOrRef: finalHash,
-        proofUrl: finalProofUrl,
+        currency: selectedBankCurrency,
+        depositMethod: 'BANK_WIRE',
+        txHashOrRef: wireRef.trim() || undefined,
+        proofUrl: proofUrl.trim() || undefined,
       });
 
       if (res.data?.success) {
@@ -452,7 +550,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         if (onDepositSuccess) onDepositSuccess();
       }
     } catch (err: any) {
-      setErrorMsg(extractErrorMessage(err, 'Failed to submit deposit. Please check transaction hash.'));
+      setErrorMsg(extractErrorMessage(err, 'Failed to submit bank wire notification.'));
     } finally {
       setSubmitting(false);
     }
@@ -460,19 +558,35 @@ export const DepositModal: React.FC<DepositModalProps> = ({
 
   const handleResetModal = () => {
     setSuccessData(null);
+    setCryptoSession(null);
     setErrorMsg(null);
     setDepositAmount('1000');
-    setTxHash('');
+    setWireRef('');
     setProofUrl('');
+    setManualTxHash('');
+    setShowManualLookup(false);
     onClose();
   };
 
   if (!isOpen) return null;
 
+  const currentStage = cryptoSession?.trackingStatus || 'AWAITING_PAYMENT';
+  const isExpiredStage =
+    currentStage === 'EXPIRED' ||
+    (currentStage === 'AWAITING_PAYMENT' && remainingSeconds <= 0 && Boolean(cryptoSession));
+
+  const stageStepIndex =
+    currentStage === 'CONFIRMED'
+      ? 5
+      : currentStage === 'CONFIRMING'
+      ? 3
+      : currentStage === 'PAYMENT_DETECTED'
+      ? 2
+      : 1;
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-white dark:bg-slate-900 w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-3xl p-5 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 relative">
-        
         {/* Close Button */}
         <button
           onClick={handleResetModal}
@@ -492,7 +606,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
               Deposit to Avora Vault
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Scan QR code or transfer to our institutional liquidity address
+              QR crypto payment session with automatic BNB Smart Chain confirmation
             </p>
           </div>
         </div>
@@ -508,7 +622,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         )}
 
         {/* ===================================================================== */}
-        {/* SUCCESS VIEW (POST-SUBMISSION) */}
+        {/* SUCCESS VIEW (BANK WIRE / CARDS) */}
         {/* ===================================================================== */}
         {successData ? (
           <div className="space-y-5 py-4 animate-in zoom-in-95">
@@ -518,17 +632,22 @@ export const DepositModal: React.FC<DepositModalProps> = ({
 
             <div className="text-center space-y-1">
               <h4 className="text-xl font-black text-slate-900 dark:text-white">
-                Deposit Submitted Successfully
+                Deposit Request Submitted
               </h4>
               <p className="text-xs text-slate-500">
-                Reference Code: <span className="font-mono font-bold text-emerald-600">{successData.depositCode}</span>
+                Reference Code:{' '}
+                <span className="font-mono font-bold text-emerald-600">
+                  {successData.depositCode}
+                </span>
               </p>
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500">Amount:</span>
-                <span className="font-mono font-bold text-slate-900 dark:text-white">{successData.amount} {successData.currency}</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white">
+                  {successData.amount} {successData.currency}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Deposit Rail:</span>
@@ -537,69 +656,19 @@ export const DepositModal: React.FC<DepositModalProps> = ({
               <div className="flex justify-between">
                 <span className="text-slate-500">Status:</span>
                 <span className="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300">
-                  {successData.status || 'PENDING_VERIFICATION'}
+                  {successData.status || 'PENDING'}
                 </span>
               </div>
-              {successData.txHashOrRef && (() => {
-                const explorer = getExplorerInfo(successData.txHashOrRef, successData.currency, successData.depositMethod);
-                return (
-                  <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-800">
-                    <span className="text-slate-500">Tx Hash / Explorer:</span>
-                    {explorer?.isCrypto ? (
-                      <a
-                        href={explorer.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-all cursor-pointer shadow-sm group"
-                      >
-                        <span>{explorer.shortHash}</span>
-                        <span className="text-[9px] uppercase font-sans font-extrabold px-1 py-0.5 rounded bg-amber-500/20">
-                          {explorer.name}
-                        </span>
-                        <ExternalLink className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-                      </a>
-                    ) : (
-                      <span className="font-mono text-[11px] truncate max-w-[200px] text-slate-700 dark:text-slate-300">
-                        {successData.txHashOrRef}
-                      </span>
-                    )}
-                  </div>
-                );
-              })()}
-              {successData.proofUrl && (
-                <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-800">
-                  <span className="text-slate-500">Explorer Proof:</span>
-                  <a
-                    href={successData.proofUrl.startsWith('http') ? successData.proofUrl : `https://${successData.proofUrl}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all cursor-pointer shadow-sm group truncate max-w-[220px]"
-                  >
-                    <span className="truncate">View On BscScan</span>
-                    <ExternalLink className="w-3 h-3 shrink-0 group-hover:translate-x-0.5 transition-transform" />
-                  </a>
-                </div>
-              )}
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
-              <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
-              <p>
-                Our treasury desk has logged this transaction. Once confirmed on-chain, your internal ledger balance will be credited automatically.
-              </p>
             </div>
 
             <button
               onClick={handleResetModal}
               className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 transition-all cursor-pointer"
             >
-              Done & Return to Dashboard
+              Done &amp; Return to Dashboard
             </button>
           </div>
         ) : (
-          /* ===================================================================== */
-          /* DEPOSIT FLOW */
-          /* ===================================================================== */
           <div className="space-y-5">
             {/* Asset / Rail Toggle */}
             <div className="grid grid-cols-3 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 gap-1 border border-slate-200 dark:border-slate-700">
@@ -613,7 +682,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                 }`}
               >
                 <Coins className="w-3.5 h-3.5 shrink-0" />
-                <span>USDT</span>
+                <span>USDT (BEP-20)</span>
               </button>
               <button
                 type="button"
@@ -641,7 +710,6 @@ export const DepositModal: React.FC<DepositModalProps> = ({
               </button>
             </div>
 
-            {/* Error Banner */}
             {errorMsg && (
               <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-500/20 text-xs text-rose-700 dark:text-rose-300 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -650,295 +718,539 @@ export const DepositModal: React.FC<DepositModalProps> = ({
             )}
 
             {selectedRail === 'USDT' ? (
-              /* ================= USDT CRYPTO DEPOSIT WITH QR CODE ================= */
+              /* ================================================================= */
+              /* USDT (BSC / BEP-20) QR PAYMENT SESSION & AUTO-CONFIRMATION FLOW   */
+              /* ================================================================= */
               <div className="space-y-4">
-                
-                {/* Network Selection - BEP20 BNB Smart Chain Only (TRON & Ethereum hidden to eliminate high gas fees) */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Deposit Network
-                    </label>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                      Recommended • Lowest Network Fees (&lt; $0.15)
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 rounded-2xl border-2 border-emerald-500/60 bg-emerald-50/80 dark:bg-emerald-950/40 flex items-center justify-between shadow-sm">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-amber-400/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black text-xs font-mono border border-amber-500/30">
-                        BSC
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs text-slate-900 dark:text-white">BEP-20 (BNB Smart Chain)</span>
-                          <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                            Active
-                          </span>
-                          <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400">
-                            Trust Wallet
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          Instant EVM finality • Compatible with Binance, Trust Wallet, MetaMask &amp; OKX
-                        </p>
-                      </div>
+                {/* Network Header */}
+                <div className="p-3.5 rounded-2xl border-2 border-emerald-500/60 bg-emerald-50/80 dark:bg-emerald-950/40 flex items-center justify-between shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-amber-400/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black text-xs font-mono border border-amber-500/30">
+                      BSC
                     </div>
-                    <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
-                      ~0.05s / block
-                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-900 dark:text-white">
+                          BEP-20 (BNB Smart Chain)
+                        </span>
+                        <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                          Auto-Monitor
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Asset: USDT • Automatic Blockchain Detection &amp; Balance Credit
+                      </p>
+                    </div>
                   </div>
+                  <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                    {bep20Config.confirmationBlocks} Confirmations
+                  </span>
                 </div>
 
-                {/* SCANNABLE QR CODE & DEPOSIT ADDRESS BOX */}
-                <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-4 text-center">
-                  
-                  {/* QR Code Presentation */}
-                  <div className="inline-block p-3 rounded-2xl bg-white shadow-md border border-slate-200/80 relative group">
-                    {qrCodeUrl ? (
-                      <img
-                        src={qrCodeUrl}
-                        alt={`Avora USDT ${activeConfig.network} Deposit QR Code`}
-                        className="w-48 h-48 sm:w-52 sm:h-52 object-contain mx-auto rounded-lg"
-                      />
-                    ) : (
-                      <div className="w-48 h-48 sm:w-52 sm:h-52 flex flex-col items-center justify-center text-slate-400 text-xs space-y-2">
-                        <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
-                        <span>Generating QR Code...</span>
-                      </div>
-                    )}
-                    
-                    <div className="text-[10px] text-slate-500 font-mono font-semibold pt-1">
-                      Scan via Binance / Trust / OKX / MetaMask / SafePal
-                    </div>
-                  </div>
-
-                  {/* Address Display & 1-Click Copy */}
-                  <div className="space-y-1.5 text-left">
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                      <span className="font-semibold">Official Avora Custody Address ({activeConfig.chain})</span>
-                      <a
-                        href={activeConfig.explorerUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1 font-bold text-[10px]"
-                      >
-                        <span>Verify on Explorer</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-
-                    <div className="flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-inner">
-                      <span className="font-mono text-xs text-slate-900 dark:text-white break-all flex-1 select-all font-semibold">
-                        {currentAddress}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(currentAddress, 'address')}
-                        className="px-3 py-1.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white shrink-0 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                      >
-                        {copiedAddress ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-300" />
-                            <span>Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>Copy</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Trust Wallet Integration Banner */}
-                  {(selectedNetwork === 'BEP20' || selectedNetwork === 'ERC20') && (
-                    <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-500/25 text-left space-y-2">
+                {!cryptoSession ? (
+                  /* STEP 1: CREATE DEPOSIT REQUEST SESSION */
+                  <form onSubmit={handleCreateCryptoSession} className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm font-bold text-xs">
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                          </div>
-                          <div>
-                            <span className="text-xs font-bold text-blue-900 dark:text-blue-200">
-                              Paying with Trust Wallet?
-                            </span>
-                            <span className="block text-[10px] text-blue-700/80 dark:text-blue-300/80">
-                              Fast EVM settlement on {activeConfig.chain}
-                            </span>
-                          </div>
-                        </div>
-                        <a
-                          href={`https://link.trustwallet.com/send?address=${currentAddress}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-3 py-1.5 rounded-xl font-bold text-[11px] bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 shadow-sm transition-all cursor-pointer"
-                        >
-                          <span>Open in Trust Wallet</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </div>
-                      <div className="text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed bg-blue-100/60 dark:bg-blue-900/40 p-2.5 rounded-xl space-y-1">
-                        <div>
-                          <strong>Important in Trust Wallet:</strong> Tap the <strong>Send (↗)</strong> button on the top-left of Trust Wallet (do <em>not</em> tap Swap ⇄).
-                        </div>
-                        <div>
-                          Select <strong>USDT</strong> &gt; tap the <strong>[ — ]</strong> QR scanner in the top right &gt; scan this QR code. Trust Wallet will automatically populate the receiver address (<code className="font-mono text-[10px] bg-blue-200/60 dark:bg-blue-800/60 px-1 py-0.5 rounded">{currentAddress.slice(0, 8)}...{currentAddress.slice(-6)}</code>). Enter your deposit amount and confirm.
+                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                          1. Enter USDT Deposit Amount
+                        </label>
+                        <div className="flex items-center gap-1">
+                          {['100', '500', '1000', '5000'].map((val) => (
+                            <button
+                              key={val}
+                              type="button"
+                              onClick={() => setDepositAmount(val)}
+                              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-600 transition-colors cursor-pointer"
+                            >
+                              {Number(val).toLocaleString()} USDT
+                            </button>
+                          ))}
                         </div>
                       </div>
-                    </div>
-                  )}
 
-                  {/* Network Warning Pill */}
-                  <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-500/20 text-left flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-200">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div className="space-y-0.5 leading-relaxed text-[11px]">
-                      <span className="font-bold">Network Match Required: </span>
-                      Send only <strong className="font-bold">USDT via {activeConfig.network}</strong>. Sending any other asset or via another chain (e.g. sending via Solana or Polygon to this address) will result in permanent loss.
-                      <div className="text-[10px] text-amber-700/80 dark:text-amber-300/80 pt-0.5">
-                        Minimum deposit: <strong>{activeConfig.minDeposit} USDT</strong> • Confirmation: <strong>{activeConfig.confirmationBlocks} block(s)</strong>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={bep20Config.minDeposit}
+                          required
+                          value={depositAmount}
+                          onChange={(e) => setDepositAmount(e.target.value)}
+                          placeholder="1000"
+                          className="w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-lg font-black outline-none focus:border-emerald-500"
+                        />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                          USDT (BEP-20)
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                          Sending Wallet Address (Optional — speeds up instant matching)
+                        </label>
+                        <input
+                          type="text"
+                          value={senderWalletHint}
+                          onChange={(e) => setSenderWalletHint(e.target.value)}
+                          placeholder="Optional: 0x... (your sending BSC wallet address)"
+                          className="w-full px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 pt-1 text-[11px]">
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">Token</span>
+                          <span className="font-bold text-slate-900 dark:text-white">USDT</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">Network</span>
+                          <span className="font-bold text-slate-900 dark:text-white">BSC / BEP-20</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">Session Timer</span>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400">15:00 Mins</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
 
-                {/* FORM: AMOUNT & TX HASH INPUT */}
-                <form onSubmit={handleSubmit} className="space-y-3.5 pt-1">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        Amount to Deposit (USDT)
-                      </label>
-                      <div className="flex items-center gap-1">
-                        {['500', '1000', '5000', '10000'].map((val) => (
-                          <button
-                            key={val}
-                            type="button"
-                            onClick={() => handleQuickAmount(val)}
-                            className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-600 transition-colors cursor-pointer"
-                          >
-                            +${Number(val).toLocaleString()}
-                          </button>
-                        ))}
+                    <button
+                      type="submit"
+                      disabled={creatingSession || !depositAmount}
+                      className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {creatingSession ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Creating Secure Payment Session...</span>
+                        </>
+                      ) : (
+                        <>
+                          <QrCode className="w-4 h-4" />
+                          <span>Generate Payment QR &amp; Start Blockchain Monitor</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                ) : (
+                  /* STEP 2–6: ACTIVE QR SESSION, COUNTDOWN TIMER & AUTOMATIC BLOCKCHAIN DETECTION */
+                  <div className="space-y-4 animate-in fade-in duration-200">
+                    {/* Session Reference & Countdown Bar */}
+                    <div className="p-3.5 rounded-2xl bg-slate-900 text-white border border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono text-[11px] font-bold">
+                          {cryptoSession.depositCode}
+                        </span>
+                        <span className="text-xs text-slate-300 font-semibold">
+                          Pay Exactly:{' '}
+                          <strong className="font-mono text-white">
+                            {cryptoSession.expectedAmount} USDT
+                          </strong>
+                        </span>
                       </div>
-                    </div>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        step="0.01"
-                        min={activeConfig.minDeposit}
-                        required
-                        value={depositAmount}
-                        onChange={(e) => setDepositAmount(e.target.value)}
-                        placeholder="1000"
-                        className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-base font-bold outline-none focus:border-emerald-500"
-                      />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono font-bold text-xs text-slate-400">
-                        USDT
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* FIELD 1: Blockchain Transaction Hash */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        Blockchain Transaction Hash (TxID) <span className="text-rose-500">*</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            const txt = await navigator.clipboard.readText();
-                            if (txt) handleTxHashChange(txt);
-                          } catch (e) {}
-                        }}
-                        className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
-                      >
-                        <Clipboard className="w-3 h-3" />
-                        <span>Paste</span>
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. 0x5d9f0b83c4e... or paste from your wallet"
-                      value={txHash}
-                      onChange={(e) => handleTxHashChange(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500 font-bold"
-                    />
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      The transaction hash (TxID) generated by your wallet after sending USDT.
-                    </p>
-                  </div>
-
-                  {/* FIELD 2: Blockchain Explorer Proof Link */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                        <ExternalLink className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>Explorer Proof Link (BscScan URL) <span className="text-rose-500">*</span></span>
-                      </label>
-                      {proofUrl && (
-                        <a
-                          href={proofUrl.startsWith('http') ? proofUrl : `https://${proofUrl}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          <span>Test / Open Proof</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
+                      {currentStage === 'CONFIRMED' ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Payment Confirmed ✓</span>
+                        </span>
+                      ) : isExpiredStage ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-bold">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Session Expired</span>
+                        </span>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold">
+                          <Clock className="w-3.5 h-3.5 animate-pulse" />
+                          <span>Payment expires in {formatTimer(remainingSeconds)}</span>
+                        </div>
                       )}
                     </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="url"
-                        required
-                        placeholder="e.g. https://bscscan.com/tx/0x... or https://bscscan.com/address/0x..."
-                        value={proofUrl}
-                        onChange={(e) => handleProofUrlChange(e.target.value)}
-                        className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (txHash.trim()) {
-                            handleProofUrlChange(`https://bscscan.com/tx/${txHash.trim()}`);
-                          }
-                        }}
-                        disabled={!txHash.trim()}
-                        title="Auto-generate BscScan link from Transaction Hash"
-                        className="px-3 py-2 rounded-xl text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 shrink-0 disabled:opacity-40 transition-all cursor-pointer whitespace-nowrap"
-                      >
-                        Auto BscScan
-                      </button>
+
+                    {/* 5-Stage Blockchain Lifecycle Progress Tracker */}
+                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="text-slate-500 uppercase tracking-wider text-[10px]">
+                          Live BSC Blockchain Status
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                          <Radio className="w-3.5 h-3.5 animate-pulse" />
+                          <span>
+                            {currentStage === 'CONFIRMED'
+                              ? 'Confirmed & Balance Credited'
+                              : currentStage === 'CONFIRMING'
+                              ? `Confirming (${cryptoSession.confirmations}/${cryptoSession.requiredConfirmations} Blocks)`
+                              : currentStage === 'PAYMENT_DETECTED'
+                              ? 'Payment Detected on BSC'
+                              : currentStage === 'LATE_PAYMENT'
+                              ? 'Late Payment Detected — Admin Review'
+                              : currentStage === 'MANUAL_REVIEW'
+                              ? 'Detected — Queued for Manual Review'
+                              : isExpiredStage
+                              ? 'Expired — Monitoring for Late Arrival'
+                              : 'Monitoring BNB Smart Chain...'}
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-5 gap-1.5 text-center text-[10px] font-bold">
+                        {[
+                          { step: 1, label: 'Awaiting Payment' },
+                          { step: 2, label: 'Payment Detected' },
+                          { step: 3, label: 'Confirming' },
+                          { step: 4, label: 'Confirmed' },
+                          { step: 5, label: 'Balance Credited' },
+                        ].map((item) => {
+                          const isCompleted = stageStepIndex >= item.step;
+                          const isCurrent =
+                            (item.step === 1 && stageStepIndex === 1) ||
+                            (item.step === 2 && stageStepIndex === 2) ||
+                            (item.step === 3 && stageStepIndex === 3) ||
+                            (item.step >= 4 && stageStepIndex === 5);
+                          return (
+                            <div
+                              key={item.step}
+                              className={`p-2 rounded-xl border transition-all ${
+                                isCompleted
+                                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                                  : isCurrent
+                                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-300'
+                                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400'
+                              }`}
+                            >
+                              <div className="truncate">{item.label}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      Paste the BscScan transaction URL or wallet address link as proof so treasury can validate and credit your balance quickly.
-                    </p>
-                  </div>
 
-                  <button
-                    type="submit"
-                    disabled={submitting || !depositAmount || !txHash.trim() || (!proofUrl.trim() && !txHash.trim().startsWith('0x'))}
-                    className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    {submitting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Registering Deposit with Treasury...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheck className="w-4 h-4" />
-                        <span>I Have Transferred • Submit Deposit</span>
-                      </>
+                    {/* CONFIRMED / DETECTED TRANSACTION RECEIPT CARD */}
+                    {currentStage === 'CONFIRMED' ? (
+                      <div className="p-5 rounded-3xl bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-500/50 space-y-4 text-center animate-in zoom-in-95">
+                        <div className="w-14 h-14 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/30">
+                          <CheckCircle2 className="w-8 h-8" />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                            Payment Detected • Payment Processing • Payment Confirmed ✓
+                          </div>
+                          <h4 className="text-2xl font-black font-mono text-slate-900 dark:text-white">
+                            {Number(
+                              cryptoSession.detectedAmount || cryptoSession.expectedAmount
+                            ).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}{' '}
+                            USDT received
+                          </h4>
+                          <p className="text-xs text-slate-600 dark:text-slate-300">
+                            Network: <strong>BNB Smart Chain (BEP-20)</strong> • Confirmations:{' '}
+                            <strong>
+                              {cryptoSession.confirmations}/{cryptoSession.requiredConfirmations}
+                            </strong>
+                          </p>
+                        </div>
+
+                        {cryptoSession.txHash && (
+                          <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-500/30 text-left space-y-2 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400 font-semibold">Transaction Hash:</span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(cryptoSession.txHash!, 'tx')}
+                                className="text-[11px] font-bold text-emerald-600 hover:underline flex items-center gap-1 cursor-pointer"
+                              >
+                                {copiedField === 'tx' ? (
+                                  <>
+                                    <Check className="w-3 h-3" /> Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" /> Copy Hash
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            <div className="font-mono text-[11px] break-all text-slate-800 dark:text-slate-200">
+                              {cryptoSession.txHash}
+                            </div>
+                            {cryptoSession.explorerUrl && (
+                              <a
+                                href={cryptoSession.explorerUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full mt-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
+                              >
+                                <span>View Transaction on BSCScan →</span>
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={handleResetModal}
+                          className="w-full py-3.5 rounded-2xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-white dark:text-slate-950 text-white cursor-pointer"
+                        >
+                          Done &amp; Return to Wallet
+                        </button>
+                      </div>
+                    ) : currentStage === 'PAYMENT_DETECTED' ||
+                      currentStage === 'CONFIRMING' ||
+                      currentStage === 'LATE_PAYMENT' ||
+                      currentStage === 'MANUAL_REVIEW' ? (
+                      <div className="p-5 rounded-3xl bg-amber-50 dark:bg-amber-950/30 border border-amber-500/40 space-y-3 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-black text-sm text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                            <span>
+                              {currentStage === 'LATE_PAYMENT'
+                                ? 'Late Payment Detected — Held for Admin Review'
+                                : currentStage === 'MANUAL_REVIEW'
+                                ? 'Payment Detected — Queued for Manual Review'
+                                : 'Payment Detected on BNB Smart Chain — Confirming Blocks...'}
+                            </span>
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full font-mono font-bold bg-amber-500/20 text-amber-800 dark:text-amber-200">
+                            {cryptoSession.confirmations} / {cryptoSession.requiredConfirmations}{' '}
+                            Blocks
+                          </span>
+                        </div>
+
+                        <div className="w-full h-2.5 rounded-full bg-amber-200/60 dark:bg-slate-800 overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-500 transition-all duration-500"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.round(
+                                  (cryptoSession.confirmations /
+                                    Math.max(1, cryptoSession.requiredConfirmations)) *
+                                    100
+                                )
+                              )}%`,
+                            }}
+                          />
+                        </div>
+
+                        {cryptoSession.txHash && (
+                          <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-amber-500/30 space-y-1.5">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold">
+                              Detected BSC Transaction
+                            </div>
+                            <div className="font-mono text-[11px] break-all text-slate-800 dark:text-slate-200">
+                              {cryptoSession.txHash}
+                            </div>
+                            {cryptoSession.explorerUrl && (
+                              <a
+                                href={cryptoSession.explorerUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold hover:underline pt-1"
+                              >
+                                <span>View Transaction on BSCScan →</span>
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {/* QR CODE & DESTINATION WALLET BOX (while awaiting payment or expired) */}
+                    {currentStage !== 'CONFIRMED' && (
+                      <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-4 text-center">
+                        {isExpiredStage ? (
+                          <div className="p-5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-500/30 space-y-3 text-center">
+                            <Clock className="w-8 h-8 text-rose-500 mx-auto" />
+                            <div className="space-y-1">
+                              <h4 className="text-sm font-black text-rose-800 dark:text-rose-200">
+                                Payment Session Expired (15:00)
+                              </h4>
+                              <p className="text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
+                                This 15-minute payment session has expired. If you already broadcast
+                                your USDT transaction just before expiry, our BSC monitor will still
+                                detect it automatically and mark it as a{' '}
+                                <strong>Late Payment / Manual Review</strong> for treasury
+                                processing.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setCryptoSession(null)}
+                              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                              <span>Create New 15-Minute QR Session</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setQrMode('ADDRESS')}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer border ${
+                                  qrMode === 'ADDRESS'
+                                    ? 'bg-emerald-600 text-white border-emerald-500'
+                                    : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'
+                                }`}
+                              >
+                                Universal Wallet QR
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setQrMode('EIP681')}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer border ${
+                                  qrMode === 'EIP681'
+                                    ? 'bg-emerald-600 text-white border-emerald-500'
+                                    : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'
+                                }`}
+                              >
+                                EIP-681 Amount QR ({cryptoSession.expectedAmount} USDT)
+                              </button>
+                            </div>
+
+                            <div className="inline-block p-3 rounded-2xl bg-white shadow-md border border-slate-200/80">
+                              {qrCodeUrl ? (
+                                <img
+                                  src={qrCodeUrl}
+                                  alt="USDT BEP-20 Payment QR Code"
+                                  className="w-48 h-48 sm:w-52 sm:h-52 object-contain mx-auto rounded-lg"
+                                />
+                              ) : (
+                                <div className="w-48 h-48 sm:w-52 sm:h-52 flex flex-col items-center justify-center text-slate-400 text-xs space-y-2">
+                                  <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+                                  <span>Generating Session QR...</span>
+                                </div>
+                              )}
+                              <div className="text-[10px] text-slate-500 font-mono font-semibold pt-1">
+                                Scan via Trust Wallet / Binance / MetaMask / OKX / SafePal
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Exact Amount & Destination Address */}
+                        <div className="space-y-2.5 text-left">
+                          <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                                Exact Amount to Send (BEP-20 USDT)
+                              </span>
+                              <span className="font-mono text-base font-black text-emerald-600 dark:text-emerald-400">
+                                {cryptoSession.expectedAmount} USDT
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(cryptoSession.expectedAmount, 'amount')}
+                              className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1 cursor-pointer"
+                            >
+                              {copiedField === 'amount' ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-500" /> Copied
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5" /> Copy Amount
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                              <span className="font-semibold">
+                                Destination Custody Address (BNB Smart Chain)
+                              </span>
+                              {cryptoSession.addressExplorerUrl && (
+                                <a
+                                  href={cryptoSession.addressExplorerUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1 font-bold text-[10px]"
+                                >
+                                  <span>Verify on BscScan</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 p-2.5 sm:p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-inner">
+                              <span className="font-mono text-xs text-slate-900 dark:text-white break-all flex-1 select-all font-semibold">
+                                {cryptoSession.destinationAddress}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleCopy(cryptoSession.destinationAddress, 'address')
+                                }
+                                className="px-3 py-1.5 rounded-xl font-bold text-xs bg-slate-900 hover:bg-black dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white shrink-0 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                              >
+                                {copiedField === 'address' ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-300" />
+                                    <span>Copied!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5" />
+                                    <span>Copy</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Optional Instant On-Chain Hash Lookup for Delayed Exchange Withdrawals */}
+                        <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 text-left">
+                          <button
+                            type="button"
+                            onClick={() => setShowManualLookup((prev) => !prev)}
+                            className="text-[11px] font-bold text-slate-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 cursor-pointer"
+                          >
+                            {showManualLookup
+                              ? '▾ Hide On-Chain Transaction Hash Lookup'
+                              : '▸ Sent from an exchange? Check your BSC transaction hash on-chain now'}
+                          </button>
+
+                          {showManualLookup && (
+                            <form
+                              onSubmit={handleVerifyOnChainTx}
+                              className="mt-2.5 flex flex-col sm:flex-row gap-2"
+                            >
+                              <input
+                                type="text"
+                                value={manualTxHash}
+                                onChange={(e) => setManualTxHash(e.target.value)}
+                                placeholder="Paste 0x... BSC transaction hash for instant RPC verification"
+                                className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                              />
+                              <button
+                                type="submit"
+                                disabled={verifyingOnChain || !manualTxHash.trim()}
+                                className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-emerald-600 text-white text-xs font-bold disabled:opacity-50 cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
+                              >
+                                {verifyingOnChain ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Checking BSC...</span>
+                                  </>
+                                ) : (
+                                  <span>Verify On-Chain</span>
+                                )}
+                              </button>
+                            </form>
+                          )}
+                        </div>
+                      </div>
                     )}
-                  </button>
-                </form>
-
+                  </div>
+                )}
               </div>
             ) : selectedRail === 'RAZORPAY' || (selectedRail as string) === 'CARDS' ? (
               /* ================= CARD CHECKOUT (5% COMMISSION) ================= */
@@ -962,118 +1274,22 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                       {razorpayConfig.commissionPercent.toFixed(1)}% Total Fee
                     </span>
                   </div>
-
-                  {/* Active Card Payment Rail (UPI and NetBanking removed as unsupported) */}
-                  <div className="p-3 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-blue-500/20 flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-                        <CreditCard className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900 dark:text-white">Credit &amp; Debit Cards</div>
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400">Visa • Mastercard • RuPay • Instant Settlement</div>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                      Active
-                    </span>
-                  </div>
                 </div>
 
-                {/* Amount Input */}
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Net Amount to Credit to Wallet (USD)
-                    </label>
-                    <div className="flex items-center gap-1">
-                      {['100', '500', '1000', '5000'].map((val) => (
-                        <button
-                          key={val}
-                          type="button"
-                          onClick={() => handleQuickAmount(val)}
-                          className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-blue-50 hover:text-blue-600 transition-colors cursor-pointer"
-                        >
-                          +${Number(val).toLocaleString()}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min={razorpayConfig.minDeposit}
-                      required
-                      value={depositAmount}
-                      onChange={(e) => setDepositAmount(e.target.value)}
-                      placeholder="1000"
-                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-base font-bold outline-none focus:border-blue-500"
-                    />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono font-bold text-xs text-slate-400">
-                      USD
-                    </span>
-                  </div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Net Amount to Credit to Wallet (USD)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={razorpayConfig.minDeposit}
+                    required
+                    value={depositAmount}
+                    onChange={(e) => setDepositAmount(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-base font-bold outline-none focus:border-blue-500"
+                  />
                 </div>
-
-                {/* Live 5% Commission Breakdown Box (3% Gateway + 2% Avora) */}
-                {(() => {
-                  const netVal = Math.max(0, parseFloat(depositAmount) || 0);
-                  const rzpFee = netVal * (razorpayConfig.gatewayFeePercent / 100);
-                  const avoraFee = netVal * (razorpayConfig.platformSpreadPercent / 100);
-                  const totalComm = rzpFee + avoraFee;
-                  const grossTotal = netVal + totalComm;
-                  return (
-                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
-                      <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                        <span>Net Credit to Avora Wallet:</span>
-                        <span className="font-mono font-bold text-slate-900 dark:text-white">
-                          ${netVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                        <span>Card Gateway Processing Fee ({razorpayConfig.gatewayFeePercent.toFixed(1)}%):</span>
-                        <span className="font-mono">
-                          +${rzpFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                        <span>Avora Bank Platform Commission ({razorpayConfig.platformSpreadPercent.toFixed(1)}%):</span>
-                        <span className="font-mono">
-                          +${avoraFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-amber-700 dark:text-amber-400 font-semibold pt-1 border-t border-slate-200/70 dark:border-slate-800">
-                        <span>Total Commission ({razorpayConfig.commissionPercent.toFixed(1)}%):</span>
-                        <span className="font-mono">
-                          +${totalComm.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-800 text-sm font-black text-slate-900 dark:text-white">
-                        <span>Total Payable via Card:</span>
-                        <span className="font-mono text-blue-600 dark:text-blue-400">
-                          ${grossTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Optional Card Reference input if paying via payment link or assisted mode */}
-                {!razorpayConfig.hasLiveKeys && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Card Payment Reference / Transaction ID (Optional for Instant Order)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. CARD_REF_9k28x or bank reference (auto-generated if blank)"
-                      value={txHash}
-                      onChange={(e) => setTxHash(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-blue-500"
-                    />
-                  </div>
-                )}
 
                 <button
                   type="submit"
@@ -1089,7 +1305,15 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                     <>
                       <CreditCard className="w-4 h-4" />
                       <span>
-                        Pay ${((parseFloat(depositAmount) || 0) * (1 + razorpayConfig.commissionPercent / 100)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD via Card
+                        Pay $
+                        {(
+                          (parseFloat(depositAmount) || 0) *
+                          (1 + razorpayConfig.commissionPercent / 100)
+                        ).toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}{' '}
+                        USD via Card
                       </span>
                     </>
                   )}
@@ -1098,96 +1322,59 @@ export const DepositModal: React.FC<DepositModalProps> = ({
             ) : (
               /* ================= BANK WIRE TRANSFER ================= */
               <div className="space-y-4">
-                {/* Currency Selection Pill: USD vs EUR */}
                 <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
                   <button
                     type="button"
                     onClick={() => setSelectedBankCurrency('USD')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
                       selectedBankCurrency === 'USD'
                         ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        : 'text-slate-600 dark:text-slate-400'
                     }`}
                   >
-                    <span>USD ($) Account</span>
+                    USD ($) Account
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedBankCurrency('EUR')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
                       selectedBankCurrency === 'EUR'
                         ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        : 'text-slate-600 dark:text-slate-400'
                     }`}
                   >
-                    <span>EUR (€) Account</span>
+                    EUR (€) Account
                   </button>
                 </div>
 
-                <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                    <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold">
-                      <Building2 className="w-4 h-4 text-emerald-500" />
-                      <span>Avora Bank Official Wire Account</span>
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
-                      {selectedBankCurrency === 'USD' ? 'USD Dollars' : 'Euro (SEPA/SWIFT)'}
+                <div className="p-4 sm:p-5 rounded-3xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">Beneficiary Name</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      {bankWire.beneficiary || 'Avora Bank'}
                     </span>
                   </div>
-
-                  <div className="space-y-2">
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">Beneficiary Name</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">{bankWire.beneficiary || 'Avora Bank'}</span>
-                    </div>
-
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">Bank Name</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">{bankWire.bankName || 'Avora Bank (Bank of Georgia)'}</span>
-                    </div>
-
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">Account Number / IBAN</span>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="font-mono font-bold text-slate-900 dark:text-white select-all">
-                          {selectedBankCurrency === 'EUR'
-                            ? (bankWire as any).eur?.iban || 'GE71BG0000000613184450'
-                            : (bankWire as any).usd?.iban || bankWire.iban || 'GE51BG0000000613125640'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleCopy(
-                              selectedBankCurrency === 'EUR'
-                                ? (bankWire as any).eur?.iban || 'GE71BG0000000613184450'
-                                : (bankWire as any).usd?.iban || bankWire.iban || 'GE51BG0000000613125640',
-                              'iban'
-                            )
-                          }
-                          className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer"
-                          title="Copy IBAN"
-                        >
-                          {copiedIban ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="text-slate-400 text-[10px] block">Currency</span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200">
-                          {selectedBankCurrency === 'USD' ? 'USD (Dollars)' : 'EUR (Euro)'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 text-[10px] block">SWIFT / BIC Code</span>
-                        <span className="font-mono font-bold text-slate-900 dark:text-white">{bankWire.swift || 'BAGAGE22'}</span>
-                      </div>
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">Bank Name</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      {bankWire.bankName || 'Avora Bank (Bank of Georgia)'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">Account Number / IBAN</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="font-mono font-bold text-slate-900 dark:text-white select-all">
+                        {selectedBankCurrency === 'EUR'
+                          ? (bankWire as any).eur?.iban || 'GE71BG0000000613184450'
+                          : (bankWire as any).usd?.iban ||
+                            bankWire.iban ||
+                            'GE51BG0000000613125640'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-3.5">
+                <form onSubmit={handleBankWireSubmit} className="space-y-3.5">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                       Wire Amount ({selectedBankCurrency})
@@ -1199,63 +1386,35 @@ export const DepositModal: React.FC<DepositModalProps> = ({
                       required
                       value={depositAmount}
                       onChange={(e) => setDepositAmount(e.target.value)}
-                      placeholder="5000"
                       className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-base font-bold outline-none"
                     />
                   </div>
-
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Bank Transfer Reference / UTR Number <span className="text-rose-500">*</span>
+                      Bank Transfer Reference / UTR Number
                     </label>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. UTR-98241029 or Wire Ref"
-                      value={txHash}
-                      onChange={(e) => setTxHash(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500"
+                      value={wireRef}
+                      onChange={(e) => setWireRef(e.target.value)}
+                      placeholder="e.g. UTR-98241029 or SWIFT Wire Ref"
+                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none"
                     />
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Payment Proof Link / Receipt URL (Optional)
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="e.g. https://drive.google.com/... or Receipt Screenshot URL"
-                      value={proofUrl}
-                      onChange={(e) => setProofUrl(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
                   <button
                     type="submit"
-                    disabled={submitting || !depositAmount || !txHash.trim()}
+                    disabled={submitting || !depositAmount || !wireRef.trim()}
                     className="w-full py-3.5 rounded-2xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    {submitting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Submitting Wire Notification...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheck className="w-4 h-4" />
-                        <span>Submit Wire Notification</span>
-                      </>
-                    )}
+                    {submitting ? 'Submitting...' : 'Submit Wire Notification'}
                   </button>
                 </form>
               </div>
             )}
           </div>
         )}
-
       </div>
     </div>
   );
 };
-

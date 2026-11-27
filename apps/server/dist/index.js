@@ -17,6 +17,7 @@ const error_1 = require("./middleware/error");
 const returns_job_1 = require("./services/returns.job");
 const p2p_service_1 = require("./services/p2p.service");
 const compliancePolicy_service_1 = require("./services/compliancePolicy.service");
+const bscDepositMonitor_service_1 = require("./services/bscDepositMonitor.service");
 const storage_service_1 = require("./services/storage.service");
 const prisma_1 = require("./lib/prisma");
 const app = (0, express_1.default)();
@@ -253,6 +254,10 @@ if (process.env.NODE_ENV !== 'test' && (process.env.PORT || !isServerless)) {
             p2p_service_1.p2pService.ensureP2PReady().catch(() => { });
             (0, storage_service_1.ensureUploadedAssetTable)().catch(() => { });
             compliancePolicy_service_1.compliancePolicyService.ensureComplianceSchema().catch(() => { });
+            bscDepositMonitor_service_1.bscDepositMonitorService
+                .ensureDepositSchema()
+                .then(() => bscDepositMonitor_service_1.bscDepositMonitorService.startBackgroundMonitor(10_000))
+                .catch(() => { });
             // Register automated financial background cron jobs
             returns_job_1.returnsJobService.startScheduler();
         });

@@ -1647,7 +1647,24 @@ export default function AdminPortalPage() {
     const q = depSearch.trim().toLowerCase();
 
     const filtered = list.filter((dep) => {
-      if (depStatusFilter !== 'ALL' && dep.status !== depStatusFilter) return false;
+      if (depStatusFilter !== 'ALL') {
+        const effTrack =
+          dep.trackingStatus ||
+          (dep.status === 'APPROVED'
+            ? 'CONFIRMED'
+            : dep.status === 'REJECTED'
+            ? 'REJECTED'
+            : 'AWAITING_PAYMENT');
+        if (depStatusFilter === 'CONFIRMED') {
+          if (dep.status !== 'APPROVED' && effTrack !== 'CONFIRMED') return false;
+        } else if (depStatusFilter === 'REJECTED' || depStatusFilter === 'FAILED') {
+          if (dep.status !== 'REJECTED' && effTrack !== 'REJECTED' && effTrack !== 'FAILED') return false;
+        } else if (depStatusFilter === 'PENDING') {
+          if (dep.status !== 'PENDING') return false;
+        } else {
+          if (effTrack !== depStatusFilter) return false;
+        }
+      }
 
       const method = (dep.depositMethod || '').toUpperCase();
       const currency = (dep.currency || '').toUpperCase();
@@ -5834,15 +5851,32 @@ export default function AdminPortalPage() {
                                   </button>
                                 )}
 
-                                {pkg.status === 'ACTIVE' && (
-                                  <button
-                                    onClick={() => handleSettleFullPackage(pkg.id, pkg.packageCode)}
-                                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/90 text-white font-bold text-[11px] border border-slate-700 hover:border-rose-500 transition-all cursor-pointer whitespace-nowrap"
-                                    title="Process Full Settlement: Calculates all remaining monthly returns and releases the principal together"
-                                  >
-                                    Settle Full (Returns + Principal)
-                                  </button>
-                                )}
+                                {pkg.status === 'ACTIVE' && (() => {
+                                  const isFdRedeemable =
+                                    Boolean(pkg.isRedeemable) ||
+                                    (pkg.daysRemaining !== null &&
+                                      pkg.daysRemaining !== undefined &&
+                                      pkg.daysRemaining <= 0);
+                                  const lockUntilStr = pkg.eligibleRedemptionDate || pkg.lockInEnd
+                                    ? new Date(pkg.eligibleRedemptionDate || pkg.lockInEnd).toISOString().split('T')[0]
+                                    : 'Maturity';
+                                  return isFdRedeemable ? (
+                                    <button
+                                      onClick={() => handleSettleFullPackage(pkg.id, pkg.packageCode)}
+                                      className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] border border-emerald-400/50 transition-all cursor-pointer whitespace-nowrap"
+                                      title="Matured FD: Process Full Redemption (Remaining Returns + Principal Release)"
+                                    >
+                                      Redeem Matured FD (Returns + Principal)
+                                    </button>
+                                  ) : (
+                                    <span
+                                      className="px-2.5 py-1.5 rounded-lg bg-slate-900/90 text-slate-400 font-mono font-bold text-[10px] border border-slate-800 whitespace-nowrap cursor-not-allowed"
+                                      title={`Redemption Not Available: This FD has not reached its eligible redemption date yet (${lockUntilStr}).`}
+                                    >
+                                      🔒 LOCKED — Redemption unavailable until {lockUntilStr}
+                                    </span>
+                                  );
+                                })()}
 
                                 {isSettled && (
                                   <span className="text-[11px] text-slate-500 font-semibold whitespace-nowrap">
@@ -6405,18 +6439,35 @@ export default function AdminPortalPage() {
                           </button>
                         )}
 
-                        {fd.status === 'ACTIVE' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedFdInspect(null);
-                              handleSettleFullPackage(fd.id, fd.packageCode);
-                            }}
-                            className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs cursor-pointer"
-                          >
-                            Settle Full (Returns + Principal)
-                          </button>
-                        )}
+                        {fd.status === 'ACTIVE' && (() => {
+                          const isFdRedeemable =
+                            Boolean(fd.isRedeemable) ||
+                            (fd.daysRemaining !== null &&
+                              fd.daysRemaining !== undefined &&
+                              fd.daysRemaining <= 0);
+                          const lockUntilStr = fd.eligibleRedemptionDate || fd.lockInEnd
+                            ? new Date(fd.eligibleRedemptionDate || fd.lockInEnd).toISOString().split('T')[0]
+                            : 'Maturity';
+                          return isFdRedeemable ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedFdInspect(null);
+                                handleSettleFullPackage(fd.id, fd.packageCode);
+                              }}
+                              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs cursor-pointer"
+                            >
+                              Redeem Matured FD (Returns + Principal)
+                            </button>
+                          ) : (
+                            <span
+                              className="px-3.5 py-2 rounded-xl bg-slate-900 text-amber-300/90 border border-amber-500/30 font-mono font-bold text-xs cursor-not-allowed"
+                              title={`Redemption Not Available: This FD has not reached its eligible redemption date yet (${lockUntilStr}).`}
+                            >
+                              🔒 LOCKED — Redemption unavailable until {lockUntilStr}
+                            </span>
+                          );
+                        })()}
 
                         <button
                           type="button"
@@ -6499,6 +6550,24 @@ export default function AdminPortalPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2.5 flex-wrap">
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await api.post('/admin/deposits/scan-blockchain');
+                      if (res.data?.success) {
+                        setFeedback({ text: res.data.message || 'BSC blockchain scan completed', type: 'success' });
+                        loadData();
+                      }
+                    } catch (e: any) {
+                      setFeedback({ text: e.response?.data?.message || 'Failed to scan BSC blockchain', type: 'error' });
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  title="Scan BNB Smart Chain custody logs for incoming BEP-20 USDT transfers"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Scan BSC Blockchain</span>
+                </button>
                 <button
                   onClick={handleExportDepositsCsv}
                   className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-sm"
@@ -6704,16 +6773,21 @@ export default function AdminPortalPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Status</label>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Status / Stage</label>
                   <select
                     value={depStatusFilter}
                     onChange={(e) => setDepStatusFilter(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-semibold outline-none focus:border-rose-500"
                   >
-                    <option value="ALL">All Statuses</option>
-                    <option value="PENDING">PENDING</option>
-                    <option value="APPROVED">APPROVED</option>
-                    <option value="REJECTED">REJECTED</option>
+                    <option value="ALL">All Statuses &amp; Stages</option>
+                    <option value="AWAITING_PAYMENT">Awaiting Payment (Pending)</option>
+                    <option value="PAYMENT_DETECTED">Payment Detected</option>
+                    <option value="CONFIRMING">Confirming on BSC</option>
+                    <option value="CONFIRMED">Confirmed &amp; Credited</option>
+                    <option value="EXPIRED">Expired Sessions</option>
+                    <option value="LATE_PAYMENT">Late Payments</option>
+                    <option value="MANUAL_REVIEW">Manual Review</option>
+                    <option value="REJECTED">Failed / Rejected</option>
                   </select>
                 </div>
 
@@ -6820,19 +6894,59 @@ export default function AdminPortalPage() {
 
                           <span
                             className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                              dep.status === 'APPROVED'
+                              dep.status === 'APPROVED' || dep.trackingStatus === 'CONFIRMED'
                                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                : dep.status === 'REJECTED'
+                                : dep.status === 'REJECTED' || dep.trackingStatus === 'REJECTED' || dep.trackingStatus === 'FAILED'
                                 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                : dep.trackingStatus === 'LATE_PAYMENT' || dep.trackingStatus === 'MANUAL_REVIEW'
+                                ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                                : dep.trackingStatus === 'EXPIRED'
+                                ? 'bg-slate-800 text-slate-400 border border-slate-700'
                                 : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                             }`}
                           >
-                            {dep.status}
+                            {dep.trackingStatus || dep.status}
                           </span>
 
                           <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase bg-slate-800 text-slate-200 border border-slate-700">
-                            {dep.depositMethod || 'UNKNOWN'}
+                            {dep.network || dep.depositMethod || 'UNKNOWN'}
                           </span>
+
+                          {typeof dep.confirmations === 'number' && (
+                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
+                              Confirmations: {dep.confirmations}/{dep.requiredConfirmations || 12}
+                            </span>
+                          )}
+
+                          {dep.destinationAddress && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopyDepValue(`dest-${dep.id}`, dep.destinationAddress)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer"
+                              title={`Destination Custody Address: ${dep.destinationAddress}`}
+                            >
+                              <span>
+                                To: {dep.destinationAddress.slice(0, 6)}...{dep.destinationAddress.slice(-4)}
+                              </span>
+                              {copiedKey === `dest-${dep.id}` ? (
+                                <Check className="w-2.5 h-2.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-2.5 h-2.5 opacity-70" />
+                              )}
+                            </button>
+                          )}
+
+                          {(dep.explorerUrl || explorer?.isCrypto) && (
+                            <a
+                              href={dep.explorerUrl || explorer?.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25"
+                            >
+                              <span>View Transaction on BSCScan →</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
 
                           {dep.depositCode && (
                             <button
@@ -6860,6 +6974,30 @@ export default function AdminPortalPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           {dep.status === 'PENDING' ? (
                             <>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const customHash = window.prompt(
+                                    'Optional: Enter BSC Transaction Hash (0x...) to verify on-chain, or leave blank to scan custody logs:',
+                                    dep.txHashOrRef && dep.txHashOrRef.startsWith('0x') ? dep.txHashOrRef : ''
+                                  );
+                                  if (customHash === null) return;
+                                  try {
+                                    const res = await api.post(`/admin/deposits/${dep.id}/verify-onchain`, {
+                                      txHash: customHash.trim() || undefined,
+                                    });
+                                    if (res.data?.success) {
+                                      setFeedback({ text: res.data.message || 'On-chain verification completed', type: 'success' });
+                                      loadData();
+                                    }
+                                  } catch (err: any) {
+                                    setFeedback({ text: err.response?.data?.message || 'On-chain verification failed', type: 'error' });
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold text-xs border border-amber-500/30 transition-colors cursor-pointer"
+                              >
+                                Verify On-Chain
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleRejectDeposit(dep.id)}

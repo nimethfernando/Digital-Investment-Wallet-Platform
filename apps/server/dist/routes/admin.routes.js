@@ -44,6 +44,9 @@ router.post('/investments/listings/:id/distribute-exit', auth_1.requireAdmin2FA,
 router.get('/token-allocations', (req, res, next) => admin_controller_1.adminController.getTokenAllocations(req, res, next));
 // Deposit operations
 router.get('/deposits', (req, res, next) => admin_controller_1.adminController.getDeposits(req, res, next));
+router.post('/deposits/scan-blockchain', (req, res, next) => admin_controller_1.adminController.scanBscDeposits(req, res, next));
+router.post('/deposits/:id/verify-onchain', (req, res, next) => admin_controller_1.adminController.verifyDepositOnChain(req, res, next));
+router.patch('/deposits/:id/tracking-status', (req, res, next) => admin_controller_1.adminController.updateDepositTrackingStatus(req, res, next));
 router.post('/deposits/manual', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.createManualDeposit(req, res, next));
 router.post('/deposits/:id/approve', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.approveDeposit(req, res, next));
 router.post('/deposits/:id/reject', auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.rejectDeposit(req, res, next));

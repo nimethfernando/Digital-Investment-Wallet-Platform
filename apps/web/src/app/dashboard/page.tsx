@@ -3271,20 +3271,79 @@ function DashboardContent() {
                           </div>
                         </div>
 
-                        {/* Monthly dividend payout logs if present */}
-                        {pkg.returns && pkg.returns.length > 0 && (
+                        {/* Redemption Lock / Eligibility Status Banner */}
+                        <div
+                          className={`px-3 py-2 rounded-xl border text-[11px] font-bold flex items-center justify-between gap-2 ${
+                            pkg.isRedeemable
+                              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                              : pkg.status === 'MATURED' || pkg.status === 'SETTLED'
+                              ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300'
+                              : 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                          }`}
+                        >
+                          <span>
+                            {pkg.redemptionLockStatusLabel ||
+                              (pkg.lockInEnd
+                                ? `LOCKED — Redemption unavailable until ${new Date(pkg.lockInEnd).toLocaleDateString()}`
+                                : 'Active Lock-In')}
+                          </span>
+                        </div>
+
+                        {/* Complete Monthly Payout Schedule (Individual Scheduled Monthly Dates) */}
+                        {((pkg.payoutSchedule && pkg.payoutSchedule.length > 0) ||
+                          (pkg.returns && pkg.returns.length > 0)) && (
                           <div className="space-y-1.5 pt-1 text-[11px]">
                             <span className="font-bold text-slate-400 uppercase tracking-wider text-[10px] block">
-                              Payout History ({pkg.returns.length} Periods Paid)
+                              Monthly Payout Schedule ({pkg.returns ? pkg.returns.length : 0} / {pkg.lockInMonths || 6} Periods Paid)
                             </span>
-                            <div className="space-y-1 max-h-24 overflow-y-auto">
-                              {pkg.returns.map((r: any, idx: number) => {
-                                const dtRaw = r.payoutDate || r.paidAt;
-                                const amtVal = parseFloat(String(r.amount ?? r.returnAmount ?? '0'));
+                            <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                              {(pkg.payoutSchedule && pkg.payoutSchedule.length > 0
+                                ? pkg.payoutSchedule
+                                : pkg.returns
+                              ).map((item: any, idx: number) => {
+                                const periodNum = item.periodNumber ?? item.periodIndex ?? idx + 1;
+                                const schedRaw = item.scheduledPayoutDate || item.payoutDate || item.paidAt;
+                                const isPaid = item.payoutStatus === 'PAID' || item.status === 'CREDITED';
+                                const isDue = item.payoutStatus === 'DUE';
+                                const amtVal = parseFloat(
+                                  String(
+                                    item.actualPayoutAmount ??
+                                      item.expectedPayoutAmount ??
+                                      item.amount ??
+                                      item.returnAmount ??
+                                      pkg.projectedMonthly ??
+                                      '0'
+                                  )
+                                );
                                 return (
-                                  <div key={idx} className="flex justify-between text-slate-500 font-mono text-[10px]">
-                                    <span>Period #{r.periodIndex} ({dtRaw ? new Date(dtRaw).toLocaleDateString() : 'Credited'}):</span>
-                                    <span className="text-emerald-600 font-bold">+${Number.isFinite(amtVal) ? amtVal.toFixed(2) : '0.00'}</span>
+                                  <div
+                                    key={idx}
+                                    className="flex items-center justify-between text-slate-600 dark:text-slate-300 font-mono text-[10px] py-0.5 border-b border-slate-100 dark:border-slate-800/60 last:border-0"
+                                  >
+                                    <span>
+                                      Period {periodNum} —{' '}
+                                      {schedRaw
+                                        ? new Date(schedRaw).toLocaleDateString('en-GB', {
+                                            day: '2-digit',
+                                            month: 'short',
+                                            year: 'numeric',
+                                          })
+                                        : 'Scheduled'}
+                                    </span>
+                                    <span
+                                      className={`font-bold ${
+                                        isPaid
+                                          ? 'text-emerald-600 dark:text-emerald-400'
+                                          : isDue
+                                          ? 'text-amber-600 dark:text-amber-400'
+                                          : 'text-slate-400'
+                                      }`}
+                                    >
+                                      +${Number.isFinite(amtVal) ? amtVal.toFixed(2) : '0.00'}{' '}
+                                      <span className="text-[9px] uppercase">
+                                        ({isPaid ? 'PAID' : isDue ? 'DUE' : 'SCHEDULED'})
+                                      </span>
+                                    </span>
                                   </div>
                                 );
                               })}
@@ -6874,16 +6933,86 @@ function DashboardContent() {
                 </span>
               </div>
             </div>
-            {selectedFdDetail.returns && selectedFdDetail.returns.length > 0 && (
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 max-h-44 overflow-y-auto text-xs">
-                <span className="text-[10px] font-bold uppercase text-slate-400 block">Monthly Payout Schedule</span>
-                {selectedFdDetail.returns.map((r: any, i: number) => {
-                  const dtRaw = r.payoutDate || r.paidAt;
-                  const amtVal = parseFloat(String(r.amount ?? r.returnAmount ?? '0'));
+            {/* Principal Redemption Lock Status */}
+            <div
+              className={`p-3 rounded-2xl border text-xs font-bold ${
+                selectedFdDetail.isRedeemable
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+              }`}
+            >
+              {selectedFdDetail.redemptionLockStatusLabel ||
+                (selectedFdDetail.lockInEnd
+                  ? `LOCKED — Redemption unavailable until ${new Date(selectedFdDetail.lockInEnd).toLocaleDateString()}`
+                  : 'Principal locked until maturity')}
+            </div>
+
+            {((selectedFdDetail.payoutSchedule && selectedFdDetail.payoutSchedule.length > 0) ||
+              (selectedFdDetail.returns && selectedFdDetail.returns.length > 0)) && (
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 max-h-56 overflow-y-auto text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                    Monthly Payout Schedule ({selectedFdDetail.lockInMonths || 6} Periods)
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    Paid: {selectedFdDetail.returns?.length || 0} / {selectedFdDetail.lockInMonths || 6}
+                  </span>
+                </div>
+                {(selectedFdDetail.payoutSchedule && selectedFdDetail.payoutSchedule.length > 0
+                  ? selectedFdDetail.payoutSchedule
+                  : selectedFdDetail.returns
+                ).map((r: any, i: number) => {
+                  const periodNum = r.periodNumber ?? r.periodIndex ?? i + 1;
+                  const schedRaw = r.scheduledPayoutDate || r.payoutDate || r.paidAt;
+                  const isPaid = r.payoutStatus === 'PAID' || r.status === 'CREDITED';
+                  const isDue = r.payoutStatus === 'DUE';
+                  const amtVal = parseFloat(
+                    String(
+                      r.actualPayoutAmount ??
+                        r.expectedPayoutAmount ??
+                        r.amount ??
+                        r.returnAmount ??
+                        selectedFdDetail.projectedMonthly ??
+                        '0'
+                    )
+                  );
                   return (
-                    <div key={i} className="flex justify-between font-mono text-[11px] text-slate-600 dark:text-slate-300">
-                      <span>Period #{r.periodIndex} • {dtRaw ? new Date(dtRaw).toLocaleDateString() : 'Credited'}</span>
-                      <span className="font-bold text-emerald-600">+${Number.isFinite(amtVal) ? amtVal.toFixed(2) : '0.00'} USD ({r.status})</span>
+                    <div
+                      key={i}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 py-1.5 border-b border-slate-200/70 dark:border-slate-800/70 last:border-0 font-mono text-[11px] text-slate-600 dark:text-slate-300"
+                    >
+                      <div>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          Period {periodNum}
+                        </span>{' '}
+                        —{' '}
+                        <span>
+                          {schedRaw
+                            ? new Date(schedRaw).toLocaleDateString('en-GB', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })
+                            : 'Scheduled'}
+                        </span>
+                        {r.transactionReference && (
+                          <span className="block text-[9px] text-slate-400">
+                            Ref: {r.transactionReference}
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        className={`font-bold ${
+                          isPaid
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : isDue
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-slate-400'
+                        }`}
+                      >
+                        +${Number.isFinite(amtVal) ? amtVal.toFixed(2) : '0.00'} USD (
+                        {isPaid ? 'PAID' : isDue ? 'DUE NOW' : 'SCHEDULED'})
+                      </span>
                     </div>
                   );
                 })}

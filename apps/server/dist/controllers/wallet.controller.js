@@ -9,6 +9,7 @@ const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("../services/ledger.service");
 const deposit_service_1 = require("../services/deposit.service");
+const bscDepositMonitor_service_1 = require("../services/bscDepositMonitor.service");
 const card_service_1 = require("../services/card.service");
 const package_service_1 = require("../services/package.service");
 const p2p_service_1 = require("../services/p2p.service");
@@ -157,6 +158,82 @@ class WalletController {
         try {
             const instructions = await deposit_service_1.depositService.getDepositInstructions();
             res.json({ success: true, data: instructions });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Create a QR Crypto Deposit Session (USDT on BSC / BEP-20) with 15-minute server countdown
+     * and automatic blockchain monitoring
+     */
+    async createCryptoDepositSession(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const { amount, currency, network, intendedPackageCode, senderAddress } = req.body;
+            if (!amount || isNaN(parseFloat(String(amount))) || parseFloat(String(amount)) <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'A valid positive deposit amount is required',
+                });
+            }
+            const session = await bscDepositMonitor_service_1.bscDepositMonitorService.createCryptoDepositSession(userId, {
+                amount,
+                currency: currency || 'USDT',
+                network: network || 'BSC_BEP20',
+                intendedPackageCode,
+                senderAddress,
+            });
+            res.status(201).json({
+                success: true,
+                message: 'Crypto QR payment session created. Monitoring BNB Smart Chain for incoming transfer.',
+                data: session,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Poll live blockchain status & server-controlled countdown for a Crypto Deposit Session
+     */
+    async getCryptoDepositSessionStatus(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const role = req.user.role;
+            const sessionId = String(req.params.id);
+            const session = await bscDepositMonitor_service_1.bscDepositMonitorService.getDepositSessionStatus(userId, sessionId, role === 'ADMIN' || role === 'STAFF');
+            res.json({
+                success: true,
+                data: session,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Server-side on-chain verification of a specific BSC transaction hash for a deposit session
+     * (Never trusts frontend status — queries BSC RPC eth_getTransactionReceipt directly)
+     */
+    async verifyCryptoDepositTransaction(req, res, next) {
+        try {
+            const userId = req.user.id;
+            const role = req.user.role;
+            const sessionId = String(req.params.id);
+            const { txHash } = req.body;
+            if (!txHash || typeof txHash !== 'string') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'A valid BSC transaction hash is required for on-chain lookup',
+                });
+            }
+            const session = await bscDepositMonitor_service_1.bscDepositMonitorService.verifySpecificTransactionOnBsc(sessionId, txHash, userId, role === 'ADMIN' || role === 'STAFF');
+            res.json({
+                success: true,
+                message: 'Transaction verified directly on BNB Smart Chain.',
+                data: session,
+            });
         }
         catch (err) {
             next(err);

@@ -12,6 +12,7 @@ import { errorHandler } from './middleware/error';
 import { returnsJobService } from './services/returns.job';
 import { p2pService } from './services/p2p.service';
 import { compliancePolicyService } from './services/compliancePolicy.service';
+import { bscDepositMonitorService } from './services/bscDepositMonitor.service';
 import { getPersistedUploadedAsset, generateArchivedDocumentSvg, ensureUploadedAssetTable } from './services/storage.service';
 import { prisma } from './lib/prisma';
 
@@ -276,6 +277,10 @@ if (process.env.NODE_ENV !== 'test' && (process.env.PORT || !isServerless)) {
       p2pService.ensureP2PReady().catch(() => {});
       ensureUploadedAssetTable().catch(() => {});
       compliancePolicyService.ensureComplianceSchema().catch(() => {});
+      bscDepositMonitorService
+        .ensureDepositSchema()
+        .then(() => bscDepositMonitorService.startBackgroundMonitor(10_000))
+        .catch(() => {});
 
       // Register automated financial background cron jobs
       returnsJobService.startScheduler();

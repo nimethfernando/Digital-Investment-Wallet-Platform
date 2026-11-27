@@ -315,9 +315,13 @@ class ReturnsJobService {
         };
     }
     /**
-     * Settle entire package returns and release principal together (Full Lump-Sum / Maturity Settlement)
+     * Settle matured package returns and release principal together (Full Maturity Redemption).
+     * STRICT BACKEND REDEMPTION PROTECTION:
+     * Rejects with HTTP 400 if Current Date < Eligible Redemption / Maturity Date.
+     * Impossible to redeem an active locked FD before maturity via UI or API.
      */
     async processFullPackageSettlement(packageId, adminUserId = 'ADMIN_SETTLEMENT') {
+        const now = new Date();
         const pkg = await prisma_1.prisma.investmentPackage.findUnique({
             where: { id: packageId },
             include: {
@@ -325,24 +329,49 @@ class ReturnsJobService {
                 returns: true,
             },
         });
-        if (!pkg)
-            throw new Error('Investment package not found');
-        if (pkg.status !== 'ACTIVE' && pkg.status !== 'MATURED') {
-            throw new Error(`Package status is ${pkg.status}, cannot process full settlement.`);
+        if (!pkg) {
+            const err = new Error('Investment package not found');
+            err.status = 404;
+            throw err;
+        }
+        // Strict Backend Validation of FD Status, Start Date, Lock-In Period, Maturity Date, and Eligible Redemption Date
+        try {
+            (0, package_service_1.assertPackageRedemptionEligible)(pkg, now);
+        }
+        catch (lockErr) {
+            await prisma_1.prisma.adminAuditLog
+                .create({
+                data: {
+                    userId: adminUserId !== 'ADMIN_SETTLEMENT' ? adminUserId : null,
+                    action: 'BLOCKED_EARLY_FD_REDEMPTION_ATTEMPT',
+                    entity: 'InvestmentPackage',
+                    entityId: pkg.id,
+                    details: `Blocked early redemption attempt on locked FD ${pkg.packageCode}: ${lockErr.message}`,
+                },
+            })
+                .catch(() => { });
+            throw lockErr;
         }
         const amountDec = new decimal_js_1.default(pkg.amount.toString());
         const rateDec = new decimal_js_1.default(pkg.returnRateSnapshot.toString());
         const singleMonthlyReturn = amountDec.times(rateDec);
+        const startBase = new Date(pkg.lockInStart || pkg.purchaseDate || pkg.createdAt);
         // Total periods expected = lockInMonths (e.g. 6)
         const totalPeriodsExpected = pkg.lockInMonths || 6;
-        const periodsAlreadyCredited = pkg.returns.length;
-        const remainingPeriods = Math.max(0, totalPeriodsExpected - periodsAlreadyCredited);
+        const existingPeriodSet = new Set(pkg.returns.map((r) => r.periodIndex));
         let totalReturnsCreditedInBatch = new decimal_js_1.default(0);
         const creditedReturns = [];
-        // Credit all remaining periods together
-        for (let i = 1; i <= remainingPeriods; i++) {
-            const periodIndex = periodsAlreadyCredited + i;
-            const idempotencyKey = `RETURN-FULL-BATCH-${pkg.packageCode}-P${periodIndex}`;
+        let periodsCreditedCount = 0;
+        // Credit only due completed monthly periods with their individual scheduled monthly dates
+        for (let periodIndex = 1; periodIndex <= totalPeriodsExpected; periodIndex++) {
+            if (existingPeriodSet.has(periodIndex))
+                continue;
+            const scheduledDate = (0, package_service_1.getCycleDueDate)(startBase, periodIndex);
+            if (now.getTime() < scheduledDate.getTime()) {
+                // Never allow future unmatured periods to be marked paid early
+                continue;
+            }
+            const idempotencyKey = `RETURN-${pkg.packageCode}-PERIOD-${periodIndex}`;
             const res = await ledger_service_1.ledgerService.creditMonthlyReturn({
                 packageId: pkg.id,
                 userId: pkg.userId,
@@ -350,30 +379,32 @@ class ReturnsJobService {
                 currency: pkg.currency,
                 periodIndex,
                 idempotencyKey,
+                payoutDate: scheduledDate,
             });
             if (!res.alreadyCredited) {
+                periodsCreditedCount++;
                 totalReturnsCreditedInBatch = totalReturnsCreditedInBatch.plus(singleMonthlyReturn);
                 creditedReturns.push(res.pkgReturn);
             }
         }
-        // Release the entire principal if still ACTIVE
+        // Release the principal (releaseMaturedPrincipal also independently enforces now >= eligibleRedemptionDate)
         let principalReleased = false;
         if (pkg.status === 'ACTIVE') {
-            await ledger_service_1.ledgerService.releaseMaturedPrincipal(pkg.id, adminUserId, true);
+            await ledger_service_1.ledgerService.releaseMaturedPrincipal(pkg.id, adminUserId, false);
             principalReleased = true;
         }
         const totalPayoutProcessed = totalReturnsCreditedInBatch.plus(principalReleased ? amountDec : 0);
         // Asynchronous settlement notification to investor (non-blocking)
         void notification_provider_1.notificationService.sendEmail({
             to: pkg.user.email,
-            subject: `Package ${pkg.packageCode} Full Settlement Complete - $${totalPayoutProcessed.toFixed(2)} USD`,
+            subject: `Package ${pkg.packageCode} Maturity Redemption Complete - $${totalPayoutProcessed.toFixed(2)} USD`,
             html: `
-        <h3>Full Package Settlement Executed</h3>
+        <h3>Fixed Deposit Maturity Redemption Executed</h3>
         <p>Hello ${pkg.user.firstName || 'Investor'},</p>
-        <p>Your investment package <strong>${pkg.packageCode}</strong> has been fully settled and matured.</p>
+        <p>Your investment package <strong>${pkg.packageCode}</strong> has reached maturity and been redeemed.</p>
         <ul>
           <li><strong>Principal Released:</strong> $${amountDec.toFixed(2)} USD</li>
-          <li><strong>Batch Yield Periods Credited:</strong> ${remainingPeriods} periods ($${totalReturnsCreditedInBatch.toFixed(2)} USD)</li>
+          <li><strong>Final Yield Periods Credited:</strong> ${periodsCreditedCount} period(s) ($${totalReturnsCreditedInBatch.toFixed(2)} USD)</li>
           <li><strong>Total Credited to Wallet:</strong> $${totalPayoutProcessed.toFixed(2)} USD</li>
         </ul>
         <p>All funds are now available in your platform wallet balance for withdrawal or re-allocation.</p>
@@ -386,7 +417,7 @@ class ReturnsJobService {
             status: 'MATURED',
             principalAmount: amountDec.toFixed(2),
             principalReleased,
-            periodsCreditedCount: remainingPeriods,
+            periodsCreditedCount,
             totalReturnsCreditedInBatch: totalReturnsCreditedInBatch.toFixed(2),
             totalPayoutProcessed: totalPayoutProcessed.toFixed(2),
             investorEmail: pkg.user.email,
@@ -398,6 +429,8 @@ class ReturnsJobService {
      * Runs at 00:05 UTC on the 1st of each month
      */
     startScheduler() {
+        // Repair any historical duplicate-date PackageReturn rows on startup
+        package_service_1.packageService.repairDuplicateReturnDates().catch(() => { });
         // Schedule: 5 minutes past midnight on the 1st day of every month
         // "5 0 1 * *"
         node_cron_1.default.schedule('5 0 1 * *', async () => {

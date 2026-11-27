@@ -11,6 +11,7 @@ const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
 const rate_service_1 = require("./rate.service");
 const notification_provider_1 = require("../adapters/notification/notification.provider");
+const bscDepositMonitor_service_1 = require("./bscDepositMonitor.service");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
 class DepositService {
     /**
@@ -77,8 +78,8 @@ class DepositService {
         const bankSwiftSetting = await prisma_1.prisma.cmsSetting.findUnique({ where: { key: 'bank_wire_swift' } }).catch(() => null);
         const razorpayCfg = await this.getRazorpayConfig();
         const trc20Address = trc20Setting?.value || process.env.USDT_TRC20_WALLET_ADDRESS || 'TCDhdQoECwa8HUbAQsjZBXth6qT61k9aXm';
-        const erc20Address = erc20Setting?.value || process.env.USDT_ERC20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
-        const bep20Address = bep20Setting?.value || process.env.USDT_BEP20_WALLET_ADDRESS || '0x18adf8B0DFBaC2C2c6A8EE1c59fF6cdFa74f47Ad';
+        const erc20Address = erc20Setting?.value || process.env.USDT_ERC20_WALLET_ADDRESS || '0x467da810050d0e426875D350C6Ae10e4508f4eD1';
+        const bep20Address = bep20Setting?.value || process.env.USDT_BEP20_WALLET_ADDRESS || '0x467da810050d0e426875D350C6Ae10e4508f4eD1';
         const bankName = bankNameSetting?.value || 'Avora Bank (Bank of Georgia)';
         const bankBeneficiary = bankBeneficiarySetting?.value || 'Avora Bank';
         const bankIbanUsd = bankIbanUsdSetting?.value || bankIbanSetting?.value || 'GE51BG0000000613125640';
@@ -90,16 +91,19 @@ class DepositService {
                     id: 'USDT_BEP20',
                     network: 'BEP-20 (BNB Smart Chain)',
                     chain: 'BNB Smart Chain',
+                    chainId: bscDepositMonitor_service_1.BSC_CHAIN_ID,
+                    tokenContract: bscDepositMonitor_service_1.BSC_USDT_CONTRACT,
                     currency: 'USDT',
                     address: bep20Address,
                     minDeposit: 50,
-                    confirmationBlocks: 15,
-                    tagline: 'Recommended • Lowest Network Fees (< $0.15) • Trust Wallet Compatible',
+                    confirmationBlocks: bscDepositMonitor_service_1.DEFAULT_REQUIRED_CONFIRMATIONS,
+                    sessionTtlMinutes: bscDepositMonitor_service_1.DEFAULT_SESSION_TTL_MINUTES,
+                    tagline: 'Recommended • Lowest Network Fees (< $0.15) • Automatic Blockchain Confirmation',
                     explorerUrl: `https://bscscan.com/address/${bep20Address}`,
                     instructions: [
-                        'Send only USDT via BEP-20 (BNB Smart Chain) network to this address.',
-                        'Compatible with Trust Wallet, Binance, MetaMask, and SafePal.',
-                        'Ensure the selected network in your sending wallet is BSC / BEP-20.',
+                        'Generate a QR Payment Session for your desired USDT deposit amount.',
+                        'Scan the QR code from Trust Wallet, Binance, MetaMask, OKX, or SafePal on BNB Smart Chain (BEP-20).',
+                        'Our BSC blockchain monitor automatically detects your transaction and credits your balance after 12 confirmations.',
                         'Minimum deposit: 50 USDT.',
                     ],
                 },
@@ -654,11 +658,25 @@ class DepositService {
             id: d.id,
             depositCode: d.depositCode,
             amount: new decimal_js_1.default(d.amount.toString()).toFixed(2),
+            expectedAmount: d.expectedAmount ? new decimal_js_1.default(d.expectedAmount.toString()).toFixed(2) : new decimal_js_1.default(d.amount.toString()).toFixed(2),
+            detectedAmount: d.detectedAmount ? new decimal_js_1.default(d.detectedAmount.toString()).toFixed(2) : null,
             currency: d.currency,
             depositMethod: d.depositMethod,
+            network: d.network || (d.depositMethod === 'USDT_BEP20' ? 'BSC_BEP20' : null),
+            tokenContract: d.tokenContract || null,
+            destinationAddress: d.destinationAddress || null,
+            senderAddress: d.senderAddress || null,
             proofUrl: d.proofUrl,
+            explorerUrl: d.explorerUrl || (d.txHashOrRef && /^0x[a-fA-F0-9]{64}$/.test(d.txHashOrRef) ? `https://bscscan.com/tx/${d.txHashOrRef}` : null),
             txHashOrRef: d.txHashOrRef,
             status: d.status,
+            trackingStatus: d.status === client_1.DepositStatus.APPROVED ? 'CONFIRMED' : d.status === client_1.DepositStatus.REJECTED ? 'REJECTED' : (d.trackingStatus || 'AWAITING_PAYMENT'),
+            confirmations: d.confirmations ?? 0,
+            requiredConfirmations: d.requiredConfirmations ?? 12,
+            blockNumber: d.blockNumber || null,
+            expiresAt: d.expiresAt || null,
+            detectedAt: d.detectedAt || null,
+            confirmedAt: d.confirmedAt || null,
             adminNotes: d.adminNotes,
             createdAt: d.createdAt,
         }));
@@ -689,6 +707,21 @@ class DepositService {
             notes: adminNotes,
             txHash: customTxHash,
         });
+        const finalTx = customTxHash || deposit.txHashOrRef || '';
+        const explorerUrl = /^0x[a-fA-F0-9]{64}$/.test(finalTx.trim())
+            ? `https://bscscan.com/tx/${finalTx.trim()}`
+            : deposit.explorerUrl || null;
+        await prisma_1.prisma.depositRequest
+            .update({
+            where: { id: deposit.id },
+            data: {
+                trackingStatus: 'CONFIRMED',
+                confirmedAt: new Date(),
+                confirmations: Math.max(deposit.confirmations || 0, deposit.requiredConfirmations || 12),
+                ...(explorerUrl ? { explorerUrl, proofUrl: deposit.proofUrl || explorerUrl } : {}),
+            },
+        })
+            .catch(() => { });
         // Send confirmation email (non-blocking)
         notification_provider_1.notificationService.sendEmail({
             to: deposit.user.email,
@@ -728,6 +761,7 @@ class DepositService {
                 where: { id: depositId },
                 data: {
                     status: client_1.DepositStatus.REJECTED,
+                    trackingStatus: 'REJECTED',
                     adminNotes: reason,
                     reviewedBy: adminUserId,
                     reviewedAt: new Date(),
@@ -821,22 +855,67 @@ class DepositService {
                 orderBy: { createdAt: 'desc' },
             }).catch(() => [])
             : [];
+        await bscDepositMonitor_service_1.bscDepositMonitorService.markExpiredSessions().catch(() => { });
+        const defaultCustodyAddr = await bscDepositMonitor_service_1.bscDepositMonitorService.getCustodyBep20Address().catch(() => '0x467da810050d0e426875D350C6Ae10e4508f4eD1');
         return {
             deposits: deposits.map((d) => {
                 const matchedTx = ledgerTxs.find((t) => t.idempotencyKey === `DEP-APPROVAL-${d.depositCode}` ||
                     t.settlementReference === d.depositCode ||
                     (d.txHashOrRef && t.settlementReference === d.txHashOrRef && t.userId === d.userId));
+                const rawTx = (d.txHashOrRef || '').trim();
+                const isOnChainHash = /^0x[a-fA-F0-9]{64}$/.test(rawTx);
+                const explorerUrl = d.explorerUrl ||
+                    (isOnChainHash ? `https://bscscan.com/tx/${rawTx}` : null) ||
+                    (d.proofUrl && d.proofUrl.includes('bscscan.com/tx/') ? d.proofUrl : null);
+                let effectiveTrackingStatus = d.trackingStatus || 'AWAITING_PAYMENT';
+                if (d.status === client_1.DepositStatus.APPROVED) {
+                    effectiveTrackingStatus = 'CONFIRMED';
+                }
+                else if (d.status === client_1.DepositStatus.REJECTED) {
+                    effectiveTrackingStatus = 'REJECTED';
+                }
+                else if (effectiveTrackingStatus === 'AWAITING_PAYMENT' &&
+                    d.expiresAt &&
+                    new Date(d.expiresAt).getTime() < Date.now()) {
+                    effectiveTrackingStatus = 'EXPIRED';
+                }
+                const isBscMethod = d.depositMethod === 'USDT_BEP20' ||
+                    d.network === 'BSC_BEP20' ||
+                    (d.currency === 'USDT' && d.depositMethod !== 'USDT_TRC20' && d.depositMethod !== 'USDT_ERC20');
                 return {
                     id: d.id,
                     userId: d.userId,
                     depositCode: d.depositCode,
                     user: d.user,
                     amount: new decimal_js_1.default(d.amount.toString()).toFixed(2),
+                    expectedAmount: d.expectedAmount
+                        ? new decimal_js_1.default(d.expectedAmount.toString()).toFixed(2)
+                        : new decimal_js_1.default(d.amount.toString()).toFixed(2),
+                    detectedAmount: d.detectedAmount !== null && d.detectedAmount !== undefined
+                        ? new decimal_js_1.default(d.detectedAmount.toString()).toFixed(2)
+                        : isOnChainHash
+                            ? new decimal_js_1.default(d.amount.toString()).toFixed(2)
+                            : null,
                     currency: d.currency,
                     depositMethod: d.depositMethod,
+                    network: d.network || (isBscMethod ? 'BNB Smart Chain (BEP-20)' : d.depositMethod),
+                    tokenContract: d.tokenContract || (isBscMethod ? bscDepositMonitor_service_1.BSC_USDT_CONTRACT : null),
+                    destinationAddress: d.destinationAddress || (isBscMethod ? defaultCustodyAddr : null),
+                    senderAddress: d.senderAddress || null,
                     proofUrl: d.proofUrl,
+                    explorerUrl,
                     txHashOrRef: d.txHashOrRef,
                     status: d.status,
+                    trackingStatus: effectiveTrackingStatus,
+                    confirmations: d.status === client_1.DepositStatus.APPROVED
+                        ? Math.max(d.confirmations || 0, d.requiredConfirmations || 12)
+                        : d.confirmations || 0,
+                    requiredConfirmations: d.requiredConfirmations || 12,
+                    blockNumber: d.blockNumber || null,
+                    sessionStartBlock: d.sessionStartBlock || null,
+                    expiresAt: d.expiresAt || null,
+                    detectedAt: d.detectedAt || null,
+                    confirmedAt: d.confirmedAt || d.reviewedAt || null,
                     adminNotes: d.adminNotes,
                     reviewedBy: d.reviewedBy,
                     reviewedAt: d.reviewedAt,

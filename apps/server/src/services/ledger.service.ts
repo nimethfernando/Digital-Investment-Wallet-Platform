@@ -619,6 +619,7 @@ export class LedgerService {
     currency: string;
     periodIndex: number;
     idempotencyKey: string;
+    payoutDate?: Date;
   }) {
     const returnAmountDec = new Decimal(params.returnAmount.toString());
 
@@ -635,6 +636,26 @@ export class LedgerService {
         where: { id: params.packageId },
       });
       if (!pkg) throw new Error('Package not found');
+
+      // Compute the distinct monthly scheduled cycle date for this periodIndex
+      const startBase = new Date(pkg.lockInStart || pkg.purchaseDate || pkg.createdAt);
+      const firstOfTargetMonth = new Date(startBase.getFullYear(), startBase.getMonth() + params.periodIndex, 1);
+      const lastDayOfTargetMonth = new Date(
+        firstOfTargetMonth.getFullYear(),
+        firstOfTargetMonth.getMonth() + 1,
+        0
+      ).getDate();
+      const clampedDay = Math.min(startBase.getDate(), lastDayOfTargetMonth);
+      const scheduledCycleDate =
+        params.payoutDate ||
+        new Date(
+          firstOfTargetMonth.getFullYear(),
+          firstOfTargetMonth.getMonth(),
+          clampedDay,
+          startBase.getHours(),
+          startBase.getMinutes(),
+          startBase.getSeconds()
+        );
 
       // 2. Lock user wallet balance
       const wallet = await this.ensureWallet(params.userId);
@@ -654,7 +675,7 @@ export class LedgerService {
         idempotencyKey: params.idempotencyKey,
         referenceType: JournalReferenceType.MONTHLY_RETURN,
         referenceId: pkg.packageCode,
-        notes: `Monthly return cycle ${params.periodIndex} for package ${pkg.packageCode}`,
+        notes: `Monthly return cycle ${params.periodIndex} (Scheduled: ${scheduledCycleDate.toISOString().split('T')[0]}) for package ${pkg.packageCode}`,
         createdBy: 'CRON_RETURNS_ENGINE',
         entries: [
           {
@@ -673,7 +694,7 @@ export class LedgerService {
         ],
       });
 
-      // 4. Record PackageReturn
+      // 4. Record PackageReturn with its distinct scheduled monthly payoutDate
       const pkgReturn = await tx.packageReturn.create({
         data: {
           packageId: params.packageId,
@@ -681,6 +702,7 @@ export class LedgerService {
           periodIndex: params.periodIndex,
           returnAmount: returnAmountDec.toFixed(8),
           currency: params.currency,
+          payoutDate: scheduledCycleDate,
           ledgerJournalId: journal.id,
           status: 'CREDITED',
         },
@@ -702,18 +724,19 @@ export class LedgerService {
           settlementReference: pkg.packageCode,
           createdBy: 'CRON_RETURNS_ENGINE',
           idempotencyKey: params.idempotencyKey,
-          notes: `Monthly return (Month ${params.periodIndex}) credited for package ${pkg.packageCode}`,
+          notes: `Monthly return (Month ${params.periodIndex} • Scheduled ${scheduledCycleDate.toISOString().split('T')[0]}) credited for package ${pkg.packageCode}`,
         },
       });
 
-      return { alreadyCredited: false, pkgReturn, balanceAfter: balAfter.toFixed(2) };
+      return { alreadyCredited: false, pkgReturn, transactionCode, balanceAfter: balAfter.toFixed(2) };
     }, { timeout: 30000, maxWait: 10000 });
   }
 
   /**
-   * Release principal when package has matured (past lock-in end date)
+   * Release principal ONLY when package has matured (reached or passed its eligible redemption / maturity date).
+   * Strictly enforced at the backend ledger level — cannot be bypassed via UI or API.
    */
-  async releaseMaturedPrincipal(packageId: string, adminUserId: string = 'SYSTEM', force: boolean = false) {
+  async releaseMaturedPrincipal(packageId: string, adminUserId: string = 'SYSTEM', _forceIgnored: boolean = false) {
     const pkgMeta = await prisma.investmentPackage.findUnique({
       where: { id: packageId },
       select: { userId: true, currency: true },
@@ -731,12 +754,50 @@ export class LedgerService {
       });
       if (!pkg) throw new Error('Package not found');
       if (pkg.status !== PackageStatus.ACTIVE) {
-        throw new Error(`Package status is ${pkg.status}, cannot release principal`);
+        const err: any = new Error(
+          `Redemption Not Available: Package ${pkg.packageCode} is in status ${pkg.status} and cannot release principal.`
+        );
+        err.status = 400;
+        throw err;
       }
 
       const now = new Date();
-      if (!force && pkg.lockInEnd && now < pkg.lockInEnd) {
-        throw new Error(`Package lock-in period has not ended yet. Ends at: ${pkg.lockInEnd.toISOString()}`);
+      const lockMonths = Math.max(1, Number(pkg.lockInMonths || 6));
+      const startBase = new Date(pkg.lockInStart || pkg.purchaseDate || pkg.createdAt);
+      const firstOfTargetMonth = new Date(startBase.getFullYear(), startBase.getMonth() + lockMonths, 1);
+      const lastDayOfTargetMonth = new Date(
+        firstOfTargetMonth.getFullYear(),
+        firstOfTargetMonth.getMonth() + 1,
+        0
+      ).getDate();
+      const clampedDay = Math.min(startBase.getDate(), lastDayOfTargetMonth);
+      const computedMaturity = new Date(
+        firstOfTargetMonth.getFullYear(),
+        firstOfTargetMonth.getMonth(),
+        clampedDay,
+        startBase.getHours(),
+        startBase.getMinutes(),
+        startBase.getSeconds()
+      );
+
+      const maturityDate = pkg.lockInEnd ? new Date(pkg.lockInEnd) : computedMaturity;
+      const rawEligible = pkg.withdrawalEligibilityDate
+        ? new Date(pkg.withdrawalEligibilityDate)
+        : maturityDate;
+      const eligibleRedemptionDate =
+        rawEligible.getTime() >= maturityDate.getTime() ? rawEligible : maturityDate;
+
+      if (now.getTime() < eligibleRedemptionDate.getTime()) {
+        const daysLeft = Math.ceil(
+          (eligibleRedemptionDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const eligibleDateStr = eligibleRedemptionDate.toISOString().split('T')[0];
+        const err: any = new Error(
+          `Redemption Not Available: This FD (${pkg.packageCode}) has not reached its eligible redemption date yet. Locked until ${eligibleDateStr} (${daysLeft} day(s) remaining).`
+        );
+        err.status = 400;
+        err.code = 'FD_REDEMPTION_LOCKED';
+        throw err;
       }
 
       const amountDec = new Decimal(pkg.amount.toString());
@@ -944,8 +1005,8 @@ export class LedgerService {
       }).catch(() => null),
       prisma.packageReturn.findMany({
         where: { userId, status: 'CREDITED' },
-        include: { package: { select: { packageCode: true } } },
-        orderBy: { payoutDate: 'desc' },
+        include: { package: { select: { packageCode: true, lockInStart: true, purchaseDate: true, createdAt: true } } },
+        orderBy: [{ packageId: 'desc' }, { periodIndex: 'asc' }],
         take: 30,
       }).catch(() => []),
       prisma.p2POrder.findMany({
@@ -1245,15 +1306,43 @@ export class LedgerService {
         otcCompletedTradesCount: otcTradesAgg._count?.id || 0,
         ventureRealizedProfitsUsd: ventureRealizedProfitsUsd.toFixed(2),
         ventureUnrealizedGainsUsd: ventureUnrealizedGainsUsd.toFixed(2),
-        creditedReturnsList: creditedReturnsList.map((r: any) => ({
-          id: r.id,
-          packageCode: r.package?.packageCode || 'FD-PACKAGE',
-          periodIndex: r.periodIndex,
-          amount: new Decimal(r.returnAmount.toString()).toFixed(2),
-          currency: r.currency || 'USD',
-          payoutDate: r.payoutDate,
-          status: r.status,
-        })),
+        creditedReturnsList: creditedReturnsList.map((r: any) => {
+          const pkgStart = r.package?.lockInStart || r.package?.purchaseDate || r.package?.createdAt;
+          let resolvedDate = r.payoutDate;
+          if (pkgStart && typeof r.periodIndex === 'number') {
+            const sb = new Date(pkgStart);
+            const firstOfTarget = new Date(sb.getFullYear(), sb.getMonth() + r.periodIndex, 1);
+            const lastDay = new Date(firstOfTarget.getFullYear(), firstOfTarget.getMonth() + 1, 0).getDate();
+            const scheduled = new Date(
+              firstOfTarget.getFullYear(),
+              firstOfTarget.getMonth(),
+              Math.min(sb.getDate(), lastDay),
+              sb.getHours(),
+              sb.getMinutes(),
+              sb.getSeconds()
+            );
+            const samePkgDupes = creditedReturnsList.filter(
+              (other: any) =>
+                other.package?.packageCode === r.package?.packageCode &&
+                other.payoutDate &&
+                r.payoutDate &&
+                new Date(other.payoutDate).toISOString().split('T')[0] ===
+                  new Date(r.payoutDate).toISOString().split('T')[0]
+            );
+            if (samePkgDupes.length > 1) {
+              resolvedDate = scheduled;
+            }
+          }
+          return {
+            id: r.id,
+            packageCode: r.package?.packageCode || 'FD-PACKAGE',
+            periodIndex: r.periodIndex,
+            amount: new Decimal(r.returnAmount.toString()).toFixed(2),
+            currency: r.currency || 'USD',
+            payoutDate: resolvedDate,
+            status: r.status,
+          };
+        }),
         p2pTradeProfitsList: p2pOrders.slice(0, 15).map((o: any) => ({
           id: o.id,
           orderCode: o.orderCode,

@@ -50,6 +50,9 @@ router.get('/token-allocations', (req, res, next) => adminController.getTokenAll
 
 // Deposit operations
 router.get('/deposits', (req, res, next) => adminController.getDeposits(req, res, next));
+router.post('/deposits/scan-blockchain', (req, res, next) => adminController.scanBscDeposits(req, res, next));
+router.post('/deposits/:id/verify-onchain', (req, res, next) => adminController.verifyDepositOnChain(req, res, next));
+router.patch('/deposits/:id/tracking-status', (req, res, next) => adminController.updateDepositTrackingStatus(req, res, next));
 router.post('/deposits/manual', requireRole([Role.ADMIN]), (req, res, next) => adminController.createManualDeposit(req, res, next));
 router.post('/deposits/:id/approve', requireAdmin2FA, (req, res, next) => adminController.approveDeposit(req, res, next));
 router.post('/deposits/:id/reject', requireAdmin2FA, (req, res, next) => adminController.rejectDeposit(req, res, next));
