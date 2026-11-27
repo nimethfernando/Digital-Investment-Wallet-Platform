@@ -17,6 +17,116 @@ export interface CustomCurrencyRateEntry {
 
 export type CustomCurrencyRatesMap = Record<string, CustomCurrencyRateEntry>;
 
+export interface OtcCorridorConfig {
+  id: string;
+  countryCode: string;
+  countryName: string;
+  flag: string;
+  primaryCurrency: string;
+  supportedCurrencies: string[];
+  allowedPaymentMethods: string[];
+  crossBorderAllowed: boolean;
+  crossBorderCurrencies: string[];
+  physicalCashEnabled: boolean;
+  enabled: boolean;
+}
+
+export const DEFAULT_OTC_CORRIDORS: OtcCorridorConfig[] = [
+  {
+    id: 'in',
+    countryCode: 'IN',
+    countryName: 'India',
+    flag: '🇮🇳',
+    primaryCurrency: 'INR',
+    supportedCurrencies: ['INR', 'USD', 'USDT'],
+    allowedPaymentMethods: ['Physical Cash', 'Bank Transfer', 'RTGS / NEFT', 'IMPS', 'UPI', 'Google Pay (GPay)'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD', 'USDT'],
+    physicalCashEnabled: true,
+    enabled: true,
+  },
+  {
+    id: 'lk',
+    countryCode: 'LK',
+    countryName: 'Sri Lanka',
+    flag: '🇱🇰',
+    primaryCurrency: 'LKR',
+    supportedCurrencies: ['LKR', 'USD', 'USDT'],
+    allowedPaymentMethods: ['Cash Pickup (Fort)', 'Commercial Bank Transfer', 'Commercial Bank CEFTS', 'Sampath Bank Vishwa', 'Bank Transfer'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD', 'USDT'],
+    physicalCashEnabled: true,
+    enabled: true,
+  },
+  {
+    id: 'ae',
+    countryCode: 'AE',
+    countryName: 'United Arab Emirates',
+    flag: '🇦🇪',
+    primaryCurrency: 'AED',
+    supportedCurrencies: ['AED', 'USD', 'USDT'],
+    allowedPaymentMethods: ['VIP Lounge Cash Settlement', 'AED Local Bank Wire', 'Emirates NBD', 'FAB Transfer', 'Manager Cheque'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD', 'USDT'],
+    physicalCashEnabled: true,
+    enabled: true,
+  },
+  {
+    id: 'ge',
+    countryCode: 'GE',
+    countryName: 'Georgia',
+    flag: '🇬🇪',
+    primaryCurrency: 'GEL',
+    supportedCurrencies: ['GEL', 'USD', 'EUR', 'USDT'],
+    allowedPaymentMethods: ['Physical Cash (Tbilisi Counter)', 'Bank of Georgia', 'TBC Bank', 'Liberty Bank'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD', 'EUR', 'USDT'],
+    physicalCashEnabled: true,
+    enabled: true,
+  },
+  {
+    id: 'eu',
+    countryCode: 'EU',
+    countryName: 'European Union',
+    flag: '🇪🇺',
+    primaryCurrency: 'EUR',
+    supportedCurrencies: ['EUR', 'USD', 'USDT'],
+    allowedPaymentMethods: ['SEPA Instant', 'Revolut', 'Wise', 'Physical Cash', 'Bank Transfer'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['USD', 'USDT'],
+    physicalCashEnabled: true,
+    enabled: true,
+  },
+  {
+    id: 'us',
+    countryCode: 'US',
+    countryName: 'United States',
+    flag: '🇺🇸',
+    primaryCurrency: 'USD',
+    supportedCurrencies: ['USD', 'USDT', 'USDC'],
+    allowedPaymentMethods: ['Domestic Wire (Fedwire)', 'ACH Transfer', 'Zelle', 'Physical Cash'],
+    crossBorderAllowed: false,
+    crossBorderCurrencies: [],
+    physicalCashEnabled: true,
+    enabled: true,
+  },
+  {
+    id: 'gb',
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    flag: '🇬🇧',
+    primaryCurrency: 'GBP',
+    supportedCurrencies: ['GBP', 'EUR', 'USD', 'USDT'],
+    allowedPaymentMethods: ['Faster Payments (FPS)', 'CHAPS Wire', 'SEPA Instant', 'Revolut', 'Physical Cash'],
+    crossBorderAllowed: true,
+    crossBorderCurrencies: ['EUR', 'USD', 'USDT'],
+    physicalCashEnabled: true,
+    enabled: true,
+  },
+];
+
+export const OTC_CORRIDORS_CONFIG_KEY = 'otc_corridors_config';
+
 export interface ApplyOtcDeskParams {
   deskName: string;
   operatorDisplayName?: string;
@@ -77,6 +187,97 @@ const DEFAULT_DESK_LOCATION_FALLBACKS: Record<
 
 export class OtcService {
   private schemaEnsured = false;
+
+  /**
+   * Retrieves active OTC Market Corridors (Country -> Supported Currencies -> Settlement Rails)
+   */
+  async getCorridorConfigs(): Promise<OtcCorridorConfig[]> {
+    try {
+      const setting = await prisma.cmsSetting.findUnique({
+        where: { key: OTC_CORRIDORS_CONFIG_KEY },
+      });
+      if (setting?.value) {
+        const parsed = JSON.parse(setting.value);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {
+      // Fallback to default OTC corridors
+    }
+    return DEFAULT_OTC_CORRIDORS;
+  }
+
+  /**
+   * Saves and updates OTC Market Corridors & Settlement Rails (Admin controlled)
+   */
+  async saveCorridorConfigs(adminUserId: string, configs: OtcCorridorConfig[]): Promise<OtcCorridorConfig[]> {
+    if (!Array.isArray(configs) || configs.length === 0) {
+      throw new Error('Invalid OTC corridors configuration. At least one corridor is required.');
+    }
+
+    const validated: OtcCorridorConfig[] = configs.map((c) => {
+      const countryCode = String(c.countryCode || '').trim().toUpperCase();
+      const primaryCurrency = String(c.primaryCurrency || '').trim().toUpperCase();
+      const supportedCurrencies = Array.from(
+        new Set([
+          primaryCurrency,
+          ...(Array.isArray(c.supportedCurrencies)
+            ? c.supportedCurrencies.map((cur: string) => String(cur).trim().toUpperCase()).filter(Boolean)
+            : []),
+        ])
+      );
+      const allowedPaymentMethods = Array.from(
+        new Set(
+          Array.isArray(c.allowedPaymentMethods)
+            ? c.allowedPaymentMethods.map((m: string) => String(m).trim()).filter(Boolean)
+            : []
+        )
+      );
+      return {
+        id: String(c.id || countryCode.toLowerCase()).trim(),
+        countryCode,
+        countryName: String(c.countryName || countryCode).trim(),
+        flag: String(c.flag || '🌐').trim(),
+        primaryCurrency,
+        supportedCurrencies,
+        allowedPaymentMethods: allowedPaymentMethods.length > 0 ? allowedPaymentMethods : ['Physical Cash', 'Bank Transfer'],
+        crossBorderAllowed: Boolean(c.crossBorderAllowed),
+        crossBorderCurrencies: Array.isArray(c.crossBorderCurrencies)
+          ? c.crossBorderCurrencies.map((cur: string) => String(cur).trim().toUpperCase()).filter(Boolean)
+          : supportedCurrencies.filter((cur) => cur !== primaryCurrency),
+        physicalCashEnabled: c.physicalCashEnabled !== undefined ? Boolean(c.physicalCashEnabled) : true,
+        enabled: c.enabled !== undefined ? Boolean(c.enabled) : true,
+      };
+    });
+
+    await prisma.cmsSetting.upsert({
+      where: { key: OTC_CORRIDORS_CONFIG_KEY },
+      update: {
+        value: JSON.stringify(validated),
+        group: 'OTC',
+        description: 'OTC Country Corridors, Supported Currencies & Settlement Rails Configuration',
+      },
+      create: {
+        key: OTC_CORRIDORS_CONFIG_KEY,
+        value: JSON.stringify(validated),
+        group: 'OTC',
+        description: 'OTC Country Corridors, Supported Currencies & Settlement Rails Configuration',
+      },
+    });
+
+    await prisma.adminAuditLog.create({
+      data: {
+        userId: adminUserId,
+        action: 'UPDATE_OTC_CORRIDORS',
+        entity: 'CmsSetting',
+        entityId: OTC_CORRIDORS_CONFIG_KEY,
+        details: `Updated ${validated.length} OTC country corridors and settlement rails`,
+      },
+    }).catch(() => {});
+
+    return validated;
+  }
 
   async ensureOtcSchema(): Promise<void> {
     if (this.schemaEnsured) return;
@@ -2264,6 +2465,8 @@ export class OtcService {
       googleMapsUrl?: string;
       adminNotes?: string;
       customRates?: CustomCurrencyRatesMap;
+      supportedCurrencies?: string[];
+      settlementMethods?: string[];
       depositAction?: 'REFUND' | 'FORFEIT';
     }
   ) {
@@ -2313,6 +2516,22 @@ export class OtcService {
             throw new Error('Location address must be at least 5 characters.');
           }
           updateData.locationAddress = cleanAddr.slice(0, 255);
+        }
+        if (Array.isArray(data.supportedCurrencies) && data.supportedCurrencies.length > 0) {
+          const cleanCurs = Array.from(
+            new Set(data.supportedCurrencies.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))
+          );
+          if (cleanCurs.length > 0) {
+            updateData.supportedCurrencies = JSON.stringify(cleanCurs);
+          }
+        }
+        if (Array.isArray(data.settlementMethods) && data.settlementMethods.length > 0) {
+          const cleanMethods = Array.from(
+            new Set(data.settlementMethods.map((m) => String(m || '').trim()).filter(Boolean))
+          );
+          if (cleanMethods.length > 0) {
+            updateData.settlementMethods = JSON.stringify(cleanMethods);
+          }
         }
 
         if (

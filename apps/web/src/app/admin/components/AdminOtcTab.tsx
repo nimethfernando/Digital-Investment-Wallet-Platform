@@ -23,6 +23,7 @@ import {
   Plus,
   Sparkles,
   Award,
+  Save,
 } from 'lucide-react';
 import { api } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
@@ -57,7 +58,7 @@ export default function AdminOtcTab({
   onOpenRatesConfig,
   onOpenAssignDesk,
 }: AdminOtcTabProps) {
-  const [subTab, setSubTab] = useState<'DESKS' | 'TRADES' | 'INQUIRIES'>('DESKS');
+  const [subTab, setSubTab] = useState<'DESKS' | 'TRADES' | 'INQUIRIES' | 'CORRIDORS'>('DESKS');
   const [search, setSearch] = useState('');
   const [deskStatusFilter, setDeskStatusFilter] = useState('ALL');
   const [tradeStatusFilter, setTradeStatusFilter] = useState('ALL');
@@ -67,6 +68,190 @@ export default function AdminOtcTab({
     totalFeePct: 2.0,
   });
   const [credibilityModalUser, setCredibilityModalUser] = useState<any | null>(null);
+
+  // OTC Country Corridors & Settlement Rails State
+  const [corridors, setCorridors] = useState<Array<{
+    id: string;
+    countryCode: string;
+    countryName: string;
+    flag: string;
+    primaryCurrency: string;
+    supportedCurrencies: string[];
+    allowedPaymentMethods: string[];
+    crossBorderAllowed: boolean;
+    crossBorderCurrencies: string[];
+    physicalCashEnabled: boolean;
+    enabled: boolean;
+  }>>([]);
+  const [corridorsLoading, setCorridorsLoading] = useState(false);
+  const [corridorsSaving, setCorridorsSaving] = useState(false);
+  const [newCurrencyInputs, setNewCurrencyInputs] = useState<Record<string, string>>({});
+  const [newRailInputs, setNewRailInputs] = useState<Record<string, string>>({});
+  const [showAddCorridorModal, setShowAddCorridorModal] = useState(false);
+  const [addCorridorForm, setAddCorridorForm] = useState({
+    id: '',
+    countryCode: '',
+    countryName: '',
+    flag: '🌐',
+    primaryCurrency: '',
+    supportedCurrencies: '',
+    allowedPaymentMethods: '',
+    crossBorderAllowed: true,
+    physicalCashEnabled: true,
+    enabled: true,
+  });
+
+  const fetchCorridors = async () => {
+    setCorridorsLoading(true);
+    try {
+      const res = await api.get('/admin/otc/corridors');
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        setCorridors(res.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load OTC corridors:', err);
+    } finally {
+      setCorridorsLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchCorridors();
+  }, []);
+
+  const handleSaveCorridors = async (updatedList = corridors) => {
+    setCorridorsSaving(true);
+    try {
+      const res = await api.post('/admin/otc/corridors', { corridors: updatedList });
+      if (res.data?.success) {
+        onFeedback({
+          type: 'success',
+          text: res.data.message || 'OTC Country Corridors and Settlement Rails updated successfully.',
+        });
+        if (Array.isArray(res.data.data)) {
+          setCorridors(res.data.data);
+        }
+      }
+    } catch (err: any) {
+      onFeedback({
+        type: 'error',
+        text: err.response?.data?.message || 'Failed to save OTC corridors configuration.',
+      });
+    } finally {
+      setCorridorsSaving(false);
+    }
+  };
+
+  const handleToggleCorridorEnabled = (id: string) => {
+    setCorridors((prev) => prev.map((c) => (c.id === id ? { ...c, enabled: !c.enabled } : c)));
+  };
+
+  const handleTogglePhysicalCash = (id: string) => {
+    setCorridors((prev) => prev.map((c) => (c.id === id ? { ...c, physicalCashEnabled: !c.physicalCashEnabled } : c)));
+  };
+
+  const handleToggleCrossBorder = (id: string) => {
+    setCorridors((prev) => prev.map((c) => (c.id === id ? { ...c, crossBorderAllowed: !c.crossBorderAllowed } : c)));
+  };
+
+  const handleAddCurrency = (id: string) => {
+    const val = (newCurrencyInputs[id] || '').trim().toUpperCase();
+    if (!val) return;
+    setCorridors((prev) =>
+      prev.map((c) =>
+        c.id === id ? { ...c, supportedCurrencies: Array.from(new Set([...c.supportedCurrencies, val])) } : c
+      )
+    );
+    setNewCurrencyInputs((prev) => ({ ...prev, [id]: '' }));
+  };
+
+  const handleRemoveCurrency = (id: string, cur: string) => {
+    setCorridors((prev) =>
+      prev.map((c) => {
+        if (c.id === id) {
+          if (cur === c.primaryCurrency) return c;
+          return { ...c, supportedCurrencies: c.supportedCurrencies.filter((item) => item !== cur) };
+        }
+        return c;
+      })
+    );
+  };
+
+  const handleAddRail = (id: string) => {
+    const val = (newRailInputs[id] || '').trim();
+    if (!val) return;
+    setCorridors((prev) =>
+      prev.map((c) =>
+        c.id === id ? { ...c, allowedPaymentMethods: Array.from(new Set([...c.allowedPaymentMethods, val])) } : c
+      )
+    );
+    setNewRailInputs((prev) => ({ ...prev, [id]: '' }));
+  };
+
+  const handleRemoveRail = (id: string, rail: string) => {
+    setCorridors((prev) =>
+      prev.map((c) =>
+        c.id === id ? { ...c, allowedPaymentMethods: c.allowedPaymentMethods.filter((item) => item !== rail) } : c
+      )
+    );
+  };
+
+  const handleCreateCorridor = () => {
+    const countryCode = addCorridorForm.countryCode.trim().toUpperCase();
+    const primary = addCorridorForm.primaryCurrency.trim().toUpperCase();
+    if (!countryCode || !primary) {
+      onFeedback({ type: 'error', text: 'Country code and primary currency are required.' });
+      return;
+    }
+    const supCurs = Array.from(
+      new Set([
+        primary,
+        ...addCorridorForm.supportedCurrencies
+          .split(',')
+          .map((s) => s.trim().toUpperCase())
+          .filter(Boolean),
+      ])
+    );
+    const rails = Array.from(
+      new Set(
+        addCorridorForm.allowedPaymentMethods
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      )
+    );
+
+    const newCor = {
+      id: addCorridorForm.id.trim() || countryCode.toLowerCase(),
+      countryCode,
+      countryName: addCorridorForm.countryName.trim() || countryCode,
+      flag: addCorridorForm.flag.trim() || '🌐',
+      primaryCurrency: primary,
+      supportedCurrencies: supCurs,
+      allowedPaymentMethods: rails.length > 0 ? rails : ['Physical Cash', 'Bank Transfer'],
+      crossBorderAllowed: addCorridorForm.crossBorderAllowed,
+      crossBorderCurrencies: supCurs.filter((c) => c !== primary),
+      physicalCashEnabled: addCorridorForm.physicalCashEnabled,
+      enabled: addCorridorForm.enabled,
+    };
+
+    const next = [...corridors, newCor];
+    setCorridors(next);
+    setShowAddCorridorModal(false);
+    setAddCorridorForm({
+      id: '',
+      countryCode: '',
+      countryName: '',
+      flag: '🌐',
+      primaryCurrency: '',
+      supportedCurrencies: '',
+      allowedPaymentMethods: '',
+      crossBorderAllowed: true,
+      physicalCashEnabled: true,
+      enabled: true,
+    });
+    handleSaveCorridors(next);
+  };
 
   React.useEffect(() => {
     api
@@ -86,6 +271,9 @@ export default function AdminOtcTab({
   const [editIsOnline, setEditIsOnline] = useState(true);
   const [editBuyMargin, setEditBuyMargin] = useState('1.0');
   const [editSellMargin, setEditSellMargin] = useState('1.0');
+  const [editSupportedCurrencies, setEditSupportedCurrencies] = useState<string[]>(['USDT', 'USD']);
+  const [editSettlementMethods, setEditSettlementMethods] = useState<string[]>(['Physical Cash', 'Bank Transfer']);
+  const [editNewMethodInput, setEditNewMethodInput] = useState('');
   const [editCustomRates, setEditCustomRates] = useState<Record<string, { buyRate?: string; sellRate?: string }>>({});
   const [editAddress, setEditAddress] = useState('');
   const [editLandmark, setEditLandmark] = useState('');
@@ -149,6 +337,10 @@ export default function AdminOtcTab({
     setEditSellMargin(String(desk.sellRateMarginPct ?? 1.0));
     const draftRates: Record<string, { buyRate?: string; sellRate?: string }> = {};
     const curs: string[] = Array.isArray(desk.supportedCurrencies) ? desk.supportedCurrencies : ['USD'];
+    const methods: string[] = Array.isArray(desk.settlementMethods) && desk.settlementMethods.length > 0 ? desk.settlementMethods : ['Physical Cash', 'Bank Transfer'];
+    setEditSupportedCurrencies(curs);
+    setEditSettlementMethods(methods);
+    setEditNewMethodInput('');
     curs.forEach((c) => {
       const existing = desk.customRates?.[c] || {};
       draftRates[c] = {
@@ -188,6 +380,8 @@ export default function AdminOtcTab({
           isOnline: editIsOnline,
           buyRateMarginPct: parseFloat(editBuyMargin),
           sellRateMarginPct: parseFloat(editSellMargin),
+          supportedCurrencies: editSupportedCurrencies,
+          settlementMethods: editSettlementMethods,
           customRates: sanitizedCustomRates,
           locationAddress: editAddress,
           landmark: editLandmark,
@@ -599,6 +793,18 @@ export default function AdminOtcTab({
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>Pre-Trade Inquiries ({inquiries.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab('CORRIDORS')}
+            className={`px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+              subTab === 'CORRIDORS'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Country Corridors &amp; Rails ({corridors.length})</span>
           </button>
         </div>
 
@@ -1178,6 +1384,362 @@ export default function AdminOtcTab({
             </div>
           </div>
         )
+      ) : (
+        /* OTC COUNTRY CORRIDORS & SETTLEMENT RAILS CONFIGURATION */
+        <div className="space-y-5">
+          {/* Header Bar */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-5 rounded-3xl border border-slate-800">
+            <div>
+              <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
+                <Globe className="w-5 h-5 text-blue-400" />
+                <span>OTC Country Corridors &amp; Physical / Bank Settlement Rails</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                Relationship hierarchy: <strong>Country &rarr; Supported OTC Currencies &rarr; Allowed Physical &amp; Bank Settlement Rails &rarr; Cross-Border Corridors</strong>.
+                Configured currencies and settlement rails sync automatically with OTC Liquidity Desks and the public OTC Exchange page.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowAddCorridorModal(true)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1.5 border border-slate-700 cursor-pointer"
+              >
+                <Plus className="w-4 h-4 text-blue-400" />
+                <span>Add Country Corridor</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveCorridors()}
+                disabled={corridorsSaving}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-blue-600/30 cursor-pointer disabled:opacity-50"
+              >
+                {corridorsSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Save All Corridors</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Corridors Grid */}
+          {corridorsLoading ? (
+            <div className="p-12 text-center text-slate-400">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-400 mb-2" />
+              <p className="text-xs font-bold">Loading OTC market corridors...</p>
+            </div>
+          ) : corridors.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 bg-slate-900 rounded-3xl border border-slate-800">
+              No OTC corridors configured. Click &quot;Add Country Corridor&quot; to configure your first market.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {corridors.map((c) => (
+                <div
+                  key={c.id}
+                  className={`p-5 rounded-3xl border transition-all space-y-4 ${
+                    c.enabled
+                      ? 'bg-slate-900/90 border-slate-800 shadow-md'
+                      : 'bg-slate-950/60 border-slate-800/60 opacity-60'
+                  }`}
+                >
+                  {/* Top Header: Flag, Name, Code, Status */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-2xl">{c.flag}</span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-sm text-white">{c.countryName}</h4>
+                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-mono text-[10px] font-bold">
+                            {c.countryCode}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-500/30">
+                            {c.primaryCurrency}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono">Corridor ID: {c.id}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleCorridorEnabled(c.id)}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                          c.enabled
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
+                        }`}
+                      >
+                        {c.enabled ? '✓ Enabled' : 'Paused / Off'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Physical Cash Counter & Cross Border Toggles */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={c.physicalCashEnabled}
+                        onChange={() => handleTogglePhysicalCash(c.id)}
+                        className="rounded border-slate-700 text-emerald-600 focus:ring-0"
+                      />
+                      <div>
+                        <span className="font-bold text-slate-200">Physical Cash Counter</span>
+                        <p className="text-[10px] text-slate-400">Allow in-person branch &amp; VIP cash escrow</p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={c.crossBorderAllowed}
+                        onChange={() => handleToggleCrossBorder(c.id)}
+                        className="rounded border-slate-700 text-blue-600 focus:ring-0"
+                      />
+                      <div>
+                        <span className="font-bold text-slate-200">Cross-Border Corridors</span>
+                        <p className="text-[10px] text-slate-400">Allow foreign currencies (e.g. USD, EUR)</p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Supported Currencies */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-300">
+                        Supported OTC Currencies ({c.supportedCurrencies.length})
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        Primary: <strong className="text-emerald-400">{c.primaryCurrency}</strong>
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {c.supportedCurrencies.map((cur) => {
+                        const isPrimary = cur === c.primaryCurrency;
+                        return (
+                          <span
+                            key={cur}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
+                              isPrimary
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                                : 'bg-slate-800 text-slate-200 border-slate-700'
+                            }`}
+                          >
+                            <span>{cur}</span>
+                            {isPrimary ? (
+                              <span className="text-[9px] uppercase tracking-wider text-emerald-400">Primary</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCurrency(c.id, cur)}
+                                className="text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                                title="Remove currency"
+                              >
+                                &times;
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={newCurrencyInputs[c.id] || ''}
+                        onChange={(e) => setNewCurrencyInputs({ ...newCurrencyInputs, [c.id]: e.target.value })}
+                        placeholder="Add currency (e.g. USD, EUR, GBP)..."
+                        className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-xs outline-none focus:border-blue-500 w-52"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAddCurrency(c.id)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700 cursor-pointer"
+                      >
+                        + Add Currency
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Allowed OTC Settlement Rails */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-300">
+                        Allowed OTC Settlement Rails ({c.allowedPaymentMethods.length})
+                      </span>
+                      <span className="text-[10px] text-slate-400">Available for OTC desks in {c.countryName}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {c.allowedPaymentMethods.map((rail) => (
+                        <span
+                          key={rail}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700"
+                        >
+                          <span>{rail}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRail(c.id, rail)}
+                            className="text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                            title="Remove rail"
+                          >
+                            &times;
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={newRailInputs[c.id] || ''}
+                        onChange={(e) => setNewRailInputs({ ...newRailInputs, [c.id]: e.target.value })}
+                        placeholder="Add settlement rail (e.g. Physical Cash, RTGS, SEPA)..."
+                        className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs outline-none focus:border-blue-500 flex-1 max-w-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAddRail(c.id)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700 cursor-pointer"
+                      >
+                        + Add Rail
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Modal to Add New OTC Country Corridor */}
+          {showAddCorridorModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto overscroll-contain">
+              <div className="bg-slate-950 border border-slate-800 rounded-3xl max-w-md w-full max-h-[90dvh] overflow-y-auto overscroll-contain my-auto p-6 space-y-4 shadow-2xl text-white">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <h3 className="text-base font-extrabold flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-400" />
+                    <span>Add New OTC Country Corridor</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCorridorModal(false)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Country Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={addCorridorForm.countryName}
+                      onChange={(e) => setAddCorridorForm({ ...addCorridorForm, countryName: e.target.value })}
+                      placeholder="e.g. Singapore, Switzerland, Canada"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-bold mb-1">Country Code (2 Letters)</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={4}
+                        value={addCorridorForm.countryCode}
+                        onChange={(e) => setAddCorridorForm({ ...addCorridorForm, countryCode: e.target.value.toUpperCase() })}
+                        placeholder="e.g. SG, CH, CA"
+                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-bold mb-1">Flag Emoji</label>
+                      <input
+                        type="text"
+                        value={addCorridorForm.flag}
+                        onChange={(e) => setAddCorridorForm({ ...addCorridorForm, flag: e.target.value })}
+                        placeholder="e.g. 🇸🇬"
+                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white text-base outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Primary Domestic Currency</label>
+                    <input
+                      type="text"
+                      required
+                      value={addCorridorForm.primaryCurrency}
+                      onChange={(e) => setAddCorridorForm({ ...addCorridorForm, primaryCurrency: e.target.value.toUpperCase() })}
+                      placeholder="e.g. SGD, CHF, CAD"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Secondary / Cross-Border Currencies (Comma Separated)</label>
+                    <input
+                      type="text"
+                      value={addCorridorForm.supportedCurrencies}
+                      onChange={(e) => setAddCorridorForm({ ...addCorridorForm, supportedCurrencies: e.target.value })}
+                      placeholder="e.g. USD, USDT, EUR"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white font-mono outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">Allowed OTC Settlement Rails (Comma Separated)</label>
+                    <input
+                      type="text"
+                      value={addCorridorForm.allowedPaymentMethods}
+                      onChange={(e) => setAddCorridorForm({ ...addCorridorForm, allowedPaymentMethods: e.target.value })}
+                      placeholder="e.g. Physical Cash, PayNow, FAST, Bank Wire"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2 pt-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={addCorridorForm.physicalCashEnabled}
+                        onChange={(e) => setAddCorridorForm({ ...addCorridorForm, physicalCashEnabled: e.target.checked })}
+                        className="rounded border-slate-700 text-emerald-600 focus:ring-0"
+                      />
+                      <span>Enable Physical Cash Counter Settlement</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={addCorridorForm.crossBorderAllowed}
+                        onChange={(e) => setAddCorridorForm({ ...addCorridorForm, crossBorderAllowed: e.target.checked })}
+                        className="rounded border-slate-700 text-blue-600 focus:ring-0"
+                      />
+                      <span>Allow Cross-Border Currencies</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCorridorModal(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateCorridor}
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Add Corridor
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* MODAL 2B: PRE-TRADE OTC DESK INQUIRY REPLY VIEWER */}
@@ -1338,6 +1900,135 @@ export default function AdminOtcTab({
                   />
                 </div>
               </div>
+
+              {/* Desk Supported Currencies & Settlement Rails (Synced with Country Corridors) */}
+              {(() => {
+                const deskCorridor = corridors.find(
+                  (c) =>
+                    c.countryCode?.toUpperCase() === selectedDesk.countryCode?.toUpperCase() ||
+                    c.countryName?.toLowerCase() === selectedDesk.country?.toLowerCase()
+                );
+                const candidateCurrencies = Array.from(
+                  new Set([
+                    ...(deskCorridor?.supportedCurrencies || []),
+                    'USDT',
+                    'USD',
+                    'EUR',
+                    'INR',
+                    'LKR',
+                    'AED',
+                    'GEL',
+                    'GBP',
+                    ...editSupportedCurrencies,
+                  ])
+                );
+                const candidateRails = Array.from(
+                  new Set([
+                    ...(deskCorridor?.allowedPaymentMethods || []),
+                    'Physical Cash',
+                    'Bank Transfer',
+                    ...editSettlementMethods,
+                  ])
+                );
+                return (
+                  <div className="space-y-3 p-3 rounded-2xl bg-slate-900/70 border border-slate-800">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-300 uppercase font-mono block mb-1.5">
+                        Supported OTC Currencies ({editSupportedCurrencies.length})
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {candidateCurrencies.map((cur) => {
+                          const active = editSupportedCurrencies.includes(cur);
+                          return (
+                            <button
+                              key={cur}
+                              type="button"
+                              onClick={() => {
+                                setEditSupportedCurrencies((prev) => {
+                                  const next = active
+                                    ? prev.length > 1
+                                      ? prev.filter((item) => item !== cur)
+                                      : prev
+                                    : [...prev, cur];
+                                  return next;
+                                });
+                                if (!editCustomRates[cur]) {
+                                  setEditCustomRates((prev) => ({ ...prev, [cur]: { buyRate: '', sellRate: '' } }));
+                                }
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border transition-all cursor-pointer ${
+                                active
+                                  ? 'bg-emerald-600 text-white border-emerald-500'
+                                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              {active ? '✓ ' : '+ '}
+                              {cur}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-300 uppercase font-mono block mb-1.5">
+                        Allowed Settlement Rails ({editSettlementMethods.length})
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {candidateRails.map((rail) => {
+                          const active = editSettlementMethods.includes(rail);
+                          return (
+                            <button
+                              key={rail}
+                              type="button"
+                              onClick={() =>
+                                setEditSettlementMethods((prev) =>
+                                  active
+                                    ? prev.length > 1
+                                      ? prev.filter((item) => item !== rail)
+                                      : prev
+                                    : [...prev, rail]
+                                )
+                              }
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
+                                active
+                                  ? 'bg-blue-600 text-white border-blue-500'
+                                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              {active ? '✓ ' : '+ '}
+                              {rail}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          type="text"
+                          value={editNewMethodInput}
+                          onChange={(e) => setEditNewMethodInput(e.target.value)}
+                          placeholder="Add custom settlement rail..."
+                          className="flex-1 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs outline-none focus:border-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const val = editNewMethodInput.trim();
+                            if (!val) return;
+                            if (!editSettlementMethods.includes(val)) {
+                              setEditSettlementMethods((prev) => [...prev, val]);
+                            }
+                            setEditNewMethodInput('');
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700 cursor-pointer"
+                        >
+                          + Add Rail
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {Object.keys(editCustomRates).length > 0 && (
                 <div className="p-3 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-2">

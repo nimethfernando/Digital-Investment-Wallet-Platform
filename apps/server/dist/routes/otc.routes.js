@@ -9,7 +9,8 @@ const requireOtcDesk = featureControl_service_1.featureControlService.requireFea
     await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.cryptoCurrency);
     await featureControl_service_1.featureControlService.assertCurrencyEnabled(req.body?.fiatCurrency);
 });
-// Public: Location-based OTC desk discovery and Live Benchmark Rates
+// Public: Location-based OTC desk discovery, Corridors, and Live Benchmark Rates
+router.get('/corridors', (req, res, next) => otc_controller_1.otcController.getCorridors(req, res, next));
 router.get('/desks', (req, res, next) => otc_controller_1.otcController.listDesks(req, res, next));
 router.get('/rates', (req, res, next) => otc_controller_1.otcController.getRates(req, res, next));
 // Protected: Authenticated operator and customer routes

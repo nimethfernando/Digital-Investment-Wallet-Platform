@@ -180,6 +180,8 @@ router.post('/p2p/orders/:id/resolve', requireRole([Role.ADMIN]), requireAdmin2F
 
 // OTC Desks & Escrow Trade Management
 router.post('/otc/desks/assign', requireRole([Role.ADMIN]), (req, res, next) => adminController.assignOtcDesk(req, res, next));
+router.get('/otc/corridors', (req, res, next) => adminController.getOtcCorridors(req, res, next));
+router.post('/otc/corridors', requireRole([Role.ADMIN]), (req, res, next) => adminController.updateOtcCorridors(req, res, next));
 router.get('/otc/desks', (req, res, next) => adminController.getOtcDesks(req, res, next));
 router.patch('/otc/desks/:id', requireRole([Role.ADMIN]), requireAdmin2FA, (req, res, next) => adminController.updateOtcDesk(req, res, next));
 router.get('/otc/trades', (req, res, next) => adminController.getOtcTrades(req, res, next));

@@ -162,7 +162,39 @@ export default function ExchangeDeskPage() {
   const [applyError, setApplyError] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
   const [otcDepositUsd, setOtcDepositUsd] = useState<number>(1000);
+  const [otcCorridors, setOtcCorridors] = useState<Array<{
+    id: string;
+    countryCode: string;
+    countryName: string;
+    flag: string;
+    primaryCurrency: string;
+    supportedCurrencies: string[];
+    allowedPaymentMethods: string[];
+    enabled: boolean;
+  }>>([]);
   const otcDraftHydratedRef = useRef(false);
+
+  useEffect(() => {
+    api
+      .get('/otc/corridors')
+      .then((res) => {
+        if (res.data?.success && Array.isArray(res.data.data)) {
+          setOtcCorridors(res.data.data.filter((c: any) => c.enabled !== false));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const dynamicSettlementPresets = useMemo(() => {
+    const matchedCorridor = otcCorridors.find(
+      (c) =>
+        c.countryCode?.toUpperCase() === applyCountryCode?.toUpperCase() ||
+        c.countryName?.toLowerCase() === applyCountry?.toLowerCase()
+    );
+    const corridorRails = matchedCorridor?.allowedPaymentMethods || [];
+    const allCorridorRails = otcCorridors.flatMap((c) => c.allowedPaymentMethods || []);
+    return Array.from(new Set([...corridorRails, ...OTC_SETTLEMENT_PRESETS, ...allCorridorRails]));
+  }, [otcCorridors, applyCountryCode, applyCountry]);
 
   const OTC_DESK_DRAFT_KEY = 'avora_otc_desk_draft';
 
@@ -2585,7 +2617,7 @@ export default function ExchangeDeskPage() {
                     Settlement Rails (Click to toggle presets or edit comma-separated) <span className="text-rose-500">*</span>
                   </label>
                   <div className="flex flex-wrap gap-1.5 my-1.5">
-                    {OTC_SETTLEMENT_PRESETS.map((preset) => {
+                    {dynamicSettlementPresets.map((preset) => {
                       const currentList = applyMethods.split(',').map((s) => s.trim()).filter(Boolean);
                       const isActive = currentList.some((m) => m.toLowerCase() === preset.toLowerCase());
                       return (
@@ -3350,7 +3382,7 @@ export default function ExchangeDeskPage() {
                     Accepted Settlement / Payment Methods
                   </label>
                   <div className="flex flex-wrap gap-1.5">
-                    {Array.from(new Set([...OTC_SETTLEMENT_PRESETS, ...manageMethodsList])).map((method) => {
+                    {Array.from(new Set([...dynamicSettlementPresets, ...manageMethodsList])).map((method) => {
                       const active = manageMethodsList.includes(method);
                       return (
                         <button

@@ -103,6 +103,8 @@ router.post('/p2p/orders/:id/freeze', (0, auth_1.requireRole)([client_1.Role.ADM
 router.post('/p2p/orders/:id/resolve', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.resolveP2PDispute(req, res, next));
 // OTC Desks & Escrow Trade Management
 router.post('/otc/desks/assign', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.assignOtcDesk(req, res, next));
+router.get('/otc/corridors', (req, res, next) => admin_controller_1.adminController.getOtcCorridors(req, res, next));
+router.post('/otc/corridors', (0, auth_1.requireRole)([client_1.Role.ADMIN]), (req, res, next) => admin_controller_1.adminController.updateOtcCorridors(req, res, next));
 router.get('/otc/desks', (req, res, next) => admin_controller_1.adminController.getOtcDesks(req, res, next));
 router.patch('/otc/desks/:id', (0, auth_1.requireRole)([client_1.Role.ADMIN]), auth_1.requireAdmin2FA, (req, res, next) => admin_controller_1.adminController.updateOtcDesk(req, res, next));
 router.get('/otc/trades', (req, res, next) => admin_controller_1.adminController.getOtcTrades(req, res, next));

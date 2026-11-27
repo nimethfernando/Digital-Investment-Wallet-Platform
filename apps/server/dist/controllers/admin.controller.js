@@ -4337,6 +4337,41 @@ class AdminController {
         }
     }
     /**
+     * GET /api/v1/admin/otc/corridors
+     * Retrieve active OTC Country -> Currency -> Settlement Rails corridors for Admin configuration
+     */
+    async getOtcCorridors(req, res, next) {
+        try {
+            const corridors = await otc_service_1.otcService.getCorridorConfigs();
+            res.json({ success: true, data: corridors });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/otc/corridors
+     * Save and update OTC Country -> Supported Currencies -> Allowed Settlement Rails corridors
+     */
+    async updateOtcCorridors(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const { corridors } = req.body;
+            if (!Array.isArray(corridors)) {
+                return res.status(400).json({ success: false, message: 'Invalid corridors payload: expected an array.' });
+            }
+            const updated = await otc_service_1.otcService.saveCorridorConfigs(adminUserId, corridors);
+            res.json({
+                success: true,
+                message: `Successfully updated ${updated.length} OTC Country, Currency, and Settlement Rail Corridors.`,
+                data: updated,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * Get immutable admin audit logs
      */
     async getAdminAuditLogs(req, res, next) {

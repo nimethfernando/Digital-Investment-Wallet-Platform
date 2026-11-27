@@ -10,7 +10,8 @@ const requireOtcDesk = featureControlService.requireFeature('OTC_DESK', async (r
   await featureControlService.assertCurrencyEnabled(req.body?.fiatCurrency);
 });
 
-// Public: Location-based OTC desk discovery and Live Benchmark Rates
+// Public: Location-based OTC desk discovery, Corridors, and Live Benchmark Rates
+router.get('/corridors', (req, res, next) => otcController.getCorridors(req, res, next));
 router.get('/desks', (req, res, next) => otcController.listDesks(req, res, next));
 router.get('/rates', (req, res, next) => otcController.getRates(req, res, next));
 

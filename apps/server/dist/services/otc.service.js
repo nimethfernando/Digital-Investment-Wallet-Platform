@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.otcService = exports.OtcService = void 0;
+exports.otcService = exports.OtcService = exports.OTC_CORRIDORS_CONFIG_KEY = exports.DEFAULT_OTC_CORRIDORS = void 0;
 const decimal_js_1 = __importDefault(require("decimal.js"));
 const prisma_1 = require("../lib/prisma");
 const ledger_service_1 = require("./ledger.service");
@@ -14,6 +14,100 @@ const notification_provider_1 = require("../adapters/notification/notification.p
 const client_1 = require("@prisma/client");
 const p2p_helpers_1 = require("./p2p.helpers");
 decimal_js_1.default.set({ precision: 28, rounding: decimal_js_1.default.ROUND_HALF_UP });
+exports.DEFAULT_OTC_CORRIDORS = [
+    {
+        id: 'in',
+        countryCode: 'IN',
+        countryName: 'India',
+        flag: '🇮🇳',
+        primaryCurrency: 'INR',
+        supportedCurrencies: ['INR', 'USD', 'USDT'],
+        allowedPaymentMethods: ['Physical Cash', 'Bank Transfer', 'RTGS / NEFT', 'IMPS', 'UPI', 'Google Pay (GPay)'],
+        crossBorderAllowed: true,
+        crossBorderCurrencies: ['USD', 'USDT'],
+        physicalCashEnabled: true,
+        enabled: true,
+    },
+    {
+        id: 'lk',
+        countryCode: 'LK',
+        countryName: 'Sri Lanka',
+        flag: '🇱🇰',
+        primaryCurrency: 'LKR',
+        supportedCurrencies: ['LKR', 'USD', 'USDT'],
+        allowedPaymentMethods: ['Cash Pickup (Fort)', 'Commercial Bank Transfer', 'Commercial Bank CEFTS', 'Sampath Bank Vishwa', 'Bank Transfer'],
+        crossBorderAllowed: true,
+        crossBorderCurrencies: ['USD', 'USDT'],
+        physicalCashEnabled: true,
+        enabled: true,
+    },
+    {
+        id: 'ae',
+        countryCode: 'AE',
+        countryName: 'United Arab Emirates',
+        flag: '🇦🇪',
+        primaryCurrency: 'AED',
+        supportedCurrencies: ['AED', 'USD', 'USDT'],
+        allowedPaymentMethods: ['VIP Lounge Cash Settlement', 'AED Local Bank Wire', 'Emirates NBD', 'FAB Transfer', 'Manager Cheque'],
+        crossBorderAllowed: true,
+        crossBorderCurrencies: ['USD', 'USDT'],
+        physicalCashEnabled: true,
+        enabled: true,
+    },
+    {
+        id: 'ge',
+        countryCode: 'GE',
+        countryName: 'Georgia',
+        flag: '🇬🇪',
+        primaryCurrency: 'GEL',
+        supportedCurrencies: ['GEL', 'USD', 'EUR', 'USDT'],
+        allowedPaymentMethods: ['Physical Cash (Tbilisi Counter)', 'Bank of Georgia', 'TBC Bank', 'Liberty Bank'],
+        crossBorderAllowed: true,
+        crossBorderCurrencies: ['USD', 'EUR', 'USDT'],
+        physicalCashEnabled: true,
+        enabled: true,
+    },
+    {
+        id: 'eu',
+        countryCode: 'EU',
+        countryName: 'European Union',
+        flag: '🇪🇺',
+        primaryCurrency: 'EUR',
+        supportedCurrencies: ['EUR', 'USD', 'USDT'],
+        allowedPaymentMethods: ['SEPA Instant', 'Revolut', 'Wise', 'Physical Cash', 'Bank Transfer'],
+        crossBorderAllowed: true,
+        crossBorderCurrencies: ['USD', 'USDT'],
+        physicalCashEnabled: true,
+        enabled: true,
+    },
+    {
+        id: 'us',
+        countryCode: 'US',
+        countryName: 'United States',
+        flag: '🇺🇸',
+        primaryCurrency: 'USD',
+        supportedCurrencies: ['USD', 'USDT', 'USDC'],
+        allowedPaymentMethods: ['Domestic Wire (Fedwire)', 'ACH Transfer', 'Zelle', 'Physical Cash'],
+        crossBorderAllowed: false,
+        crossBorderCurrencies: [],
+        physicalCashEnabled: true,
+        enabled: true,
+    },
+    {
+        id: 'gb',
+        countryCode: 'GB',
+        countryName: 'United Kingdom',
+        flag: '🇬🇧',
+        primaryCurrency: 'GBP',
+        supportedCurrencies: ['GBP', 'EUR', 'USD', 'USDT'],
+        allowedPaymentMethods: ['Faster Payments (FPS)', 'CHAPS Wire', 'SEPA Instant', 'Revolut', 'Physical Cash'],
+        crossBorderAllowed: true,
+        crossBorderCurrencies: ['EUR', 'USD', 'USDT'],
+        physicalCashEnabled: true,
+        enabled: true,
+    },
+];
+exports.OTC_CORRIDORS_CONFIG_KEY = 'otc_corridors_config';
 const DEFAULT_DESK_LOCATION_FALLBACKS = {
     'desk-cmb-1': {
         landmark: 'Opposite Galadari Hotel & Echelon Square Lotus Entrance',
@@ -42,6 +136,86 @@ const DEFAULT_DESK_LOCATION_FALLBACKS = {
 };
 class OtcService {
     schemaEnsured = false;
+    /**
+     * Retrieves active OTC Market Corridors (Country -> Supported Currencies -> Settlement Rails)
+     */
+    async getCorridorConfigs() {
+        try {
+            const setting = await prisma_1.prisma.cmsSetting.findUnique({
+                where: { key: exports.OTC_CORRIDORS_CONFIG_KEY },
+            });
+            if (setting?.value) {
+                const parsed = JSON.parse(setting.value);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    return parsed;
+                }
+            }
+        }
+        catch {
+            // Fallback to default OTC corridors
+        }
+        return exports.DEFAULT_OTC_CORRIDORS;
+    }
+    /**
+     * Saves and updates OTC Market Corridors & Settlement Rails (Admin controlled)
+     */
+    async saveCorridorConfigs(adminUserId, configs) {
+        if (!Array.isArray(configs) || configs.length === 0) {
+            throw new Error('Invalid OTC corridors configuration. At least one corridor is required.');
+        }
+        const validated = configs.map((c) => {
+            const countryCode = String(c.countryCode || '').trim().toUpperCase();
+            const primaryCurrency = String(c.primaryCurrency || '').trim().toUpperCase();
+            const supportedCurrencies = Array.from(new Set([
+                primaryCurrency,
+                ...(Array.isArray(c.supportedCurrencies)
+                    ? c.supportedCurrencies.map((cur) => String(cur).trim().toUpperCase()).filter(Boolean)
+                    : []),
+            ]));
+            const allowedPaymentMethods = Array.from(new Set(Array.isArray(c.allowedPaymentMethods)
+                ? c.allowedPaymentMethods.map((m) => String(m).trim()).filter(Boolean)
+                : []));
+            return {
+                id: String(c.id || countryCode.toLowerCase()).trim(),
+                countryCode,
+                countryName: String(c.countryName || countryCode).trim(),
+                flag: String(c.flag || '🌐').trim(),
+                primaryCurrency,
+                supportedCurrencies,
+                allowedPaymentMethods: allowedPaymentMethods.length > 0 ? allowedPaymentMethods : ['Physical Cash', 'Bank Transfer'],
+                crossBorderAllowed: Boolean(c.crossBorderAllowed),
+                crossBorderCurrencies: Array.isArray(c.crossBorderCurrencies)
+                    ? c.crossBorderCurrencies.map((cur) => String(cur).trim().toUpperCase()).filter(Boolean)
+                    : supportedCurrencies.filter((cur) => cur !== primaryCurrency),
+                physicalCashEnabled: c.physicalCashEnabled !== undefined ? Boolean(c.physicalCashEnabled) : true,
+                enabled: c.enabled !== undefined ? Boolean(c.enabled) : true,
+            };
+        });
+        await prisma_1.prisma.cmsSetting.upsert({
+            where: { key: exports.OTC_CORRIDORS_CONFIG_KEY },
+            update: {
+                value: JSON.stringify(validated),
+                group: 'OTC',
+                description: 'OTC Country Corridors, Supported Currencies & Settlement Rails Configuration',
+            },
+            create: {
+                key: exports.OTC_CORRIDORS_CONFIG_KEY,
+                value: JSON.stringify(validated),
+                group: 'OTC',
+                description: 'OTC Country Corridors, Supported Currencies & Settlement Rails Configuration',
+            },
+        });
+        await prisma_1.prisma.adminAuditLog.create({
+            data: {
+                userId: adminUserId,
+                action: 'UPDATE_OTC_CORRIDORS',
+                entity: 'CmsSetting',
+                entityId: exports.OTC_CORRIDORS_CONFIG_KEY,
+                details: `Updated ${validated.length} OTC country corridors and settlement rails`,
+            },
+        }).catch(() => { });
+        return validated;
+    }
     async ensureOtcSchema() {
         if (this.schemaEnsured)
             return;
@@ -1953,6 +2127,18 @@ class OtcService {
                     throw new Error('Location address must be at least 5 characters.');
                 }
                 updateData.locationAddress = cleanAddr.slice(0, 255);
+            }
+            if (Array.isArray(data.supportedCurrencies) && data.supportedCurrencies.length > 0) {
+                const cleanCurs = Array.from(new Set(data.supportedCurrencies.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean)));
+                if (cleanCurs.length > 0) {
+                    updateData.supportedCurrencies = JSON.stringify(cleanCurs);
+                }
+            }
+            if (Array.isArray(data.settlementMethods) && data.settlementMethods.length > 0) {
+                const cleanMethods = Array.from(new Set(data.settlementMethods.map((m) => String(m || '').trim()).filter(Boolean)));
+                if (cleanMethods.length > 0) {
+                    updateData.settlementMethods = JSON.stringify(cleanMethods);
+                }
             }
             if (data.landmark !== undefined ||
                 data.googleMapsUrl !== undefined ||

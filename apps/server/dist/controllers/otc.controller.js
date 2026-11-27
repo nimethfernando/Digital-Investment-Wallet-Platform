@@ -96,6 +96,19 @@ class OtcController {
         }
     }
     /**
+     * GET /api/v1/otc/corridors
+     * Public endpoint returning active OTC Country -> Supported Currencies -> Settlement Rails corridors
+     */
+    async getCorridors(req, res, next) {
+        try {
+            const corridors = await otc_service_1.otcService.getCorridorConfigs();
+            res.json({ success: true, data: corridors });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
      * GET /api/v1/otc/desks
      * Location-based OTC desk discovery
      */
