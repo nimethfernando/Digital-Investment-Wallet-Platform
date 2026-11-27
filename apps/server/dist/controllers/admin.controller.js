@@ -3461,12 +3461,48 @@ class AdminController {
         }
     }
     /**
-     * Suspend / delete startup campaign
+     * Move startup campaign to Deleted List (soft-delete) or permanently delete if already in Deleted List / permanent=true
      */
     async deleteStartupListing(req, res, next) {
         try {
             const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
             const id = String(req.params.id);
+            const permanent = req.query.permanent === 'true';
+            const existing = await prisma_1.prisma.startupListing.findUnique({
+                where: { id },
+                include: { investments: true },
+            });
+            if (!existing) {
+                return res.status(404).json({ success: false, message: 'Startup listing not found' });
+            }
+            if (permanent) {
+                const realCommitments = existing.investments.filter((c) => c.sourceType !== 'ADMIN_DISPLAY_MOCK');
+                if (realCommitments.length > 0) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Cannot permanently delete "${existing.companyName}" because it has ${realCommitments.length} real investor commitment(s) on the ledger. It remains safely archived in the Deleted List.`,
+                    });
+                }
+                await prisma_1.prisma.$transaction([
+                    prisma_1.prisma.investmentCommitment.deleteMany({ where: { listingId: id } }),
+                    prisma_1.prisma.investmentWatchlist.deleteMany({ where: { listingId: id } }),
+                    prisma_1.prisma.investmentInquiry.deleteMany({ where: { listingId: id } }),
+                    prisma_1.prisma.startupListing.delete({ where: { id } }),
+                ]);
+                await prisma_1.prisma.adminAuditLog.create({
+                    data: {
+                        userId: adminUserId,
+                        action: 'PERMANENT_DELETE_STARTUP_LISTING',
+                        entity: 'StartupListing',
+                        entityId: id,
+                        details: `Permanently deleted startup portfolio ${existing.companyName} from Deleted List`,
+                    },
+                });
+                return res.json({
+                    success: true,
+                    message: `Startup portfolio "${existing.companyName}" permanently deleted`,
+                });
+            }
             const listing = await prisma_1.prisma.startupListing.update({
                 where: { id },
                 data: { status: 'SUSPENDED' },
@@ -3477,12 +3513,42 @@ class AdminController {
                     action: 'SUSPEND_STARTUP_LISTING',
                     entity: 'StartupListing',
                     entityId: id,
-                    details: `Suspended startup listing ${listing.companyName}`,
+                    details: `Moved startup portfolio ${listing.companyName} to Deleted List`,
                 },
             });
             res.json({
                 success: true,
-                message: `Startup listing ${listing.companyName} suspended successfully`,
+                message: `Startup portfolio "${listing.companyName}" moved to the Deleted List`,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * Restore a deleted / suspended startup campaign back to Active Portfolios (PUBLISHED)
+     */
+    async restoreStartupListing(req, res, next) {
+        try {
+            const adminUserId = req.user?.id ? String(req.user.id) : 'SYSTEM_ADMIN';
+            const id = String(req.params.id);
+            const listing = await prisma_1.prisma.startupListing.update({
+                where: { id },
+                data: { status: 'PUBLISHED' },
+            });
+            await prisma_1.prisma.adminAuditLog.create({
+                data: {
+                    userId: adminUserId,
+                    action: 'RESTORE_STARTUP_LISTING',
+                    entity: 'StartupListing',
+                    entityId: id,
+                    details: `Restored startup portfolio ${listing.companyName} from Deleted List to Active Portfolios`,
+                },
+            });
+            res.json({
+                success: true,
+                message: `Startup portfolio "${listing.companyName}" restored to Active Portfolios`,
+                data: listing,
             });
         }
         catch (err) {

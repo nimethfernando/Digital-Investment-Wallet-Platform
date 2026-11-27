@@ -30,6 +30,7 @@ import {
   MessageSquare,
   Send,
   Briefcase,
+  RotateCcw,
 } from 'lucide-react';
 import { api, resolveMediaUrl } from '../../../lib/api';
 import PaginationControls from '../../../components/PaginationControls';
@@ -84,6 +85,7 @@ export default function AdminStartupsTab({
   onFeedback,
 }: StartupsTabProps) {
   const [subTab, setSubTab] = useState<'CAMPAIGNS' | 'DEALFLOW_DESK'>('CAMPAIGNS');
+  const [listingViewMode, setListingViewMode] = useState<'ACTIVE' | 'DELETED'>('ACTIVE');
   const [search, setSearch] = useState('');
   const [selectedListingFilterId, setSelectedListingFilterId] = useState<string>('ALL');
   const [commitmentSearch, setCommitmentSearch] = useState('');
@@ -587,18 +589,44 @@ export default function AdminStartupsTab({
     }
   };
 
-  const handleDeleteListing = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to suspend startup campaign for ${name}?`)) return;
+  const handleDeleteListing = async (id: string, name: string, permanent = false) => {
+    const confirmMsg = permanent
+      ? `Permanently delete "${name}" from the Deleted List? This cannot be undone.`
+      : `Move startup portfolio "${name}" to the Deleted List? It will be removed from the active portfolio list and stored in the Deleted List.`;
+    if (!confirm(confirmMsg)) return;
     try {
-      const res = await api.delete(`/admin/investments/listings/${id}`, {
+      const res = await api.delete(`/admin/investments/listings/${id}${permanent ? '?permanent=true' : ''}`, {
         headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {},
       });
       if (res.data?.success) {
-        onFeedback({ text: `Listing ${name} suspended`, type: 'success' });
+        onFeedback({
+          text: res.data.message || (permanent ? `Portfolio "${name}" permanently deleted` : `Portfolio "${name}" moved to the Deleted List`),
+          type: 'success',
+        });
         onRefresh();
       }
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to suspend listing', type: 'error' });
+      onFeedback({ text: err.response?.data?.message || 'Failed to delete portfolio', type: 'error' });
+    }
+  };
+
+  const handleRestoreListing = async (id: string, name: string) => {
+    if (!confirm(`Restore startup portfolio "${name}" back to Active Portfolios?`)) return;
+    try {
+      const res = await api.post(
+        `/admin/investments/listings/${id}/restore`,
+        { admin2FaCode: effective2Fa || undefined },
+        { headers: effective2Fa ? { 'x-admin-2fa': effective2Fa } : {} }
+      );
+      if (res.data?.success) {
+        onFeedback({
+          text: res.data.message || `Portfolio "${name}" restored to Active Portfolios`,
+          type: 'success',
+        });
+        onRefresh();
+      }
+    } catch (err: any) {
+      onFeedback({ text: err.response?.data?.message || 'Failed to restore portfolio', type: 'error' });
     }
   };
 
@@ -704,7 +732,11 @@ export default function AdminStartupsTab({
     }
   };
 
-  const filteredListings = listings.filter((l) => {
+  const isDeletedListing = (l: any) => l.status === 'SUSPENDED' || l.status === 'DELETED';
+  const activeListings = listings.filter((l) => !isDeletedListing(l));
+  const deletedListings = listings.filter((l) => isDeletedListing(l));
+
+  const filteredListings = (listingViewMode === 'DELETED' ? deletedListings : activeListings).filter((l) => {
     const q = search.toLowerCase().trim();
     return !q || l.companyName?.toLowerCase().includes(q) || l.industry?.toLowerCase().includes(q);
   });
@@ -729,19 +761,38 @@ export default function AdminStartupsTab({
         ))}
       </datalist>
 
-      {/* Sub-Navigation: Curated Campaigns & Commitments vs Dealflow Matchmaking Desk */}
-      <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-slate-900 border border-slate-800 text-xs font-black w-fit shadow-md">
+      {/* Sub-Navigation: Curated Campaigns & Commitments vs Deleted List vs Dealflow Matchmaking Desk */}
+      <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl bg-slate-900 border border-slate-800 text-xs font-black w-fit shadow-md">
         <button
           type="button"
-          onClick={() => setSubTab('CAMPAIGNS')}
+          onClick={() => {
+            setSubTab('CAMPAIGNS');
+            setListingViewMode('ACTIVE');
+          }}
           className={`px-4 py-2 rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
-            subTab === 'CAMPAIGNS'
+            subTab === 'CAMPAIGNS' && listingViewMode === 'ACTIVE'
               ? 'bg-purple-600 text-white shadow-sm'
               : 'text-slate-400 hover:text-white'
           }`}
         >
           <Building className="w-4 h-4" />
-          <span>Curated Campaigns &amp; Commitments ({listings.length})</span>
+          <span>Active Portfolios ({activeListings.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setSubTab('CAMPAIGNS');
+            setListingViewMode('DELETED');
+          }}
+          className={`px-4 py-2 rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+            subTab === 'CAMPAIGNS' && listingViewMode === 'DELETED'
+              ? 'bg-rose-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-rose-300'
+          }`}
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>Deleted List ({deletedListings.length})</span>
         </button>
 
         <button
@@ -769,15 +820,52 @@ export default function AdminStartupsTab({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-5 rounded-3xl border border-slate-800">
         <div>
           <h3 className="font-extrabold text-lg text-white flex items-center gap-2">
-            <Building className="w-5 h-5 text-purple-400" />
-            <span>Venture Equity &amp; Startup Crowdfunding ({listings.length})</span>
+            {listingViewMode === 'DELETED' ? (
+              <>
+                <Trash2 className="w-5 h-5 text-rose-400" />
+                <span>Deleted Startup Portfolios ({deletedListings.length})</span>
+              </>
+            ) : (
+              <>
+                <Building className="w-5 h-5 text-purple-400" />
+                <span>Venture Equity &amp; Startup Crowdfunding ({activeListings.length})</span>
+              </>
+            )}
           </h3>
           <p className="text-xs text-slate-400 mt-1">
-            Create new startup rounds, review investor equity allocations, and execute realized buyout payouts.
+            {listingViewMode === 'DELETED'
+              ? 'Deleted portfolios are hidden from the marketplace and active totals. Restore any portfolio or permanently delete test campaigns.'
+              : 'Create new startup rounds, review investor equity allocations, and execute realized buyout payouts.'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {/* Quick View Mode Pill Toggle */}
+          <div className="flex items-center p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setListingViewMode('ACTIVE')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                listingViewMode === 'ACTIVE'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Active ({activeListings.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setListingViewMode('DELETED')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                listingViewMode === 'DELETED'
+                  ? 'bg-rose-600 text-white'
+                  : 'text-slate-400 hover:text-rose-300'
+              }`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Deleted ({deletedListings.length})</span>
+            </button>
+          </div>
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -837,7 +925,7 @@ export default function AdminStartupsTab({
         const distinctRealInvestors = new Set([...realWalletRows, ...externalRows].map((c) => c.investorUserId).filter(Boolean)).size;
 
         const mockCommitmentsUsd = mockRows.reduce((sum, c) => sum + parseFloat(c.netInvestedAmount || '0'), 0);
-        const totalHeadlineRaised = listings.reduce((sum, l) => sum + parseFloat(l.verifiedFundsRaised || '0'), 0);
+        const totalHeadlineRaised = activeListings.reduce((sum, l) => sum + parseFloat(l.verifiedFundsRaised || '0'), 0);
         const displayOffsetUsd = totalHeadlineRaised - realAndExtTotalUsd;
 
         const totalFeesCollected = [...realWalletRows, ...externalRows].reduce(
@@ -922,17 +1010,51 @@ export default function AdminStartupsTab({
         </div>
       ) : filteredListings.length === 0 ? (
         <div className="p-16 text-center text-slate-500 bg-slate-900/50 border border-slate-800 rounded-3xl">
-          <Building className="w-10 h-10 mx-auto text-slate-600 mb-2" />
-          <p className="text-sm font-semibold text-slate-400">No startup campaigns currently listed</p>
-          <button
-            onClick={() => setCreateModalOpen(true)}
-            className="mt-3 text-xs text-purple-400 hover:underline cursor-pointer"
-          >
-            Create first startup listing
-          </button>
+          {listingViewMode === 'DELETED' ? (
+            <>
+              <Trash2 className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+              <p className="text-sm font-semibold text-slate-400">No deleted startup portfolios</p>
+              <button
+                type="button"
+                onClick={() => setListingViewMode('ACTIVE')}
+                className="mt-3 text-xs text-purple-400 hover:underline cursor-pointer"
+              >
+                ← Back to Active Portfolios ({activeListings.length})
+              </button>
+            </>
+          ) : (
+            <>
+              <Building className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+              <p className="text-sm font-semibold text-slate-400">No active startup campaigns currently listed</p>
+              <button
+                onClick={() => setCreateModalOpen(true)}
+                className="mt-3 text-xs text-purple-400 hover:underline cursor-pointer"
+              >
+                Create first startup listing
+              </button>
+            </>
+          )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-4">
+          {listingViewMode === 'DELETED' && (
+            <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-rose-200">
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>
+                  <strong>Deleted Portfolios List ({deletedListings.length}):</strong> Portfolios in this list are hidden from the public marketplace and excluded from active portfolio KPIs.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setListingViewMode('ACTIVE')}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold cursor-pointer"
+              >
+                ← Back to Active Portfolios ({activeListings.length})
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filteredListings.map((l) => {
             const raised = parseFloat(l.verifiedFundsRaised || '0');
             const target = parseFloat(l.fundingTarget || '1');
@@ -997,11 +1119,11 @@ export default function AdminStartupsTab({
                       ? 'bg-emerald-500/20 text-emerald-400'
                       : l.status === 'UNDER_REVIEW'
                       ? 'bg-amber-500/20 text-amber-300'
-                      : l.status === 'SUSPENDED'
+                      : l.status === 'SUSPENDED' || l.status === 'DELETED'
                       ? 'bg-rose-500/20 text-rose-400'
                       : 'bg-slate-800 text-slate-400'
                   }`}>
-                    {l.status}
+                    {l.status === 'SUSPENDED' ? 'DELETED' : l.status}
                   </span>
                 </div>
 
@@ -1101,13 +1223,37 @@ export default function AdminStartupsTab({
                   className="flex items-center justify-between pt-2 border-t border-slate-800 gap-2 flex-wrap"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <button
-                    onClick={() => handleDeleteListing(l.id, l.companyName)}
-                    className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"
-                    title="Suspend Campaign"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {isDeletedListing(l) ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRestoreListing(l.id, l.companyName)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                        title="Restore this portfolio back to Active Portfolios"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Restore Portfolio</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteListing(l.id, l.companyName, true)}
+                        className="px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                        title="Permanently delete this portfolio from the database"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Permanently</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteListing(l.id, l.companyName, false)}
+                      className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"
+                      title="Delete Portfolio (Move to Deleted List)"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
 
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
@@ -1156,6 +1302,7 @@ export default function AdminStartupsTab({
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
@@ -3565,14 +3712,14 @@ export default function AdminStartupsTab({
         const realAndExtRows = [...realRows, ...extRows];
         const realNetSum = realRows.reduce((s, c) => s + parseFloat(c.netInvestedAmount || '0'), 0);
         const extNetSum = extRows.reduce((s, c) => s + parseFloat(c.netInvestedAmount || '0'), 0);
-        const totalHeadline = listings.reduce((s, l) => s + parseFloat(l.verifiedFundsRaised || '0'), 0);
+        const totalHeadline = activeListings.reduce((s, l) => s + parseFloat(l.verifiedFundsRaised || '0'), 0);
         const totalOffset = totalHeadline - (realNetSum + extNetSum) + mockRowsList.reduce((s, c) => s + parseFloat(c.netInvestedAmount || '0'), 0);
         const totalFees = realAndExtRows.reduce(
           (s, c) => s + parseFloat(c.allocationFeeAmount || '0') + parseFloat(c.profitShareFeeAmount || '0'),
           0
         );
 
-        const offsetCampaigns = listings.filter((l) => {
+        const offsetCampaigns = activeListings.filter((l) => {
           const headline = parseFloat(l.verifiedFundsRaised || '0');
           const actual = parseFloat(l.actualCollectedFromUsersUsd ?? '0');
           return Math.abs(headline - actual) > 0.01;
