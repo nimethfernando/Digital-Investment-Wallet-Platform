@@ -2346,11 +2346,11 @@ Return ONLY valid JSON matching this schema:
 
   <rect x="650" y="84" width="130" height="36" rx="10" fill="${pal.badgeBg}" fill-opacity="0.22" stroke="${pal.badgeBg}" stroke-opacity="0.4"/>
   <text x="715" y="107" text-anchor="middle" font-family="monospace" font-size="16" font-weight="900" fill="#FFFFFF">${escapeXml(spec.ticker)}</text>
-  <text x="650" y="144" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#64748B">3-MONTH DAILY CLOSE TRAJECTORY (${escapeXml(spec.exchange)})</text>
+  <text x="650" y="144" font-family="system-ui, sans-serif" font-size="11.5" font-weight="700" fill="#64748B">3-MONTH TRAJECTORY (${escapeXml(spec.exchange.slice(0, 18))})</text>
 
-  <text x="1114" y="110" text-anchor="end" font-family="monospace" font-size="28" font-weight="900" fill="#FFFFFF">${escapeXml(spec.priceText)}</text>
-  <rect x="1004" y="122" width="110" height="30" rx="8" fill="${accent}" fill-opacity="0.18"/>
-  <text x="1059" y="142" text-anchor="middle" font-family="monospace" font-size="15" font-weight="900" fill="${accent}">${escapeXml(spec.changeText)} (1D)</text>
+  <text x="1114" y="110" text-anchor="end" font-family="monospace" font-size="${spec.priceText.length > 11 ? 22 : 28}" font-weight="900" fill="#FFFFFF">${escapeXml(spec.priceText)}</text>
+  <rect x="974" y="122" width="140" height="30" rx="8" fill="${accent}" fill-opacity="0.18"/>
+  <text x="1044" y="142" text-anchor="middle" font-family="monospace" font-size="${spec.changeText.includes('%') ? 15 : 12.5}" font-weight="900" fill="${accent}">${escapeXml(spec.changeText.includes('%') ? `${spec.changeText} (1D)` : spec.changeText.slice(0, 16))}</text>
 
   <line x1="650" y1="172" x2="1114" y2="172" stroke="${pal.grid}" stroke-width="1"/>
 
@@ -2397,6 +2397,17 @@ Return ONLY valid JSON matching this schema:
         const score = Math.min(95, Math.max(5, spec.sentimentScore || 58));
         const gaugeX = 60 + (score / 100) * 840;
         const scoreColor = score >= 60 ? '#10B981' : score <= 40 ? '#F43F5E' : '#F59E0B';
+        const rawHeaderTitle = `${spec.companyName} (${spec.ticker}) — ${spec.priceText} (${spec.changeText})`.replace(/\s+/g, ' ').trim();
+        const useTwoLineHeader = rawHeaderTitle.length > 42;
+        const primaryHeaderLine = `${spec.companyName} (${spec.ticker})`.replace(/\s+/g, ' ').trim().slice(0, 44);
+        const secondaryHeaderLine = `${spec.priceText}  •  ${spec.changeText}`.replace(/\s+/g, ' ').trim().slice(0, 56);
+        const singleLineFontSize = rawHeaderTitle.length <= 32 ? 22 : rawHeaderTitle.length <= 38 ? 19.5 : 17.5;
+        const headerBlockMarkup = useTwoLineHeader
+            ? `<text x="48" y="40" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11.5" font-weight="800" letter-spacing="1.4" fill="#38BDF8">AVORA QUANTITATIVE SENTIMENT &amp; THESIS MATRIX</text>
+    <text x="48" y="65" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="${primaryHeaderLine.length > 32 ? 17 : 20}" font-weight="900" fill="#FFFFFF">${escapeXml(primaryHeaderLine)}</text>
+    <text x="48" y="85" font-family="monospace" font-size="12" font-weight="800" letter-spacing="0.6" fill="#94A3B8">${escapeXml(secondaryHeaderLine)}</text>`
+            : `<text x="48" y="46" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="800" letter-spacing="1.4" fill="#38BDF8">AVORA QUANTITATIVE SENTIMENT &amp; THESIS MATRIX</text>
+    <text x="48" y="76" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="${singleLineFontSize}" font-weight="900" fill="#FFFFFF">${escapeXml(rawHeaderTitle)}</text>`;
         const renderSideBullets = (items, startX, startY, bulletColor) => {
             let y = startY;
             const out = [];
@@ -2421,17 +2432,25 @@ Return ONLY valid JSON matching this schema:
       <stop offset="50%" stop-color="#F59E0B"/>
       <stop offset="100%" stop-color="#10B981"/>
     </linearGradient>
+    <clipPath id="memeHeaderClip">
+      <rect x="44" y="20" width="640" height="74"/>
+    </clipPath>
+    <clipPath id="memeFooterClip">
+      <rect x="64" y="460" width="650" height="50"/>
+    </clipPath>
   </defs>
 
   <rect width="960" height="540" rx="24" fill="url(#mbg)" stroke="#1E293B" stroke-width="2"/>
 
-  <!-- Header Bar -->
-  <text x="48" y="48" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="800" letter-spacing="1.4" fill="#38BDF8">AVORA QUANTITATIVE SENTIMENT &amp; THESIS MATRIX</text>
-  <text x="48" y="78" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="24" font-weight="900" fill="#FFFFFF">${escapeXml(spec.companyName)} (${escapeXml(spec.ticker)}) — ${escapeXml(spec.priceText)} (${escapeXml(spec.changeText)})</text>
+  <!-- Header Bar (Left title strictly clipped & scaled so it never overlaps Composite Signal box) -->
+  <g clip-path="url(#memeHeaderClip)">
+    ${headerBlockMarkup}
+  </g>
 
-  <rect x="700" y="38" width="212" height="44" rx="12" fill="${scoreColor}" fill-opacity="0.16" stroke="${scoreColor}" stroke-opacity="0.45"/>
-  <text x="806" y="56" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="800" fill="#94A3B8">COMPOSITE SIGNAL (${score}/100)</text>
-  <text x="806" y="73" text-anchor="middle" font-family="monospace" font-size="12" font-weight="900" fill="${scoreColor}">${escapeXml(spec.sentimentLabel)}</text>
+  <rect x="696" y="36" width="216" height="48" rx="12" fill="#0B1325" stroke="${scoreColor}" stroke-opacity="0.55" stroke-width="1.5"/>
+  <rect x="696" y="36" width="216" height="48" rx="12" fill="${scoreColor}" fill-opacity="0.16"/>
+  <text x="804" y="55" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="800" fill="#94A3B8">COMPOSITE SIGNAL (${score}/100)</text>
+  <text x="804" y="73" text-anchor="middle" font-family="monospace" font-size="11.5" font-weight="900" fill="${scoreColor}">${escapeXml(spec.sentimentLabel.slice(0, 24))}</text>
 
   <!-- Sentiment Gauge Bar -->
   <rect x="48" y="104" width="864" height="12" rx="6" fill="url(#meterGrad)" fill-opacity="0.85"/>
@@ -2454,7 +2473,9 @@ Return ONLY valid JSON matching this schema:
 
   <!-- Bottom Desk Key Levels Bar -->
   <rect x="48" y="458" width="864" height="54" rx="14" fill="#1E293B" fill-opacity="0.75" stroke="#334155"/>
-  <text x="72" y="490" font-family="monospace" font-size="13" font-weight="800" fill="#F8FAFC">${escapeXml(spec.bottomText)}</text>
+  <g clip-path="url(#memeFooterClip)">
+    <text x="72" y="490" font-family="monospace" font-size="12.5" font-weight="800" fill="#F8FAFC">${escapeXml(spec.bottomText.slice(0, 74))}</text>
+  </g>
   <text x="890" y="490" text-anchor="end" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#94A3B8">Avora Institutional Desk</text>
 </svg>`;
     }

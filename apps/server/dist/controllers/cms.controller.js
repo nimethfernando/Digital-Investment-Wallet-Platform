@@ -207,7 +207,7 @@ const getBlogBannerMedia = async (req, res, next) => {
         });
         const svg = autoContent_service_1.autoContentService.renderBannerSvg(rawSlug, post?.bannerData, post?.title);
         res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-        res.setHeader('Cache-Control', 'public, max-age=300');
+        res.setHeader('Cache-Control', 'no-cache, max-age=0, must-revalidate');
         res.send(svg);
     }
     catch (err) {
@@ -224,7 +224,7 @@ const getBlogMemeMedia = async (req, res, next) => {
         });
         const svg = autoContent_service_1.autoContentService.renderMemeSvg(post?.memeData, post?.ticker || 'MARKET');
         res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-        res.setHeader('Cache-Control', 'public, max-age=300');
+        res.setHeader('Cache-Control', 'no-cache, max-age=0, must-revalidate');
         res.send(svg);
     }
     catch (err) {
