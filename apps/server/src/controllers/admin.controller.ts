@@ -5328,15 +5328,13 @@ export class AdminController {
       prisma.transaction
         .findMany({
           where: {
-            type: TransactionType.EXCHANGE_BUY,
-            transactionCode: { startsWith: 'TX-SWAP-' },
-            createdAt: { gte: last72Hours },
+            type: { in: [TransactionType.EXCHANGE_BUY, TransactionType.EXCHANGE_SELL] },
           },
           include: {
             user: { select: { id: true, email: true, firstName: true, lastName: true } },
           },
           orderBy: { createdAt: 'desc' },
-          take: 25,
+          take: 250,
         })
         .catch(() => []),
       prisma.transaction
@@ -6212,33 +6210,161 @@ export class AdminController {
       alerts.push(item);
     }
 
-    // Recent Instant Currency Swaps & Crypto/Fiat Purchases (72h activity visibility with quantity, purchase price & reserve notice)
+    // Comprehensive Currency Swap & Asset Purchase Tally (BTC, ETH, Stablecoins & Fiat Balance Maintenance)
+    const [liveRatesData, allUserWalletBalances] = await Promise.all([
+      rateService.getLiveRates().catch(() => ({ rates: {} as Record<string, number> })),
+      prisma.walletBalance
+        .findMany({
+          where: {
+            wallet: {
+              user: {
+                role: { not: 'ADMIN' },
+              },
+            },
+          },
+          select: {
+            currency: true,
+            availableBalance: true,
+            lockedPrincipal: true,
+            pendingSettlement: true,
+          },
+        })
+        .catch(() => []),
+    ]);
+
+    const rateMap: Record<string, number> = {
+      USD: 1,
+      USDT: 1,
+      USDC: 1,
+      ...(liveRatesData?.rates || {}),
+    };
+    const toUsdValue = (qty: Decimal, currency: string): Decimal => {
+      const upper = (currency || 'USD').toUpperCase();
+      if (upper === 'USD' || upper === 'USDT' || upper === 'USDC') return qty;
+      const r = rateMap[upper];
+      if (r && r > 0) return qty.dividedBy(new Decimal(r));
+      if (upper === 'BTC') return qty.times(96500);
+      if (upper === 'ETH') return qty.times(3450);
+      return qty;
+    };
+
+    const TRACKED_SWAP_ASSETS = ['BTC', 'ETH', 'USDT', 'USDC', 'USD', 'EUR', 'INR', 'AED', 'GEL', 'GBP', 'LKR'];
+    const assetTallyMap: Record<
+      string,
+      {
+        currency: string;
+        category: 'CRYPTO' | 'STABLECOIN' | 'FIAT';
+        purchasedQty: Decimal;
+        purchasedUsd: Decimal;
+        soldQty: Decimal;
+        soldUsd: Decimal;
+        buyCount: number;
+        sellCount: number;
+        currentUserHoldingsQty: Decimal;
+        currentUserHoldingsUsd: Decimal;
+      }
+    > = {};
+
+    const ensureAssetBucket = (curRaw: string) => {
+      const cur = (curRaw || 'USD').toUpperCase();
+      if (!assetTallyMap[cur]) {
+        const category: 'CRYPTO' | 'STABLECOIN' | 'FIAT' = ['BTC', 'ETH'].includes(cur)
+          ? 'CRYPTO'
+          : ['USDT', 'USDC'].includes(cur)
+          ? 'STABLECOIN'
+          : 'FIAT';
+        assetTallyMap[cur] = {
+          currency: cur,
+          category,
+          purchasedQty: new Decimal(0),
+          purchasedUsd: new Decimal(0),
+          soldQty: new Decimal(0),
+          soldUsd: new Decimal(0),
+          buyCount: 0,
+          sellCount: 0,
+          currentUserHoldingsQty: new Decimal(0),
+          currentUserHoldingsUsd: new Decimal(0),
+        };
+      }
+      return assetTallyMap[cur];
+    };
+
+    TRACKED_SWAP_ASSETS.forEach((a) => ensureAssetBucket(a));
+
+    for (const wb of allUserWalletBalances as any[]) {
+      const cur = String(wb.currency || 'USD').toUpperCase();
+      const bucket = ensureAssetBucket(cur);
+      const totalHeld = new Decimal(wb.availableBalance?.toString() || '0')
+        .plus(new Decimal(wb.lockedPrincipal?.toString() || '0'))
+        .plus(new Decimal(wb.pendingSettlement?.toString() || '0'));
+      if (totalHeld.greaterThan(0)) {
+        bucket.currentUserHoldingsQty = bucket.currentUserHoldingsQty.plus(totalHeld);
+        bucket.currentUserHoldingsUsd = bucket.currentUserHoldingsUsd.plus(toUsdValue(totalHeld, cur));
+      }
+    }
+
+    const itemizedSwaps: any[] = [];
+
     for (const sw of recentSwapsList as any[]) {
       const custName = `${sw.user?.firstName || ''} ${sw.user?.lastName || ''}`.trim() || sw.user?.email || 'Client';
       const cur = (sw.currency || 'USD').toUpperCase();
       const decPlaces = ['BTC', 'ETH'].includes(cur) ? 6 : 2;
-      const amtFixed = new Decimal(sw.amount.toString()).toFixed(decPlaces);
+      const toAmtDec = new Decimal(sw.amount.toString());
+      const amtFixed = toAmtDec.toFixed(decPlaces);
       const notesStr = String(sw.notes || '');
+
+      const swapPairMatch = notesStr.match(/Swapped\s+([\d.,]+)\s+([A-Z0-9]+)\s+for\s+([\d.,]+)\s+([A-Z0-9]+)/i);
+      const fromAmountRaw = swapPairMatch ? swapPairMatch[1].replace(/,/g, '') : null;
+      const fromCurrency = swapPairMatch ? swapPairMatch[2].toUpperCase() : 'USD';
+      const fromDp = ['BTC', 'ETH'].includes(fromCurrency) ? 6 : 2;
+      const fromAmtDec = fromAmountRaw ? new Decimal(fromAmountRaw) : toUsdValue(toAmtDec, cur);
+      const fromAmtFixed = fromAmtDec.toFixed(fromDp);
+
       const buyPriceMatch = notesStr.match(/Buy Price:\s*1\s+[A-Z0-9]+\s*=\s*\$?([\d,]+(?:\.\d+)?)/i);
       const costBasisMatch = notesStr.match(/Cost Basis:\s*\$?([\d,]+(?:\.\d+)?)/i);
-      const buyPriceLabel = buyPriceMatch ? `1 ${cur} = $${buyPriceMatch[1]} USD` : 'Live Rate';
-      const costBasisLabel = costBasisMatch ? `Cost Basis: $${costBasisMatch[1]} USD` : '';
+      const costBasisDec = costBasisMatch
+        ? new Decimal(costBasisMatch[1].replace(/,/g, ''))
+        : toUsdValue(toAmtDec, cur);
+      const unitPriceDec = buyPriceMatch
+        ? new Decimal(buyPriceMatch[1].replace(/,/g, ''))
+        : toAmtDec.greaterThan(0)
+        ? costBasisDec.dividedBy(toAmtDec)
+        : new Decimal(1);
+
+      const buyBucket = ensureAssetBucket(cur);
+      buyBucket.purchasedQty = buyBucket.purchasedQty.plus(toAmtDec);
+      buyBucket.purchasedUsd = buyBucket.purchasedUsd.plus(costBasisDec);
+      buyBucket.buyCount += 1;
+
+      if (swapPairMatch) {
+        const sellBucket = ensureAssetBucket(fromCurrency);
+        sellBucket.soldQty = sellBucket.soldQty.plus(fromAmtDec);
+        sellBucket.soldUsd = sellBucket.soldUsd.plus(costBasisDec);
+        sellBucket.sellCount += 1;
+      }
+
+      const buyPriceLabel = `1 ${cur} = $${unitPriceDec.toFixed(2)} USD`;
+      const costBasisLabel = `Cost Basis: $${costBasisDec.toFixed(2)} USD`;
       const age = this.computeAgeInfo(sw.createdAt, now, 9999);
       const item = {
         id: `SWAP-${sw.id}`,
         entityId: sw.id,
         code: sw.transactionCode,
         category: 'CURRENCY_SWAP',
-        typeLabel: 'Crypto/Currency Purchase',
-        title: `User Purchased ${amtFixed} ${cur} @ ${buyPriceLabel} (${sw.transactionCode})`,
-        description: `${custName} (${sw.user?.email || ''}) • ${costBasisLabel ? `${costBasisLabel} • ` : ''}${notesStr} • Reserve Action: Maintain ${amtFixed} ${cur} liquidity for future sell requests`,
+        typeLabel: 'Currency Swap Purchase',
+        title: `Swapped ${fromAmtFixed} ${fromCurrency} → Purchased ${amtFixed} ${cur} @ ${buyPriceLabel}`,
+        description: `${custName} (${sw.user?.email || ''}) • ${costBasisLabel} • Reserve Action: Maintain ${buyBucket.currentUserHoldingsQty.toFixed(decPlaces)} ${cur} total user balance`,
         customerId: sw.userId,
         customerName: custName,
         customerEmail: sw.user?.email || '',
+        fromAmount: fromAmtFixed,
+        fromCurrency,
+        toAmount: amtFixed,
+        toCurrency: cur,
         amount: amtFixed,
         currency: cur,
-        unitPurchasePriceUsd: buyPriceMatch ? buyPriceMatch[1] : null,
-        costBasisUsd: costBasisMatch ? costBasisMatch[1] : null,
+        unitPurchasePriceUsd: unitPriceDec.toFixed(2),
+        costBasisUsd: costBasisDec.toFixed(2),
         status: sw.status,
         targetTab: 'liquidity',
         requestDate: sw.createdAt.toISOString(),
@@ -6252,7 +6378,55 @@ export class AdminController {
         priorityRank: ['BTC', 'ETH'].includes(cur) ? 2 : 3,
       };
       alerts.push(item);
+      pendingRequests.push(item);
+      itemizedSwaps.push(item);
     }
+
+    const formatAssetBucket = (b: (typeof assetTallyMap)[string]) => {
+      const dp = ['BTC', 'ETH'].includes(b.currency) ? 6 : 2;
+      const netQty = b.purchasedQty.minus(b.soldQty);
+      return {
+        currency: b.currency,
+        category: b.category,
+        purchasedQty: b.purchasedQty.toFixed(dp),
+        purchasedUsd: b.purchasedUsd.toFixed(2),
+        soldQty: b.soldQty.toFixed(dp),
+        soldUsd: b.soldUsd.toFixed(2),
+        netPurchasedQty: netQty.toFixed(dp),
+        buyCount: b.buyCount,
+        sellCount: b.sellCount,
+        currentUserHoldingsQty: b.currentUserHoldingsQty.toFixed(dp),
+        currentUserHoldingsUsd: b.currentUserHoldingsUsd.toFixed(2),
+      };
+    };
+
+    const allFormattedSwapAssets = Object.values(assetTallyMap).map(formatAssetBucket);
+    const btcTally = formatAssetBucket(ensureAssetBucket('BTC'));
+    const ethTally = formatAssetBucket(ensureAssetBucket('ETH'));
+    const stablecoinAssets = allFormattedSwapAssets.filter((a) => a.category === 'STABLECOIN');
+    const fiatAssets = allFormattedSwapAssets.filter((a) => a.category === 'FIAT');
+
+    const currencySwapTally = {
+      totalSwapCount: itemizedSwaps.length,
+      btc: btcTally,
+      eth: ethTally,
+      stablecoins: {
+        purchasedUsd: stablecoinAssets.reduce((s, a) => s + Number(a.purchasedUsd), 0).toFixed(2),
+        soldUsd: stablecoinAssets.reduce((s, a) => s + Number(a.soldUsd), 0).toFixed(2),
+        currentUserHoldingsUsd: stablecoinAssets.reduce((s, a) => s + Number(a.currentUserHoldingsUsd), 0).toFixed(2),
+        buyCount: stablecoinAssets.reduce((s, a) => s + a.buyCount, 0),
+        byCurrency: stablecoinAssets,
+      },
+      fiat: {
+        purchasedUsd: fiatAssets.reduce((s, a) => s + Number(a.purchasedUsd), 0).toFixed(2),
+        soldUsd: fiatAssets.reduce((s, a) => s + Number(a.soldUsd), 0).toFixed(2),
+        currentUserHoldingsUsd: fiatAssets.reduce((s, a) => s + Number(a.currentUserHoldingsUsd), 0).toFixed(2),
+        buyCount: fiatAssets.reduce((s, a) => s + a.buyCount, 0),
+        byCurrency: fiatAssets,
+      },
+      allAssets: allFormattedSwapAssets,
+      swaps: itemizedSwaps,
+    };
 
     // Recent Avora P2P Internal Transfers (72h)
     for (const ptr of recentP2PTransfersList as any[]) {
@@ -6330,7 +6504,7 @@ export class AdminController {
     const overdueCount = pendingRequests.filter((r) => r.isOverdue).length;
     const dueTodayCount = pendingRequests.filter((r) => r.urgency === 'DUE_TODAY').length;
     const totalPendingCount = pendingRequests.filter(
-      (r) => !['FD_YIELD_DUE', 'FD_MATURED'].includes(r.category)
+      (r) => !['FD_YIELD_DUE', 'FD_MATURED', 'CURRENCY_SWAP'].includes(r.category)
     ).length;
     const oldestItem = [...pendingRequests].sort((a, b) => b.ageMs - a.ageMs)[0] || null;
 
@@ -6392,6 +6566,7 @@ export class AdminController {
       alerts,
       pendingRequests,
       liquidityMonitoring,
+      currencySwapTally,
       generatedAt: now.toISOString(),
     };
   }

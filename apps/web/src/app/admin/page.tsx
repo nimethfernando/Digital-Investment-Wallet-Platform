@@ -1476,6 +1476,8 @@ export default function AdminPortalPage() {
     return { principal, monthly, remainingLiability };
   }, [filteredPackages]);
 
+  const [swapTallyFilter, setSwapTallyFilter] = useState<'ALL' | 'BTC' | 'ETH' | 'FIAT' | 'STABLECOIN'>('ALL');
+
   const filteredAlerts = useMemo(() => {
     const rawAlerts: any[] = Array.isArray(commandCenter?.alerts) ? commandCenter.alerts : [];
     return rawAlerts.filter((item) => {
@@ -2557,6 +2559,362 @@ export default function AdminPortalPage() {
                 </div>
               </div>
             </div>
+
+            {/* CURRENCY SWAP & ASSET PURCHASE TALLY: BTC, ETH, STABLECOINS & FIAT RESERVE BALANCE TRACKER */}
+            {(() => {
+              const swapTally = commandCenter?.currencySwapTally || null;
+              const btcTally = swapTally?.btc || {
+                purchasedQty: '0.000000',
+                purchasedUsd: '0.00',
+                soldQty: '0.000000',
+                netPurchasedQty: '0.000000',
+                currentUserHoldingsQty: '0.000000',
+                currentUserHoldingsUsd: '0.00',
+                buyCount: 0,
+              };
+              const ethTally = swapTally?.eth || {
+                purchasedQty: '0.000000',
+                purchasedUsd: '0.00',
+                soldQty: '0.000000',
+                netPurchasedQty: '0.000000',
+                currentUserHoldingsQty: '0.000000',
+                currentUserHoldingsUsd: '0.00',
+                buyCount: 0,
+              };
+              const fiatTally = swapTally?.fiat || {
+                purchasedUsd: '0.00',
+                soldUsd: '0.00',
+                currentUserHoldingsUsd: '0.00',
+                buyCount: 0,
+                byCurrency: [],
+              };
+              const stableTally = swapTally?.stablecoins || {
+                purchasedUsd: '0.00',
+                soldUsd: '0.00',
+                currentUserHoldingsUsd: '0.00',
+                buyCount: 0,
+                byCurrency: [],
+              };
+              const allSwapAssets: any[] = Array.isArray(swapTally?.allAssets) ? swapTally.allAssets : [];
+              const allSwapsList: any[] = Array.isArray(swapTally?.swaps) ? swapTally.swaps : [];
+
+              const filteredSwapAssets = allSwapAssets.filter((a) => {
+                if (swapTallyFilter === 'BTC') return a.currency === 'BTC';
+                if (swapTallyFilter === 'ETH') return a.currency === 'ETH';
+                if (swapTallyFilter === 'FIAT') return a.category === 'FIAT';
+                if (swapTallyFilter === 'STABLECOIN') return a.category === 'STABLECOIN';
+                return true;
+              });
+
+              const filteredSwapsList = allSwapsList.filter((sw) => {
+                const toCur = String(sw.toCurrency || sw.currency || '').toUpperCase();
+                const fromCur = String(sw.fromCurrency || '').toUpperCase();
+                if (swapTallyFilter === 'BTC') return toCur === 'BTC' || fromCur === 'BTC';
+                if (swapTallyFilter === 'ETH') return toCur === 'ETH' || fromCur === 'ETH';
+                if (swapTallyFilter === 'STABLECOIN') return ['USDT', 'USDC'].includes(toCur) || ['USDT', 'USDC'].includes(fromCur);
+                if (swapTallyFilter === 'FIAT') {
+                  return !['BTC', 'ETH', 'USDT', 'USDC'].includes(toCur) || !['BTC', 'ETH', 'USDT', 'USDC'].includes(fromCur);
+                }
+                return true;
+              });
+
+              return (
+                <div className="p-6 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-cyan-500/35 space-y-5 shadow-xl">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-cyan-400 text-[11px] font-black uppercase tracking-wider font-mono">
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Live Currency Swap &amp; Purchased Asset Tally — Reserve Balance Maintenance</span>
+                      </div>
+                      <h4 className="font-extrabold text-base text-white mt-0.5">
+                        BTC, ETH, Stablecoin &amp; Fiat Purchases vs. Required Balance to Maintain ({allSwapsList.length} Swaps)
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Exact tally of how much BTC, ETH, USDT/USDC, and Fiat (USD, EUR, INR, AED, GEL, GBP, LKR) users have purchased via Currency Swaps and the exact balance you must maintain across user wallets.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[
+                        { key: 'ALL', label: `All Assets (${allSwapsList.length})` },
+                        { key: 'BTC', label: '₿ BTC Tally' },
+                        { key: 'ETH', label: 'Ξ ETH Tally' },
+                        { key: 'FIAT', label: '💵 Fiat Currencies' },
+                        { key: 'STABLECOIN', label: '₮ USDT / USDC' },
+                      ].map((tab) => (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setSwapTallyFilter(tab.key as any)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                            swapTallyFilter === tab.key
+                              ? 'bg-cyan-600 text-white border-cyan-500 shadow-md'
+                              : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-cyan-500/40 hover:text-white'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('liquidity')}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 text-xs font-bold transition-all cursor-pointer"
+                      >
+                        Manage Swap Limits &amp; Reserves →
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 4 Clickable Asset Purchase & Balance Maintenance Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                    {/* Card 1: BTC Purchased & Balance to Maintain */}
+                    <button
+                      type="button"
+                      onClick={() => setSwapTallyFilter((prev) => (prev === 'BTC' ? 'ALL' : 'BTC'))}
+                      className={`p-4 rounded-2xl border text-left space-y-1.5 transition-all cursor-pointer group ${
+                        swapTallyFilter === 'BTC'
+                          ? 'bg-amber-950/35 border-amber-400 ring-1 ring-amber-500/40'
+                          : 'bg-slate-950/80 border-amber-500/30 hover:border-amber-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-black uppercase font-mono text-amber-400">
+                        <span>₿ Bitcoin (BTC) Purchased</span>
+                        <span className="text-[10px] group-hover:underline">Filter BTC →</span>
+                      </div>
+                      <div className="text-xl font-black font-mono text-white">
+                        {btcTally.purchasedQty} BTC
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-mono">
+                        Cost Basis: <strong className="text-amber-300">${Number(btcTally.purchasedUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> ({btcTally.buyCount} buys · {btcTally.soldQty} sold)
+                      </div>
+                      <div className="pt-1.5 border-t border-slate-800/80 text-[11px] font-mono text-emerald-400 font-bold">
+                        Maintain Balance: {btcTally.currentUserHoldingsQty} BTC (${Number(btcTally.currentUserHoldingsUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })})
+                      </div>
+                    </button>
+
+                    {/* Card 2: ETH Purchased & Balance to Maintain */}
+                    <button
+                      type="button"
+                      onClick={() => setSwapTallyFilter((prev) => (prev === 'ETH' ? 'ALL' : 'ETH'))}
+                      className={`p-4 rounded-2xl border text-left space-y-1.5 transition-all cursor-pointer group ${
+                        swapTallyFilter === 'ETH'
+                          ? 'bg-indigo-950/35 border-indigo-400 ring-1 ring-indigo-500/40'
+                          : 'bg-slate-950/80 border-indigo-500/30 hover:border-indigo-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-black uppercase font-mono text-indigo-400">
+                        <span>Ξ Ethereum (ETH) Purchased</span>
+                        <span className="text-[10px] group-hover:underline">Filter ETH →</span>
+                      </div>
+                      <div className="text-xl font-black font-mono text-white">
+                        {ethTally.purchasedQty} ETH
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-mono">
+                        Cost Basis: <strong className="text-indigo-300">${Number(ethTally.purchasedUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> ({ethTally.buyCount} buys · {ethTally.soldQty} sold)
+                      </div>
+                      <div className="pt-1.5 border-t border-slate-800/80 text-[11px] font-mono text-emerald-400 font-bold">
+                        Maintain Balance: {ethTally.currentUserHoldingsQty} ETH (${Number(ethTally.currentUserHoldingsUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })})
+                      </div>
+                    </button>
+
+                    {/* Card 3: Fiat Currencies Purchased & Balance to Maintain */}
+                    <button
+                      type="button"
+                      onClick={() => setSwapTallyFilter((prev) => (prev === 'FIAT' ? 'ALL' : 'FIAT'))}
+                      className={`p-4 rounded-2xl border text-left space-y-1.5 transition-all cursor-pointer group ${
+                        swapTallyFilter === 'FIAT'
+                          ? 'bg-sky-950/35 border-sky-400 ring-1 ring-sky-500/40'
+                          : 'bg-slate-950/80 border-sky-500/30 hover:border-sky-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-black uppercase font-mono text-sky-400">
+                        <span>💵 Fiat Purchased (Swaps)</span>
+                        <span className="text-[10px] group-hover:underline">Filter Fiat →</span>
+                      </div>
+                      <div className="text-xl font-black font-mono text-white">
+                        ${Number(fiatTally.purchasedUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD eq.
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-mono">
+                        {fiatTally.buyCount} fiat swap purchase(s) • Swapped Out: ${Number(fiatTally.soldUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </div>
+                      <div className="pt-1.5 border-t border-slate-800/80 text-[11px] font-mono text-emerald-400 font-bold">
+                        Maintain Fiat Balance: ${Number(fiatTally.currentUserHoldingsUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD eq.
+                      </div>
+                    </button>
+
+                    {/* Card 4: USDT / USDC Stablecoins Purchased & Balance to Maintain */}
+                    <button
+                      type="button"
+                      onClick={() => setSwapTallyFilter((prev) => (prev === 'STABLECOIN' ? 'ALL' : 'STABLECOIN'))}
+                      className={`p-4 rounded-2xl border text-left space-y-1.5 transition-all cursor-pointer group ${
+                        swapTallyFilter === 'STABLECOIN'
+                          ? 'bg-emerald-950/35 border-emerald-400 ring-1 ring-emerald-500/40'
+                          : 'bg-slate-950/80 border-emerald-500/30 hover:border-emerald-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-black uppercase font-mono text-emerald-400">
+                        <span>₮ USDT / USDC Purchased</span>
+                        <span className="text-[10px] group-hover:underline">Filter Stable →</span>
+                      </div>
+                      <div className="text-xl font-black font-mono text-white">
+                        ${Number(stableTally.purchasedUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-mono">
+                        {stableTally.buyCount} stablecoin swap(s) • Swapped Out: ${Number(stableTally.soldUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </div>
+                      <div className="pt-1.5 border-t border-slate-800/80 text-[11px] font-mono text-emerald-400 font-bold">
+                        Maintain Stable Balance: ${Number(stableTally.currentUserHoldingsUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Per-Asset Tally & Balance Maintenance Table */}
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/90 overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-extrabold text-white">
+                        Per-Asset Purchase Tally &amp; Required Balance to Maintain ({filteredSwapAssets.length} Currencies)
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Shows total purchased via currency swaps, total sold/swapped out, and live user wallet balance to maintain
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950 text-[10px] font-mono uppercase text-slate-400 border-b border-slate-800">
+                          <tr>
+                            <th className="py-2.5 px-4">Currency</th>
+                            <th className="py-2.5 px-4">Category</th>
+                            <th className="py-2.5 px-4">Total Purchased (Swaps In)</th>
+                            <th className="py-2.5 px-4">Total Sold (Swaps Out)</th>
+                            <th className="py-2.5 px-4">Net Purchased via Swaps</th>
+                            <th className="py-2.5 px-4">Required Balance to Maintain (User Holdings)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/70 font-mono">
+                          {filteredSwapAssets.map((a) => {
+                            const netNum = parseFloat(a.netPurchasedQty || '0');
+                            const heldNum = parseFloat(a.currentUserHoldingsQty || '0');
+                            const boughtNum = parseFloat(a.purchasedQty || '0');
+                            return (
+                              <tr
+                                key={a.currency}
+                                className={`hover:bg-slate-900/60 transition-colors ${
+                                  boughtNum > 0 || heldNum > 0 ? 'bg-slate-900/20' : 'opacity-65'
+                                }`}
+                              >
+                                <td className="py-2.5 px-4 font-bold text-white">{a.currency}</td>
+                                <td className="py-2.5 px-4 font-sans">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      a.category === 'CRYPTO'
+                                        ? 'bg-amber-500/20 text-amber-300'
+                                        : a.category === 'STABLECOIN'
+                                        ? 'bg-emerald-500/20 text-emerald-300'
+                                        : 'bg-sky-500/20 text-sky-300'
+                                    }`}
+                                  >
+                                    {a.category}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-4">
+                                  <div className="font-bold text-emerald-400">
+                                    +{a.purchasedQty} {a.currency}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400">
+                                    ${Number(a.purchasedUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD ({a.buyCount} buys)
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-4">
+                                  <div className="font-semibold text-rose-300">
+                                    -{a.soldQty} {a.currency}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500">
+                                    ${Number(a.soldUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD ({a.sellCount} sells)
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-4">
+                                  <span className={`font-bold ${netNum >= 0 ? 'text-cyan-300' : 'text-amber-300'}`}>
+                                    {netNum >= 0 ? '+' : ''}
+                                    {a.netPurchasedQty} {a.currency}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-4">
+                                  <div className="font-black text-white">
+                                    Maintain &ge; {a.currentUserHoldingsQty} {a.currency}
+                                  </div>
+                                  <div className="text-[10px] text-emerald-400 font-semibold">
+                                    ${Number(a.currentUserHoldingsUsd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD eq. across user wallets
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Itemized Currency Swap Purchases Ledger */}
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/90 overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-extrabold text-white">
+                        Itemized Currency Swap Purchases ({filteredSwapsList.length} Transactions)
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Every BTC, ETH, Stablecoin &amp; Fiat swap executed by users
+                      </span>
+                    </div>
+                    {filteredSwapsList.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400">
+                        No currency swap transactions recorded for this asset filter yet.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto max-h-80">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-950 text-[10px] font-mono uppercase text-slate-400 border-b border-slate-800 sticky top-0">
+                            <tr>
+                              <th className="py-2.5 px-4">Swap TX Code</th>
+                              <th className="py-2.5 px-4">Customer</th>
+                              <th className="py-2.5 px-4">Paid / Swapped From</th>
+                              <th className="py-2.5 px-4">Purchased (Received)</th>
+                              <th className="py-2.5 px-4">Unit Buy Price</th>
+                              <th className="py-2.5 px-4">USD Cost Basis</th>
+                              <th className="py-2.5 px-4 text-right">Date &amp; Time</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/70">
+                            {filteredSwapsList.slice(0, 50).map((sw) => (
+                              <tr key={sw.id} className="hover:bg-slate-900/60 transition-colors">
+                                <td className="py-2.5 px-4 font-mono font-bold text-cyan-400">{sw.code}</td>
+                                <td className="py-2.5 px-4">
+                                  <div className="font-bold text-white">{sw.customerName}</div>
+                                  <div className="text-[10px] font-mono text-slate-400">{sw.customerEmail}</div>
+                                </td>
+                                <td className="py-2.5 px-4 font-mono text-rose-300">
+                                  -{sw.fromAmount} {sw.fromCurrency}
+                                </td>
+                                <td className="py-2.5 px-4 font-mono font-black text-emerald-400">
+                                  +{sw.toAmount || sw.amount} {sw.toCurrency || sw.currency}
+                                </td>
+                                <td className="py-2.5 px-4 font-mono text-amber-300">
+                                  1 {sw.toCurrency || sw.currency} = ${Number(sw.unitPurchasePriceUsd || 1).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td className="py-2.5 px-4 font-mono font-bold text-white">
+                                  ${Number(sw.costBasisUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                                </td>
+                                <td className="py-2.5 px-4 font-mono text-[11px] text-slate-400 text-right">
+                                  {new Date(sw.requestDate).toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Event-Based Admin Alerts & Notifications Feed */}
             <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
