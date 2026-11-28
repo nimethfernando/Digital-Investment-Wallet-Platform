@@ -732,7 +732,7 @@ export default function AutoContentPublisher({
               className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg shadow-emerald-950/50 flex items-center gap-2 cursor-pointer transition-all"
             >
               <Plus className="w-4 h-4" />
-              <span>+ Create Announcement</span>
+              <span>Create Announcement</span>
             </button>
 
             {onOpenRatesConfig && (
