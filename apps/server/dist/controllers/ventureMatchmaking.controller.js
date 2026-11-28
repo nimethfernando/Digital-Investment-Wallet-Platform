@@ -9,13 +9,16 @@ class VentureMatchmakingController {
      */
     async listOpportunities(req, res, next) {
         try {
-            const { intent, dealType, industry, search, status } = req.query;
+            const { intent, dealType, industry, search, status, includeClosedHistory } = req.query;
+            const viewerUserId = req.user?.id || req.user?.userId;
             const list = await ventureMatchmaking_service_1.ventureMatchmakingService.listOpportunities({
                 intent,
                 dealType,
                 industry,
                 search,
                 status,
+                includeClosedHistory: includeClosedHistory === 'true',
+                viewerUserId,
             });
             res.json({ success: true, count: list.length, data: list });
         }
@@ -44,13 +47,23 @@ class VentureMatchmakingController {
     async createOpportunity(req, res, next) {
         try {
             const userId = req.user?.id || req.user?.userId;
+            const userRole = req.user?.role;
             if (!userId) {
                 return res.status(401).json({ success: false, message: 'Authentication required.' });
             }
-            const opp = await ventureMatchmaking_service_1.ventureMatchmakingService.createOpportunity(userId, req.body);
+            const opp = await ventureMatchmaking_service_1.ventureMatchmakingService.createOpportunity(userId, {
+                ...req.body,
+                isAdminCreated: userRole === 'ADMIN' || userRole === 'STAFF',
+            });
+            const isLive = opp.status === 'PUBLISHED' || opp.status === 'ACTIVE';
+            const isDraft = opp.status === 'DRAFT';
             res.status(201).json({
                 success: true,
-                message: 'Opportunity posted successfully! It is now live in the dealflow directory.',
+                message: isLive
+                    ? 'Opportunity published live in the Client Dealflow Desk!'
+                    : isDraft
+                        ? 'Opportunity saved as Draft. Submit it for review when ready.'
+                        : 'Opportunity submitted for Admin Compliance Review (Status: PENDING_REVIEW). Once Admin approves and publishes your listing, it will automatically appear in the Client Dealflow Desk.',
                 data: opp,
             });
         }
@@ -124,14 +137,37 @@ class VentureMatchmakingController {
      */
     async adminListOpportunities(req, res, next) {
         try {
-            const { intent, dealType, status, search } = req.query;
+            const { intent, dealType, industry, status, visibility, search } = req.query;
             const list = await ventureMatchmaking_service_1.ventureMatchmakingService.listOpportunities({
                 intent,
                 dealType,
+                industry,
                 status: status || 'ALL',
+                visibility: visibility || 'ALL',
                 search,
+                isAdmin: true,
             });
             res.json({ success: true, count: list.length, data: list });
+        }
+        catch (err) {
+            next(err);
+        }
+    }
+    /**
+     * POST /api/v1/admin/dealflow/opportunities
+     */
+    async adminCreateOpportunity(req, res, next) {
+        try {
+            const userId = req.user?.id || req.user?.userId;
+            const opp = await ventureMatchmaking_service_1.ventureMatchmakingService.createOpportunity(userId, {
+                ...req.body,
+                isAdminCreated: true,
+            });
+            res.status(201).json({
+                success: true,
+                message: `Dealflow listing ${opp.opportunityCode} created with status ${opp.status} (${opp.displayDestination?.label || opp.visibility}).`,
+                data: opp,
+            });
         }
         catch (err) {
             next(err);
@@ -176,7 +212,11 @@ class VentureMatchmakingController {
     async adminUpdateOpportunityStatus(req, res, next) {
         try {
             const adminId = req.user?.id || req.user?.userId || 'admin';
-            const result = await ventureMatchmaking_service_1.ventureMatchmakingService.adminUpdateOpportunityStatus(String(req.params.id), adminId, req.body);
+            const adminEmail = req.user?.email || 'admin@avorabank.com';
+            const result = await ventureMatchmaking_service_1.ventureMatchmakingService.adminUpdateOpportunityStatus(String(req.params.id), adminId, {
+                ...req.body,
+                adminEmail,
+            });
             res.json(result);
         }
         catch (err) {

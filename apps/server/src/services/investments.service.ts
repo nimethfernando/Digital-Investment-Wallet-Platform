@@ -36,6 +36,14 @@ export class InvestmentsService {
         ['diw_startup_listings', 'providerActualReceivedAmount', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerActualReceivedAmount` DECIMAL(20,2) NOT NULL DEFAULT 0.00'],
         ['diw_startup_listings', 'providerReceivedAt', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerReceivedAt` DATETIME(3) NULL'],
         ['diw_startup_listings', 'providerNotes', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `providerNotes` TEXT NULL'],
+        ['diw_startup_listings', 'visibility', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `visibility` VARCHAR(32) NOT NULL DEFAULT \'CLIENT_DEALFLOW\''],
+        ['diw_startup_listings', 'approvedBy', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `approvedBy` VARCHAR(191) NULL'],
+        ['diw_startup_listings', 'approvedByEmail', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `approvedByEmail` VARCHAR(191) NULL'],
+        ['diw_startup_listings', 'approvedAt', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `approvedAt` DATETIME(3) NULL'],
+        ['diw_startup_listings', 'publishedBy', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `publishedBy` VARCHAR(191) NULL'],
+        ['diw_startup_listings', 'publishedByEmail', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `publishedByEmail` VARCHAR(191) NULL'],
+        ['diw_startup_listings', 'publishedAt', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `publishedAt` DATETIME(3) NULL'],
+        ['diw_startup_listings', 'rejectedReason', 'ALTER TABLE `diw_startup_listings` ADD COLUMN `rejectedReason` TEXT NULL'],
         ['diw_investment_commitments', 'lockInEnd', 'ALTER TABLE `diw_investment_commitments` ADD COLUMN `lockInEnd` DATETIME(3) NULL'],
         ['diw_investment_commitments', 'maturedAt', 'ALTER TABLE `diw_investment_commitments` ADD COLUMN `maturedAt` DATETIME(3) NULL'],
         ['diw_investment_commitments', 'sourceType', 'ALTER TABLE `diw_investment_commitments` ADD COLUMN `sourceType` VARCHAR(40) NOT NULL DEFAULT \'REAL_WALLET\''],
@@ -183,6 +191,87 @@ export class InvestmentsService {
   }
 
   /**
+   * Describe where a Curated Startup Campaign is displayed based on its lifecycle status & visibility
+   */
+  describeStartupDisplayDestination(status: string, visibility: string = 'CLIENT_DEALFLOW', slug?: string) {
+    const normStatus = String(status || 'UNDER_REVIEW').toUpperCase();
+    const normVis = String(visibility || 'CLIENT_DEALFLOW').toUpperCase();
+    if (normStatus === 'PUBLISHED' || normStatus === 'ACTIVE') {
+      if (normVis === 'MATCHED_ONLY') {
+        return {
+          isLive: true,
+          scope: 'MATCHED_ONLY',
+          label: 'Live — Private to Matched / Invited Investors Only',
+          clientUrl: '/investments',
+          description:
+            'Hidden from public browse. Visible only to Admin, the founder, and investors matched or invited to this round.',
+          slug: slug || null,
+        };
+      }
+      return {
+        isLive: true,
+        scope: 'CLIENT_DEALFLOW',
+        label: 'Live in Client Portal → Curated Startup Portfolio (/investments)',
+        clientUrl: '/investments',
+        description:
+          'Automatically visible to authenticated investors in the Curated Startup Portfolio tab (/investments) according to industry, stage, and ticket criteria.',
+        slug: slug || null,
+      };
+    }
+    if (normStatus === 'APPROVED') {
+      return {
+        isLive: false,
+        scope: 'ADMIN_AND_FOUNDER_ONLY',
+        label: 'Approved (Unpublished) — Not Publicly Visible Yet',
+        clientUrl: null,
+        description:
+          'Approved by due diligence, but not yet visible to investors until Admin clicks Publish.',
+        slug: slug || null,
+      };
+    }
+    if (normStatus === 'DRAFT' || normStatus === 'SUBMITTED' || normStatus === 'PENDING_REVIEW' || normStatus === 'UNDER_REVIEW') {
+      return {
+        isLive: false,
+        scope: 'ADMIN_AND_FOUNDER_ONLY',
+        label:
+          normStatus === 'DRAFT'
+            ? 'Draft — Hidden from Investors'
+            : 'Pending Review — Hidden from External Users',
+        clientUrl: null,
+        description:
+          'Not visible to external investors. Visible only in the Admin Review Queue.',
+        slug: slug || null,
+      };
+    }
+    if (normStatus === 'SUSPENDED' || normStatus === 'REJECTED') {
+      return {
+        isLive: false,
+        scope: 'REMOVED_FROM_CLIENT_VISIBILITY',
+        label:
+          normStatus === 'SUSPENDED'
+            ? 'Suspended — Immediately Removed from Active Client Visibility'
+            : 'Rejected — Hidden from Active Client Visibility',
+        clientUrl: null,
+        description:
+          'Removed from client/investor browse and blocked from accepting any commitments.',
+        slug: slug || null,
+      };
+    }
+    return {
+      isLive: false,
+      scope: 'ARCHIVED_HISTORY',
+      label:
+        normStatus === 'EXPIRED'
+          ? 'Expired — Closed to New Commitments'
+          : 'Closed / Completed Round — Historical Record Only',
+      clientUrl: null,
+      description:
+        'Round has concluded. Blocked on the backend from accepting new investments.',
+      slug: slug || null,
+    };
+  }
+
+  /**
    * List startup funding campaigns for the StartEngine-style directory
    */
   async listCampaigns(filters?: {
@@ -191,9 +280,27 @@ export class InvestmentsService {
     stage?: string;
     instrument?: string;
     search?: string;
+    viewerUserId?: string;
+    includeClosedHistory?: boolean;
   }) {
     await this.ensureVentureSchema();
-    const where: any = { status: 'PUBLISHED' };
+
+    // Auto-expire any PUBLISHED campaign whose deadline has passed
+    try {
+      await prisma.$executeRawUnsafe(`
+        UPDATE diw_startup_listings
+        SET status = 'EXPIRED'
+        WHERE status = 'PUBLISHED'
+          AND deadline IS NOT NULL
+          AND deadline < NOW()
+      `);
+    } catch {
+      // Ignore
+    }
+
+    const where: any = filters?.includeClosedHistory
+      ? { status: { in: ['PUBLISHED', 'CLOSED', 'EXPIRED'] } }
+      : { status: 'PUBLISHED' };
 
     if (filters?.industry && filters.industry !== 'ALL') {
       where.industry = { contains: filters.industry };
@@ -220,7 +327,40 @@ export class InvestmentsService {
       orderBy: [{ verifiedFundsRaised: 'desc' }, { createdAt: 'desc' }],
     });
 
-    return campaigns.map((c) => this.formatCampaign(c));
+    // Enforce visibility metadata (CLIENT_DEALFLOW vs MATCHED_ONLY)
+    const metaRows = (await prisma
+      .$queryRawUnsafe<any[]>(
+        `SELECT id, visibility, approvedBy, approvedByEmail, approvedAt, publishedBy, publishedByEmail, publishedAt, rejectedReason FROM diw_startup_listings`
+      )
+      .catch(() => [])) as any[];
+    const metaById = new Map(metaRows.map((m) => [String(m.id), m]));
+
+    let viewerCommittedListingIds = new Set<string>();
+    if (filters?.viewerUserId) {
+      const commits = await prisma.investmentCommitment
+        .findMany({
+          where: { investorUserId: filters.viewerUserId },
+          select: { listingId: true },
+        })
+        .catch(() => []);
+      viewerCommittedListingIds = new Set(commits.map((c) => String(c.listingId)));
+    }
+
+    return campaigns
+      .filter((c) => {
+        const meta = metaById.get(String(c.id));
+        const vis = String(meta?.visibility || 'CLIENT_DEALFLOW').toUpperCase();
+        if (vis === 'MATCHED_ONLY') {
+          if (!filters?.viewerUserId) return false;
+          if (c.fundSeekerUserId === filters.viewerUserId) return true;
+          return viewerCommittedListingIds.has(String(c.id));
+        }
+        return true;
+      })
+      .map((c) => {
+        const meta = metaById.get(String(c.id)) || {};
+        return this.formatCampaign({ ...c, ...meta });
+      });
   }
 
   /**
@@ -310,8 +450,15 @@ export class InvestmentsService {
       ...publicFields
     } = c;
 
+    const visibility =
+      String(c.visibility || 'CLIENT_DEALFLOW').toUpperCase() === 'MATCHED_ONLY'
+        ? 'MATCHED_ONLY'
+        : 'CLIENT_DEALFLOW';
+
     return {
       ...publicFields,
+      visibility,
+      displayDestination: this.describeStartupDisplayDestination(c.status, visibility, c.slug),
       fundingTarget: Number(c.fundingTarget),
       verifiedFundsRaised: Number(c.verifiedFundsRaised),
       valuation: Number(c.valuation),
@@ -435,7 +582,15 @@ export class InvestmentsService {
     });
 
     if (!campaign || campaign.status !== 'PUBLISHED') {
-      throw new Error('Startup campaign is not actively open for investment.');
+      throw new Error(
+        `Startup campaign is currently ${campaign?.status || 'unavailable'} and is not actively open for investment.`
+      );
+    }
+    if (campaign.deadline && new Date(campaign.deadline) < new Date()) {
+      await prisma.startupListing
+        .update({ where: { id: campaign.id }, data: { status: 'EXPIRED' } })
+        .catch(() => {});
+      throw new Error('This startup campaign has passed its closing deadline and is closed to new investments.');
     }
 
     const minInv = new Decimal(campaign.minInvestment.toString());

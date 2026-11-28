@@ -350,6 +350,11 @@ export default function InvestmentsMarketplacePage() {
 
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      if (params.get('tab') === 'dealflow') {
+        setActiveInvestmentTab('DEALFLOW');
+      } else if (params.get('tab') === 'portfolio') {
+        setActiveInvestmentTab('PORTFOLIO');
+      }
       if (params.get('action') === 'list-startup' || params.get('list') === 'true' || params.get('apply') === 'true') {
         setApplyModalOpen(true);
       }

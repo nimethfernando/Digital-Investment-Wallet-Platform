@@ -163,6 +163,9 @@ router.post('/investments/inquiries/:id/reply', requireRole([Role.ADMIN, Role.ST
 router.get('/dealflow/opportunities', (req, res, next) =>
   ventureMatchmakingController.adminListOpportunities(req, res, next)
 );
+router.post('/dealflow/opportunities', requireRole([Role.ADMIN, Role.STAFF]), (req, res, next) =>
+  ventureMatchmakingController.adminCreateOpportunity(req, res, next)
+);
 router.get('/dealflow/applications', (req, res, next) =>
   ventureMatchmakingController.adminListApplications(req, res, next)
 );

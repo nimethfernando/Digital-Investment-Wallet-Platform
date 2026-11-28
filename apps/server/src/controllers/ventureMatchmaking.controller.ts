@@ -8,13 +8,17 @@ export class VentureMatchmakingController {
    */
   async listOpportunities(req: Request, res: Response, next: NextFunction) {
     try {
-      const { intent, dealType, industry, search, status } = req.query as Record<string, string>;
+      const { intent, dealType, industry, search, status, includeClosedHistory } =
+        req.query as Record<string, string>;
+      const viewerUserId = (req as any).user?.id || (req as any).user?.userId;
       const list = await ventureMatchmakingService.listOpportunities({
         intent,
         dealType,
         industry,
         search,
         status,
+        includeClosedHistory: includeClosedHistory === 'true',
+        viewerUserId,
       });
       res.json({ success: true, count: list.length, data: list });
     } catch (err) {
@@ -43,13 +47,23 @@ export class VentureMatchmakingController {
   async createOpportunity(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).user?.id || (req as any).user?.userId;
+      const userRole = (req as any).user?.role;
       if (!userId) {
         return res.status(401).json({ success: false, message: 'Authentication required.' });
       }
-      const opp = await ventureMatchmakingService.createOpportunity(userId, req.body);
+      const opp = await ventureMatchmakingService.createOpportunity(userId, {
+        ...req.body,
+        isAdminCreated: userRole === 'ADMIN' || userRole === 'STAFF',
+      });
+      const isLive = opp.status === 'PUBLISHED' || opp.status === 'ACTIVE';
+      const isDraft = opp.status === 'DRAFT';
       res.status(201).json({
         success: true,
-        message: 'Opportunity posted successfully! It is now live in the dealflow directory.',
+        message: isLive
+          ? 'Opportunity published live in the Client Dealflow Desk!'
+          : isDraft
+          ? 'Opportunity saved as Draft. Submit it for review when ready.'
+          : 'Opportunity submitted for Admin Compliance Review (Status: PENDING_REVIEW). Once Admin approves and publishes your listing, it will automatically appear in the Client Dealflow Desk.',
         data: opp,
       });
     } catch (err) {
@@ -124,14 +138,38 @@ export class VentureMatchmakingController {
    */
   async adminListOpportunities(req: Request, res: Response, next: NextFunction) {
     try {
-      const { intent, dealType, status, search } = req.query as Record<string, string>;
+      const { intent, dealType, industry, status, visibility, search } =
+        req.query as Record<string, string>;
       const list = await ventureMatchmakingService.listOpportunities({
         intent,
         dealType,
+        industry,
         status: status || 'ALL',
+        visibility: visibility || 'ALL',
         search,
+        isAdmin: true,
       });
       res.json({ success: true, count: list.length, data: list });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/v1/admin/dealflow/opportunities
+   */
+  async adminCreateOpportunity(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      const opp = await ventureMatchmakingService.createOpportunity(userId, {
+        ...req.body,
+        isAdminCreated: true,
+      });
+      res.status(201).json({
+        success: true,
+        message: `Dealflow listing ${opp.opportunityCode} created with status ${opp.status} (${opp.displayDestination?.label || opp.visibility}).`,
+        data: opp,
+      });
     } catch (err) {
       next(err);
     }
@@ -180,10 +218,14 @@ export class VentureMatchmakingController {
   async adminUpdateOpportunityStatus(req: Request, res: Response, next: NextFunction) {
     try {
       const adminId = (req as any).user?.id || (req as any).user?.userId || 'admin';
+      const adminEmail = (req as any).user?.email || 'admin@avorabank.com';
       const result = await ventureMatchmakingService.adminUpdateOpportunityStatus(
         String(req.params.id),
         adminId,
-        req.body
+        {
+          ...req.body,
+          adminEmail,
+        }
       );
       res.json(result);
     } catch (err) {

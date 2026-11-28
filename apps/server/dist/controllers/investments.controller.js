@@ -5,11 +5,12 @@ const investments_service_1 = require("../services/investments.service");
 class InvestmentsController {
     /**
      * GET /api/v1/investments/campaigns
-     * Public: List all published startup funding opportunities
+     * Protected: List all published startup funding opportunities
      */
     async listCampaigns(req, res, next) {
         try {
-            const { industry, countryCode, stage, instrument, search } = req.query;
+            const { industry, countryCode, stage, instrument, search, includeClosedHistory } = req.query;
+            const viewerUserId = req.user?.id || req.user?.userId;
             const [campaigns, filterOptions] = await Promise.all([
                 investments_service_1.investmentsService.listCampaigns({
                     industry,
@@ -17,6 +18,8 @@ class InvestmentsController {
                     stage,
                     instrument,
                     search,
+                    viewerUserId,
+                    includeClosedHistory: includeClosedHistory === 'true',
                 }),
                 investments_service_1.investmentsService.listPublishedFilterOptions(),
             ]);

@@ -1387,7 +1387,39 @@ export class AdminController {
       };
 
       const now = new Date();
+      // Auto-expire any PUBLISHED startup listing whose deadline has passed
+      try {
+        await prisma.$executeRawUnsafe(`
+          UPDATE diw_startup_listings
+          SET status = 'EXPIRED'
+          WHERE status = 'PUBLISHED'
+            AND deadline IS NOT NULL
+            AND deadline < NOW()
+        `);
+      } catch {
+        // Ignore
+      }
+
+      const lifecycleMetaRows = (await prisma
+        .$queryRawUnsafe<any[]>(
+          `SELECT id, status, visibility, approvedBy, approvedByEmail, approvedAt, publishedBy, publishedByEmail, publishedAt, rejectedReason FROM diw_startup_listings`
+        )
+        .catch(() => [])) as any[];
+      const lifecycleMetaById = new Map(lifecycleMetaRows.map((m) => [String(m.id), m]));
+
       const formattedListings = listings.map((l) => {
+        const lMeta = lifecycleMetaById.get(String(l.id)) || {};
+        const effectiveStatus = String(lMeta.status || l.status || 'PUBLISHED').toUpperCase();
+        const effectiveVisibility =
+          String(lMeta.visibility || 'CLIENT_DEALFLOW').toUpperCase() === 'MATCHED_ONLY'
+            ? 'MATCHED_ONLY'
+            : 'CLIENT_DEALFLOW';
+        const displayDestination = investmentsService.describeStartupDisplayDestination(
+          effectiveStatus,
+          effectiveVisibility,
+          l.slug
+        );
+        const listingInquiriesCount = inquiries.filter((inq) => inq.listing?.id === l.id).length;
         const listingCommitments = commitments.filter((c) => c.listingId === l.id && c.status !== 'DELETED' && c.status !== 'CANCELLED');
         const realWalletRows = listingCommitments.filter((c) => resolveSourceType(c) === 'REAL_WALLET');
         const externalRows = listingCommitments.filter((c) => resolveSourceType(c) === 'ADMIN_EXTERNAL_VERIFIED');
@@ -1460,6 +1492,17 @@ export class AdminController {
 
         return {
           ...l,
+          status: effectiveStatus,
+          visibility: effectiveVisibility,
+          approvedBy: lMeta.approvedBy || null,
+          approvedByEmail: lMeta.approvedByEmail || null,
+          approvedAt: lMeta.approvedAt || null,
+          publishedBy: lMeta.publishedBy || null,
+          publishedByEmail: lMeta.publishedByEmail || null,
+          publishedAt: lMeta.publishedAt || null,
+          rejectedReason: lMeta.rejectedReason || null,
+          displayDestination,
+          inquiriesCount: listingInquiriesCount,
           supportingDocuments: Array.isArray(parsedDocs) ? parsedDocs : [],
           officialLinks: parsedLinks && typeof parsedLinks === 'object' ? parsedLinks : {},
           contactInfo: parsedContact && typeof parsedContact === 'object' ? parsedContact : {},
@@ -1900,8 +1943,22 @@ export class AdminController {
         updateData.investorCount = invNum;
       }
 
-      if (status && ['DRAFT', 'UNDER_REVIEW', 'PUBLISHED', 'CLOSED', 'SUSPENDED'].includes(String(status).toUpperCase())) {
-        updateData.status = String(status).toUpperCase();
+      const validLifecycleStatuses = [
+        'DRAFT',
+        'SUBMITTED',
+        'PENDING_REVIEW',
+        'UNDER_REVIEW',
+        'APPROVED',
+        'PUBLISHED',
+        'ACTIVE',
+        'SUSPENDED',
+        'REJECTED',
+        'EXPIRED',
+        'CLOSED',
+      ];
+      if (status && validLifecycleStatuses.includes(String(status).toUpperCase())) {
+        const normSt = String(status).toUpperCase();
+        updateData.status = normSt === 'ACTIVE' ? 'PUBLISHED' : normSt;
       }
 
       // Update Listing
@@ -1909,6 +1966,58 @@ export class AdminController {
         where: { id: listingId },
         data: updateData,
       });
+
+      // Record lifecycle audit columns (visibility, approvedBy/At, publishedBy/At, rejectedReason)
+      const adminEmail = (req as any).user?.email || 'admin@avorabank.com';
+      const reqVis = req.body.visibility
+        ? String(req.body.visibility).toUpperCase() === 'MATCHED_ONLY'
+          ? 'MATCHED_ONLY'
+          : 'CLIENT_DEALFLOW'
+        : null;
+      const reqRejectedReason = req.body.rejectedReason !== undefined ? String(req.body.rejectedReason || '') : null;
+      const finalStatus = String(updatedListing.status || '').toUpperCase();
+      try {
+        if (reqVis) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE diw_startup_listings SET visibility = ? WHERE id = ?`,
+            reqVis,
+            listingId
+          );
+        }
+        if (['APPROVED', 'PUBLISHED'].includes(finalStatus)) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE diw_startup_listings
+             SET approvedBy = COALESCE(approvedBy, ?),
+                 approvedByEmail = COALESCE(approvedByEmail, ?),
+                 approvedAt = COALESCE(approvedAt, NOW())
+             WHERE id = ?`,
+            adminUserId,
+            adminEmail,
+            listingId
+          );
+        }
+        if (finalStatus === 'PUBLISHED') {
+          await prisma.$executeRawUnsafe(
+            `UPDATE diw_startup_listings
+             SET publishedBy = ?,
+                 publishedByEmail = ?,
+                 publishedAt = COALESCE(publishedAt, NOW())
+             WHERE id = ?`,
+            adminUserId,
+            adminEmail,
+            listingId
+          );
+        }
+        if (finalStatus === 'REJECTED' || reqRejectedReason !== null) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE diw_startup_listings SET rejectedReason = ? WHERE id = ?`,
+            reqRejectedReason || (finalStatus === 'REJECTED' ? 'Rejected during compliance review' : null),
+            listingId
+          );
+        }
+      } catch {
+        // Ignore if column not ready
+      }
 
       const lockChanged =
         (maturityDate !== undefined && String(maturityDate) !== String(listing.maturityDate || '')) ||
@@ -4268,6 +4377,57 @@ export class AdminController {
         where: { id },
         data: updateData,
       });
+
+      const adminEmail = (req as any).user?.email || 'admin@avorabank.com';
+      const reqVis = req.body.visibility
+        ? String(req.body.visibility).toUpperCase() === 'MATCHED_ONLY'
+          ? 'MATCHED_ONLY'
+          : 'CLIENT_DEALFLOW'
+        : null;
+      const reqRejectedReason = req.body.rejectedReason !== undefined ? String(req.body.rejectedReason || '') : null;
+      const finalSt = String(updated.status || '').toUpperCase();
+      try {
+        if (reqVis) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE diw_startup_listings SET visibility = ? WHERE id = ?`,
+            reqVis,
+            id
+          );
+        }
+        if (['APPROVED', 'PUBLISHED'].includes(finalSt)) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE diw_startup_listings
+             SET approvedBy = COALESCE(approvedBy, ?),
+                 approvedByEmail = COALESCE(approvedByEmail, ?),
+                 approvedAt = COALESCE(approvedAt, NOW())
+             WHERE id = ?`,
+            adminUserId,
+            adminEmail,
+            id
+          );
+        }
+        if (finalSt === 'PUBLISHED') {
+          await prisma.$executeRawUnsafe(
+            `UPDATE diw_startup_listings
+             SET publishedBy = ?,
+                 publishedByEmail = ?,
+                 publishedAt = COALESCE(publishedAt, NOW())
+             WHERE id = ?`,
+            adminUserId,
+            adminEmail,
+            id
+          );
+        }
+        if (finalSt === 'REJECTED' || reqRejectedReason !== null) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE diw_startup_listings SET rejectedReason = ? WHERE id = ?`,
+            reqRejectedReason || (finalSt === 'REJECTED' ? 'Rejected during compliance review' : null),
+            id
+          );
+        }
+      } catch {
+        // Ignore
+      }
 
       await prisma.adminAuditLog.create({
         data: {

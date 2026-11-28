@@ -3,10 +3,98 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ventureMatchmakingService = exports.VentureMatchmakingService = void 0;
+exports.ventureMatchmakingService = exports.VentureMatchmakingService = exports.OPPORTUNITY_LIFECYCLE_STATUSES = void 0;
+exports.describeOpportunityDisplayDestination = describeOpportunityDisplayDestination;
 const prisma_1 = require("../lib/prisma");
 const decimal_js_1 = __importDefault(require("decimal.js"));
 const notification_provider_1 = require("../adapters/notification/notification.provider");
+exports.OPPORTUNITY_LIFECYCLE_STATUSES = [
+    'DRAFT',
+    'SUBMITTED',
+    'PENDING_REVIEW',
+    'UNDER_REVIEW',
+    'APPROVED',
+    'PUBLISHED',
+    'ACTIVE',
+    'MATCHED',
+    'SUSPENDED',
+    'REJECTED',
+    'EXPIRED',
+    'CLOSED',
+];
+function describeOpportunityDisplayDestination(status, visibility = 'CLIENT_DEALFLOW', promotedListingId) {
+    const normStatus = String(status || 'PENDING_REVIEW').toUpperCase();
+    const normVis = String(visibility || 'CLIENT_DEALFLOW').toUpperCase();
+    if (normStatus === 'PUBLISHED' || normStatus === 'ACTIVE' || normStatus === 'MATCHED') {
+        if (normVis === 'MATCHED_ONLY') {
+            return {
+                isLive: true,
+                scope: 'MATCHED_ONLY',
+                label: 'Live — Private to Matched & Shortlisted Investors/Lenders Only',
+                clientUrl: '/investments?tab=dealflow',
+                description: 'Visible only to Admin, the listing sponsor, and investors/lenders whom Admin has Shortlisted or Connected.',
+                promotedListingId: promotedListingId || null,
+            };
+        }
+        return {
+            isLive: true,
+            scope: 'CLIENT_DEALFLOW',
+            label: promotedListingId
+                ? 'Live in Client Dealflow (/investments?tab=dealflow) + Promoted to Curated Startup Portfolio (/investments)'
+                : 'Live in Client Portal → Venture & Lending Dealflow Desk (/investments?tab=dealflow)',
+            clientUrl: '/investments?tab=dealflow',
+            description: 'Automatically visible to authenticated investors, lenders, and founders in the Client Dealflow Marketplace according to category, deal type, and investment criteria.',
+            promotedListingId: promotedListingId || null,
+        };
+    }
+    if (normStatus === 'APPROVED') {
+        return {
+            isLive: false,
+            scope: 'ADMIN_AND_CREATOR_ONLY',
+            label: 'Approved (Unpublished) — Ready to Publish',
+            clientUrl: null,
+            description: 'Approved by Admin compliance review, but NOT yet publicly visible to clients until Admin clicks Publish.',
+            promotedListingId: promotedListingId || null,
+        };
+    }
+    if (normStatus === 'DRAFT' ||
+        normStatus === 'SUBMITTED' ||
+        normStatus === 'PENDING_REVIEW' ||
+        normStatus === 'UNDER_REVIEW') {
+        return {
+            isLive: false,
+            scope: 'ADMIN_AND_CREATOR_ONLY',
+            label: normStatus === 'DRAFT'
+                ? 'Draft — Hidden from Public Dealflow'
+                : 'Pending Admin Review — Hidden from Public Dealflow',
+            clientUrl: null,
+            description: 'Hidden from external investors and lenders. Visible only to Admin in the Dealflow Review Queue and to the creator in My Dealflow Activity.',
+            promotedListingId: promotedListingId || null,
+        };
+    }
+    if (normStatus === 'SUSPENDED' || normStatus === 'REJECTED') {
+        return {
+            isLive: false,
+            scope: 'REMOVED_FROM_CLIENT_VISIBILITY',
+            label: normStatus === 'SUSPENDED'
+                ? 'Suspended — Immediately Removed from Active Client Visibility'
+                : 'Rejected — Hidden from Active Client Visibility',
+            clientUrl: null,
+            description: 'Removed from client/investor dealflow browse. Blocked from receiving any applications or commitments.',
+            promotedListingId: promotedListingId || null,
+        };
+    }
+    return {
+        isLive: false,
+        scope: 'ARCHIVED_HISTORY',
+        label: normStatus === 'EXPIRED'
+            ? 'Expired — Closed to New Applications'
+            : 'Closed / Completed — Historical Record Only',
+        clientUrl: null,
+        description: 'Deal window has concluded. Blocked from accepting new applications or investments on the backend.',
+        promotedListingId: promotedListingId || null,
+    };
+}
 class VentureMatchmakingService {
     schemaReady = false;
     async ensureSchema() {
@@ -67,6 +155,44 @@ class VentureMatchmakingService {
           UNIQUE KEY unq_user_opp (applicantUserId, opportunityId)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
       `);
+            const alterColumns = [
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN visibility VARCHAR(32) NOT NULL DEFAULT 'CLIENT_DEALFLOW'`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN approvedBy VARCHAR(191) NULL`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN approvedByEmail VARCHAR(191) NULL`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN approvedAt DATETIME NULL`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN publishedBy VARCHAR(191) NULL`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN publishedByEmail VARCHAR(191) NULL`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN publishedAt DATETIME NULL`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN rejectedReason TEXT NULL`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN expiresAt DATETIME NULL`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN adminNotes TEXT NULL`,
+                `ALTER TABLE diw_venture_opportunities ADD COLUMN promotedListingId VARCHAR(64) NULL`,
+            ];
+            for (const sql of alterColumns) {
+                try {
+                    await prisma_1.prisma.$executeRawUnsafe(sql);
+                }
+                catch {
+                    // Column already exists
+                }
+            }
+            // Normalize legacy 'ACTIVE' rows to 'PUBLISHED' so lifecycle status is explicit
+            try {
+                await prisma_1.prisma.$executeRawUnsafe(`
+          UPDATE diw_venture_opportunities
+          SET status = 'PUBLISHED',
+              approvedBy = COALESCE(approvedBy, 'SYSTEM_DESK'),
+              approvedByEmail = COALESCE(approvedByEmail, 'desk@avorabank.com'),
+              approvedAt = COALESCE(approvedAt, createdAt),
+              publishedBy = COALESCE(publishedBy, 'SYSTEM_DESK'),
+              publishedByEmail = COALESCE(publishedByEmail, 'desk@avorabank.com'),
+              publishedAt = COALESCE(publishedAt, createdAt)
+          WHERE status = 'ACTIVE'
+        `);
+            }
+            catch {
+                // Ignore
+            }
             this.schemaReady = true;
         }
         catch (err) {
@@ -74,19 +200,75 @@ class VentureMatchmakingService {
         }
     }
     /**
-     * List active dealflow opportunities with search & filters
+     * List dealflow opportunities with search, filters, and strict lifecycle/visibility enforcement
      */
     async listOpportunities(params) {
         await this.ensureSchema();
+        // Auto-expire any PUBLISHED/ACTIVE opportunity whose expiresAt has passed
+        try {
+            await prisma_1.prisma.$executeRawUnsafe(`
+        UPDATE diw_venture_opportunities
+        SET status = 'EXPIRED'
+        WHERE status IN ('PUBLISHED', 'ACTIVE')
+          AND expiresAt IS NOT NULL
+          AND expiresAt < NOW()
+      `);
+        }
+        catch {
+            // Ignore
+        }
         const conditions = [];
         const values = [];
-        if (params?.status && params.status !== 'ALL') {
-            conditions.push('o.status = ?');
-            values.push(params.status);
+        if (params?.isAdmin) {
+            if (params?.status && params.status !== 'ALL') {
+                const reqStatus = String(params.status).toUpperCase();
+                if (reqStatus === 'PUBLISHED' || reqStatus === 'ACTIVE') {
+                    conditions.push(`o.status IN ('PUBLISHED', 'ACTIVE', 'MATCHED')`);
+                }
+                else if (reqStatus === 'PENDING_REVIEW' || reqStatus === 'UNDER_REVIEW') {
+                    conditions.push(`o.status IN ('PENDING_REVIEW', 'UNDER_REVIEW', 'SUBMITTED')`);
+                }
+                else {
+                    conditions.push('o.status = ?');
+                    values.push(reqStatus);
+                }
+            }
+            if (params?.visibility && params.visibility !== 'ALL') {
+                conditions.push('o.visibility = ?');
+                values.push(String(params.visibility).toUpperCase());
+            }
         }
-        else if (!params?.userId) {
-            // Default to ACTIVE for public browse
-            conditions.push("o.status = 'ACTIVE'");
+        else if (params?.userId) {
+            // Creator viewing their own submitted posts ("My Dealflow Activity")
+            conditions.push('o.userId = ?');
+            values.push(params.userId);
+        }
+        else {
+            // Client Dealflow Browse (/investments?tab=dealflow)
+            // Strict status rule: Never expose DRAFT, SUBMITTED, PENDING_REVIEW, UNDER_REVIEW, APPROVED (unpublished), SUSPENDED, or REJECTED
+            if (params?.includeClosedHistory) {
+                conditions.push(`o.status IN ('PUBLISHED', 'ACTIVE', 'MATCHED', 'CLOSED', 'EXPIRED')`);
+            }
+            else {
+                conditions.push(`o.status IN ('PUBLISHED', 'ACTIVE', 'MATCHED')`);
+            }
+            const viewerId = params?.viewerUserId ? String(params.viewerUserId) : '';
+            if (viewerId) {
+                conditions.push(`(
+          COALESCE(o.visibility, 'CLIENT_DEALFLOW') = 'CLIENT_DEALFLOW'
+          OR o.userId = ?
+          OR EXISTS (
+            SELECT 1 FROM diw_opportunity_applications ma
+            WHERE ma.opportunityId = o.id
+              AND ma.applicantUserId = ?
+              AND ma.status IN ('SHORTLISTED', 'CONNECTED')
+          )
+        )`);
+                values.push(viewerId, viewerId);
+            }
+            else {
+                conditions.push(`COALESCE(o.visibility, 'CLIENT_DEALFLOW') = 'CLIENT_DEALFLOW'`);
+            }
         }
         if (params?.intent && params.intent !== 'ALL') {
             conditions.push('o.intent = ?');
@@ -100,14 +282,10 @@ class VentureMatchmakingService {
             conditions.push('o.industry = ?');
             values.push(params.industry);
         }
-        if (params?.userId) {
-            conditions.push('o.userId = ?');
-            values.push(params.userId);
-        }
         if (params?.search && params.search.trim()) {
             const q = `%${params.search.trim()}%`;
-            conditions.push('(o.title LIKE ? OR o.description LIKE ? OR o.industry LIKE ? OR o.preferredTerms LIKE ?)');
-            values.push(q, q, q, q);
+            conditions.push('(o.title LIKE ? OR o.description LIKE ? OR o.industry LIKE ? OR o.preferredTerms LIKE ? OR o.opportunityCode LIKE ? OR u.email LIKE ?)');
+            values.push(q, q, q, q, q, q);
         }
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
         const sql = `
@@ -122,15 +300,39 @@ class VentureMatchmakingService {
       LEFT JOIN diw_users u ON o.userId = u.id
       ${whereClause}
       ORDER BY o.createdAt DESC
-      LIMIT 100;
+      LIMIT 150;
     `;
         const rawRows = (await prisma_1.prisma.$queryRawUnsafe(sql, ...values));
-        return rawRows.map((r) => this.formatOpportunityRow(r));
+        const oppIds = rawRows.map((r) => String(r.id)).filter(Boolean);
+        let appRows = [];
+        if (oppIds.length > 0) {
+            const placeholders = oppIds.map(() => '?').join(',');
+            appRows = (await prisma_1.prisma
+                .$queryRawUnsafe(`SELECT a.*, u.email as applicantEmail, u.firstName as applicantFirstName, u.lastName as applicantLastName
+           FROM diw_opportunity_applications a
+           LEFT JOIN diw_users u ON a.applicantUserId = u.id
+           WHERE a.opportunityId IN (${placeholders})
+           ORDER BY a.createdAt DESC`, ...oppIds)
+                .catch(() => []));
+        }
+        const appsByOpp = new Map();
+        for (const a of appRows) {
+            const oid = String(a.opportunityId);
+            if (!appsByOpp.has(oid))
+                appsByOpp.set(oid, []);
+            appsByOpp.get(oid).push(a);
+        }
+        const viewerId = params?.viewerUserId ? String(params.viewerUserId) : '';
+        return rawRows.map((r) => this.formatOpportunityRow(r, {
+            applications: appsByOpp.get(String(r.id)) || [],
+            isAdmin: Boolean(params?.isAdmin),
+            viewerUserId: viewerId,
+        }));
     }
     /**
      * Get single opportunity by ID
      */
-    async getOpportunityById(id, viewerUserId) {
+    async getOpportunityById(id, viewerUserId, isAdmin = false) {
         await this.ensureSchema();
         const rows = (await prisma_1.prisma.$queryRawUnsafe(`
       SELECT 
@@ -148,25 +350,52 @@ class VentureMatchmakingService {
         if (!rows || rows.length === 0) {
             throw new Error('Dealflow opportunity not found.');
         }
-        const opp = this.formatOpportunityRow(rows[0]);
+        const rawOpp = rows[0];
+        const oppApps = (await prisma_1.prisma
+            .$queryRawUnsafe(`SELECT a.*, u.email as applicantEmail, u.firstName as applicantFirstName, u.lastName as applicantLastName
+         FROM diw_opportunity_applications a
+         LEFT JOIN diw_users u ON a.applicantUserId = u.id
+         WHERE a.opportunityId = ?
+         ORDER BY a.createdAt DESC`, rawOpp.id)
+            .catch(() => []));
+        const normStatus = String(rawOpp.status || 'PENDING_REVIEW').toUpperCase();
+        const normVis = String(rawOpp.visibility || 'CLIENT_DEALFLOW').toUpperCase();
+        const isCreator = Boolean(viewerUserId && rawOpp.userId === viewerUserId);
+        const isMatchedApplicant = Boolean(viewerUserId &&
+            oppApps.some((a) => a.applicantUserId === viewerUserId &&
+                ['SHORTLISTED', 'CONNECTED'].includes(String(a.status).toUpperCase())));
+        if (!isAdmin && !isCreator) {
+            if (!['PUBLISHED', 'ACTIVE', 'MATCHED', 'CLOSED', 'EXPIRED'].includes(normStatus)) {
+                throw new Error('This deal listing is not currently published for public viewing.');
+            }
+            if (normVis === 'MATCHED_ONLY' && !isMatchedApplicant) {
+                throw new Error('This deal listing is private and restricted to shortlisted or connected counterparties.');
+            }
+        }
+        const opp = this.formatOpportunityRow(rawOpp, {
+            applications: oppApps,
+            isAdmin,
+            viewerUserId,
+        });
         let userApplication = null;
         if (viewerUserId) {
-            const appRows = (await prisma_1.prisma.$queryRawUnsafe(`SELECT * FROM diw_opportunity_applications WHERE opportunityId = ? AND applicantUserId = ? LIMIT 1`, opp.id, viewerUserId));
-            if (appRows && appRows.length > 0) {
-                userApplication = this.formatApplicationRow(appRows[0]);
+            const found = oppApps.find((a) => a.applicantUserId === viewerUserId);
+            if (found) {
+                userApplication = this.formatApplicationRow(found);
             }
         }
         return { ...opp, userApplication };
     }
     /**
-     * Create a new dealflow opportunity post (Registered users only)
+     * Create a new dealflow opportunity post (Registered users or Admin)
+     * User submissions enter PENDING_REVIEW (or DRAFT if saveAsDraft=true) so Admin reviews -> approves -> publishes.
      */
     async createOpportunity(userId, data) {
         await this.ensureSchema();
         // Verify user exists
         const user = await prisma_1.prisma.user.findUnique({
             where: { id: userId },
-            select: { id: true, email: true, firstName: true, lastName: true, country: true },
+            select: { id: true, email: true, firstName: true, lastName: true, country: true, role: true },
         });
         if (!user)
             throw new Error('Unauthorized. Registered account required.');
@@ -188,27 +417,46 @@ class VentureMatchmakingService {
         const tenureMonths = data.tenureMonths ? parseInt(data.tenureMonths.toString(), 10) : null;
         const oppId = `opp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const oppCode = `OPP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+        const isAdminUser = Boolean(data.isAdminCreated || user.role === 'ADMIN' || user.role === 'STAFF');
+        let initialStatus = data.saveAsDraft ? 'DRAFT' : 'PENDING_REVIEW';
+        if (isAdminUser && data.status && exports.OPPORTUNITY_LIFECYCLE_STATUSES.includes(data.status)) {
+            initialStatus = data.status;
+        }
+        const visibility = data.visibility === 'MATCHED_ONLY' ? 'MATCHED_ONLY' : 'CLIENT_DEALFLOW';
+        const now = new Date();
+        const isApprovedOrPublished = ['APPROVED', 'PUBLISHED', 'ACTIVE'].includes(initialStatus);
+        const isPublished = ['PUBLISHED', 'ACTIVE'].includes(initialStatus);
+        const approvedBy = isApprovedOrPublished ? user.id : null;
+        const approvedByEmail = isApprovedOrPublished ? user.email : null;
+        const approvedAt = isApprovedOrPublished ? now : null;
+        const publishedBy = isPublished ? user.id : null;
+        const publishedByEmail = isPublished ? user.email : null;
+        const publishedAt = isPublished ? now : null;
+        const expiresAtDate = data.expiresAt ? new Date(data.expiresAt) : null;
         await prisma_1.prisma.$executeRawUnsafe(`
       INSERT INTO diw_venture_opportunities (
         id, opportunityCode, userId, title, description, intent, dealType,
         targetAmount, minAmount, maxAmount, currency, preferredTerms,
         expectedInterestRate, tenureMonths, industry, stage, locationCountry,
-        locationCountryCode, status, contactEmail, contactPhone
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, oppId, oppCode, userId, title, description, data.intent, data.dealType, targetAmount.toFixed(2), minAmount ? minAmount.toFixed(2) : null, maxAmount ? maxAmount.toFixed(2) : null, (data.currency || 'USD').toUpperCase(), data.preferredTerms || null, expectedInterestRate ? expectedInterestRate.toFixed(2) : null, tenureMonths, data.industry || 'General', data.stage || null, data.locationCountry || user.country || 'Global', data.locationCountryCode || null, 'ACTIVE', data.contactEmail || user.email, data.contactPhone || null);
+        locationCountryCode, status, contactEmail, contactPhone,
+        visibility, approvedBy, approvedByEmail, approvedAt,
+        publishedBy, publishedByEmail, publishedAt, expiresAt, adminNotes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, oppId, oppCode, userId, title, description, data.intent, data.dealType, targetAmount.toFixed(2), minAmount ? minAmount.toFixed(2) : null, maxAmount ? maxAmount.toFixed(2) : null, (data.currency || 'USD').toUpperCase(), data.preferredTerms || null, expectedInterestRate ? expectedInterestRate.toFixed(2) : null, tenureMonths, data.industry || 'General', data.stage || null, data.locationCountry || user.country || 'Global', data.locationCountryCode || null, initialStatus, data.contactEmail || user.email, data.contactPhone || null, visibility, approvedBy, approvedByEmail, approvedAt, publishedBy, publishedByEmail, publishedAt, expiresAtDate && !isNaN(expiresAtDate.getTime()) ? expiresAtDate : null, data.adminNotes ? data.adminNotes.trim() : null);
         // Notify Admin of new opportunity
         notification_provider_1.notificationService
-            .sendAdminAlert(`[Dealflow] New Opportunity: ${title}`, `New dealflow opportunity posted by ${user.email}: ${title} (${data.intent} - ${data.dealType}, Target: $${targetAmount.toFixed(2)} USD)`, {
+            .sendAdminAlert(`[Dealflow] New Opportunity (${initialStatus}): ${title}`, `New dealflow opportunity posted by ${user.email}: ${title} (${data.intent} - ${data.dealType}, Target: $${targetAmount.toFixed(2)} USD, Status: ${initialStatus})`, {
             opportunityCode: oppCode,
             title,
             intent: data.intent,
             dealType: data.dealType,
+            status: initialStatus,
             targetAmount: `$${targetAmount.toFixed(2)} USD`,
             creatorEmail: user.email,
             creatorName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
         })
             .catch(() => { });
-        return this.getOpportunityById(oppId, userId);
+        return this.getOpportunityById(oppId, userId, isAdminUser);
     }
     /**
      * Apply / Express Interest in an Opportunity (Registered users only)
@@ -238,8 +486,13 @@ class VentureMatchmakingService {
             throw new Error('Opportunity not found.');
         }
         const opp = oppRows[0];
-        if (opp.status !== 'ACTIVE') {
-            throw new Error(`This opportunity is currently ${opp.status} and not accepting applications.`);
+        const oppStatus = String(opp.status || '').toUpperCase();
+        if (opp.expiresAt && new Date(opp.expiresAt) < new Date()) {
+            await prisma_1.prisma.$executeRawUnsafe(`UPDATE diw_venture_opportunities SET status = 'EXPIRED' WHERE id = ?`, opp.id);
+            throw new Error('This deal listing has expired and is no longer accepting new applications.');
+        }
+        if (!['PUBLISHED', 'ACTIVE', 'MATCHED'].includes(oppStatus)) {
+            throw new Error(`This opportunity is currently ${oppStatus} and not accepting applications.`);
         }
         // Prevent creator from applying to their own opportunity
         if (opp.userId === userId) {
@@ -454,21 +707,219 @@ class VentureMatchmakingService {
         };
     }
     /**
-     * ADMIN: Update Opportunity Status
+     * ADMIN: Update Opportunity Lifecycle Status, Visibility, Deal Terms, or Promote to Curated Startup Campaign
      */
     async adminUpdateOpportunityStatus(opportunityId, adminId, data) {
         await this.ensureSchema();
-        await prisma_1.prisma.$executeRawUnsafe(`UPDATE diw_venture_opportunities SET status = ? WHERE id = ?`, data.status, opportunityId);
-        return { success: true, opportunityId, status: data.status };
+        const existingRows = (await prisma_1.prisma.$queryRawUnsafe(`SELECT * FROM diw_venture_opportunities WHERE id = ? OR opportunityCode = ? LIMIT 1`, opportunityId, opportunityId));
+        if (!existingRows || existingRows.length === 0) {
+            throw new Error('Dealflow listing not found.');
+        }
+        const existing = existingRows[0];
+        const id = String(existing.id);
+        const adminUser = adminId && adminId !== 'admin'
+            ? await prisma_1.prisma.user.findUnique({ where: { id: adminId }, select: { id: true, email: true } }).catch(() => null)
+            : null;
+        const adminEmail = data.adminEmail || adminUser?.email || 'admin@avorabank.com';
+        const now = new Date();
+        const nextStatus = data.status && exports.OPPORTUNITY_LIFECYCLE_STATUSES.includes(String(data.status).toUpperCase())
+            ? String(data.status).toUpperCase()
+            : String(existing.status || 'PENDING_REVIEW').toUpperCase();
+        const nextVisibility = data.visibility && ['CLIENT_DEALFLOW', 'MATCHED_ONLY'].includes(String(data.visibility).toUpperCase())
+            ? String(data.visibility).toUpperCase()
+            : String(existing.visibility || 'CLIENT_DEALFLOW').toUpperCase();
+        let approvedBy = existing.approvedBy || null;
+        let approvedByEmail = existing.approvedByEmail || null;
+        let approvedAt = existing.approvedAt ? new Date(existing.approvedAt) : null;
+        let publishedBy = existing.publishedBy || null;
+        let publishedByEmail = existing.publishedByEmail || null;
+        let publishedAt = existing.publishedAt ? new Date(existing.publishedAt) : null;
+        if (['APPROVED', 'PUBLISHED', 'ACTIVE', 'MATCHED'].includes(nextStatus) && !approvedAt) {
+            approvedBy = adminId;
+            approvedByEmail = adminEmail;
+            approvedAt = now;
+        }
+        if (['PUBLISHED', 'ACTIVE', 'MATCHED'].includes(nextStatus)) {
+            publishedBy = adminId;
+            publishedByEmail = adminEmail;
+            publishedAt = publishedAt || now;
+        }
+        const rejectedReason = nextStatus === 'REJECTED'
+            ? data.rejectedReason !== undefined
+                ? String(data.rejectedReason || '').trim() || 'Rejected during compliance review'
+                : existing.rejectedReason || 'Rejected during compliance review'
+            : data.rejectedReason !== undefined
+                ? data.rejectedReason
+                : existing.rejectedReason;
+        const adminNotes = data.adminNotes !== undefined ? data.adminNotes : existing.adminNotes || null;
+        let expiresAt = existing.expiresAt ? new Date(existing.expiresAt) : null;
+        if (data.expiresAt !== undefined) {
+            expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
+        }
+        const nextTitle = data.title !== undefined && String(data.title).trim() ? String(data.title).trim() : existing.title;
+        const nextIndustry = data.industry !== undefined && String(data.industry).trim()
+            ? String(data.industry).trim()
+            : existing.industry;
+        const nextStage = data.stage !== undefined && String(data.stage).trim() ? String(data.stage).trim() : existing.stage;
+        const nextTargetAmount = data.targetAmount !== undefined && Number.isFinite(Number(data.targetAmount))
+            ? Number(data.targetAmount)
+            : Number(existing.targetAmount || 0);
+        const nextMinAmount = data.minAmount !== undefined
+            ? data.minAmount === null || String(data.minAmount) === ''
+                ? null
+                : Number(data.minAmount)
+            : existing.minAmount !== null
+                ? Number(existing.minAmount)
+                : null;
+        const nextMaxAmount = data.maxAmount !== undefined
+            ? data.maxAmount === null || String(data.maxAmount) === ''
+                ? null
+                : Number(data.maxAmount)
+            : existing.maxAmount !== null
+                ? Number(existing.maxAmount)
+                : null;
+        const nextRate = data.expectedInterestRate !== undefined
+            ? data.expectedInterestRate === null || String(data.expectedInterestRate) === ''
+                ? null
+                : Number(data.expectedInterestRate)
+            : existing.expectedInterestRate !== null
+                ? Number(existing.expectedInterestRate)
+                : null;
+        const nextTenure = data.tenureMonths !== undefined
+            ? data.tenureMonths === null || String(data.tenureMonths) === ''
+                ? null
+                : Number(data.tenureMonths)
+            : existing.tenureMonths !== null
+                ? Number(existing.tenureMonths)
+                : null;
+        const nextTerms = data.preferredTerms !== undefined ? data.preferredTerms : existing.preferredTerms;
+        const nextCountry = data.locationCountry !== undefined && String(data.locationCountry).trim()
+            ? String(data.locationCountry).trim()
+            : existing.locationCountry;
+        const nextDesc = data.description !== undefined && String(data.description).trim()
+            ? String(data.description).trim()
+            : existing.description;
+        let promotedListingId = existing.promotedListingId || null;
+        if (data.promoteToCuratedCampaign && !promotedListingId) {
+            const slug = nextTitle
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/(^-|-$)/g, '')
+                .slice(0, 40) +
+                '-' +
+                Math.random().toString(36).substring(2, 6);
+            const createdCampaign = await prisma_1.prisma.startupListing.create({
+                data: {
+                    slug,
+                    companyName: nextTitle,
+                    tagline: `${nextStage || 'Venture Round'} • ${nextIndustry} (${existing.opportunityCode})`,
+                    country: nextCountry || 'Global',
+                    countryCode: existing.locationCountryCode || 'US',
+                    city: nextCountry || 'Global',
+                    industry: nextIndustry || 'Fintech & Payments',
+                    stage: 'SEED',
+                    instrument: existing.dealType === 'DEBT_LOAN' ? 'DEBT' : 'SAFE',
+                    valuation: new decimal_js_1.default(Math.max(nextTargetAmount * 4, 1000000).toFixed(2)),
+                    fundingTarget: new decimal_js_1.default(Math.max(nextTargetAmount, 10000).toFixed(2)),
+                    verifiedFundsRaised: new decimal_js_1.default('0.00'),
+                    investorCount: 0,
+                    minInvestment: new decimal_js_1.default((nextMinAmount && nextMinAmount > 0 ? nextMinAmount : 1000).toFixed(2)),
+                    pitchOverview: nextDesc,
+                    termsAndNotes: nextTerms || null,
+                    dueDiligenceSummary: `Approved & promoted from Venture & Lending Dealflow Desk (${existing.opportunityCode}) by ${adminEmail}.`,
+                    startDate: now,
+                    deadline: expiresAt || new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+                    lockInMonths: nextTenure && nextTenure > 0 ? nextTenure : 12,
+                    expectedReturnPct: new decimal_js_1.default((nextRate && nextRate > 0 ? nextRate : 12).toFixed(2)),
+                    logoUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80',
+                    coverImageUrl: 'https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&auto=format&fit=crop&q=80',
+                    status: ['PUBLISHED', 'ACTIVE', 'MATCHED'].includes(nextStatus) ? 'PUBLISHED' : 'APPROVED',
+                    dueDiligenceStatus: 'VERIFIED',
+                    fundSeekerUserId: existing.userId || null,
+                },
+            });
+            promotedListingId = createdCampaign.id;
+        }
+        await prisma_1.prisma.$executeRawUnsafe(`UPDATE diw_venture_opportunities
+       SET status = ?,
+           visibility = ?,
+           approvedBy = ?,
+           approvedByEmail = ?,
+           approvedAt = ?,
+           publishedBy = ?,
+           publishedByEmail = ?,
+           publishedAt = ?,
+           rejectedReason = ?,
+           adminNotes = ?,
+           expiresAt = ?,
+           title = ?,
+           industry = ?,
+           stage = ?,
+           targetAmount = ?,
+           minAmount = ?,
+           maxAmount = ?,
+           expectedInterestRate = ?,
+           tenureMonths = ?,
+           preferredTerms = ?,
+           locationCountry = ?,
+           description = ?,
+           promotedListingId = ?
+       WHERE id = ?`, nextStatus, nextVisibility, approvedBy, approvedByEmail, approvedAt, publishedBy, publishedByEmail, publishedAt, rejectedReason || null, adminNotes, expiresAt && !isNaN(expiresAt.getTime()) ? expiresAt : null, nextTitle, nextIndustry, nextStage, nextTargetAmount, nextMinAmount, nextMaxAmount, nextRate, nextTenure, nextTerms || null, nextCountry, nextDesc, promotedListingId, id);
+        if (adminId && adminId !== 'admin') {
+            await prisma_1.prisma.adminAuditLog
+                .create({
+                data: {
+                    userId: adminId,
+                    action: `DEALFLOW_OPPORTUNITY_${nextStatus}`,
+                    entity: 'VentureOpportunity',
+                    entityId: id,
+                    details: `Updated dealflow listing ${existing.opportunityCode} (${nextTitle}): status ${existing.status} -> ${nextStatus}, visibility=${nextVisibility}${promotedListingId ? `, promotedListingId=${promotedListingId}` : ''}.`,
+                },
+            })
+                .catch(() => { });
+        }
+        const updated = await this.getOpportunityById(id, undefined, true);
+        return {
+            success: true,
+            opportunityId: id,
+            status: updated.status,
+            visibility: updated.visibility,
+            displayDestination: updated.displayDestination,
+            data: updated,
+            message: `Listing ${updated.opportunityCode} updated to ${updated.status} (${updated.displayDestination.label}).`,
+        };
     }
     /**
      * Helper formatting
      */
-    formatOpportunityRow(r) {
+    formatOpportunityRow(r, context) {
+        const apps = context?.applications || [];
+        const shortlistedApps = apps.filter((a) => String(a.status).toUpperCase() === 'SHORTLISTED');
+        const connectedApps = apps.filter((a) => String(a.status).toUpperCase() === 'CONNECTED');
+        const pendingApps = apps.filter((a) => String(a.status).toUpperCase() === 'PENDING_REVIEW');
+        const rawStatus = String(r.status || 'PENDING_REVIEW').toUpperCase();
+        const normalizedStatus = rawStatus === 'ACTIVE'
+            ? 'PUBLISHED'
+            : exports.OPPORTUNITY_LIFECYCLE_STATUSES.includes(rawStatus)
+                ? rawStatus
+                : 'PENDING_REVIEW';
+        const visibility = String(r.visibility || 'CLIENT_DEALFLOW').toUpperCase() === 'MATCHED_ONLY'
+            ? 'MATCHED_ONLY'
+            : 'CLIENT_DEALFLOW';
+        const displayDestination = describeOpportunityDisplayDestination(normalizedStatus, visibility, r.promotedListingId);
+        const viewerId = context?.viewerUserId || '';
+        const isMatchedForViewer = Boolean(viewerId) &&
+            apps.some((a) => a.applicantUserId === viewerId &&
+                ['SHORTLISTED', 'CONNECTED'].includes(String(a.status).toUpperCase()));
+        const creatorFullName = `${r.creatorFirstName || ''} ${r.creatorLastName || ''}`.trim() ||
+            r.creatorEmail ||
+            'Confidential Member';
         return {
             id: r.id,
             opportunityCode: r.opportunityCode,
             userId: r.userId,
+            creatorName: creatorFullName,
+            creatorEmail: r.creatorEmail || r.contactEmail || 'Confidential Member',
             title: r.title,
             description: r.description,
             intent: r.intent,
@@ -484,8 +935,40 @@ class VentureMatchmakingService {
             stage: r.stage || null,
             locationCountry: r.locationCountry || 'Global',
             locationCountryCode: r.locationCountryCode || null,
-            status: r.status,
-            applicantCount: Number(r.applicantCount || 0),
+            status: normalizedStatus,
+            rawStatus,
+            visibility,
+            approvedBy: r.approvedBy || null,
+            approvedByEmail: r.approvedByEmail || null,
+            approvedAt: r.approvedAt || null,
+            publishedBy: r.publishedBy || null,
+            publishedByEmail: r.publishedByEmail || null,
+            publishedAt: r.publishedAt || null,
+            rejectedReason: r.rejectedReason || null,
+            expiresAt: r.expiresAt || null,
+            adminNotes: context?.isAdmin || r.userId === viewerId ? r.adminNotes || null : null,
+            promotedListingId: r.promotedListingId || null,
+            displayDestination,
+            isMatchedForViewer,
+            applicantCount: apps.length > 0 ? apps.length : Number(r.applicantCount || 0),
+            pendingReviewCount: pendingApps.length,
+            shortlistedCount: shortlistedApps.length,
+            connectedCount: connectedApps.length,
+            matchedParties: context?.isAdmin || r.userId === viewerId
+                ? [...connectedApps, ...shortlistedApps].map((a) => ({
+                    id: a.id,
+                    applicationCode: a.applicationCode,
+                    applicantUserId: a.applicantUserId,
+                    applicantName: `${a.applicantFirstName || ''} ${a.applicantLastName || ''}`.trim() ||
+                        a.applicantEmail ||
+                        'Matched Party',
+                    applicantEmail: a.applicantEmail || '',
+                    applicantRole: a.applicantRole,
+                    proposedAmount: Number(a.proposedAmount || 0),
+                    status: a.status,
+                    connectedAt: a.connectedAt,
+                }))
+                : [],
             contactEmail: r.contactEmail || null,
             contactPhone: r.contactPhone || null,
             createdAt: r.createdAt,

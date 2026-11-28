@@ -50,7 +50,28 @@ export interface DealOpportunity {
   industry: string;
   stage?: string | null;
   locationCountry?: string | null;
-  status: 'ACTIVE' | 'UNDER_REVIEW' | 'MATCHED' | 'CLOSED';
+  status:
+    | 'DRAFT'
+    | 'SUBMITTED'
+    | 'PENDING_REVIEW'
+    | 'UNDER_REVIEW'
+    | 'APPROVED'
+    | 'PUBLISHED'
+    | 'ACTIVE'
+    | 'MATCHED'
+    | 'SUSPENDED'
+    | 'REJECTED'
+    | 'EXPIRED'
+    | 'CLOSED';
+  visibility?: 'CLIENT_DEALFLOW' | 'MATCHED_ONLY';
+  isMatchedForViewer?: boolean;
+  displayDestination?: {
+    isLive: boolean;
+    scope: string;
+    label: string;
+    clientUrl: string | null;
+    description: string;
+  };
   applicantCount: number;
   contactEmail?: string | null;
   contactPhone?: string | null;
@@ -259,7 +280,10 @@ export default function VentureDealflowSection() {
       });
 
       if (res.data?.success) {
-        setPostSuccess('Your dealflow opportunity has been posted successfully!');
+        setPostSuccess(
+          res.data?.message ||
+            'Your dealflow opportunity has been submitted for Admin Compliance Review! Once approved and published, it will appear in the Client Dealflow Desk.'
+        );
         setPostForm({
           title: '',
           description: '',
@@ -591,15 +615,23 @@ export default function VentureDealflowSection() {
                         : 'Loan Requirement'}
                     </span>
 
-                    <span
-                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                        opp.dealType === 'EQUITY_INVESTMENT'
-                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-                          : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                      }`}
-                    >
-                      {opp.dealType === 'EQUITY_INVESTMENT' ? 'Equity Investment' : 'Debt / Business Loan'}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {opp.visibility === 'MATCHED_ONLY' && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                          <Lock className="w-3 h-3" />
+                          <span>Private Matched Deal</span>
+                        </span>
+                      )}
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                          opp.dealType === 'EQUITY_INVESTMENT'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                        }`}
+                      >
+                        {opp.dealType === 'EQUITY_INVESTMENT' ? 'Equity Investment' : 'Debt / Business Loan'}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Title & Description */}
@@ -987,12 +1019,19 @@ export default function VentureDealflowSection() {
                 />
               </div>
 
+              <div className="p-3 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/35 border border-indigo-500/30 text-[11px] text-indigo-800 dark:text-indigo-200 flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Curation &amp; Publishing Flow:</strong> New listings enter <strong>Pending Review</strong> for Admin due diligence. Once Admin <strong>Approves</strong> and <strong>Publishes</strong> your listing, it automatically appears in the Client Dealflow Desk (or privately to matched counterparties).
+                </span>
+              </div>
+
               <button
                 type="submit"
                 disabled={postingLoading}
                 className="w-full py-3.5 rounded-2xl font-black text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
               >
-                <span>{postingLoading ? 'Publishing Opportunity...' : 'Post Opportunity Live'}</span>
+                <span>{postingLoading ? 'Submitting Opportunity...' : 'Submit Opportunity for Review & Publication'}</span>
                 <Send className="w-4 h-4" />
               </button>
             </form>
@@ -1271,26 +1310,48 @@ export default function VentureDealflowSection() {
                     {myPosts.map((opp) => (
                       <div
                         key={opp.id}
-                        className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs flex flex-wrap items-center justify-between gap-3"
+                        className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs space-y-2"
                       >
-                        <div>
-                          <div className="font-extrabold text-slate-900 dark:text-white">
-                            {opp.title}
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <div className="font-extrabold text-slate-900 dark:text-white">
+                              {opp.title}
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              {opp.opportunityCode} • {opp.intent === 'OFFERING_CAPITAL' ? 'Offering' : 'Seeking'}{' '}
+                              ${Number(opp.targetAmount || 0).toLocaleString()} USD ({opp.industry})
+                            </div>
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            {opp.opportunityCode} • {opp.intent === 'OFFERING_CAPITAL' ? 'Offering' : 'Seeking'}{' '}
-                            ${Number(opp.targetAmount || 0).toLocaleString()} USD ({opp.industry})
+
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 font-bold text-[10px] border border-indigo-500/30">
+                              {opp.applicantCount} Applicants
+                            </span>
+                            <span
+                              className={`px-2.5 py-1 rounded-full font-bold text-[10px] border ${
+                                opp.status === 'PUBLISHED' || opp.status === 'ACTIVE'
+                                  ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 border-emerald-500/30'
+                                  : opp.status === 'APPROVED'
+                                  ? 'bg-sky-50 dark:bg-sky-950 text-sky-600 dark:text-sky-300 border-sky-500/30'
+                                  : opp.status === 'PENDING_REVIEW' || opp.status === 'UNDER_REVIEW' || opp.status === 'SUBMITTED'
+                                  ? 'bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-300 border-amber-500/30'
+                                  : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                              }`}
+                            >
+                              {opp.status === 'APPROVED'
+                                ? 'APPROVED (AWAITING PUBLISH)'
+                                : opp.status === 'PUBLISHED' || opp.status === 'ACTIVE'
+                                ? 'PUBLISHED (LIVE)'
+                                : opp.status}
+                            </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <span className="px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 font-bold text-[10px] border border-indigo-500/30">
-                            {opp.applicantCount} Applicants
-                          </span>
-                          <span className="px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 font-bold text-[10px] border border-emerald-500/30">
-                            {opp.status}
-                          </span>
-                        </div>
+                        {opp.displayDestination?.label && (
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200/70 dark:border-slate-800">
+                            <strong>Visibility Status:</strong> {opp.displayDestination.label}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

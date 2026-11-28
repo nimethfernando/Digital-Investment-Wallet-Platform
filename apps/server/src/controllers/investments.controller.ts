@@ -4,11 +4,12 @@ import { investmentsService } from '../services/investments.service';
 export class InvestmentsController {
   /**
    * GET /api/v1/investments/campaigns
-   * Public: List all published startup funding opportunities
+   * Protected: List all published startup funding opportunities
    */
   async listCampaigns(req: Request, res: Response, next: NextFunction) {
     try {
-      const { industry, countryCode, stage, instrument, search } = req.query as any;
+      const { industry, countryCode, stage, instrument, search, includeClosedHistory } = req.query as any;
+      const viewerUserId = (req as any).user?.id || (req as any).user?.userId;
       const [campaigns, filterOptions] = await Promise.all([
         investmentsService.listCampaigns({
           industry,
@@ -16,6 +17,8 @@ export class InvestmentsController {
           stage,
           instrument,
           search,
+          viewerUserId,
+          includeClosedHistory: includeClosedHistory === 'true',
         }),
         investmentsService.listPublishedFilterOptions(),
       ]);
