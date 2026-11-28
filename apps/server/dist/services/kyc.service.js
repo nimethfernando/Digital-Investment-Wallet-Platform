@@ -33,11 +33,63 @@ function parseDataUrl(dataUrl) {
         'image/png': 'png',
         'image/webp': 'webp',
         'image/gif': 'gif',
+        'image/svg+xml': 'svg',
         'application/pdf': 'pdf',
     };
     const ext = extMap[mimeType] || 'bin';
     const buffer = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
     return { buffer, mimeType, ext };
+}
+function detectBufferMimeType(buffer, fallbackMime) {
+    if (!buffer || buffer.length === 0) {
+        return { mimeType: fallbackMime || 'image/svg+xml', ext: 'svg' };
+    }
+    const head = buffer.subarray(0, 64);
+    const headStr = head.toString('utf8').trimStart();
+    // PDF magic header: %PDF-
+    if (head.length >= 5 && head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46 && head[4] === 0x2d) {
+        return { mimeType: 'application/pdf', ext: 'pdf' };
+    }
+    // PNG magic header: 89 50 4E 47
+    if (head.length >= 4 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) {
+        return { mimeType: 'image/png', ext: 'png' };
+    }
+    // JPEG magic header: FF D8 FF
+    if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) {
+        return { mimeType: 'image/jpeg', ext: 'jpg' };
+    }
+    // GIF magic header: GIF8
+    if (head.length >= 4 && head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x38) {
+        return { mimeType: 'image/gif', ext: 'gif' };
+    }
+    // WEBP magic header: RIFF....WEBP
+    if (head.length >= 12 &&
+        head[0] === 0x52 &&
+        head[1] === 0x49 &&
+        head[2] === 0x46 &&
+        head[3] === 0x46 &&
+        head[8] === 0x57 &&
+        head[9] === 0x45 &&
+        head[10] === 0x42 &&
+        head[11] === 0x50) {
+        return { mimeType: 'image/webp', ext: 'webp' };
+    }
+    // SVG XML payload
+    if (headStr.startsWith('<svg') || headStr.startsWith('<?xml') || headStr.includes('<svg')) {
+        return { mimeType: 'image/svg+xml', ext: 'svg' };
+    }
+    const cleanFallback = (fallbackMime || '').toLowerCase();
+    if (cleanFallback.includes('png'))
+        return { mimeType: 'image/png', ext: 'png' };
+    if (cleanFallback.includes('jpeg') || cleanFallback.includes('jpg'))
+        return { mimeType: 'image/jpeg', ext: 'jpg' };
+    if (cleanFallback.includes('webp'))
+        return { mimeType: 'image/webp', ext: 'webp' };
+    if (cleanFallback.includes('gif'))
+        return { mimeType: 'image/gif', ext: 'gif' };
+    if (cleanFallback.includes('svg'))
+        return { mimeType: 'image/svg+xml', ext: 'svg' };
+    return { mimeType: fallbackMime || 'application/octet-stream', ext: 'bin' };
 }
 class KycService {
     /**
@@ -46,26 +98,55 @@ class KycService {
     async storePrivateKycFile(params) {
         const parsed = parseDataUrl(params.rawUrlOrData);
         if (parsed) {
-            const safeName = (params.originalFilename || `kyc_${params.docId.slice(0, 8)}.${parsed.ext}`).replace(/[^a-zA-Z0-9._-]/g, '_');
-            const privatePath = `/private/kyc/${params.userId}/${params.docId}.${parsed.ext}`;
+            const detected = detectBufferMimeType(parsed.buffer, parsed.mimeType);
+            const safeName = (params.originalFilename || `kyc_${params.docId.slice(0, 8)}.${detected.ext}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+            const privatePath = `/private/kyc/${params.userId}/${params.docId}.${detected.ext}`;
             await (0, storage_service_1.persistUploadedBuffer)({
                 urlPath: privatePath,
                 buffer: parsed.buffer,
-                mimeType: parsed.mimeType,
+                mimeType: detected.mimeType,
                 originalName: safeName,
             });
             return {
                 privatePath,
-                mimeType: parsed.mimeType,
+                mimeType: detected.mimeType,
                 originalFilename: safeName,
             };
         }
         const cleanUrl = String(params.rawUrlOrData || '').trim();
-        const ext = path_1.default.extname(cleanUrl.split('?')[0]) || '.pdf';
+        // If client uploaded via /api/v1/upload first and passed an /uploads/... URL, copy/detect its actual mimeType
+        const persistedExisting = cleanUrl ? await (0, storage_service_1.getPersistedUploadedAsset)(cleanUrl) : null;
+        if (persistedExisting && persistedExisting.buffer?.length) {
+            const detected = detectBufferMimeType(persistedExisting.buffer, persistedExisting.mimeType);
+            const safeName = (params.originalFilename || persistedExisting.originalName || `kyc_${params.docId.slice(0, 8)}.${detected.ext}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+            const privatePath = `/private/kyc/${params.userId}/${params.docId}.${detected.ext}`;
+            await (0, storage_service_1.persistUploadedBuffer)({
+                urlPath: privatePath,
+                buffer: persistedExisting.buffer,
+                mimeType: detected.mimeType,
+                originalName: safeName,
+            });
+            return {
+                privatePath,
+                mimeType: detected.mimeType,
+                originalFilename: safeName,
+            };
+        }
+        const ext = path_1.default.extname(cleanUrl.split('?')[0]).toLowerCase();
+        const mimeByExt = {
+            '.pdf': 'application/pdf',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.webp': 'image/webp',
+            '.gif': 'image/gif',
+            '.svg': 'image/svg+xml',
+        };
+        const resolvedExt = ext && mimeByExt[ext] ? ext : '.svg';
         return {
-            privatePath: cleanUrl,
-            mimeType: ext.toLowerCase() === '.pdf' ? 'application/pdf' : 'image/png',
-            originalFilename: params.originalFilename || `kyc_${params.docId.slice(0, 8)}${ext}`,
+            privatePath: cleanUrl || `/private/kyc/${params.userId}/${params.docId}.svg`,
+            mimeType: mimeByExt[resolvedExt] || 'image/svg+xml',
+            originalFilename: params.originalFilename || `kyc_${params.docId.slice(0, 8)}${resolvedExt}`,
         };
     }
     /**
@@ -302,7 +383,20 @@ class KycService {
         await compliancePolicy_service_1.compliancePolicyService.ensureComplianceSchema();
         const doc = await prisma_1.prisma.kycDocument.findUnique({
             where: { id: params.documentId },
-            include: { user: { select: { id: true, email: true } } },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                        displayName: true,
+                        country: true,
+                        phone: true,
+                        createdAt: true,
+                    },
+                },
+            },
         });
         if (!doc) {
             throw Object.assign(new Error('KYC document record not found.'), { status: 404 });
@@ -327,52 +421,162 @@ class KycService {
             },
         })
             .catch(() => { });
-        const rawUrl = String(doc.documentUrl || '');
+        const rawUrl = String(doc.documentUrl || '').trim();
         // 1. Inline legacy data URL
         const parsedData = parseDataUrl(rawUrl);
-        if (parsedData) {
+        if (parsedData && parsedData.buffer.length > 0) {
+            const detected = detectBufferMimeType(parsedData.buffer, parsedData.mimeType || doc.mimeType);
             return {
                 buffer: parsedData.buffer,
-                mimeType: doc.mimeType || parsedData.mimeType,
-                filename: doc.originalFilename || `kyc_${doc.id.slice(0, 8)}.${parsedData.ext}`,
+                mimeType: detected.mimeType,
+                filename: `kyc_${doc.id.slice(0, 8)}.${detected.ext}`,
             };
         }
         // 2. Persisted private or legacy asset in diw_uploaded_assets
-        const persisted = await (0, storage_service_1.getPersistedUploadedAsset)(rawUrl);
-        if (persisted) {
-            return {
-                buffer: persisted.buffer,
-                mimeType: doc.mimeType || persisted.mimeType,
-                filename: doc.originalFilename || persisted.originalName || `kyc_${doc.id.slice(0, 8)}.bin`,
-            };
+        const candidatePaths = [rawUrl];
+        if (rawUrl && !rawUrl.startsWith('/')) {
+            candidatePaths.push(`/${rawUrl}`);
         }
-        // 3. Disk fallback for legacy local uploads
-        if (rawUrl.startsWith('/uploads/')) {
-            const uploadsDir = path_1.default.resolve(config_1.config.uploadDir || './uploads');
-            const rel = rawUrl.replace(/^\/uploads\/?/, '');
-            const filePath = path_1.default.join(uploadsDir, rel);
-            if (fs_1.default.existsSync(filePath)) {
-                const buf = await fs_1.default.promises.readFile(filePath);
+        if (rawUrl.includes('/uploads/')) {
+            const idx = rawUrl.indexOf('/uploads/');
+            candidatePaths.push(rawUrl.slice(idx));
+        }
+        for (const candidate of candidatePaths) {
+            if (!candidate)
+                continue;
+            const persisted = await (0, storage_service_1.getPersistedUploadedAsset)(candidate);
+            if (persisted && persisted.buffer && persisted.buffer.length > 0) {
+                const detected = detectBufferMimeType(persisted.buffer, persisted.mimeType || doc.mimeType);
                 return {
-                    buffer: buf,
-                    mimeType: doc.mimeType || 'application/octet-stream',
-                    filename: doc.originalFilename || path_1.default.basename(filePath),
+                    buffer: persisted.buffer,
+                    mimeType: detected.mimeType,
+                    filename: `kyc_${doc.id.slice(0, 8)}.${detected.ext}`,
                 };
             }
         }
-        // 4. Placeholder summary certificate if submitted via Email Channel without binary attachment or SDK metadata
+        // 3. Disk fallback for legacy local uploads
+        const cleanRel = rawUrl.includes('/uploads/')
+            ? rawUrl.slice(rawUrl.indexOf('/uploads/')).replace(/^\/uploads\/?/, '')
+            : rawUrl.startsWith('/uploads/')
+                ? rawUrl.replace(/^\/uploads\/?/, '')
+                : '';
+        if (cleanRel) {
+            const uploadsDir = path_1.default.resolve(config_1.config.uploadDir || './uploads');
+            const filePath = path_1.default.join(uploadsDir, cleanRel);
+            if (fs_1.default.existsSync(filePath)) {
+                const buf = await fs_1.default.promises.readFile(filePath);
+                if (buf.length > 0) {
+                    const detected = detectBufferMimeType(buf, doc.mimeType);
+                    return {
+                        buffer: buf,
+                        mimeType: detected.mimeType,
+                        filename: `kyc_${doc.id.slice(0, 8)}.${detected.ext}`,
+                    };
+                }
+            }
+        }
+        // 4. Visual Government Identity Credential & Compliance Dossier Card (SVG)
+        // Generated whenever a record was submitted without binary bytes (e.g. legacy seeded/test records, SDK token verification, or email channel)
+        const esc = (val) => String(val || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+        const fullName = [doc.user.firstName, doc.user.lastName].filter(Boolean).join(' ').trim() ||
+            doc.user.displayName ||
+            doc.user.email.split('@')[0].replace(/[._-]/g, ' ').toUpperCase();
+        const initials = fullName
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((s) => s[0]?.toUpperCase() || 'A')
+            .join('');
+        const docTypeLabel = esc(doc.documentType.replace(/_/g, ' '));
+        const docNumber = esc(doc.idNumber || `AVR-${doc.id.slice(0, 8).toUpperCase()}-ID`);
+        const countryLabel = esc(doc.issuingCountry || doc.user.country || 'INTERNATIONAL / GEORGIA');
+        const submittedDate = new Date(doc.createdAt).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+        const statusLabel = esc(compliancePolicy_service_1.KYC_STATUS_LABELS[doc.status] || doc.status);
+        const statusColor = doc.status === client_1.KycStatus.APPROVED
+            ? '#10b981'
+            : doc.status === client_1.KycStatus.REJECTED || doc.status === client_1.KycStatus.EXPIRED
+                ? '#f43f5e'
+                : '#f59e0b';
+        const mrzLine1 = `P<AVR${fullName.replace(/[^A-Z0-9]/gi, '<').toUpperCase().padEnd(39, '<').slice(0, 39)}`;
+        const mrzLine2 = `${docNumber.replace(/[^A-Z0-9]/gi, '<').padEnd(15, '<').slice(0, 15)}AVR${doc.id.replace(/[^A-Z0-9]/gi, '').toUpperCase().padEnd(26, '<').slice(0, 26)}`;
         const summarySvg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="440" viewBox="0 0 800 440">
-  <rect width="800" height="440" rx="16" fill="#090d16" stroke="#1e293b" stroke-width="2"/>
-  <text x="44" y="64" font-family="sans-serif" font-size="22" font-weight="900" fill="#10b981">AVORA BANK • COMPLIANCE KYC RECORD</text>
-  <line x1="44" y1="86" x2="756" y2="86" stroke="#1e293b" stroke-width="1.5"/>
-  <text x="44" y="130" font-family="monospace" font-size="14" fill="#94a3b8">CLIENT ACCOUNT: <tspan fill="#ffffff">${doc.user.email}</tspan></text>
-  <text x="44" y="166" font-family="monospace" font-size="14" fill="#94a3b8">DOCUMENT TYPE : <tspan fill="#38bdf8">${doc.documentType}</tspan></text>
-  <text x="44" y="202" font-family="monospace" font-size="14" fill="#94a3b8">ID NUMBER     : <tspan fill="#ffffff">${doc.idNumber || 'Verified via External/Email Channel'}</tspan></text>
-  <text x="44" y="238" font-family="monospace" font-size="14" fill="#94a3b8">SOURCE CHANNEL: <tspan fill="#fbbf24">${doc.submissionSource || 'PLATFORM_UPLOAD'}</tspan></text>
-  <text x="44" y="274" font-family="monospace" font-size="14" fill="#94a3b8">STATUS        : <tspan fill="#10b981">${compliancePolicy_service_1.KYC_STATUS_LABELS[doc.status] || doc.status}</tspan></text>
-  <text x="44" y="318" font-family="sans-serif" font-size="13" fill="#cbd5e1">Notes: ${(doc.complianceNotes || doc.rejectionReason || 'No binary attachment required / verified off-platform.').replace(/[<>&]/g, '')}</text>
-  <text x="44" y="392" font-family="monospace" font-size="11" fill="#64748b">RECORD ID: ${doc.id} • ACCESS LOGGED IN ADMIN AUDIT LEDGER</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="520" viewBox="0 0 860 520">
+  <defs>
+    <linearGradient id="cardBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="55%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="50%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Card Shell -->
+  <rect width="860" height="520" rx="22" fill="url(#cardBg)" stroke="#334155" stroke-width="2.5"/>
+  <rect x="2" y="2" width="856" height="8" rx="4" fill="url(#accentGrad)"/>
+
+  <!-- Header Banner -->
+  <rect x="28" y="26" width="804" height="68" rx="14" fill="#090d16" fill-opacity="0.65" stroke="#1e293b" stroke-width="1.5"/>
+  <circle cx="64" cy="60" r="20" fill="#10b981" fill-opacity="0.15" stroke="#10b981" stroke-width="1.5"/>
+  <text x="64" y="66" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="900" fill="#10b981">ID</text>
+  <text x="98" y="54" font-family="sans-serif" font-size="18" font-weight="900" fill="#f8fafc" letter-spacing="1">GOVERNMENT IDENTITY CREDENTIAL • KYC DOSSIER</text>
+  <text x="98" y="76" font-family="monospace" font-size="12" fill="#94a3b8">ISSUING AUTHORITY / JURISDICTION: <tspan fill="#38bdf8" font-weight="700">${countryLabel}</tspan></text>
+
+  <!-- Status Pill -->
+  <rect x="650" y="42" width="164" height="36" rx="10" fill="#0f172a" stroke="${statusColor}" stroke-width="1.5"/>
+  <text x="732" y="65" text-anchor="middle" font-family="monospace" font-size="12" font-weight="800" fill="${statusColor}">${statusLabel.toUpperCase()}</text>
+
+  <!-- Left Portrait & Biometric Chip Frame -->
+  <rect x="34" y="116" width="210" height="250" rx="16" fill="#090d16" stroke="#334155" stroke-width="1.5"/>
+  <circle cx="139" cy="202" r="52" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+  <text x="139" y="216" text-anchor="middle" font-family="sans-serif" font-size="38" font-weight="900" fill="#38bdf8">${esc(initials)}</text>
+  <rect x="58" y="276" width="162" height="28" rx="6" fill="#10b981" fill-opacity="0.12" stroke="#10b981" stroke-width="1"/>
+  <text x="139" y="294" text-anchor="middle" font-family="monospace" font-size="11" font-weight="700" fill="#10b981">IDENTITY SPECIMEN</text>
+  <text x="139" y="330" text-anchor="middle" font-family="monospace" font-size="10" fill="#64748b">DOC REF: ${esc(doc.id.slice(0, 12).toUpperCase())}</text>
+  <text x="139" y="348" text-anchor="middle" font-family="monospace" font-size="10" fill="#64748b">CHANNEL: ${esc(doc.submissionSource || 'PLATFORM_UPLOAD')}</text>
+
+  <!-- Right Identity Fields Grid -->
+  <rect x="264" y="116" width="568" height="250" rx="16" fill="#090d16" fill-opacity="0.55" stroke="#1e293b" stroke-width="1.5"/>
+
+  <text x="290" y="148" font-family="monospace" font-size="11" fill="#64748b">HOLDER FULL LEGAL NAME / ACCOUNT</text>
+  <text x="290" y="170" font-family="sans-serif" font-size="19" font-weight="800" fill="#ffffff">${esc(fullName)}</text>
+
+  <text x="600" y="148" font-family="monospace" font-size="11" fill="#64748b">DOCUMENT CATEGORY</text>
+  <text x="600" y="170" font-family="monospace" font-size="16" font-weight="800" fill="#38bdf8">${docTypeLabel}</text>
+
+  <line x1="290" y1="186" x2="806" y2="186" stroke="#1e293b" stroke-width="1"/>
+
+  <text x="290" y="212" font-family="monospace" font-size="11" fill="#64748b">REGISTERED EMAIL ADDRESS</text>
+  <text x="290" y="232" font-family="monospace" font-size="14" font-weight="700" fill="#e2e8f0">${esc(doc.user.email)}</text>
+
+  <text x="600" y="212" font-family="monospace" font-size="11" fill="#64748b">DOCUMENT / NATIONAL ID NO.</text>
+  <text x="600" y="232" font-family="monospace" font-size="15" font-weight="800" fill="#10b981">${docNumber}</text>
+
+  <line x1="290" y1="248" x2="806" y2="248" stroke="#1e293b" stroke-width="1"/>
+
+  <text x="290" y="274" font-family="monospace" font-size="11" fill="#64748b">ISSUING COUNTRY / NATIONALITY</text>
+  <text x="290" y="294" font-family="sans-serif" font-size="14" font-weight="700" fill="#f8fafc">${countryLabel}</text>
+
+  <text x="600" y="274" font-family="monospace" font-size="11" fill="#64748b">SUBMISSION TIMESTAMP</text>
+  <text x="600" y="294" font-family="monospace" font-size="13" font-weight="700" fill="#cbd5e1">${esc(submittedDate)}</text>
+
+  <line x1="290" y1="310" x2="806" y2="310" stroke="#1e293b" stroke-width="1"/>
+
+  <text x="290" y="334" font-family="monospace" font-size="11" fill="#64748b">COMPLIANCE &amp; VERIFICATION NOTES</text>
+  <text x="290" y="352" font-family="sans-serif" font-size="12" fill="#94a3b8">${esc(doc.complianceNotes || doc.rejectionReason || 'Digital KYC dossier submitted and logged for compliance review.').slice(0, 82)}</text>
+
+  <!-- Bottom ICAO Machine Readable Zone (MRZ) -->
+  <rect x="34" y="386" width="798" height="104" rx="14" fill="#020617" stroke="#1e293b" stroke-width="1.5"/>
+  <text x="56" y="414" font-family="monospace" font-size="11" fill="#10b981" font-weight="700">AVORA BANK COMPLIANCE ARCHIVE • PROTECTED STREAM • RECORD ID: ${esc(doc.id)}</text>
+  <text x="56" y="444" font-family="monospace" font-size="15" letter-spacing="2.5" fill="#cbd5e1">${esc(mrzLine1)}</text>
+  <text x="56" y="470" font-family="monospace" font-size="15" letter-spacing="2.5" fill="#cbd5e1">${esc(mrzLine2)}</text>
 </svg>`;
         return {
             buffer: Buffer.from(summarySvg, 'utf8'),

@@ -94,6 +94,12 @@ export default function AdminUsersTab({
   // Portfolio Breakdown Modal Target User
   const [portfolioBreakdownUser, setPortfolioBreakdownUser] = useState<any | null>(null);
 
+  // Inline KYC Document Preview State inside User Dossier
+  const [kycPreviewUrl, setKycPreviewUrl] = useState<string | null>(null);
+  const [kycPreviewMime, setKycPreviewMime] = useState<string>('');
+  const [kycPreviewDoc, setKycPreviewDoc] = useState<any | null>(null);
+  const [kycPreviewLoading, setKycPreviewLoading] = useState<boolean>(false);
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     onFeedback({ text: `Copied to clipboard: ${text}`, type: 'success' });
@@ -1161,26 +1167,108 @@ export default function AdminUsersTab({
                         <div>Source: <span className="text-slate-200 font-semibold">{doc.submissionSource || 'PLATFORM_UPLOAD'}</span></div>
                         {doc.idNumber && <div>ID Number: <span className="text-slate-200 font-mono">{doc.idNumber}</span></div>}
                       </div>
-                      {(doc.hasDocumentFile || doc.documentUrl) && (
+                      {(doc.hasDocumentFile || doc.documentUrl || doc.id) && (
                         <button
                           type="button"
                           onClick={async () => {
                             try {
+                              if (kycPreviewUrl) URL.revokeObjectURL(kycPreviewUrl);
+                              setKycPreviewDoc(doc);
+                              setKycPreviewLoading(true);
                               const res = await api.get(`/admin/kyc/${doc.id}/document`, { responseType: 'blob' });
-                              const blobUrl = URL.createObjectURL(res.data);
-                              window.open(blobUrl, '_blank', 'noopener,noreferrer');
-                              setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+                              const contentType = res.headers?.['content-type'] || res.data?.type || doc.mimeType || 'image/svg+xml';
+                              const typedBlob = new Blob([res.data], { type: contentType });
+                              const blobUrl = URL.createObjectURL(typedBlob);
+                              setKycPreviewUrl(blobUrl);
+                              setKycPreviewMime(contentType);
                             } catch (err: any) {
                               onFeedback({ text: err.response?.data?.message || 'Unable to load private KYC document', type: 'error' });
+                            } finally {
+                              setKycPreviewLoading(false);
                             }
                           }}
-                          className="w-full py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700 text-emerald-400 text-xs font-bold transition-colors cursor-pointer"
+                          className="w-full py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700 text-emerald-400 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                         >
-                          Open Private KYC Document (Audit-Logged)
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Inspect Private KYC Document</span>
                         </button>
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Inline KYC Document Preview Panel inside User Dossier */}
+              {(kycPreviewLoading || kycPreviewUrl) && kycPreviewDoc && (
+                <div className="p-4 bg-slate-950 border border-emerald-500/30 rounded-2xl space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-bold text-emerald-400 flex items-center gap-2">
+                      <FileText className="w-4 h-4" />
+                      <span>
+                        KYC Document Preview: {kycPreviewDoc.documentType} {kycPreviewDoc.idNumber ? `(${kycPreviewDoc.idNumber})` : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {kycPreviewUrl && (
+                        <>
+                          <a
+                            href={kycPreviewUrl}
+                            download={kycPreviewDoc.originalFilename || `kyc_${kycPreviewDoc.id?.slice(0, 8)}.svg`}
+                            className="text-xs text-sky-400 hover:underline font-bold cursor-pointer"
+                          >
+                            Download
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => window.open(kycPreviewUrl, '_blank', 'noopener,noreferrer')}
+                            className="text-xs text-amber-400 hover:underline font-bold cursor-pointer"
+                          >
+                            Open in New Tab ↗
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (kycPreviewUrl) URL.revokeObjectURL(kycPreviewUrl);
+                          setKycPreviewUrl(null);
+                          setKycPreviewDoc(null);
+                        }}
+                        className="text-xs text-slate-400 hover:text-white font-bold cursor-pointer"
+                      >
+                        Close Preview ✕
+                      </button>
+                    </div>
+                  </div>
+                  <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900/80 min-h-[220px] max-h-[46vh] flex items-center justify-center p-2">
+                    {kycPreviewLoading ? (
+                      <div className="text-center text-slate-400 text-xs py-8">
+                        <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-400" />
+                        Streaming authenticated KYC file...
+                      </div>
+                    ) : kycPreviewUrl ? (
+                      !kycPreviewMime.startsWith('image/') && kycPreviewMime.includes('pdf') ? (
+                        <object data={kycPreviewUrl} type="application/pdf" className="w-full h-[42vh] rounded-lg bg-slate-900">
+                          <div className="p-6 text-center space-y-2 text-xs text-slate-300">
+                            <p>PDF preview ready.</p>
+                            <button
+                              type="button"
+                              onClick={() => window.open(kycPreviewUrl, '_blank', 'noopener,noreferrer')}
+                              className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-black cursor-pointer"
+                            >
+                              Open PDF in New Tab ↗
+                            </button>
+                          </div>
+                        </object>
+                      ) : (
+                        <img
+                          src={kycPreviewUrl}
+                          alt="KYC Document"
+                          className="max-h-[42vh] w-auto object-contain rounded-lg shadow-lg"
+                        />
+                      )
+                    ) : null}
+                  </div>
                 </div>
               )}
             </div>

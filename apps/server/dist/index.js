@@ -23,6 +23,8 @@ const prisma_1 = require("./lib/prisma");
 const app = (0, express_1.default)();
 app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: false,
+    frameguard: false,
 }));
 const configuredOrigins = (config_1.config.corsOrigin || '')
     .split(',')
@@ -93,7 +95,12 @@ app.use(['/uploads', '/api/v1/uploads', '/api/uploads'], async (req, res, next) 
             res.setHeader('Expires', '0');
             res.setHeader('X-Content-Type-Options', 'nosniff');
             const authHeader = req.headers['authorization'];
-            const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+            const headerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+            const queryToken = typeof req.query?.token === 'string' && req.query.token.trim() ? req.query.token.trim() : null;
+            const cookieToken = (typeof req.cookies?.avora_token === 'string' && req.cookies.avora_token.trim()) ||
+                (typeof req.cookies?.token === 'string' && req.cookies.token.trim()) ||
+                null;
+            const bearerToken = headerToken || queryToken || cookieToken;
             if (!bearerToken) {
                 return res.status(401).json({
                     success: false,

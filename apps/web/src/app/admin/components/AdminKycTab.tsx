@@ -25,8 +25,16 @@ import {
 import { api, extractErrorMessage } from '../../../lib/api';
 import PaginationControls, { usePagination } from '../../../components/PaginationControls';
 
-const isPdfMime = (mime?: string | null, filename?: string | null): boolean =>
-  Boolean((mime && mime.toLowerCase().includes('pdf')) || (filename && /\.pdf$/i.test(filename)));
+const isPdfMime = (mime?: string | null, filename?: string | null): boolean => {
+  const cleanMime = (mime || '').toLowerCase().trim();
+  // If we know the streamed blob is an image (including SVG, PNG, JPEG, WEBP, GIF), NEVER treat it as PDF even if originalFilename ended in .pdf
+  if (cleanMime.startsWith('image/')) return false;
+  if (cleanMime.includes('pdf')) return true;
+  if (!cleanMime || cleanMime === 'application/octet-stream') {
+    return Boolean(filename && /\.pdf$/i.test(filename));
+  }
+  return false;
+};
 
 const ALL_KYC_STATUSES = [
   { value: 'NOT_STARTED', label: 'KYC Not Submitted', color: 'bg-slate-800 text-slate-300 border-slate-700' },
@@ -90,6 +98,9 @@ export default function AdminKycTab({
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [blobMime, setBlobMime] = useState<string>('');
   const [loadingBlob, setLoadingBlob] = useState(false);
+  const [replaceFileData, setReplaceFileData] = useState<string>('');
+  const [replaceFileName, setReplaceFileName] = useState<string>('');
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [reviewStatus, setReviewStatus] = useState('APPROVED');
   const [reviewReason, setReviewReason] = useState('');
@@ -160,18 +171,42 @@ export default function AdminKycTab({
     setReviewReason(doc.rejectionReason || '');
     setReviewNotes(doc.complianceNotes || '');
     setReviewExpiry(doc.expiresAt ? new Date(doc.expiresAt).toISOString().split('T')[0] : '');
+    setReplaceFileData('');
+    setReplaceFileName('');
     setPreviewOpen(true);
     setLoadingBlob(true);
     try {
       const res = await api.get(`/admin/kyc/${doc.id}/document`, { responseType: 'blob' });
-      const url = URL.createObjectURL(res.data);
+      const contentType = res.headers?.['content-type'] || res.data?.type || doc.mimeType || 'image/svg+xml';
+      const typedBlob = new Blob([res.data], { type: contentType });
+      const url = URL.createObjectURL(typedBlob);
       setBlobUrl(url);
-      setBlobMime(res.data?.type || doc.mimeType || '');
+      setBlobMime(contentType);
     } catch (err: any) {
       onFeedback({ text: extractErrorMessage(err, 'Failed to stream private KYC document.'), type: 'error' });
     } finally {
       setLoadingBlob(false);
     }
+  };
+
+  const handleReplaceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      onFeedback({ text: 'Document file must be under 8 MB.', type: 'error' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setReplaceFileData(dataUrl);
+      setReplaceFileName(file.name);
+      // Immediately preview the newly selected file in the modal
+      cleanupBlob();
+      setBlobUrl(dataUrl);
+      setBlobMime(file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png'));
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleUpdateSubmissionStatus = async (e?: React.FormEvent, quickDocId?: string, quickStatus?: string) => {
@@ -190,19 +225,39 @@ export default function AdminKycTab({
     setActionLoading(true);
     try {
       const code = (local2FaCode || admin2FaCode || '').trim();
-      const res = await api.patch(
-        `/admin/kyc/${targetDocId}/status`,
-        {
-          status: targetStatus,
-          reason: reasonToUse || undefined,
-          complianceNotes: reviewNotes.trim() || undefined,
-          expiresAt: reviewExpiry || undefined,
-        },
-        { headers: code ? { 'x-admin-2fa': code } : {} }
-      );
+      const res = replaceFileData && selectedDoc
+        ? await api.post(
+            '/admin/kyc/manual',
+            {
+              userId: selectedDoc.userId || selectedDoc.user?.id,
+              status: targetStatus,
+              reason: reasonToUse || undefined,
+              complianceNotes: reviewNotes.trim() || undefined,
+              expiresAt: reviewExpiry || undefined,
+              submissionSource: selectedDoc.submissionSource || 'PLATFORM_UPLOAD',
+              documentType: selectedDoc.documentType || 'NATIONAL_ID',
+              idNumber: selectedDoc.idNumber || undefined,
+              issuingCountry: selectedDoc.issuingCountry || undefined,
+              fileDataUrl: replaceFileData,
+              originalFilename: replaceFileName || undefined,
+            },
+            { headers: code ? { 'x-admin-2fa': code } : {} }
+          )
+        : await api.patch(
+            `/admin/kyc/${targetDocId}/status`,
+            {
+              status: targetStatus,
+              reason: reasonToUse || undefined,
+              complianceNotes: reviewNotes.trim() || undefined,
+              expiresAt: reviewExpiry || undefined,
+            },
+            { headers: code ? { 'x-admin-2fa': code } : {} }
+          );
       if (res.data?.success) {
         onFeedback({ text: res.data.message || `KYC status updated to ${targetStatus}`, type: 'success' });
         setPreviewOpen(false);
+        setReplaceFileData('');
+        setReplaceFileName('');
         cleanupBlob();
         onRefresh();
       }
@@ -1344,36 +1399,121 @@ export default function AdminKycTab({
               </button>
             </div>
 
+            {/* Submitted Identity Metadata Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl text-xs">
+              <div>
+                <span className="text-[10px] font-mono uppercase text-slate-500 block">Client Account</span>
+                <span className="font-bold text-white truncate block">
+                  {[selectedDoc.user?.firstName, selectedDoc.user?.lastName].filter(Boolean).join(' ') || selectedDoc.user?.email}
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono truncate block">{selectedDoc.user?.email}</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase text-slate-500 block">Document Type</span>
+                <span className="font-bold text-sky-400 font-mono block">{selectedDoc.documentType}</span>
+                <span className="text-[10px] text-slate-400 font-mono block">
+                  ID: {selectedDoc.idNumber || 'Verified / On File'}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase text-slate-500 block">Jurisdiction &amp; Channel</span>
+                <span className="font-bold text-slate-200 block">
+                  {selectedDoc.issuingCountry || selectedDoc.user?.country || 'International'}
+                </span>
+                <span className="text-[10px] text-amber-300 font-mono block">
+                  {selectedDoc.submissionSource || 'PLATFORM_UPLOAD'}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase text-slate-500 block">Current Status</span>
+                <span className={`inline-block mt-0.5 px-2 py-0.5 rounded border text-[10px] font-bold ${getKycBadge(selectedDoc.status).color}`}>
+                  {getKycBadge(selectedDoc.status).label}
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono block mt-0.5">
+                  {selectedDoc.createdAt ? new Date(selectedDoc.createdAt).toLocaleDateString() : ''}
+                </span>
+              </div>
+            </div>
+
             {/* Secure Private Streamed Viewer */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[10px] font-bold text-emerald-400 uppercase font-mono">
                   Private Authenticated Stream (No-Cache • Audit Logged)
                 </span>
-                {blobUrl && (
+                <div className="flex items-center gap-3">
+                  <input
+                    ref={replaceFileInputRef}
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={handleReplaceFileChange}
+                    className="hidden"
+                  />
                   <button
                     type="button"
-                    onClick={() => window.open(blobUrl, '_blank', 'noopener,noreferrer')}
-                    className="text-xs text-amber-400 hover:underline font-bold cursor-pointer"
+                    onClick={() => replaceFileInputRef.current?.click()}
+                    className="text-xs text-sky-400 hover:text-sky-300 font-bold flex items-center gap-1 cursor-pointer"
                   >
-                    Open Blob Preview ↗
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    <span>{replaceFileName ? `Attached: ${replaceFileName}` : 'Attach / Replace File'}</span>
                   </button>
-                )}
+                  {blobUrl && (
+                    <>
+                      <a
+                        href={blobUrl}
+                        download={replaceFileName || selectedDoc.originalFilename || `kyc_${selectedDoc.id?.slice(0, 8)}.svg`}
+                        className="text-xs text-emerald-400 hover:underline font-bold cursor-pointer"
+                      >
+                        Download File
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => window.open(blobUrl, '_blank', 'noopener,noreferrer')}
+                        className="text-xs text-amber-400 hover:underline font-bold cursor-pointer"
+                      >
+                        Open in New Tab ↗
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="rounded-2xl overflow-hidden border border-slate-800 bg-black min-h-[260px] max-h-[50vh] flex items-center justify-center p-2">
+              <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 min-h-[280px] max-h-[52vh] flex items-center justify-center p-2">
                 {loadingBlob ? (
                   <div className="text-center text-slate-400 text-xs">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-400" />
                     Decrypting &amp; streaming KYC file...
                   </div>
                 ) : blobUrl ? (
-                  isPdfMime(blobMime || selectedDoc.mimeType, selectedDoc.originalFilename) ? (
-                    <iframe src={blobUrl} title="KYC Document" className="w-full h-[46vh] bg-white rounded-xl" />
+                  isPdfMime(blobMime, replaceFileName || selectedDoc.originalFilename) ? (
+                    <object
+                      data={blobUrl}
+                      type="application/pdf"
+                      className="w-full h-[46vh] rounded-xl bg-slate-900"
+                    >
+                      <div className="p-6 text-center space-y-3 text-xs text-slate-300">
+                        <FileText className="w-8 h-8 text-amber-400 mx-auto" />
+                        <p>Your browser PDF plugin cannot inline-frame this document.</p>
+                        <button
+                          type="button"
+                          onClick={() => window.open(blobUrl, '_blank', 'noopener,noreferrer')}
+                          className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-black cursor-pointer"
+                        >
+                          Open PDF Document in New Tab ↗
+                        </button>
+                      </div>
+                    </object>
                   ) : (
-                    <img src={blobUrl} alt="KYC Document" className="max-h-[46vh] object-contain rounded-xl" />
+                    <img
+                      src={blobUrl}
+                      alt="KYC Identity Document"
+                      className="max-h-[46vh] w-auto object-contain rounded-xl shadow-lg"
+                    />
                   )
                 ) : (
-                  <div className="p-8 text-center text-slate-500 text-xs">Unable to preview file.</div>
+                  <div className="p-8 text-center text-slate-400 text-xs space-y-2">
+                    <FileText className="w-7 h-7 text-slate-600 mx-auto" />
+                    <p>Unable to stream document preview. Click &ldquo;Attach / Replace File&rdquo; above to upload a scan directly.</p>
+                  </div>
                 )}
               </div>
             </div>

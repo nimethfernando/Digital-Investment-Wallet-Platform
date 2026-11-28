@@ -58,7 +58,20 @@ export const resolveMediaUrl = (url?: string | null): string => {
     return `${getBaseUrl().replace(/\/+$/, '')}${cleanUrl.slice('/api/v1'.length)}`;
   }
 
-  return `${backendBase}${cleanUrl}`;
+  let resolved = `${backendBase}${cleanUrl}`;
+  const isProtectedUpload =
+    cleanUrl.startsWith('/uploads/') &&
+    !cleanUrl.startsWith('/uploads/branding/') &&
+    !cleanUrl.startsWith('/uploads/brochures/');
+
+  if (isBrowser && isProtectedUpload && !/[?&]token=/.test(resolved)) {
+    const token = localStorage.getItem('avora_token') || localStorage.getItem('nexis_token');
+    if (token) {
+      resolved += `${resolved.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+    }
+  }
+
+  return resolved;
 };
 
 export const api = axios.create({
