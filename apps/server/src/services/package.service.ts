@@ -191,8 +191,21 @@ export function buildCompletePackagePayoutSchedule(
 
   const scheduleItems: PackagePayoutScheduleItem[] = [];
 
+  // If Period 1 was already paid on or near the start date (e.g. 14 Nov 2026 before Month 1 cycle end),
+  // anchor Period 1..N monthly dates from Period 1's date (Period 1 = 14 Nov 2026, Period 2 = 14 Dec 2026, ..., Period 6 = 14 Apr 2027).
+  const firstMonthEnd = getCycleDueDate(startDate, 1);
+  const p1Return = returnByPeriod.get(1);
+  const p1PaidEarlyAnchor =
+    p1Return &&
+    p1Return.payoutDate &&
+    new Date(p1Return.payoutDate).getTime() < firstMonthEnd.getTime() - 24 * 60 * 60 * 1000
+      ? new Date(p1Return.payoutDate)
+      : null;
+
   for (let period = 1; period <= lockMonths; period++) {
-    const scheduledDate = getCycleDueDate(startDate, period);
+    const scheduledDate = p1PaidEarlyAnchor
+      ? getCycleDueDate(p1PaidEarlyAnchor, period - 1)
+      : getCycleDueDate(startDate, period);
     const matchedReturn = returnByPeriod.get(period);
     const isDueByDate = now.getTime() >= scheduledDate.getTime();
 
@@ -431,6 +444,8 @@ export class PackageService {
    * Get all packages belonging to a user with detailed analytics
    */
   async getUserPackages(userId: string) {
+    await this.repairDuplicateReturnDates().catch(() => {});
+
     const packages = await prisma.investmentPackage.findMany({
       where: { userId },
       include: {
@@ -982,6 +997,8 @@ export class PackageService {
     page?: number;
     limit?: number;
   }) {
+    await this.repairDuplicateReturnDates().catch(() => {});
+
     const page = filters.page || 1;
     const limit = filters.limit || 500;
     const skip = (page - 1) * limit;
@@ -1156,15 +1173,32 @@ export class PackageService {
 
   /**
    * Repairs any existing PackageReturn records in the database that were batch-created
-   * with identical payoutDate values so every period has its individual scheduled monthly date.
+   * with identical payoutDate values or prematurely marked MATURED before their lockInEnd date.
    */
   async repairDuplicateReturnDates(): Promise<number> {
-    const packagesWithReturns = await prisma.investmentPackage.findMany({
+    const now = new Date();
+    const allPackages = await prisma.investmentPackage.findMany({
       include: { returns: { orderBy: { periodIndex: 'asc' } } },
     });
 
     let repairedCount = 0;
-    for (const pkg of packagesWithReturns) {
+    for (const pkg of allPackages) {
+      const startBase = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt;
+      const computedEnd = getCycleDueDate(startBase, pkg.lockInMonths || 6);
+      const effectiveEnd = pkg.lockInEnd ? new Date(pkg.lockInEnd) : computedEnd;
+      const isStillLockedByDate = effectiveEnd.getTime() > now.getTime();
+
+      // 1. If an FD is still within its lock-in period (lockInEnd > now) but was prematurely marked MATURED, restore to ACTIVE
+      if (isStillLockedByDate && pkg.status === 'MATURED') {
+        await prisma.investmentPackage
+          .update({
+            where: { id: pkg.id },
+            data: { status: 'ACTIVE' },
+          })
+          .catch(() => {});
+        repairedCount++;
+      }
+
       if (!pkg.returns || pkg.returns.length <= 1) continue;
 
       const dateCounts = new Map<string, number>();
@@ -1176,16 +1210,41 @@ export class PackageService {
       const hasDuplicateDates = Array.from(dateCounts.values()).some((cnt) => cnt > 1);
       if (!hasDuplicateDates) continue;
 
-      const startBase = pkg.lockInStart || pkg.purchaseDate || pkg.createdAt;
-      for (const r of pkg.returns) {
-        const scheduledDate = getCycleDueDate(startBase, r.periodIndex);
-        await prisma.packageReturn
-          .update({
-            where: { id: r.id },
-            data: { payoutDate: scheduledDate },
-          })
-          .catch(() => {});
-        repairedCount++;
+      if (isStillLockedByDate) {
+        // 2. For an active/unmatured FD whose future periods were batch-created on the same day (e.g. 11/14/2026),
+        // remove the unearned future periods (periodIndex >= 2 whose scheduled cycle date > now)
+        const p1 = pkg.returns.find((r) => r.periodIndex === 1);
+        const anchor = p1?.payoutDate ? new Date(p1.payoutDate) : new Date(startBase);
+        for (const r of pkg.returns) {
+          if (r.periodIndex === 1) continue;
+          const periodDueDate = getCycleDueDate(anchor, r.periodIndex - 1);
+          if (periodDueDate.getTime() > now.getTime()) {
+            await prisma.packageReturn
+              .delete({ where: { id: r.id } })
+              .catch(() => {});
+            repairedCount++;
+          } else {
+            await prisma.packageReturn
+              .update({
+                where: { id: r.id },
+                data: { payoutDate: periodDueDate },
+              })
+              .catch(() => {});
+            repairedCount++;
+          }
+        }
+      } else {
+        // 3. For a genuinely matured FD (lockInEnd <= now) with duplicate batch dates, assign each period's distinct monthly date
+        for (const r of pkg.returns) {
+          const scheduledDate = getCycleDueDate(startBase, r.periodIndex);
+          await prisma.packageReturn
+            .update({
+              where: { id: r.id },
+              data: { payoutDate: scheduledDate },
+            })
+            .catch(() => {});
+          repairedCount++;
+        }
       }
     }
     return repairedCount;
