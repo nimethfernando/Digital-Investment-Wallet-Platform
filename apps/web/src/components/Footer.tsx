@@ -199,7 +199,7 @@ export const Footer: React.FC = () => {
                   </li>
                   <li>
                     <Link href="/about" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
-                      About & Institutional Leadership
+                      About Avora Bank
                     </Link>
                   </li>
                   <li>

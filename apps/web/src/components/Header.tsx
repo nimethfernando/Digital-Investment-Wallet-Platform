@@ -223,8 +223,8 @@ export const Header: React.FC = () => {
         },
         {
           href: '/about',
-          label: 'About & Leadership',
-          description: 'Our executive board and global banking presence',
+          label: t('nav.about', 'About'),
+          description: 'Institutional heritage and global banking presence',
           icon: Users,
         },
         {
