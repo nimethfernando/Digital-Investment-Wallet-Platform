@@ -57,6 +57,7 @@ export default function AdminActionModals({
     autoVerifyKyc: true,
   });
   const [onboardLoading, setOnboardLoading] = useState(false);
+  const [onboardError, setOnboardError] = useState<string | null>(null);
   const [createdUserResult, setCreatedUserResult] = useState<{ email: string; password: string; accountNumber: string } | null>(null);
 
   // Deploy Package State
@@ -68,6 +69,7 @@ export default function AdminActionModals({
   const [pkgRate, setPkgRate] = useState('0.0100');
   const [pkgFundingSource, setPkgFundingSource] = useState<'DIRECT_CREDIT' | 'WALLET'>('DIRECT_CREDIT');
   const [pkgLoading, setPkgLoading] = useState(false);
+  const [pkgError, setPkgError] = useState<string | null>(null);
 
   // Manual Deposit State
   const [depTargetEmail, setDepTargetEmail] = useState('');
@@ -77,6 +79,19 @@ export default function AdminActionModals({
   const [depTxHash, setDepTxHash] = useState('');
   const [depNotes, setDepNotes] = useState('');
   const [depLoading, setDepLoading] = useState(false);
+  const [depError, setDepError] = useState<string | null>(null);
+
+  const matchedPkgUser = React.useMemo(() => {
+    const q = pkgTargetEmail.trim().toLowerCase();
+    if (!q || !q.includes('@')) return null;
+    return usersList.find((u) => String(u.email || '').toLowerCase() === q) || null;
+  }, [pkgTargetEmail, usersList]);
+
+  const matchedDepUser = React.useMemo(() => {
+    const q = depTargetEmail.trim().toLowerCase();
+    if (!q || !q.includes('@')) return null;
+    return usersList.find((u) => String(u.email || '').toLowerCase() === q) || null;
+  }, [depTargetEmail, usersList]);
 
   // Sync preselected user if provided
   useEffect(() => {
@@ -94,8 +109,11 @@ export default function AdminActionModals({
   // Submit Onboard
   const handleOnboardSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setOnboardError(null);
     if (!onboardData.email.trim()) {
-      onFeedback({ text: 'Valid client email is required', type: 'error' });
+      const msg = 'Valid client email is required';
+      setOnboardError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
     setOnboardLoading(true);
@@ -126,7 +144,9 @@ export default function AdminActionModals({
         onRefreshAll();
       }
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to onboard client', type: 'error' });
+      const msg = err.response?.data?.message || 'Failed to onboard client';
+      setOnboardError(msg);
+      onFeedback({ text: msg, type: 'error' });
     } finally {
       setOnboardLoading(false);
     }
@@ -135,12 +155,23 @@ export default function AdminActionModals({
   // Submit Deploy Package
   const handleDeployPackageSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPkgError(null);
     if (!pkgTargetEmail.trim()) {
-      onFeedback({ text: 'Investor email is required', type: 'error' });
+      const msg = 'Investor email is required';
+      setPkgError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
     if (!pkgAmount || parseFloat(pkgAmount) <= 0) {
-      onFeedback({ text: 'Enter a valid positive principal amount', type: 'error' });
+      const msg = 'Enter a valid positive principal amount';
+      setPkgError(msg);
+      onFeedback({ text: msg, type: 'error' });
+      return;
+    }
+    if (usersList.length > 0 && !matchedPkgUser) {
+      const msg = `No registered client account found with email "${pkgTargetEmail.trim()}". Please check the email address or onboard the client first.`;
+      setPkgError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
     setPkgLoading(true);
@@ -158,11 +189,17 @@ export default function AdminActionModals({
           text: `Fixed Deposit package ${res.data.data.package.packageCode} activated for ${pkgTargetEmail}!`,
           type: 'success',
         });
+        setPkgError(null);
         onCloseDeployPackage();
         onRefreshAll();
       }
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to deploy package', type: 'error' });
+      const rawMsg = err.response?.data?.message || 'Failed to deploy package';
+      const msg = rawMsg.toLowerCase().includes('not found')
+        ? `No registered client account found with email "${pkgTargetEmail.trim()}". Please verify the email address.`
+        : rawMsg;
+      setPkgError(msg);
+      onFeedback({ text: msg, type: 'error' });
     } finally {
       setPkgLoading(false);
     }
@@ -171,12 +208,23 @@ export default function AdminActionModals({
   // Submit Manual Deposit
   const handleManualDepositSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setDepError(null);
     if (!depTargetEmail.trim()) {
-      onFeedback({ text: 'Client email is required', type: 'error' });
+      const msg = 'Client email is required';
+      setDepError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
     if (!depAmount || parseFloat(depAmount) <= 0) {
-      onFeedback({ text: 'Enter a valid positive deposit amount', type: 'error' });
+      const msg = 'Enter a valid positive deposit amount';
+      setDepError(msg);
+      onFeedback({ text: msg, type: 'error' });
+      return;
+    }
+    if (usersList.length > 0 && !matchedDepUser) {
+      const msg = `No registered client account found with email "${depTargetEmail.trim()}". Please check the email address or onboard the client first.`;
+      setDepError(msg);
+      onFeedback({ text: msg, type: 'error' });
       return;
     }
     setDepLoading(true);
@@ -194,11 +242,17 @@ export default function AdminActionModals({
           text: `Deposit credited: ${parseFloat(depAmount).toFixed(2)} ${depCurrency} to ${depTargetEmail}! New balance: $${res.data.data.balanceAfter}`,
           type: 'success',
         });
+        setDepError(null);
         onCloseManualDeposit();
         onRefreshAll();
       }
     } catch (err: any) {
-      onFeedback({ text: err.response?.data?.message || 'Failed to credit deposit', type: 'error' });
+      const rawMsg = err.response?.data?.message || 'Failed to credit deposit';
+      const msg = rawMsg.toLowerCase().includes('not found')
+        ? `No registered client account found with email "${depTargetEmail.trim()}". Please verify the email address.`
+        : rawMsg;
+      setDepError(msg);
+      onFeedback({ text: msg, type: 'error' });
     } finally {
       setDepLoading(false);
     }
@@ -343,6 +397,13 @@ export default function AdminActionModals({
                 </label>
               </div>
 
+              {onboardError && (
+                <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span>{onboardError}</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3 pt-3">
                 <button
                   type="button"
@@ -438,7 +499,7 @@ export default function AdminActionModals({
             </div>
 
             <form onSubmit={handleDeployPackageSubmit} className="space-y-4">
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Investor Account Email *</label>
                 <div className="relative">
                   <input
@@ -446,9 +507,18 @@ export default function AdminActionModals({
                     list="packageUserEmails"
                     placeholder="investor@avorabank.com"
                     value={pkgTargetEmail}
-                    onChange={(e) => setPkgTargetEmail(e.target.value)}
+                    onChange={(e) => {
+                      setPkgTargetEmail(e.target.value);
+                      if (pkgError) setPkgError(null);
+                    }}
                     required
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs outline-none focus:border-amber-500 font-mono"
+                    className={`w-full px-3 py-2 bg-slate-900 border rounded-xl text-white text-xs outline-none font-mono ${
+                      pkgTargetEmail.trim().includes('@') && usersList.length > 0 && !matchedPkgUser
+                        ? 'border-rose-500/60 focus:border-rose-500'
+                        : matchedPkgUser
+                        ? 'border-emerald-500/60 focus:border-emerald-500'
+                        : 'border-slate-800 focus:border-amber-500'
+                    }`}
                   />
                   <datalist id="packageUserEmails">
                     {usersList.map((u) => (
@@ -456,6 +526,22 @@ export default function AdminActionModals({
                     ))}
                   </datalist>
                 </div>
+                {matchedPkgUser && (
+                  <div className="px-3 py-2 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-[11px] flex items-center justify-between">
+                    <span className="font-bold">
+                      ✓ Verified Client: {[matchedPkgUser.firstName, matchedPkgUser.lastName].filter(Boolean).join(' ') || matchedPkgUser.email}
+                    </span>
+                    <span className="font-mono text-[10px] text-emerald-400">
+                      {matchedPkgUser.accountNumber || `KYC: ${matchedPkgUser.kycStatus || 'ACTIVE'}`}
+                    </span>
+                  </div>
+                )}
+                {pkgTargetEmail.trim().includes('@') && pkgTargetEmail.trim().length >= 5 && usersList.length > 0 && !matchedPkgUser && (
+                  <div className="px-3 py-2 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-[11px] flex items-center gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    <span>No registered user found with email &ldquo;{pkgTargetEmail.trim()}&rdquo;.</span>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -621,6 +707,13 @@ export default function AdminActionModals({
                 </div>
               </div>
 
+              {pkgError && (
+                <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span>{pkgError}</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <button
                   type="button"
@@ -663,22 +756,47 @@ export default function AdminActionModals({
             </div>
 
             <form onSubmit={handleManualDepositSubmit} className="space-y-4">
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-slate-400 uppercase font-mono">Recipient Client Email *</label>
                 <input
                   type="email"
                   list="depositUserEmails"
                   placeholder="client@avorabank.com"
                   value={depTargetEmail}
-                  onChange={(e) => setDepTargetEmail(e.target.value)}
+                  onChange={(e) => {
+                    setDepTargetEmail(e.target.value);
+                    if (depError) setDepError(null);
+                  }}
                   required
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs outline-none focus:border-emerald-500 font-mono"
+                  className={`w-full px-3 py-2 bg-slate-900 border rounded-xl text-white text-xs outline-none font-mono ${
+                    depTargetEmail.trim().includes('@') && usersList.length > 0 && !matchedDepUser
+                      ? 'border-rose-500/60 focus:border-rose-500'
+                      : matchedDepUser
+                      ? 'border-emerald-500/60 focus:border-emerald-500'
+                      : 'border-slate-800 focus:border-emerald-500'
+                  }`}
                 />
                 <datalist id="depositUserEmails">
                   {usersList.map((u) => (
                     <option key={u.id} value={u.email}>{u.firstName} {u.lastName} ({u.accountNumber || u.email})</option>
                   ))}
                 </datalist>
+                {matchedDepUser && (
+                  <div className="px-3 py-2 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-[11px] flex items-center justify-between">
+                    <span className="font-bold">
+                      ✓ Verified Client: {[matchedDepUser.firstName, matchedDepUser.lastName].filter(Boolean).join(' ') || matchedDepUser.email}
+                    </span>
+                    <span className="font-mono text-[10px] text-emerald-400">
+                      {matchedDepUser.accountNumber || `KYC: ${matchedDepUser.kycStatus || 'ACTIVE'}`}
+                    </span>
+                  </div>
+                )}
+                {depTargetEmail.trim().includes('@') && depTargetEmail.trim().length >= 5 && usersList.length > 0 && !matchedDepUser && (
+                  <div className="px-3 py-2 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-[11px] flex items-center gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    <span>No registered user found with email &ldquo;{depTargetEmail.trim()}&rdquo;.</span>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -759,6 +877,13 @@ export default function AdminActionModals({
                   Executing this action immediately updates the client's available balance and records an atomic journal entry in the Avora Core Double-Entry Ledger.
                 </span>
               </div>
+
+              {depError && (
+                <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span>{depError}</span>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <button
